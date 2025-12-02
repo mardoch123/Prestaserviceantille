@@ -1,6 +1,5 @@
 
-
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
     AppNotification, Message, User, StreamSession, Expense, CompanySettings,
@@ -13,7 +12,7 @@ export const LOGO_NORMAL = "https://via.placeholder.com/150";
 export const LOGO_SAP = "https://via.placeholder.com/100?text=SAP";
 export const CACHET_SIGNATURE = "https://via.placeholder.com/150?text=Cachet";
 
-// Helper for UUID generation
+// Helper for UUID generation if crypto is not available or for simple usage
 function generateUUID() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
@@ -33,7 +32,8 @@ function capitalize(s: string) {
 // Helper to calculate day index from date (0=Monday, 5=Saturday) for UI
 function getDayIndexFromDate(dateStr: string): number {
     const date = new Date(dateStr);
-    const day = date.getDay(); 
+    const day = date.getDay(); // 0 = Sunday, 1 = Monday...
+    // We want Monday = 0, Saturday = 5. Sunday = 6 (or -1 depending on logic, handled as 5 here for simplicity or ignored)
     return day === 0 ? 6 : day - 1; 
 }
 
@@ -49,28 +49,28 @@ interface DataContextType {
     cancelMissionByClient: (id: string) => Promise<void>;
     canCancelMission: (mission: Mission) => boolean;
     assignProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
-    deleteMissions: (ids: string[]) => Promise<void>;
+    deleteMissions: (ids: string[]) => Promise<void>; // BULK DELETE
 
     clients: Client[];
     addClient: (client: CreateClientDTO) => Promise<void>;
-    updateClient: (id: string, data: Partial<Client>) => Promise<void>;
-    deleteClients: (ids: string[]) => Promise<void>;
+    updateClient: (id: string, data: Partial<Client>) => Promise<void>; // EDIT
+    deleteClients: (ids: string[]) => Promise<void>; // BULK DELETE
     addLoyaltyHours: (clientId: string, hours: number) => Promise<void>;
     submitClientReview: (clientId: string, rating: number, comment: string) => Promise<void>;
 
     providers: Provider[];
     addProvider: (provider: CreateProviderDTO) => Promise<void>;
-    updateProvider: (id: string, data: Partial<Provider>) => Promise<void>;
-    deleteProviders: (ids: string[]) => Promise<void>;
+    updateProvider: (id: string, data: Partial<Provider>) => Promise<void>; // EDIT
+    deleteProviders: (ids: string[]) => Promise<void>; // BULK DELETE
     addLeave: (providerId: string, start: string, end: string) => Promise<void>;
-    updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>;
-    resetProviderPassword: (id: string) => Promise<void>;
+    updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>; // ABSENCE MANAGEMENT
+    resetProviderPassword: (id: string) => Promise<void>; // PASSWORD RESET
 
     documents: Document[];
     addDocument: (doc: Document) => Promise<void>;
     updateDocumentStatus: (id: string, status: string) => Promise<void>;
     deleteDocument: (id: string) => Promise<void>;
-    deleteDocuments: (ids: string[]) => Promise<void>;
+    deleteDocuments: (ids: string[]) => Promise<void>; // BULK DELETE
     duplicateDocument: (id: string) => Promise<void>;
     convertQuoteToInvoice: (quoteId: string) => Promise<void>;
     markInvoicePaid: (id: string) => Promise<void>;
@@ -82,7 +82,7 @@ interface DataContextType {
 
     packs: Pack[];
     addPack: (pack: Pack) => Promise<void>;
-    deletePacks: (ids: string[]) => Promise<void>;
+    deletePacks: (ids: string[]) => Promise<void>; // BULK DELETE
 
     contracts: Contract[];
     addContract: (contract: Contract) => Promise<void>;
@@ -139,7 +139,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loyaltyRewardHours: 2,
         logoUrl: LOGO_NORMAL
     });
-    const [settingsId, setSettingsId] = useState<number | null>(null);
 
     const [missions, setMissions] = useState<Mission[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -161,7 +160,80 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU... (Template content)`;
+    // TEMPLATE CONFORME AU PDF
+    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
+Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
+N° SAP : SAP944789700
+Email : prestaservicesantilles.rh@gmail.com
+Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox)
+Validité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € – Monde entier (hors USA/Canada)
+
+CONTRAT DE PRESTATION DE SERVICE (SAP)
+
+1. INFORMATIONS DU CLIENT
+[INFO_CLIENT]
+
+2. INFORMATIONS DU PACK
+[INFO_PACK]
+
+--------------------------------------------------------------
+CONDITIONS GÉNÉRALES & OBLIGATIONS
+
+Article 1 – Obligations du Prestataire
+Le Prestataire exécute les Prestations avec diligence et professionnalisme, selon les règles de l’art et dans le respect des normes d’hygiène et de sécurité applicables. Il affecte des intervenants compétents et placés sous encadrement. Les Prestations demeurent limitées au périmètre éligible au SAP.
+
+Article 9 – Obligations du Client
+Le Client assure l’accès au domicile aux dates et créneaux convenus, fournit les informations utiles et met à disposition un environnement conforme (électricité, eau, accès sécurisé). Il respecte les modalités de paiement et veille au maintien en place et à la lisibilité du QR code.
+
+Article 10 – Responsabilité
+Le Prestataire n’est pas responsable (i) des retards résultant d’un manquement du Client, notamment en cas d’accès impossible ou d’absence de QR code, ni (ii) des dommages, défauts ou dysfonctionnements antérieurs à l’intervention. Sa responsabilité est limitée aux dommages directs, certains et prouvés, dans la limite des plafonds de ses assurances.
+
+Article 11 – Protection des données (RGPD)
+Données traitées : identité et coordonnées, adresse d’intervention, consignes d’accès, données de pointage. Base légale : exécution du Contrat. Durées de conservation : pendant le Contrat puis selon les délais légaux. Droits du Client : accès, rectification, effacement, limitation, opposition et portabilité (contact : prestaservicesantilles.rh@gmail.com).
+
+Article 12 – Résiliation
+12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception.
+12.2. Pour manquement : en cas d’un manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit.
+12.3. Effets : les sommes dues au titre des prestations réalisées jusqu’à la date d’effet de la résiliation restent exigibles.
+
+Article 13 – Droit de rétractation (consommateur)
+En cas de conclusion à distance, le Client dispose d’un délai de 14 jours pour se rétracter. L’exécution avant la fin de ce délai nécessite accord exprès.
+
+Article 14 – Cas Particuliers & Annulation (Règles spécifiques)
+- Si l’annulation est faite moins de 48 h avant l’intervention, la mission est considérée comme réalisée et facturée à 50% du montant (Hors SAP, sans avance immédiate).
+- Le créneau devient disponible pour une nouvelle mission.
+- Une notification de rappel est envoyée 48h avant l'intervention (email).
+
+Dispositions diverses : La nullité d’une clause n’affecte pas la validité du reste du Contrat.
+Validation : Ce contrat doit être validé par l'administrateur avant mise en service.
+
+Fait à La Trinité, le [DATE]
+`;
+
+    const fetchUserProfile = async (authUser: any) => {
+        try {
+            const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            if (profile) {
+                setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email || '',
+                     name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
+                     role: profile.role || 'admin',
+                     relatedEntityId: profile.relatedEntityId
+                 });
+            } else if (authUser.email === 'admin@presta.com') {
+                 // Fallback for initial admin if profile missing
+                 setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email,
+                     name: 'Admin Principal',
+                     role: 'admin'
+                 });
+            }
+        } catch (e) {
+            console.error("Error fetching user profile:", e);
+        }
+    };
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
@@ -189,7 +261,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 supabase.from('expenses').select('*'),
                 supabase.from('messages').select('*'),
                 supabase.from('notifications').select('*').order('date', { ascending: false }),
-                supabase.from('company_settings').select('*').maybeSingle()
+                supabase.from('company_settings').select('*').single()
             ]);
 
             if (cData) {
@@ -198,7 +270,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                     hasLeftReview: c.has_left_review,
-                    initialPassword: c.initial_password // Critical for admin view
+                    initialPassword: c.initial_password // Important for credentials view
                 }));
                 setClients(mappedClients);
             }
@@ -211,7 +283,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
                     leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
-                    initialPassword: p.initial_password // Critical for admin view
+                    initialPassword: p.initial_password // Important for credentials view
                 }));
                 setProviders(mappedProviders);
             }
@@ -311,7 +383,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (notifData) setNotifications(notifData);
             
             if (settingsData) {
-                setSettingsId(settingsData.id); // Store ID for updates
                 setCompanySettings({
                     name: settingsData.name,
                     address: settingsData.address,
@@ -321,7 +392,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url
+                    logoUrl: settingsData.logo_url // Ensure logo persists
                 });
             }
 
@@ -330,48 +401,42 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    // --- AUTH & INIT LOGIC (Fixed Persistence & Loading) ---
+    // --- AUTHENTICATION PERSISTENCE ---
     useEffect(() => {
         let mounted = true;
 
-        const initAuth = async () => {
+        const initializeAuth = async () => {
+            setLoading(true);
             try {
-                // 1. Check active session
+                // Check for existing session on app load
                 const { data: { session } } = await supabase.auth.getSession();
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
-                    await refreshData();
                 }
+                
+                if (mounted) await refreshData();
             } catch (error) {
-                console.error("Auth initialization failed:", error);
+                console.error("Auth init error:", error);
             } finally {
-                // 2. Stop loading irrespective of success/failure
                 if (mounted) setLoading(false);
             }
         };
 
-        initAuth();
+        initializeAuth();
 
-        // 3. Listen for changes
+        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (!mounted) return;
-            
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                 if (session?.user) {
+            if (session?.user && mounted) {
+                // If user just signed in or token refreshed, ensure profile is loaded
+                if (!currentUser || currentUser.id !== session.user.id) {
+                     setLoading(true);
                      await fetchUserProfile(session.user);
-                     if (event === 'SIGNED_IN') {
-                         setLoading(true); // Temporarily show loading while fetching data
-                         await refreshData();
-                         setLoading(false);
-                     }
-                 }
-            } else if (event === 'SIGNED_OUT') {
+                     await refreshData();
+                     setLoading(false);
+                }
+            } else if (!session && mounted) {
                 setCurrentUser(null);
-                setMissions([]);
-                setClients([]);
-                setProviders([]);
-                setDocuments([]);
                 setLoading(false);
             }
         });
@@ -381,32 +446,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             subscription.unsubscribe();
         };
     }, []);
-
-    const fetchUserProfile = async (authUser: any) => {
-        try {
-            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
-            
-            if (profile) {
-                setCurrentUser({
-                     id: authUser.id,
-                     email: authUser.email || '',
-                     name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
-                     role: profile.role || 'admin',
-                     relatedEntityId: profile.relatedEntityId
-                 });
-            } else {
-                 // Fallback if profile not found (e.g. initial admin)
-                 setCurrentUser({
-                     id: authUser.id,
-                     email: authUser.email || 'admin@presta.com',
-                     name: 'Admin',
-                     role: 'admin'
-                 });
-            }
-        } catch (e) {
-            console.error("Error fetching user profile:", e);
-        }
-    };
 
     // --- ACTIONS ---
 
@@ -424,30 +463,157 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 logo_url: settings.logoUrl
             };
             
-            // Use ID if we have it, otherwise update by name
+            // We use the old name to find the record, assuming name is unique or we are updating the single record
+            // If the name is changing, we must use the old name in 'eq'.
+            // For safety, assuming single row or matching by ID is better, but since we don't track ID in local state 
+            // and usually there's only one settings row, we can try to update all or fetch ID first.
+            // Here we'll stick to updating based on current state name which acts as ID.
+            
+            // First fetch the ID to be safe
+            const { data: current } = await supabase.from('company_settings').select('id').limit(1).single();
+            
             let error;
-            if (settingsId) {
-                const result = await supabase.from('company_settings').update(dbData).eq('id', settingsId);
-                error = result.error;
+            if (current) {
+                const res = await supabase.from('company_settings').update(dbData).eq('id', current.id);
+                error = res.error;
             } else {
-                // Fallback or Insert if missing
-                 const result = await supabase.from('company_settings').upsert(dbData, { onConflict: 'name' }).select();
-                 error = result.error;
-                 if (result.data && result.data[0]) {
-                     setSettingsId(result.data[0].id);
-                 }
+                // Fallback if no settings exist (should be created on init)
+                 const res = await supabase.from('company_settings').insert(dbData);
+                 error = res.error;
             }
 
             if (error) throw error;
-            setCompanySettings(settings); // Optimistic update
+            setCompanySettings(settings); // Update local state immediately for UI response
+            await refreshData(); // Force refresh to ensure sync
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
             throw err;
         }
     };
 
-    // ... [Missions, Clients, Providers, Documents Logic] ...
-    
+    // MISSIONS
+    const addMission = async (mission: Mission) => {
+        const { id, ...missionData } = mission;
+        const finalId = generateUUID(); 
+        
+        const dbMissionData = {
+            id: finalId,
+            date: missionData.date,
+            start_time: missionData.startTime,
+            end_time: missionData.endTime,
+            duration: missionData.duration,
+            client_id: missionData.clientId,
+            client_name: missionData.clientName,
+            provider_id: missionData.providerId,
+            provider_name: missionData.providerName,
+            service: missionData.service,
+            status: missionData.status,
+            color: missionData.color,
+            source: missionData.source
+        };
+
+        const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
+        
+        if (error) { 
+            console.error("Erreur ajout mission:", error); 
+            throw error; 
+        }
+        
+        if (data) {
+             const newMission = data[0];
+             const mappedMission: Mission = {
+                ...newMission,
+                dayIndex: getDayIndexFromDate(newMission.date), 
+                startTime: newMission.start_time,
+                endTime: newMission.end_time,
+                clientId: newMission.client_id,
+                clientName: newMission.client_name,
+                providerId: newMission.provider_id,
+                providerName: newMission.provider_name
+             };
+            setMissions(prev => [...prev, mappedMission]);
+            await addNotification('admin', 'info', 'Nouvelle Mission', `Mission planifiée pour ${mission.clientName} le ${mission.date}`);
+        }
+    };
+
+    const deleteMissions = async (ids: string[]) => {
+        const { error } = await supabase.from('missions').delete().in('id', ids);
+        if (!error) {
+            setMissions(prev => prev.filter(m => !ids.includes(m.id)));
+        } else {
+            console.error("Erreur suppression missions:", error);
+        }
+    };
+
+    const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const { error } = await supabase.from('missions').update({ 
+            status: 'in_progress', 
+            start_remark: remark, 
+            start_photos: photos, 
+            start_video: video 
+        }).eq('id', id);
+
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
+        }
+    };
+
+    const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const { error } = await supabase.from('missions').update({ 
+            status: 'completed', 
+            end_remark: remark, 
+            end_photos: photos, 
+            end_video: video 
+        }).eq('id', id);
+
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video } : m));
+            const m = missions.find(m => m.id === id);
+            if (m) {
+                await addNotification('admin', 'success', 'Mission terminée', `Mission chez ${m.clientName} terminée`, undefined, `mission:${id}`);
+            }
+        }
+    };
+
+    const cancelMissionByProvider = async (id: string, reason: string) => {
+        const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'cancelled', cancellationReason: reason } : m));
+            await addNotification('admin', 'alert', 'Annulation Prestataire', `Motif : ${reason}`, undefined, `mission:${id}`);
+        }
+    };
+
+    const cancelMissionByClient = async (id: string) => {
+        const m = missions.find(m => m.id === id);
+        if (m) {
+            const isLate = !canCancelMission(m);
+            const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: 'Annulé par client', late_cancellation: isLate }).eq('id', id);
+            if (!error) {
+                setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
+                await addNotification('admin', 'alert', 'Annulation Client', `Client: ${m.clientName}`, undefined, `mission:${id}`);
+            }
+        }
+    };
+
+    const canCancelMission = (mission: Mission) => {
+        if (!mission.date) return true;
+        const missionDate = new Date(`${mission.date}T${mission.startTime}`);
+        const now = new Date();
+        const diffHours = (missionDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+        return diffHours > 48;
+    };
+
+    const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
+        const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
+        
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
+            await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
+        } else {
+            console.error("Erreur assignation:", error);
+        }
+    };
+
     // CLIENTS
     const addClient = async (clientData: CreateClientDTO) => {
         const password = Math.random().toString(36).slice(-8);
@@ -464,12 +630,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
             has_left_review: false,
-            initial_password: password
+            initial_password: password // Saving initial password for admin view
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
         
-        if (error) { console.error(error); throw error; }
+        if (error) {
+            console.error("Erreur ajout client:", error);
+            throw error;
+        }
 
         if (data && data.length > 0) {
             const newClient = data[0];
@@ -482,49 +651,70 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             };
             setClients(prev => [...prev, mappedClient]);
             
-            alert(`[EMAIL ENVOYÉ]
+            // EMAIL SIMULATION
+            alert(`[EMAIL ENVOYÉ À ${clientData.email}]
 ------------------------------------------------
-À: ${clientData.email}
-Objet: Bienvenue chez Presta Services Antilles
+Sujet: Bienvenue chez Presta Services Antilles
+
+Bonjour ${clientData.name},
 
 Votre compte client a été créé avec succès.
-Identifiants de connexion :
+Voici vos identifiants pour vous connecter à votre espace :
+
 Lien : https://presta-antilles.app/login
 Email : ${clientData.email}
 Mot de passe : ${password}
 
-Cordialement, L'équipe.`);
+Cordialement,
+L'équipe.`);
         }
     };
 
     const updateClient = async (id: string, data: Partial<Client>) => {
-        const { error } = await supabase.from('clients').update(data).eq('id', id);
-        if (!error) setClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+        const dbData: any = {};
+        if(data.name) dbData.name = data.name;
+        if(data.city) dbData.city = data.city;
+        if(data.address) dbData.address = data.address;
+        if(data.phone) dbData.phone = data.phone;
+        if(data.email) dbData.email = data.email;
+        
+        const { error } = await supabase.from('clients').update(dbData).eq('id', id);
+        
+        if (!error) {
+            setClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+        } else {
+            console.error("Erreur maj client", error);
+        }
     };
 
     const deleteClients = async (ids: string[]) => {
-        await supabase.from('clients').delete().in('id', ids);
-        setClients(prev => prev.filter(c => !ids.includes(c.id)));
+        const { error } = await supabase.from('clients').delete().in('id', ids);
+        if (!error) {
+            setClients(prev => prev.filter(c => !ids.includes(c.id)));
+        } else {
+             console.error("Erreur suppression clients:", error);
+        }
     };
 
     const addLoyaltyHours = async (clientId: string, hours: number) => {
         const client = clients.find(c => c.id === clientId);
         if (client) {
             const newTotal = (client.loyaltyHoursAvailable || 0) + hours;
-            await supabase.from('clients').update({ loyalty_hours_available: newTotal }).eq('id', clientId);
-            setClients(prev => prev.map(c => c.id === clientId ? { ...c, loyaltyHoursAvailable: newTotal } : c));
+            const { error } = await supabase.from('clients').update({ loyalty_hours_available: newTotal }).eq('id', clientId);
+            if (!error) setClients(prev => prev.map(c => c.id === clientId ? { ...c, loyaltyHoursAvailable: newTotal } : c));
         }
     };
 
     const submitClientReview = async (clientId: string, rating: number, comment: string) => {
-        await supabase.from('clients').update({ has_left_review: true }).eq('id', clientId);
-        setClients(prev => prev.map(c => c.id === clientId ? { ...c, hasLeftReview: true } : c));
+        const { error } = await supabase.from('clients').update({ has_left_review: true }).eq('id', clientId);
+        if(!error) setClients(prev => prev.map(c => c.id === clientId ? { ...c, hasLeftReview: true } : c));
         await supabase.from('reviews').insert({ clientId, rating, comment, date: new Date().toISOString() });
     };
 
     // PROVIDERS
     const addProvider = async (providerData: CreateProviderDTO) => {
         const password = Math.random().toString(36).slice(-8);
+
         const dbProviderData = {
             first_name: providerData.firstName,
             last_name: providerData.lastName,
@@ -534,10 +724,11 @@ Cordialement, L'équipe.`);
             status: providerData.status,
             hours_worked: 0,
             rating: 5,
-            initial_password: password
+            initial_password: password // Saving initial password for admin view
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
+        
         if (error) { console.error(error); return; }
 
         if (data) {
@@ -552,17 +743,24 @@ Cordialement, L'équipe.`);
              };
              setProviders(prev => [...prev, mapped]);
 
-             alert(`[EMAIL ENVOYÉ]
+             await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
+             
+             // EMAIL SIMULATION
+             alert(`[EMAIL ENVOYÉ À ${providerData.email}]
 ------------------------------------------------
-À: ${providerData.email}
-Objet: Vos accès Prestataire
+Sujet: Vos accès Prestataire - Presta Services Antilles
 
-Votre compte prestataire a été activé.
+Bonjour ${providerData.firstName},
+
+Votre compte prestataire est actif.
+Voici vos identifiants :
+
 Lien : https://presta-antilles.app/login
 Identifiant : ${providerData.email}
 Mot de passe : ${password}
 
-Cordialement, L'équipe.`);
+Cordialement,
+L'équipe Presta Services Antilles`);
         }
     };
 
@@ -576,119 +774,80 @@ Cordialement, L'équipe.`);
         if(data.status) dbData.status = data.status;
 
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
-        if(!error) setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+        if(!error) {
+            setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+        } else {
+            console.error("Erreur update provider", error);
+        }
     };
 
     const deleteProviders = async (ids: string[]) => {
-        await supabase.from('providers').delete().in('id', ids);
-        setProviders(prev => prev.filter(p => !ids.includes(p.id)));
+        const { error } = await supabase.from('providers').delete().in('id', ids);
+        if (!error) {
+            setProviders(prev => prev.filter(p => !ids.includes(p.id)));
+        } else {
+            console.error("Erreur suppression prestataires:", error);
+        }
     };
 
     const addLeave = async (providerId: string, start: string, end: string) => {
         const { data } = await supabase.from('leaves').insert({
             providerId, startDate: start, endDate: end, status: 'pending'
         }).select();
+
         if (data) {
-            setProviders(prev => prev.map(p => p.id === providerId ? { ...p, leaves: [...p.leaves, data[0]] } : p));
+            setProviders(prev => prev.map(p => {
+                if (p.id === providerId) {
+                    return { ...p, leaves: [...p.leaves, data[0]] };
+                }
+                return p;
+            }));
         }
     };
 
     const updateLeaveStatus = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
         const { error } = await supabase.from('leaves').update({ status }).eq('id', leaveId);
+        
         if (!error) {
-            setProviders(prev => prev.map(p => p.id === providerId ? { ...p, leaves: p.leaves.map(l => l.id === leaveId ? { ...l, status } : l) } : p));
+            setProviders(prev => prev.map(p => {
+                if(p.id === providerId) {
+                    const updatedLeaves = p.leaves.map(l => l.id === leaveId ? { ...l, status } : l);
+                    return { ...p, leaves: updatedLeaves };
+                }
+                return p;
+            }));
         }
     };
 
     const resetProviderPassword = async (id: string) => {
-        const newPass = Math.random().toString(36).slice(-8);
-        const { error } = await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
-        
-        if (!error) {
+        const provider = providers.find(p => p.id === id);
+        if(provider) {
+            const newPass = Math.random().toString(36).slice(-8);
+            
+            await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
+            
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
-            alert(`Nouveau mot de passe généré et envoyé par mail : ${newPass}`);
+
+            alert(`[EMAIL ENVOYÉ]
+------------------------------------------------
+À: ${provider.email}
+Objet: Réinitialisation de mot de passe
+
+Bonjour ${provider.firstName},
+
+Votre mot de passe a été réinitialisé.
+
+Nouveau mot de passe : ${newPass}
+
+Connectez-vous ici : https://presta-antilles.app/login
+`);
         }
     };
 
-    // MISSIONS
-    const addMission = async (mission: Mission) => {
-        const finalId = generateUUID(); 
-        const dbMissionData = {
-            id: finalId,
-            date: mission.date,
-            start_time: mission.startTime,
-            end_time: mission.endTime,
-            duration: mission.duration,
-            client_id: mission.clientId,
-            client_name: mission.clientName,
-            provider_id: mission.providerId,
-            provider_name: mission.providerName,
-            service: mission.service,
-            status: mission.status,
-            color: mission.color,
-            source: mission.source
-        };
-
-        const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
-        if (!error && data) {
-             const newMission = data[0];
-             const mappedMission: Mission = {
-                ...newMission,
-                dayIndex: getDayIndexFromDate(newMission.date), 
-                startTime: newMission.start_time,
-                endTime: newMission.end_time,
-                clientId: newMission.client_id,
-                clientName: newMission.client_name,
-                providerId: newMission.provider_id,
-                providerName: newMission.provider_name
-             };
-            setMissions(prev => [...prev, mappedMission]);
-        }
-    };
-
-    const deleteMissions = async (ids: string[]) => {
-        await supabase.from('missions').delete().in('id', ids);
-        setMissions(prev => prev.filter(m => !ids.includes(m.id)));
-    };
-
-    const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        await supabase.from('missions').update({ status: 'in_progress', start_remark: remark, start_photos: photos, start_video: video }).eq('id', id);
-        setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
-    };
-
-    const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        await supabase.from('missions').update({ status: 'completed', end_remark: remark, end_photos: photos, end_video: video }).eq('id', id);
-        setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video } : m));
-    };
-
-    const cancelMissionByProvider = async (id: string, reason: string) => {
-        await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
-        setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'cancelled', cancellationReason: reason } : m));
-    };
-
-    const cancelMissionByClient = async (id: string) => {
-        const m = missions.find(m => m.id === id);
-        const isLate = m ? !canCancelMission(m) : false;
-        await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: 'Annulé par client', late_cancellation: isLate }).eq('id', id);
-        setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
-    };
-
-    const canCancelMission = (mission: Mission) => {
-        if (!mission.date) return true;
-        const missionDate = new Date(`${mission.date}T${mission.startTime}`);
-        const now = new Date();
-        const diffHours = (missionDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-        return diffHours > 48;
-    };
-
-    const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
-        await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
-        setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
-    };
-
-    // DOCUMENTS & OTHERS
+    // DOCUMENTS
     const addDocument = async (doc: Document) => {
         const finalId = generateUUID();
+
         const dbDocData = {
             id: finalId,
             ref: doc.ref,
@@ -708,7 +867,15 @@ Cordialement, L'équipe.`);
             slots_data: doc.slotsData,
             reminder_sent: false
         };
-        const { data } = await supabase.from('documents').insert(dbDocData).select();
+
+        const { data, error } = await supabase.from('documents').insert(dbDocData).select();
+        
+        if (error) {
+            console.error("Error creating document", error);
+            alert("Erreur création document: " + error.message);
+            return;
+        }
+
         if (data) {
              const newDoc = data[0];
              const mappedDoc: Document = {
@@ -728,25 +895,35 @@ Cordialement, L'équipe.`);
     };
 
     const updateDocumentStatus = async (id: string, status: string) => {
-        await supabase.from('documents').update({ status }).eq('id', id);
-        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
+        const { error } = await supabase.from('documents').update({ status }).eq('id', id);
+        if (!error) setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
     };
 
     const deleteDocument = async (id: string) => {
-        await supabase.from('documents').delete().eq('id', id);
-        setDocuments(prev => prev.filter(d => d.id !== id));
+        const { error } = await supabase.from('documents').delete().eq('id', id);
+        if (!error) setDocuments(prev => prev.filter(d => d.id !== id));
     };
 
     const deleteDocuments = async (ids: string[]) => {
-        await supabase.from('documents').delete().in('id', ids);
-        setDocuments(prev => prev.filter(d => !ids.includes(d.id)));
+        const { error } = await supabase.from('documents').delete().in('id', ids);
+        if (!error) {
+            setDocuments(prev => prev.filter(d => !ids.includes(d.id)));
+        } else {
+             console.error("Erreur suppression documents:", error);
+        }
     };
 
     const duplicateDocument = async (id: string) => {
         const doc = documents.find(d => d.id === id);
         if (doc) {
             const { id: _, ...rest } = doc;
-            const newDoc: Document = { ...rest, id: `temp-${Date.now()}`, ref: `${doc.ref}-COPY`, status: doc.type === 'Devis' ? 'sent' : 'pending', date: new Date().toISOString().split('T')[0] };
+            const newDoc: Document = { 
+                ...rest, 
+                id: `temp-${Date.now()}`,
+                ref: `${doc.ref}-COPY`, 
+                status: doc.type === 'Devis' ? 'sent' : 'pending',
+                date: new Date().toISOString().split('T')[0]
+            };
             await addDocument(newDoc);
         }
     };
@@ -755,105 +932,285 @@ Cordialement, L'équipe.`);
         const quote = documents.find(d => d.id === quoteId);
         if (quote) {
             const { id: _, ...rest } = quote;
-            const invoice: Document = { ...rest, id: `temp-inv-${Date.now()}`, ref: quote.ref.replace('DEV', 'FAC'), type: 'Facture', status: 'pending', date: new Date().toISOString().split('T')[0] };
+            const invoice: Document = {
+                ...rest,
+                id: `temp-inv-${Date.now()}`,
+                ref: quote.ref.replace('DEV', 'FAC'),
+                type: 'Facture',
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0]
+            };
             await updateDocumentStatus(quoteId, 'converted');
             await addDocument(invoice);
         }
     };
 
-    const markInvoicePaid = async (id: string) => updateDocumentStatus(id, 'paid');
+    const markInvoicePaid = async (id: string) => {
+        await updateDocumentStatus(id, 'paid');
+    };
+
     const sendDocumentReminder = async (id: string) => {
-        await supabase.from('documents').update({ reminder_sent: true }).eq('id', id);
-        setDocuments(prev => prev.map(d => d.id === id ? { ...d, reminderSent: true } : d));
+        const { error } = await supabase.from('documents').update({ reminder_sent: true }).eq('id', id);
+        if(!error) setDocuments(prev => prev.map(d => d.id === id ? { ...d, reminderSent: true } : d));
     };
+
     const signQuoteWithData = async (id: string, signatureData: string) => {
-        await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: new Date().toISOString() }).eq('id', id);
-        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
-    };
-    const refuseQuote = async (id: string) => updateDocumentStatus(id, 'rejected');
-    const requestInvoice = async (docId: string) => console.log('Request invoice', docId);
-    const refundTransaction = async (ref: string, amount: number) => {
-        const doc = documents.find(d => d.ref === ref);
-        if(doc) {
-            const refundDoc: Document = { id: `refund-${Date.now()}`, ref: `AVOIR-${ref}`, clientId: doc.clientId, clientName: doc.clientName, date: new Date().toISOString().split('T')[0], type: 'Facture', category: 'pack', description: `Remboursement sur facture ${ref}`, unitPrice: -Math.abs(amount), quantity: 1, tvaRate: doc.tvaRate, totalHT: -Math.abs(amount), totalTTC: -Math.abs(amount), taxCreditEnabled: false, status: 'paid' };
-            await addDocument(refundDoc);
+        const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: new Date().toISOString() }).eq('id', id);
+        if(!error) {
+            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
+            await addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
         }
     };
 
+    const refuseQuote = async (id: string) => {
+        await updateDocumentStatus(id, 'rejected');
+        await addNotification('admin', 'alert', 'Devis Refusé', `Devis refusé par client.`);
+    };
+
+    const requestInvoice = async (docId: string) => {
+        await addNotification('admin', 'info', 'Demande Facture', `Client demande facture pour document ${docId}`);
+    };
+
+    const refundTransaction = async (ref: string, amount: number) => {
+        const doc = documents.find(d => d.ref === ref);
+        if(doc) {
+            const refundDoc: Document = {
+                id: `refund-${Date.now()}`,
+                ref: `AVOIR-${ref}`,
+                clientId: doc.clientId,
+                clientName: doc.clientName,
+                date: new Date().toISOString().split('T')[0],
+                type: 'Facture',
+                category: 'pack', 
+                description: `Remboursement sur facture ${ref}`,
+                unitPrice: -Math.abs(amount),
+                quantity: 1,
+                tvaRate: doc.tvaRate,
+                totalHT: -Math.abs(amount),
+                totalTTC: -Math.abs(amount),
+                taxCreditEnabled: false,
+                status: 'paid'
+            };
+            await addDocument(refundDoc);
+            await addNotification('client', 'info', 'Remboursement', `Avoir de ${amount}€ émis.`, doc.clientId);
+        }
+    };
+
+    // PACKS
     const addPack = async (pack: Pack) => {
         const finalId = generateUUID();
+        
         const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
-        const dbPackData = { id: finalId, name: pack.name, main_service: pack.mainService, description: mergedDescription, hours: pack.hours, frequency: pack.frequency.toLowerCase(), supplies_included: pack.suppliesIncluded, supplies_details: pack.suppliesDetails, type: pack.type, price_ht: pack.priceHT, price_tax_credit: pack.priceTaxCredit, contract_type: pack.contractType, is_sap: pack.isSap, schedules: pack.schedules };
+        const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
+
+        const dbPackData = {
+            id: finalId,
+            name: pack.name,
+            main_service: pack.mainService,
+            description: mergedDescription,
+            hours: pack.hours,
+            frequency: dbFrequency, 
+            supplies_included: pack.suppliesIncluded,
+            supplies_details: pack.suppliesDetails,
+            type: pack.type,
+            price_ht: pack.priceHT,
+            price_tax_credit: pack.priceTaxCredit,
+            contract_type: pack.contractType,
+            is_sap: pack.isSap,
+            schedules: pack.schedules
+        };
+
         const { data, error } = await supabase.from('packs').insert(dbPackData).select();
-        if (!error && data) {
+        
+        if (error) {
+             console.error("Erreur sauvegarde Pack:", error);
+             alert(`Erreur de sauvegarde base de données: ${error.message}`);
+             return;
+        }
+
+        if (data) {
              const newPack = data[0];
-             const mappedPack: Pack = { ...newPack, mainService: newPack.main_service, priceHT: newPack.price_ht, priceTaxCredit: newPack.price_tax_credit, suppliesIncluded: newPack.supplies_included, suppliesDetails: newPack.supplies_details, isSap: newPack.is_sap, contractType: newPack.contract_type, quantity: pack.quantity, location: pack.location, frequency: capitalize(newPack.frequency) as any };
+             const mappedPack: Pack = {
+                 ...newPack,
+                 mainService: newPack.main_service,
+                 priceHT: newPack.price_ht,
+                 priceTaxCredit: newPack.price_tax_credit,
+                 suppliesIncluded: newPack.supplies_included,
+                 suppliesDetails: newPack.supplies_details,
+                 isSap: newPack.is_sap,
+                 contractType: newPack.contract_type,
+                 quantity: pack.quantity,
+                 location: pack.location,
+                 frequency: capitalize(newPack.frequency) as any
+             };
              setPacks(prev => [...prev, mappedPack]);
         }
     };
+
     const deletePacks = async (ids: string[]) => {
-        await supabase.from('packs').delete().in('id', ids);
-        setPacks(prev => prev.filter(p => !ids.includes(p.id)));
+        const { error } = await supabase.from('packs').delete().in('id', ids);
+        if (!error) {
+            setPacks(prev => prev.filter(p => !ids.includes(p.id)));
+        } else {
+             console.error("Erreur suppression packs:", error);
+        }
     };
 
     const addContract = async (contract: Contract) => {
         const finalId = generateUUID();
-        const dbData = { id: finalId, name: contract.name, content: contract.content, pack_id: contract.packId || null, status: contract.status, is_sap: contract.isSap, validation_date: contract.validationDate };
-        const { data } = await supabase.from('contracts').insert(dbData).select();
-        if (data) setContracts(prev => [...prev, { ...data[0], packId: data[0].pack_id, isSap: data[0].is_sap, validationDate: data[0].validation_date }]);
+        const packId = contract.packId === "" ? null : contract.packId;
+
+        const dbData = {
+            id: finalId,
+            name: contract.name,
+            content: contract.content,
+            pack_id: packId,
+            status: contract.status,
+            is_sap: contract.isSap,
+            validation_date: contract.validationDate
+        };
+
+        const { data, error } = await supabase.from('contracts').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error saving contract:", error);
+            alert("Erreur lors de la sauvegarde du contrat: " + error.message);
+            return;
+        }
+
+        if (data) {
+             const mapped = {
+                ...data[0],
+                packId: data[0].pack_id,
+                isSap: data[0].is_sap,
+                validationDate: data[0].validation_date
+             };
+             setContracts(prev => [...prev, mapped]);
+        }
     };
+
     const updateContract = async (id: string, updates: Partial<Contract>) => {
         const dbUpdates: any = { ...updates };
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
         if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
-        await supabase.from('contracts').update(dbUpdates).eq('id', id);
-        setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+        
+        const { error } = await supabase.from('contracts').update(dbUpdates).eq('id', id);
+        if (!error) setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
     };
 
     const addReminder = async (reminder: Reminder) => {
         const { id, ...rData } = reminder;
         const dbData = { ...rData, notify_email: rData.notifyEmail };
         const { data } = await supabase.from('reminders').insert(dbData).select();
-        if (data) setReminders(prev => [...prev, { ...data[0], notifyEmail: data[0].notify_email }]);
+        if (data) {
+            const mapped = { ...data[0], notifyEmail: data[0].notify_email };
+            setReminders(prev => [...prev, mapped]);
+        }
     };
+
     const toggleReminder = async (id: string) => {
         const r = reminders.find(i => i.id === id);
         if (r) {
-            await supabase.from('reminders').update({ completed: !r.completed }).eq('id', id);
-            setReminders(prev => prev.map(x => x.id === id ? { ...x, completed: !x.completed } : x));
+            const { error } = await supabase.from('reminders').update({ completed: !r.completed }).eq('id', id);
+            if(!error) setReminders(prev => prev.map(x => x.id === id ? { ...x, completed: !x.completed } : x));
         }
     };
 
     const addExpense = async (expense: Expense) => {
+        const { id, ...eData } = expense;
         const finalId = generateUUID();
-        const dbData = { id: finalId, date: expense.date, amount: expense.amount, category: expense.category, description: expense.description, proof_url: expense.proofUrl };
-        const { data } = await supabase.from('expenses').insert(dbData).select();
-        if (data) setExpenses(prev => [...prev, { ...data[0], proofUrl: data[0].proof_url }]);
+        const dbData = { 
+            id: finalId,
+            date: eData.date,
+            amount: eData.amount,
+            category: eData.category,
+            description: eData.description,
+            proof_url: eData.proofUrl
+        };
+        const { data, error } = await supabase.from('expenses').insert(dbData).select();
+        
+        if (error) {
+            console.error("Erreur sauvegarde dépense:", error);
+            alert("Erreur sauvegarde dépense: " + error.message);
+            return;
+        }
+
+        if (data) {
+             const mapped = { ...data[0], proofUrl: data[0].proof_url };
+             setExpenses(prev => [...prev, mapped]);
+        }
     };
 
     const replyToClient = async (text: string, clientId: string) => {
         const dbData = { sender: 'admin', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
-        const { data } = await supabase.from('messages').insert(dbData).select();
-        if(data) setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
+        const { data, error } = await supabase.from('messages').insert(dbData).select();
+        
+        if(data) {
+            const mapped = { ...data[0], clientId: data[0].client_id };
+            setMessages(prev => [...prev, mapped]);
+        } else {
+            console.error("Erreur envoi message", error);
+        }
     };
+
     const sendClientMessage = async (text: string, clientId: string) => {
         const dbData = { sender: 'client', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
         const { data } = await supabase.from('messages').insert(dbData).select();
-        if (data) setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
+        
+        if (data) {
+            const mapped = { ...data[0], clientId: data[0].client_id };
+            setMessages(prev => [...prev, mapped]);
+            await addNotification('admin', 'message', 'Nouveau Message', `De client: ${text.substring(0, 20)}...`);
+        }
+    };
+
+    const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
+        const { data, error } = await supabase.from('notifications').insert({
+            targetUserType, 
+            targetUserId: targetUserId || null,
+            type, 
+            title, 
+            message, 
+            date: new Date().toLocaleTimeString(), 
+            read: false, 
+            link
+        }).select();
+        
+        if (error) {
+            console.error("Erreur sauvegarde notification:", error);
+        }
+
+        if (data) {
+            setNotifications(prev => [data[0] as AppNotification, ...prev]);
+        }
     };
 
     const markNotificationRead = async (id: string) => {
-        await supabase.from('notifications').update({ read: true }).eq('id', id);
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+        const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
+        if (!error) setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     };
 
     const login = async (email: string, password?: string): Promise<boolean> => {
-        if (!password) return false;
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) { console.error("Login failed:", error.message); throw new Error(error.message); }
+        if (!password) {
+            console.error("Password required");
+            return false;
+        }
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password
+        });
+
+        if (error) {
+            console.error("Login failed:", error.message);
+            throw new Error(error.message); // Propagate error to Login component
+        }
+        
+        // Fetch user details immediately to prevent flicker
         if (data.user) {
             await fetchUserProfile(data.user);
+            await refreshData();
             return true;
         }
         return false;
@@ -864,30 +1221,61 @@ Cordialement, L'équipe.`);
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
-        setLoading(false);
     };
 
     const startLiveStream = (providerId: string, clientId: string) => {
-        const session: StreamSession = { id: `stream-${Date.now()}`, providerId, clientId, status: 'active', startTime: new Date().toISOString() };
+        const session: StreamSession = {
+            id: `stream-${Date.now()}`,
+            providerId,
+            clientId,
+            status: 'active',
+            startTime: new Date().toISOString()
+        };
         setActiveStream(session);
     };
-    const stopLiveStream = () => setActiveStream(null);
+
+    const stopLiveStream = () => {
+        setActiveStream(null);
+    };
     
     const getAvailableSlots = (date: string) => {
-        const potentialTimes = [{ start: '08:00', end: '10:00' }, { start: '10:00', end: '12:00' }, { start: '13:00', end: '15:00' }, { start: '15:00', end: '17:00' }];
+        const potentialTimes = [
+            { start: '08:00', end: '10:00' },
+            { start: '10:00', end: '12:00' },
+            { start: '13:00', end: '15:00' },
+            { start: '15:00', end: '17:00' }
+        ];
+        
         const available: { time: string, provider: string, score: number, reason: string }[] = [];
+        
         providers.filter(p => p.status === 'Active').forEach(provider => {
-            const onLeave = provider.leaves.some(l => date >= l.startDate && date <= l.endDate);
+            const onLeave = provider.leaves.some(l => {
+                return date >= l.startDate && date <= l.endDate;
+            });
             if(onLeave) return;
+
             const providerMissions = missions.filter(m => m.providerId === provider.id && m.date === date && m.status !== 'cancelled');
+
             potentialTimes.forEach(slot => {
-                 const isTaken = providerMissions.some(m => (slot.start < m.endTime && slot.end > m.startTime));
+                 const isTaken = providerMissions.some(m => {
+                     return (slot.start < m.endTime && slot.end > m.startTime);
+                 });
+                 
                  if (!isTaken) {
-                     let score = 70; if(provider.rating >= 4.5) score += 20; if(provider.hoursWorked < 100) score += 10;
-                     available.push({ time: `${slot.start} - ${slot.end}`, provider: `${provider.firstName} ${provider.lastName}`, score: Math.min(score, 100), reason: 'Disponible' });
+                     let score = 70;
+                     if(provider.rating >= 4.5) score += 20;
+                     if(provider.hoursWorked < 100) score += 10;
+
+                     available.push({
+                         time: `${slot.start} - ${slot.end}`,
+                         provider: `${provider.firstName} ${provider.lastName}`,
+                         score: Math.min(score, 100),
+                         reason: 'Disponible'
+                     });
                  }
             });
         });
+        
         return available.sort((a,b) => b.score - a.score).slice(0, 5);
     };
 

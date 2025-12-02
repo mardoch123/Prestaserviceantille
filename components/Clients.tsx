@@ -23,8 +23,7 @@ import {
   Loader2,
   Edit,
   KeyRound,
-  Eye,
-  EyeOff
+  Eye
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
@@ -62,9 +61,6 @@ const Clients: React.FC = () => {
     city: '',
     type: 'particulier'
   });
-
-  // Toggle Password View State
-  const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (location.state) {
@@ -172,11 +168,14 @@ const Clients: React.FC = () => {
     setTimeout(() => setToast({ show: false, message: '' }), 3000);
   };
 
-  const togglePasswordVisibility = (id: string) => {
-      const newSet = new Set(visiblePasswords);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      setVisiblePasswords(newSet);
+  const showCredentials = (client: any) => {
+      alert(`[ACCÈS CLIENT]
+      
+Client : ${client.name}
+Email : ${client.email}
+Mot de passe initial : ${client.initialPassword || 'Non disponible (déjà modifié ou inconnu)'}
+
+Lien de connexion : https://presta-antilles.app/login`);
   };
 
   // Bulk Actions
@@ -257,7 +256,7 @@ const Clients: React.FC = () => {
                             </button>
                         </th>
                         <th className="px-6 py-4 font-bold">Nom</th>
-                        <th className="px-6 py-4 font-bold">Identifiants</th>
+                        <th className="px-6 py-4 font-bold">Contact</th>
                         <th className="px-6 py-4 font-bold">Ville</th>
                         <th className="px-6 py-4 font-bold">Abonnement</th>
                         <th className="px-6 py-4 font-bold text-center">Statut</th>
@@ -275,30 +274,9 @@ const Clients: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-700 flex items-center gap-2">
                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 font-bold">{client.name.charAt(0)}</div>
-                                    <div>
-                                        {client.name}
-                                        <div className="text-[10px] font-normal text-slate-500">{client.phone}</div>
-                                    </div>
+                                    {client.name}
                                 </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex flex-col text-xs bg-slate-50 border border-slate-200 rounded p-2 max-w-[200px]">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="font-bold text-slate-500">Email:</span>
-                                            <span className="text-slate-700 truncate ml-2 max-w-[100px]" title={client.email}>{client.email}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="font-bold text-slate-500">Mdp:</span>
-                                            <div className="flex items-center gap-1">
-                                                <span className="font-mono text-slate-800 bg-white px-1 rounded border border-slate-100">
-                                                    {visiblePasswords.has(client.id) ? (client.initialPassword || 'N/A') : '••••••'}
-                                                </span>
-                                                <button onClick={() => togglePasswordVisibility(client.id)} className="text-slate-400 hover:text-brand-blue">
-                                                    {visiblePasswords.has(client.id) ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </td>
+                                <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{client.phone}</div></td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{client.city}</div></td>
                                 <td className="px-6 py-4">{client.pack !== '-' ? (<span className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-bold">{client.pack}</span>) : (<span className="text-slate-400 italic">Aucun</span>)}</td>
                                 <td className="px-6 py-4 text-center">
@@ -308,6 +286,13 @@ const Clients: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
+                                        <button 
+                                            onClick={() => showCredentials(client)}
+                                            className="bg-purple-50 text-purple-600 hover:bg-purple-100 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-purple-200"
+                                            title="Voir Identifiants"
+                                        >
+                                            <Eye className="w-3 h-3" /> Voir ID
+                                        </button>
                                         <button 
                                             onClick={() => openEditModal(client)}
                                             className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200"
@@ -341,7 +326,7 @@ const Clients: React.FC = () => {
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Client' : 'Nouveau Client'}</h3>
-                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : 'Ajouter une fiche client et envoyer les accès'}</p>
+                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : 'Ajouter une fiche client'}</p>
                     </div>
                     <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5 text-slate-500" /></button>
                 </div>
@@ -355,7 +340,7 @@ const Clients: React.FC = () => {
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label className="block text-sm font-bold text-slate-700 mb-1">Téléphone</label><input required type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"/></div>
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">Email (Obligatoire)</label><input required type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"/></div>
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">Email</label><input required type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"/></div>
                         </div>
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Adresse</label>
@@ -366,7 +351,7 @@ const Clients: React.FC = () => {
                     <div className="pt-4 flex justify-end gap-3">
                         <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition">Annuler</button>
                         <button type="submit" className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Mettre à jour' : 'Enregistrer & Envoyer Email'}
+                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Mettre à jour' : 'Enregistrer'}
                         </button>
                     </div>
                 </form>
