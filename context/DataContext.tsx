@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
@@ -213,7 +214,9 @@ Fait à La Trinité, le [DATE]
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
-            setLoading(true);
+            // Ne pas mettre setLoading(true) ici si c'est un refresh silencieux pour ne pas bloquer l'UI
+            // Mais pour le chargement initial c'est géré par le useEffect principal
+            
             const [
                 { data: cData }, 
                 { data: pData }, 
@@ -245,7 +248,8 @@ Fait à La Trinité, le [DATE]
                     ...c,
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
-                    hasLeftReview: c.has_left_review
+                    hasLeftReview: c.has_left_review,
+                    initialPassword: c.initial_password
                 }));
                 setClients(mappedClients);
             }
@@ -257,7 +261,8 @@ Fait à La Trinité, le [DATE]
                     firstName: p.first_name || p.firstName,
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
-                    leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : []
+                    leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
+                    initialPassword: p.initial_password
                 }));
                 setProviders(mappedProviders);
             }
@@ -372,30 +377,77 @@ Fait à La Trinité, le [DATE]
 
         } catch (error) {
             console.error("Erreur lors du chargement des données:", error);
-        } finally {
-            setLoading(false);
         }
     };
 
+    // --- AUTHENTICATION PERSISTENCE FIX ---
     useEffect(() => {
-        refreshData();
+        let mounted = true;
+
+        const initializeAuth = async () => {
+            setLoading(true);
+            try {
+                // Check for existing session on app load
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (session?.user && mounted) {
+                    await fetchUserProfile(session.user);
+                }
+            } catch (error) {
+                console.error("Auth init error:", error);
+            } finally {
+                if (mounted) setLoading(false);
+            }
+        };
+
+        initializeAuth();
+        refreshData(); // Fetch application data parallel to auth
+
+        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user) {
-                 const { data: profile } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                 setCurrentUser({
-                     id: session.user.id,
-                     email: session.user.email || '',
-                     name: profile?.name || session.user.email?.split('@')[0] || 'Utilisateur',
-                     role: profile?.role || 'admin',
-                     relatedEntityId: profile?.relatedEntityId
-                 });
-            } else {
+            if (session?.user && mounted) {
+                // If user just signed in or token refreshed, ensure profile is loaded
+                if (!currentUser || currentUser.id !== session.user.id) {
+                     setLoading(true);
+                     await fetchUserProfile(session.user);
+                     setLoading(false);
+                }
+            } else if (!session && mounted) {
                 setCurrentUser(null);
+                setLoading(false);
             }
         });
-        return () => subscription.unsubscribe();
+
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
+    const fetchUserProfile = async (authUser: any) => {
+        try {
+            const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            if (profile) {
+                setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email || '',
+                     name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
+                     role: profile.role || 'admin',
+                     relatedEntityId: profile.relatedEntityId
+                 });
+            } else if (authUser.email === 'admin@presta.com') {
+                 // Fallback for initial admin if profile missing
+                 setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email,
+                     name: 'Admin Principal',
+                     role: 'admin'
+                 });
+            }
+        } catch (e) {
+            console.error("Error fetching user profile:", e);
+        }
+    };
 
     // --- ACTIONS ---
 
@@ -415,10 +467,10 @@ Fait à La Trinité, le [DATE]
             const { error } = await supabase
                 .from('company_settings')
                 .update(dbData)
-                .eq('name', companySettings.name); 
+                .eq('name', companySettings.name); // Updates the single row based on name or assumes single row logic in DB
 
             if (error) throw error;
-            setCompanySettings(settings);
+            setCompanySettings(settings); // Update local state immediately for UI response
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
             throw err;
@@ -428,7 +480,6 @@ Fait à La Trinité, le [DATE]
     // MISSIONS
     const addMission = async (mission: Mission) => {
         const { id, ...missionData } = mission;
-        // If ID is a temp 'm-' one, let DB generate UUID or generate one here
         const finalId = generateUUID(); 
         
         const dbMissionData = {
@@ -466,7 +517,6 @@ Fait à La Trinité, le [DATE]
                 providerId: newMission.provider_id,
                 providerName: newMission.provider_name
              };
-            // Updating state is good for optimistic UI, but refreshData ensures consistency with real IDs
             setMissions(prev => [...prev, mappedMission]);
             await addNotification('admin', 'info', 'Nouvelle Mission', `Mission planifiée pour ${mission.clientName} le ${mission.date}`);
         }
@@ -544,7 +594,6 @@ Fait à La Trinité, le [DATE]
         
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
-            // Send notification to provider
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
         } else {
             console.error("Erreur assignation:", error);
@@ -553,6 +602,8 @@ Fait à La Trinité, le [DATE]
 
     // CLIENTS
     const addClient = async (clientData: CreateClientDTO) => {
+        const password = Math.random().toString(36).slice(-8);
+
         const dbClientData = {
             name: clientData.name,
             city: clientData.city,
@@ -564,7 +615,8 @@ Fait à La Trinité, le [DATE]
             since: clientData.since,
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
-            has_left_review: false
+            has_left_review: false,
+            initial_password: password // Saving initial password for admin view
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
@@ -580,9 +632,28 @@ Fait à La Trinité, le [DATE]
                 ...newClient,
                 packsConsumed: newClient.packs_consumed,
                 loyaltyHoursAvailable: newClient.loyalty_hours_available,
-                hasLeftReview: newClient.has_left_review
+                hasLeftReview: newClient.has_left_review,
+                initialPassword: password
             };
             setClients(prev => [...prev, mappedClient]);
+            
+            // EMAIL SIMULATION
+            alert(`[SIMULATION EMAIL]
+------------------------------------------------
+À: ${clientData.email}
+Objet: Bienvenue chez Presta Services Antilles
+
+Bonjour ${clientData.name},
+
+Votre espace client est créé.
+Voici vos identifiants de connexion :
+
+Lien : https://presta-antilles.app/login
+Email : ${clientData.email}
+Mot de passe : ${password}
+
+Cordialement,
+L'équipe.`);
         }
     };
 
@@ -639,7 +710,8 @@ Fait à La Trinité, le [DATE]
             email: providerData.email,
             status: providerData.status,
             hours_worked: 0,
-            rating: 5
+            rating: 5,
+            initial_password: password // Saving initial password for admin view
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
@@ -653,14 +725,15 @@ Fait à La Trinité, le [DATE]
                  firstName: newProvider.first_name,
                  lastName: newProvider.last_name,
                  hoursWorked: newProvider.hours_worked,
-                 leaves: []
+                 leaves: [],
+                 initialPassword: password
              };
              setProviders(prev => [...prev, mapped]);
 
              await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
              
-             setTimeout(() => {
-                alert(`[SIMULATION EMAIL]
+             // EMAIL SIMULATION
+             alert(`[SIMULATION EMAIL]
 ------------------------------------------------
 À: ${providerData.email}
 Objet: Vos accès Prestataire - Presta Services Antilles
@@ -675,7 +748,6 @@ Mot de passe : ${password}
 
 Cordialement,
 L'équipe Presta Services Antilles`);
-             }, 500);
         }
     };
 
@@ -738,7 +810,14 @@ L'équipe Presta Services Antilles`);
         const provider = providers.find(p => p.id === id);
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
-            // Simulate Email Sending
+            // In a real app we'd update Supabase Auth user, but here we update our local ref
+            // and maybe the DB table for 'initial_password' so admin can see it again? 
+            // Or just alert it.
+            
+            await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
+            
+            setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
+
             alert(`[SIMULATION EMAIL]
 ------------------------------------------------
 À: ${provider.email}
@@ -746,7 +825,7 @@ Objet: Réinitialisation de mot de passe
 
 Bonjour ${provider.firstName},
 
-Votre mot de passe a été réinitialisé par l'administrateur.
+Votre mot de passe a été réinitialisé.
 
 Nouveau mot de passe : ${newPass}
 
@@ -1077,10 +1156,9 @@ Connectez-vous ici : https://presta-antilles.app/login
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
-        // Save to DB
         const { data, error } = await supabase.from('notifications').insert({
             targetUserType, 
-            targetUserId: targetUserId || null, // Ensure explicit null if undefined
+            targetUserId: targetUserId || null,
             type, 
             title, 
             message, 
@@ -1116,9 +1194,15 @@ Connectez-vous ici : https://presta-antilles.app/login
 
         if (error) {
             console.error("Login failed:", error.message);
-            return false;
+            throw new Error(error.message); // Propagate error to Login component
         }
-        return true;
+        
+        // Fetch user details immediately to prevent flicker
+        if (data.user) {
+            await fetchUserProfile(data.user);
+            return true;
+        }
+        return false;
     };
 
     const logout = async () => {

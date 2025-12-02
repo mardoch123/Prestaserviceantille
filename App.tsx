@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
@@ -17,7 +18,7 @@ import Settings from './components/Settings';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
 import Login from './components/Login';
-import { WifiOff, RotateCw } from 'lucide-react';
+import { WifiOff, RotateCw, Loader2 } from 'lucide-react';
 
 const OfflineBanner = () => {
     const { isOnline, pendingSyncCount } = useData();
@@ -41,8 +42,19 @@ const OfflineBanner = () => {
     );
 };
 
+const LoadingScreen = () => (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 text-slate-600">
+        <Loader2 className="w-12 h-12 text-brand-blue animate-spin mb-4" />
+        <p className="font-bold text-lg animate-pulse">Chargement de l'application...</p>
+    </div>
+);
+
 const AppLayout: React.FC = () => {
-    const { currentUser } = useData();
+    const { currentUser, loading } = useData();
+
+    if (loading) {
+        return <LoadingScreen />;
+    }
 
     if (!currentUser) {
         return <Login />;

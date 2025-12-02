@@ -166,6 +166,16 @@ const Providers: React.FC = () => {
       setIsLeaveModalOpen(true);
   };
 
+  const showCredentials = (provider: any) => {
+      alert(`[ACCÈS PRESTATAIRE]
+      
+Intervenant : ${provider.firstName} ${provider.lastName}
+Email : ${provider.email}
+Mot de passe initial : ${provider.initialPassword || 'Non disponible (déjà modifié ou inconnu)'}
+
+Lien de connexion : https://presta-antilles.app/login`);
+  };
+
   // Bulk Actions
   const toggleSelection = (id: string) => {
       const newSet = new Set(selectedIds);
@@ -314,6 +324,13 @@ const Providers: React.FC = () => {
                                     {p.status === 'Inactive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200"><XCircle className="w-3 h-3"/> Inactif</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                    <button 
+                                        onClick={() => showCredentials(p)}
+                                        className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200" 
+                                        title="Voir Identifiants"
+                                    >
+                                        <KeyRound className="w-4 h-4" />
+                                    </button>
                                     <button 
                                         onClick={() => openEditModal(p)}
                                         className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200" 

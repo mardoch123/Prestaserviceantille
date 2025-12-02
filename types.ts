@@ -51,6 +51,7 @@ export interface Provider {
   rating: number;
   phone: string;
   email: string;
+  initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
 }
 
 // DTO for creating a provider (no ID)
@@ -69,6 +70,7 @@ export interface Client {
   packsConsumed: number;
   loyaltyHoursAvailable: number;
   hasLeftReview?: boolean;
+  initialPassword?: string; // Stored specifically for admin viewing
 }
 
 // DTO for creating a client

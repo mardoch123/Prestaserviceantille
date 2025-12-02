@@ -21,7 +21,8 @@ import {
   Square,
   AlertTriangle,
   Loader2,
-  Edit
+  Edit,
+  KeyRound
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
@@ -166,6 +167,16 @@ const Clients: React.FC = () => {
     setTimeout(() => setToast({ show: false, message: '' }), 3000);
   };
 
+  const showCredentials = (client: any) => {
+      alert(`[ACCÈS CLIENT]
+      
+Client : ${client.name}
+Email : ${client.email}
+Mot de passe initial : ${client.initialPassword || 'Non disponible (déjà modifié ou inconnu)'}
+
+Lien de connexion : https://presta-antilles.app/login`);
+  };
+
   // Bulk Actions
   const toggleSelection = (id: string) => {
       const newSet = new Set(selectedIds);
@@ -274,6 +285,13 @@ const Clients: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
+                                        <button 
+                                            onClick={() => showCredentials(client)}
+                                            className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200"
+                                            title="Voir Identifiants"
+                                        >
+                                            <KeyRound className="w-4 h-4" />
+                                        </button>
                                         <button 
                                             onClick={() => openEditModal(client)}
                                             className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200"
