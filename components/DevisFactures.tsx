@@ -214,6 +214,8 @@ const DevisFactures: React.FC = () => {
         interventionSlots.forEach((slot) => {
              if (slot.date) {
                  addMission({
+                     // Fix: Added missing id
+                     id: `m-${Date.now()}-${slot.id}`,
                      date: slot.date,
                      startTime: slot.startTime,
                      endTime: slot.endTime,

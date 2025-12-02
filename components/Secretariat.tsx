@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     PackagePlus, 
@@ -17,7 +11,7 @@ import {
     ArrowRight,
     ArrowLeft,
     Check,
-    FileText,
+    FileText, 
     Stamp,
     MessageSquare,
     User,
@@ -939,7 +933,7 @@ const Secretariat: React.FC = () => {
                                 <p>Siège : {companySettings.address} | Email : {companySettings.email}</p>
                                 <p>N° SAP : {companySettings.siret}</p>
                                 <p className="text-xs italic mt-2 border-t border-beige-300 pt-1 w-fit mx-auto">
-                                    Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox) | Validité : 01/08/2025 -> 31/07/2026
+                                    Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox) | Validité : 01/08/2025 &rarr; 31/07/2026
                                 </p>
                             </div>
 

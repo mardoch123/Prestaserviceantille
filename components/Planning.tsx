@@ -138,6 +138,8 @@ const Planning: React.FC = () => {
           const dayIndex = currentDate.getDay() === 0 ? 5 : currentDate.getDay() - 1; // Mon=0
 
           addMission({
+              // Fix: Added missing id
+              id: `m-${Date.now()}-${i}`,
               date: dateStr,
               dayIndex: dayIndex,
               startTime: missionForm.startTime,
