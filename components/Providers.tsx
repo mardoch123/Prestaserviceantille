@@ -29,10 +29,8 @@ const Providers: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
 
-  // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
@@ -40,12 +38,10 @@ const Providers: React.FC = () => {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
   
-  // Delete Confirm
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
-  // Form
   const [formData, setFormData] = useState({
     lastName: '',
     firstName: '',
@@ -69,11 +65,9 @@ const Providers: React.FC = () => {
 
   const filteredProviders = useMemo(() => {
     let result = providers;
-    
     if (filterStatus !== 'all') {
         result = result.filter(p => p.status.toLowerCase() === filterStatus.toLowerCase());
     }
-
     if (searchQuery) {
         const query = searchQuery.toLowerCase();
         result = result.filter(p => 
@@ -82,7 +76,6 @@ const Providers: React.FC = () => {
             p.specialty.toLowerCase().includes(query)
         );
     }
-
     return result;
   }, [providers, filterStatus, searchQuery]);
 
@@ -176,7 +169,6 @@ Mot de passe initial : ${provider.initialPassword || 'Non disponible (déjà mod
 Lien de connexion : https://presta-antilles.app/login`);
   };
 
-  // Bulk Actions
   const toggleSelection = (id: string) => {
       const newSet = new Set(selectedIds);
       if (newSet.has(id)) {
@@ -211,7 +203,6 @@ Lien de connexion : https://presta-antilles.app/login`);
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
       
-       {/* Toast Notification */}
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
         <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
             <div className="bg-green-500 p-1 rounded-full text-white">
@@ -326,10 +317,10 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                                     <button 
                                         onClick={() => showCredentials(p)}
-                                        className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200" 
+                                        className="text-purple-600 hover:text-purple-800 text-xs font-bold px-3 py-1 bg-purple-50 border border-purple-200 rounded hover:bg-purple-100 transition" 
                                         title="Voir Identifiants"
                                     >
-                                        <KeyRound className="w-4 h-4" />
+                                        Voir ID
                                     </button>
                                     <button 
                                         onClick={() => openEditModal(p)}
@@ -366,11 +357,9 @@ Lien de connexion : https://presta-antilles.app/login`);
          </div>
       </div>
 
-      {/* CREATE/EDIT PROVIDER MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-                {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Prestataire' : 'Nouveau Prestataire'}</h3>
@@ -381,7 +370,6 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </button>
                 </div>
 
-                {/* Form */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                      <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -490,7 +478,6 @@ Lien de connexion : https://presta-antilles.app/login`);
         </div>
       )}
 
-      {/* DECLARE LEAVE MODAL */}
       {isLeaveModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
@@ -515,7 +502,6 @@ Lien de connexion : https://presta-antilles.app/login`);
           </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {deleteConfirmOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">

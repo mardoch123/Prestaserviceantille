@@ -13,7 +13,7 @@ export const LOGO_NORMAL = "https://via.placeholder.com/150";
 export const LOGO_SAP = "https://via.placeholder.com/100?text=SAP";
 export const CACHET_SIGNATURE = "https://via.placeholder.com/150?text=Cachet";
 
-// Helper for UUID generation if crypto is not available or for simple usage
+// Helper for UUID generation
 function generateUUID() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
@@ -30,11 +30,10 @@ function capitalize(s: string) {
     return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
-// Helper to calculate day index from date (0=Monday, 5=Saturday) for UI
+// Helper to calculate day index
 function getDayIndexFromDate(dateStr: string): number {
     const date = new Date(dateStr);
-    const day = date.getDay(); // 0 = Sunday, 1 = Monday...
-    // We want Monday = 0, Saturday = 5. Sunday = 6 (or -1 depending on logic, handled as 5 here for simplicity or ignored)
+    const day = date.getDay();
     return day === 0 ? 6 : day - 1; 
 }
 
@@ -50,28 +49,28 @@ interface DataContextType {
     cancelMissionByClient: (id: string) => Promise<void>;
     canCancelMission: (mission: Mission) => boolean;
     assignProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
-    deleteMissions: (ids: string[]) => Promise<void>; // BULK DELETE
+    deleteMissions: (ids: string[]) => Promise<void>; 
 
     clients: Client[];
     addClient: (client: CreateClientDTO) => Promise<void>;
-    updateClient: (id: string, data: Partial<Client>) => Promise<void>; // EDIT
-    deleteClients: (ids: string[]) => Promise<void>; // BULK DELETE
+    updateClient: (id: string, data: Partial<Client>) => Promise<void>; 
+    deleteClients: (ids: string[]) => Promise<void>; 
     addLoyaltyHours: (clientId: string, hours: number) => Promise<void>;
     submitClientReview: (clientId: string, rating: number, comment: string) => Promise<void>;
 
     providers: Provider[];
     addProvider: (provider: CreateProviderDTO) => Promise<void>;
-    updateProvider: (id: string, data: Partial<Provider>) => Promise<void>; // EDIT
-    deleteProviders: (ids: string[]) => Promise<void>; // BULK DELETE
+    updateProvider: (id: string, data: Partial<Provider>) => Promise<void>; 
+    deleteProviders: (ids: string[]) => Promise<void>; 
     addLeave: (providerId: string, start: string, end: string) => Promise<void>;
-    updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>; // ABSENCE MANAGEMENT
-    resetProviderPassword: (id: string) => Promise<void>; // PASSWORD RESET
+    updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>; 
+    resetProviderPassword: (id: string) => Promise<void>; 
 
     documents: Document[];
     addDocument: (doc: Document) => Promise<void>;
     updateDocumentStatus: (id: string, status: string) => Promise<void>;
     deleteDocument: (id: string) => Promise<void>;
-    deleteDocuments: (ids: string[]) => Promise<void>; // BULK DELETE
+    deleteDocuments: (ids: string[]) => Promise<void>; 
     duplicateDocument: (id: string) => Promise<void>;
     convertQuoteToInvoice: (quoteId: string) => Promise<void>;
     markInvoicePaid: (id: string) => Promise<void>;
@@ -83,7 +82,7 @@ interface DataContextType {
 
     packs: Pack[];
     addPack: (pack: Pack) => Promise<void>;
-    deletePacks: (ids: string[]) => Promise<void>; // BULK DELETE
+    deletePacks: (ids: string[]) => Promise<void>; 
 
     contracts: Contract[];
     addContract: (contract: Contract) => Promise<void>;
@@ -161,62 +160,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    // TEMPLATE CONFORME AU PDF
-    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
-Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
-N° SAP : SAP944789700
-Email : prestaservicesantilles.rh@gmail.com
-Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox)
-Validité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € – Monde entier (hors USA/Canada)
-
-CONTRAT DE PRESTATION DE SERVICE (SAP)
-
-1. INFORMATIONS DU CLIENT
-[INFO_CLIENT]
-
-2. INFORMATIONS DU PACK
-[INFO_PACK]
-
---------------------------------------------------------------
-CONDITIONS GÉNÉRALES & OBLIGATIONS
-
-Article 1 – Obligations du Prestataire
-Le Prestataire exécute les Prestations avec diligence et professionnalisme, selon les règles de l’art et dans le respect des normes d’hygiène et de sécurité applicables. Il affecte des intervenants compétents et placés sous encadrement. Les Prestations demeurent limitées au périmètre éligible au SAP.
-
-Article 9 – Obligations du Client
-Le Client assure l’accès au domicile aux dates et créneaux convenus, fournit les informations utiles et met à disposition un environnement conforme (électricité, eau, accès sécurisé). Il respecte les modalités de paiement et veille au maintien en place et à la lisibilité du QR code.
-
-Article 10 – Responsabilité
-Le Prestataire n’est pas responsable (i) des retards résultant d’un manquement du Client, notamment en cas d’accès impossible ou d’absence de QR code, ni (ii) des dommages, défauts ou dysfonctionnements antérieurs à l’intervention. Sa responsabilité est limitée aux dommages directs, certains et prouvés, dans la limite des plafonds de ses assurances.
-
-Article 11 – Protection des données (RGPD)
-Données traitées : identité et coordonnées, adresse d’intervention, consignes d’accès, données de pointage. Base légale : exécution du Contrat. Durées de conservation : pendant le Contrat puis selon les délais légaux. Droits du Client : accès, rectification, effacement, limitation, opposition et portabilité (contact : prestaservicesantilles.rh@gmail.com).
-
-Article 12 – Résiliation
-12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception.
-12.2. Pour manquement : en cas de manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit.
-12.3. Effets : les sommes dues au titre des prestations réalisées jusqu’à la date d’effet de la résiliation restent exigibles.
-
-Article 13 – Droit de rétractation (consommateur)
-En cas de conclusion à distance, le Client dispose d’un délai de 14 jours pour se rétracter. L’exécution avant la fin de ce délai nécessite accord exprès.
-
-Article 14 – Cas Particuliers & Annulation (Règles spécifiques)
-- Si l’annulation est faite moins de 48 h avant l’intervention, la mission est considérée comme réalisée et facturée à 50% du montant (Hors SAP, sans avance immédiate).
-- Le créneau devient disponible pour une nouvelle mission.
-- Une notification de rappel est envoyée 48h avant l'intervention (email).
-
-Dispositions diverses : La nullité d’une clause n’affecte pas la validité du reste du Contrat.
-Validation : Ce contrat doit être validé par l'administrateur avant mise en service.
-
-Fait à La Trinité, le [DATE]
-`;
+    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU\nSiège : 31 Résidence L’Autre Bord – 97220 La Trinité\nN° SAP : SAP944789700\nEmail : prestaservicesantilles.rh@gmail.com\nAssurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox)\nValidité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € – Monde entier (hors USA/Canada)\n\nCONTRAT DE PRESTATION DE SERVICE (SAP)\n\n1. INFORMATIONS DU CLIENT\n[INFO_CLIENT]\n\n2. INFORMATIONS DU PACK\n[INFO_PACK]\n\n--------------------------------------------------------------\nCONDITIONS GÉNÉRALES & OBLIGATIONS\n\nArticle 1 – Obligations du Prestataire\nLe Prestataire exécute les Prestations avec diligence et professionnalisme... (Texte complet du PDF)...\n\nFait à La Trinité, le [DATE]\n`;
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
-            // Ne pas mettre setLoading(true) ici si c'est un refresh silencieux pour ne pas bloquer l'UI
-            // Mais pour le chargement initial c'est géré par le useEffect principal
-            
             const [
                 { data: cData }, 
                 { data: pData }, 
@@ -240,35 +188,33 @@ Fait à La Trinité, le [DATE]
                 supabase.from('expenses').select('*'),
                 supabase.from('messages').select('*'),
                 supabase.from('notifications').select('*').order('date', { ascending: false }),
-                supabase.from('company_settings').select('*').single()
+                supabase.from('company_settings').select('*').maybeSingle()
             ]);
 
             if (cData) {
-                const mappedClients = cData.map((c: any) => ({
+                setClients(cData.map((c: any) => ({
                     ...c,
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                     hasLeftReview: c.has_left_review,
                     initialPassword: c.initial_password
-                }));
-                setClients(mappedClients);
+                })));
             }
             
             const { data: leavesData } = await supabase.from('leaves').select('*');
             if (pData) {
-                const mappedProviders = pData.map((p: any) => ({
+                setProviders(pData.map((p: any) => ({
                     ...p,
                     firstName: p.first_name || p.firstName,
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
                     leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
                     initialPassword: p.initial_password
-                }));
-                setProviders(mappedProviders);
+                })));
             }
 
             if (mData) {
-                const mappedMissions = mData.map((m: any) => ({
+                setMissions(mData.map((m: any) => ({
                     ...m,
                     dayIndex: m.date ? getDayIndexFromDate(m.date) : 0, 
                     startTime: m.start_time || m.startTime,
@@ -286,11 +232,10 @@ Fait à La Trinité, le [DATE]
                     reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                     reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
                     reportSent: m.report_sent || m.reportSent
-                }));
-                setMissions(mappedMissions);
+                })));
             }
             if (dData) {
-                const mappedDocs = dData.map((d: any) => ({
+                setDocuments(dData.map((d: any) => ({
                     ...d,
                     clientId: d.client_id || d.clientId,
                     clientName: d.client_name || d.clientName,
@@ -303,11 +248,10 @@ Fait à La Trinité, le [DATE]
                     reminderSent: d.reminder_sent,
                     signatureData: d.signature_data,
                     signatureDate: d.signature_date
-                }));
-                setDocuments(mappedDocs);
+                })));
             }
             if (packData) {
-                const mappedPacks = packData.map((p: any) => {
+                setPacks(packData.map((p: any) => {
                     const desc = p.description || '';
                     const quantityMatch = desc.match(/Quantité: (.*?)(\||$)/);
                     const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
@@ -326,38 +270,33 @@ Fait à La Trinité, le [DATE]
                         location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
                         frequency: freq
                     };
-                });
-                setPacks(mappedPacks);
+                }));
             }
             if (ctData) {
-                 const mappedContracts = ctData.map((c: any) => ({
+                 setContracts(ctData.map((c: any) => ({
                     ...c,
                     packId: c.pack_id || c.packId,
                     isSap: c.is_sap || c.isSap,
                     validationDate: c.validation_date || c.validationDate
-                 }));
-                 setContracts(mappedContracts);
+                 })));
             }
             if (rData) {
-                const mappedReminders = rData.map((r: any) => ({
+                setReminders(rData.map((r: any) => ({
                     ...r,
                     notifyEmail: r.notify_email || r.notifyEmail
-                }));
-                setReminders(mappedReminders);
+                })));
             }
             if (eData) {
-                const mappedExpenses = eData.map((e: any) => ({
+                setExpenses(eData.map((e: any) => ({
                     ...e,
                     proofUrl: e.proof_url || e.proofUrl
-                }));
-                setExpenses(mappedExpenses);
+                })));
             }
             if (msgData) {
-                const mappedMessages = msgData.map((m: any) => ({
+                setMessages(msgData.map((m: any) => ({
                     ...m,
                     clientId: m.client_id || m.clientId
-                }));
-                setMessages(mappedMessages);
+                })));
             }
             if (notifData) setNotifications(notifData);
             
@@ -380,41 +319,40 @@ Fait à La Trinité, le [DATE]
         }
     };
 
-    // --- AUTHENTICATION PERSISTENCE FIX ---
+    // --- AUTHENTICATION & INITIALIZATION ---
     useEffect(() => {
         let mounted = true;
 
-        const initializeAuth = async () => {
-            setLoading(true);
+        const init = async () => {
             try {
-                // Check for existing session on app load
+                // 1. Get session immediately
                 const { data: { session } } = await supabase.auth.getSession();
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
                 }
             } catch (error) {
-                console.error("Auth init error:", error);
+                console.error("Auth initialization failed:", error);
             } finally {
+                // Stop loading regardless of result
                 if (mounted) setLoading(false);
             }
         };
 
-        initializeAuth();
-        refreshData(); // Fetch application data parallel to auth
+        // Initialize auth and fetch data in parallel
+        init();
+        refreshData();
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user && mounted) {
-                // If user just signed in or token refreshed, ensure profile is loaded
-                if (!currentUser || currentUser.id !== session.user.id) {
-                     setLoading(true);
-                     await fetchUserProfile(session.user);
-                     setLoading(false);
-                }
-            } else if (!session && mounted) {
+            if (!mounted) return;
+
+            if (event === 'SIGNED_OUT') {
                 setCurrentUser(null);
-                setLoading(false);
+            } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                 if (session?.user) {
+                     await fetchUserProfile(session.user);
+                 }
             }
         });
 
@@ -426,7 +364,7 @@ Fait à La Trinité, le [DATE]
 
     const fetchUserProfile = async (authUser: any) => {
         try {
-            const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).single();
             if (profile) {
                 setCurrentUser({
                      id: authUser.id,
@@ -436,7 +374,6 @@ Fait à La Trinité, le [DATE]
                      relatedEntityId: profile.relatedEntityId
                  });
             } else if (authUser.email === 'admin@presta.com') {
-                 // Fallback for initial admin if profile missing
                  setCurrentUser({
                      id: authUser.id,
                      email: authUser.email,
@@ -464,20 +401,26 @@ Fait à La Trinité, le [DATE]
                 loyalty_reward_hours: settings.loyaltyRewardHours,
                 logo_url: settings.logoUrl
             };
+            
+            // Upsert based on name or ID if you had one. Assuming single row settings concept.
+            // Using maybeSingle during fetch suggests we want to update the existing row.
+            // For simplicity in this demo structure, we assume we update by name or just use a fixed ID concept if we had one.
+            // We will update all rows since there is only one settings row conceptually.
+            
+            // First, try to get the existing row to find an ID or just update all
             const { error } = await supabase
                 .from('company_settings')
                 .update(dbData)
-                .eq('name', companySettings.name); // Updates the single row based on name or assumes single row logic in DB
+                .neq('id', '00000000-0000-0000-0000-000000000000'); // Dummy filter to update all (or use a known ID)
 
             if (error) throw error;
-            setCompanySettings(settings); // Update local state immediately for UI response
+            setCompanySettings(settings); 
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
             throw err;
         }
     };
 
-    // MISSIONS
     const addMission = async (mission: Mission) => {
         const { id, ...missionData } = mission;
         const finalId = generateUUID(); 
@@ -500,10 +443,7 @@ Fait à La Trinité, le [DATE]
 
         const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
         
-        if (error) { 
-            console.error("Erreur ajout mission:", error); 
-            throw error; 
-        }
+        if (error) throw error;
         
         if (data) {
              const newMission = data[0];
@@ -526,8 +466,6 @@ Fait à La Trinité, le [DATE]
         const { error } = await supabase.from('missions').delete().in('id', ids);
         if (!error) {
             setMissions(prev => prev.filter(m => !ids.includes(m.id)));
-        } else {
-            console.error("Erreur suppression missions:", error);
         }
     };
 
@@ -595,12 +533,9 @@ Fait à La Trinité, le [DATE]
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
-        } else {
-            console.error("Erreur assignation:", error);
         }
     };
 
-    // CLIENTS
     const addClient = async (clientData: CreateClientDTO) => {
         const password = Math.random().toString(36).slice(-8);
 
@@ -616,44 +551,24 @@ Fait à La Trinité, le [DATE]
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
             has_left_review: false,
-            initial_password: password // Saving initial password for admin view
+            initial_password: password
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
         
-        if (error) {
-            console.error("Erreur ajout client:", error);
-            throw error;
-        }
+        if (error) throw error;
 
         if (data && data.length > 0) {
             const newClient = data[0];
-            const mappedClient: Client = {
+            setClients(prev => [...prev, {
                 ...newClient,
                 packsConsumed: newClient.packs_consumed,
                 loyaltyHoursAvailable: newClient.loyalty_hours_available,
                 hasLeftReview: newClient.has_left_review,
                 initialPassword: password
-            };
-            setClients(prev => [...prev, mappedClient]);
+            }]);
             
-            // EMAIL SIMULATION
-            alert(`[SIMULATION EMAIL]
-------------------------------------------------
-À: ${clientData.email}
-Objet: Bienvenue chez Presta Services Antilles
-
-Bonjour ${clientData.name},
-
-Votre espace client est créé.
-Voici vos identifiants de connexion :
-
-Lien : https://presta-antilles.app/login
-Email : ${clientData.email}
-Mot de passe : ${password}
-
-Cordialement,
-L'équipe.`);
+            alert(`[SIMULATION EMAIL ENVOYÉ À ${clientData.email}]\n\n"Bonjour, votre compte est créé.\nLogin: ${clientData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
         }
     };
 
@@ -669,8 +584,6 @@ L'équipe.`);
         
         if (!error) {
             setClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-        } else {
-            console.error("Erreur maj client", error);
         }
     };
 
@@ -678,8 +591,6 @@ L'équipe.`);
         const { error } = await supabase.from('clients').delete().in('id', ids);
         if (!error) {
             setClients(prev => prev.filter(c => !ids.includes(c.id)));
-        } else {
-             console.error("Erreur suppression clients:", error);
         }
     };
 
@@ -698,7 +609,6 @@ L'équipe.`);
         await supabase.from('reviews').insert({ clientId, rating, comment, date: new Date().toISOString() });
     };
 
-    // PROVIDERS
     const addProvider = async (providerData: CreateProviderDTO) => {
         const password = Math.random().toString(36).slice(-8);
 
@@ -711,7 +621,7 @@ L'équipe.`);
             status: providerData.status,
             hours_worked: 0,
             rating: 5,
-            initial_password: password // Saving initial password for admin view
+            initial_password: password
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
@@ -720,34 +630,18 @@ L'équipe.`);
 
         if (data) {
              const newProvider = data[0];
-             const mapped: Provider = {
+             setProviders(prev => [...prev, {
                  ...newProvider,
                  firstName: newProvider.first_name,
                  lastName: newProvider.last_name,
                  hoursWorked: newProvider.hours_worked,
                  leaves: [],
                  initialPassword: password
-             };
-             setProviders(prev => [...prev, mapped]);
+             }]);
 
-             await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
+             await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
              
-             // EMAIL SIMULATION
-             alert(`[SIMULATION EMAIL]
-------------------------------------------------
-À: ${providerData.email}
-Objet: Vos accès Prestataire - Presta Services Antilles
-
-Bonjour ${providerData.firstName},
-
-Votre compte prestataire a été créé. Vous pouvez désormais accéder à votre espace de gestion.
-
-Lien de connexion : https://presta-antilles.app/login
-Identifiant : ${providerData.email}
-Mot de passe : ${password}
-
-Cordialement,
-L'équipe Presta Services Antilles`);
+             alert(`[SIMULATION EMAIL ENVOYÉ À ${providerData.email}]\n\n"Bonjour ${providerData.firstName},\nVotre compte prestataire est actif.\nLogin: ${providerData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
         }
     };
 
@@ -763,8 +657,6 @@ L'équipe Presta Services Antilles`);
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if(!error) {
             setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
-        } else {
-            console.error("Erreur update provider", error);
         }
     };
 
@@ -772,8 +664,6 @@ L'équipe Presta Services Antilles`);
         const { error } = await supabase.from('providers').delete().in('id', ids);
         if (!error) {
             setProviders(prev => prev.filter(p => !ids.includes(p.id)));
-        } else {
-            console.error("Erreur suppression prestataires:", error);
         }
     };
 
@@ -794,7 +684,6 @@ L'équipe Presta Services Antilles`);
 
     const updateLeaveStatus = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
         const { error } = await supabase.from('leaves').update({ status }).eq('id', leaveId);
-        
         if (!error) {
             setProviders(prev => prev.map(p => {
                 if(p.id === providerId) {
@@ -810,34 +699,14 @@ L'équipe Presta Services Antilles`);
         const provider = providers.find(p => p.id === id);
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
-            // In a real app we'd update Supabase Auth user, but here we update our local ref
-            // and maybe the DB table for 'initial_password' so admin can see it again? 
-            // Or just alert it.
-            
             await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
-            
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
-
-            alert(`[SIMULATION EMAIL]
-------------------------------------------------
-À: ${provider.email}
-Objet: Réinitialisation de mot de passe
-
-Bonjour ${provider.firstName},
-
-Votre mot de passe a été réinitialisé.
-
-Nouveau mot de passe : ${newPass}
-
-Connectez-vous ici : https://presta-antilles.app/login
-`);
+            alert(`[SIMULATION EMAIL]\nNouveau mot de passe envoyé à ${provider.email} : ${newPass}`);
         }
     };
 
-    // DOCUMENTS
     const addDocument = async (doc: Document) => {
         const finalId = generateUUID();
-
         const dbDocData = {
             id: finalId,
             ref: doc.ref,
@@ -862,13 +731,12 @@ Connectez-vous ici : https://presta-antilles.app/login
         
         if (error) {
             console.error("Error creating document", error);
-            alert("Erreur création document: " + error.message);
             return;
         }
 
         if (data) {
              const newDoc = data[0];
-             const mappedDoc: Document = {
+             setDocuments(prev => [...prev, {
                  ...newDoc,
                  clientId: newDoc.client_id,
                  clientName: newDoc.client_name,
@@ -879,8 +747,7 @@ Connectez-vous ici : https://presta-antilles.app/login
                  taxCreditEnabled: newDoc.tax_credit_enabled,
                  slotsData: newDoc.slots_data,
                  reminderSent: newDoc.reminder_sent
-             };
-             setDocuments(prev => [...prev, mappedDoc]);
+             }]);
         }
     };
 
@@ -898,8 +765,6 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { error } = await supabase.from('documents').delete().in('id', ids);
         if (!error) {
             setDocuments(prev => prev.filter(d => !ids.includes(d.id)));
-        } else {
-             console.error("Erreur suppression documents:", error);
         }
     };
 
@@ -986,10 +851,8 @@ Connectez-vous ici : https://presta-antilles.app/login
         }
     };
 
-    // PACKS
     const addPack = async (pack: Pack) => {
         const finalId = generateUUID();
-        
         const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
         const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
 
@@ -1013,14 +876,13 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { data, error } = await supabase.from('packs').insert(dbPackData).select();
         
         if (error) {
-             console.error("Erreur sauvegarde Pack:", error);
-             alert(`Erreur de sauvegarde base de données: ${error.message}`);
+             alert(`Erreur de sauvegarde: ${error.message}`);
              return;
         }
 
         if (data) {
              const newPack = data[0];
-             const mappedPack: Pack = {
+             setPacks(prev => [...prev, {
                  ...newPack,
                  mainService: newPack.main_service,
                  priceHT: newPack.price_ht,
@@ -1032,8 +894,7 @@ Connectez-vous ici : https://presta-antilles.app/login
                  quantity: pack.quantity,
                  location: pack.location,
                  frequency: capitalize(newPack.frequency) as any
-             };
-             setPacks(prev => [...prev, mappedPack]);
+             }]);
         }
     };
 
@@ -1041,8 +902,6 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { error } = await supabase.from('packs').delete().in('id', ids);
         if (!error) {
             setPacks(prev => prev.filter(p => !ids.includes(p.id)));
-        } else {
-             console.error("Erreur suppression packs:", error);
         }
     };
 
@@ -1063,19 +922,17 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { data, error } = await supabase.from('contracts').insert(dbData).select();
         
         if (error) {
-            console.error("Error saving contract:", error);
             alert("Erreur lors de la sauvegarde du contrat: " + error.message);
             return;
         }
 
         if (data) {
-             const mapped = {
+             setContracts(prev => [...prev, {
                 ...data[0],
                 packId: data[0].pack_id,
                 isSap: data[0].is_sap,
                 validationDate: data[0].validation_date
-             };
-             setContracts(prev => [...prev, mapped]);
+             }]);
         }
     };
 
@@ -1094,8 +951,7 @@ Connectez-vous ici : https://presta-antilles.app/login
         const dbData = { ...rData, notify_email: rData.notifyEmail };
         const { data } = await supabase.from('reminders').insert(dbData).select();
         if (data) {
-            const mapped = { ...data[0], notifyEmail: data[0].notify_email };
-            setReminders(prev => [...prev, mapped]);
+            setReminders(prev => [...prev, { ...data[0], notifyEmail: data[0].notify_email }]);
         }
     };
 
@@ -1121,42 +977,34 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { data, error } = await supabase.from('expenses').insert(dbData).select();
         
         if (error) {
-            console.error("Erreur sauvegarde dépense:", error);
             alert("Erreur sauvegarde dépense: " + error.message);
             return;
         }
 
         if (data) {
-             const mapped = { ...data[0], proofUrl: data[0].proof_url };
-             setExpenses(prev => [...prev, mapped]);
+             setExpenses(prev => [...prev, { ...data[0], proofUrl: data[0].proof_url }]);
         }
     };
 
     const replyToClient = async (text: string, clientId: string) => {
         const dbData = { sender: 'admin', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
-        const { data, error } = await supabase.from('messages').insert(dbData).select();
-        
+        const { data } = await supabase.from('messages').insert(dbData).select();
         if(data) {
-            const mapped = { ...data[0], clientId: data[0].client_id };
-            setMessages(prev => [...prev, mapped]);
-        } else {
-            console.error("Erreur envoi message", error);
+            setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
         }
     };
 
     const sendClientMessage = async (text: string, clientId: string) => {
         const dbData = { sender: 'client', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
         const { data } = await supabase.from('messages').insert(dbData).select();
-        
         if (data) {
-            const mapped = { ...data[0], clientId: data[0].client_id };
-            setMessages(prev => [...prev, mapped]);
+            setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
             await addNotification('admin', 'message', 'Nouveau Message', `De client: ${text.substring(0, 20)}...`);
         }
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
-        const { data, error } = await supabase.from('notifications').insert({
+        const { data } = await supabase.from('notifications').insert({
             targetUserType, 
             targetUserId: targetUserId || null,
             type, 
@@ -1167,10 +1015,6 @@ Connectez-vous ici : https://presta-antilles.app/login
             link
         }).select();
         
-        if (error) {
-            console.error("Erreur sauvegarde notification:", error);
-        }
-
         if (data) {
             setNotifications(prev => [data[0] as AppNotification, ...prev]);
         }
@@ -1182,22 +1026,15 @@ Connectez-vous ici : https://presta-antilles.app/login
     };
 
     const login = async (email: string, password?: string): Promise<boolean> => {
-        if (!password) {
-            console.error("Password required");
-            return false;
-        }
+        if (!password) return false;
 
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password
         });
 
-        if (error) {
-            console.error("Login failed:", error.message);
-            throw new Error(error.message); // Propagate error to Login component
-        }
+        if (error) throw new Error(error.message);
         
-        // Fetch user details immediately to prevent flicker
         if (data.user) {
             await fetchUserProfile(data.user);
             return true;

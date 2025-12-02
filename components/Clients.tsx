@@ -93,7 +93,6 @@ const Clients: React.FC = () => {
   const openEditModal = (client: any) => {
       setIsEditMode(true);
       setCurrentEditId(client.id);
-      // Split name for form
       const nameParts = client.name.split(' ');
       const lastName = nameParts.pop() || '';
       const firstName = nameParts.join(' ');
@@ -177,7 +176,6 @@ Mot de passe initial : ${client.initialPassword || 'Non disponible (déjà modif
 Lien de connexion : https://presta-antilles.app/login`);
   };
 
-  // Bulk Actions
   const toggleSelection = (id: string) => {
       const newSet = new Set(selectedIds);
       if (newSet.has(id)) {
@@ -287,10 +285,10 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     <div className="flex items-center justify-end gap-2">
                                         <button 
                                             onClick={() => showCredentials(client)}
-                                            className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200"
+                                            className="text-purple-600 hover:text-purple-800 text-xs font-bold px-3 py-1 bg-purple-50 border border-purple-200 rounded hover:bg-purple-100 transition"
                                             title="Voir Identifiants"
                                         >
-                                            <KeyRound className="w-4 h-4" />
+                                            Voir ID
                                         </button>
                                         <button 
                                             onClick={() => openEditModal(client)}
@@ -318,7 +316,6 @@ Lien de connexion : https://presta-antilles.app/login`);
          </div>
       </div>
 
-      {/* Create/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
@@ -358,7 +355,6 @@ Lien de connexion : https://presta-antilles.app/login`);
         </div>
       )}
 
-      {/* Loyalty Modal */}
       {loyaltyModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center">
@@ -379,7 +375,6 @@ Lien de connexion : https://presta-antilles.app/login`);
           </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {deleteConfirmOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">
