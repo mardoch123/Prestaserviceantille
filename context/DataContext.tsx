@@ -1,5 +1,4 @@
 
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
@@ -122,6 +121,7 @@ interface DataContextType {
     loading: boolean;
     
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
+    refreshData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -160,7 +160,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    // TEMPLATE CONFORME AU PDF (Page 1, 2, 3)
+    // TEMPLATE CONFORME AU PDF
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
 Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
@@ -265,7 +265,7 @@ Fait à La Trinité, le [DATE]
             if (mData) {
                 const mappedMissions = mData.map((m: any) => ({
                     ...m,
-                    dayIndex: m.date ? getDayIndexFromDate(m.date) : 0, // Calculate dynamically, do not rely on DB column
+                    dayIndex: m.date ? getDayIndexFromDate(m.date) : 0, 
                     startTime: m.start_time || m.startTime,
                     endTime: m.end_time || m.endTime,
                     clientId: m.client_id || m.clientId,
@@ -428,9 +428,9 @@ Fait à La Trinité, le [DATE]
     // MISSIONS
     const addMission = async (mission: Mission) => {
         const { id, ...missionData } = mission;
-        const finalId = (id && id.length > 10 && !id.startsWith('m-')) ? id : generateUUID();
+        // If ID is a temp 'm-' one, let DB generate UUID or generate one here
+        const finalId = generateUUID(); 
         
-        // Remove dayIndex from insert payload as it is not in DB schema
         const dbMissionData = {
             id: finalId,
             date: missionData.date,
@@ -449,12 +449,16 @@ Fait à La Trinité, le [DATE]
 
         const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
         
-        if (error) { console.error("Erreur ajout mission:", error); return; }
+        if (error) { 
+            console.error("Erreur ajout mission:", error); 
+            throw error; 
+        }
+        
         if (data) {
              const newMission = data[0];
              const mappedMission: Mission = {
                 ...newMission,
-                dayIndex: getDayIndexFromDate(newMission.date), // Calc local
+                dayIndex: getDayIndexFromDate(newMission.date), 
                 startTime: newMission.start_time,
                 endTime: newMission.end_time,
                 clientId: newMission.client_id,
@@ -462,8 +466,9 @@ Fait à La Trinité, le [DATE]
                 providerId: newMission.provider_id,
                 providerName: newMission.provider_name
              };
+            // Updating state is good for optimistic UI, but refreshData ensures consistency with real IDs
             setMissions(prev => [...prev, mappedMission]);
-            addNotification('admin', 'info', 'Nouvelle Mission', `Mission planifiée pour ${mission.clientName} le ${mission.date}`);
+            await addNotification('admin', 'info', 'Nouvelle Mission', `Mission planifiée pour ${mission.clientName} le ${mission.date}`);
         }
     };
 
@@ -501,7 +506,7 @@ Fait à La Trinité, le [DATE]
             setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video } : m));
             const m = missions.find(m => m.id === id);
             if (m) {
-                addNotification('admin', 'success', 'Mission terminée', `Mission chez ${m.clientName} terminée`, undefined, `mission:${id}`);
+                await addNotification('admin', 'success', 'Mission terminée', `Mission chez ${m.clientName} terminée`, undefined, `mission:${id}`);
             }
         }
     };
@@ -510,7 +515,7 @@ Fait à La Trinité, le [DATE]
         const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
         if (!error) {
             setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'cancelled', cancellationReason: reason } : m));
-            addNotification('admin', 'alert', 'Annulation Prestataire', `Motif : ${reason}`, undefined, `mission:${id}`);
+            await addNotification('admin', 'alert', 'Annulation Prestataire', `Motif : ${reason}`, undefined, `mission:${id}`);
         }
     };
 
@@ -521,7 +526,7 @@ Fait à La Trinité, le [DATE]
             const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: 'Annulé par client', late_cancellation: isLate }).eq('id', id);
             if (!error) {
                 setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
-                addNotification('admin', 'alert', 'Annulation Client', `Client: ${m.clientName}`, undefined, `mission:${id}`);
+                await addNotification('admin', 'alert', 'Annulation Client', `Client: ${m.clientName}`, undefined, `mission:${id}`);
             }
         }
     };
@@ -536,8 +541,13 @@ Fait à La Trinité, le [DATE]
 
     const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
+        
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
+            // Send notification to provider
+            await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
+        } else {
+            console.error("Erreur assignation:", error);
         }
     };
 
@@ -647,7 +657,7 @@ Fait à La Trinité, le [DATE]
              };
              setProviders(prev => [...prev, mapped]);
 
-             addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
+             await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
              
              setTimeout(() => {
                 alert(`[SIMULATION EMAIL]
@@ -747,8 +757,7 @@ Connectez-vous ici : https://presta-antilles.app/login
 
     // DOCUMENTS
     const addDocument = async (doc: Document) => {
-        // Generate UUID if needed
-        const finalId = (doc.id && doc.id.length > 10 && !doc.id.startsWith('doc-')) ? doc.id : generateUUID();
+        const finalId = generateUUID();
 
         const dbDocData = {
             id: finalId,
@@ -766,7 +775,7 @@ Connectez-vous ici : https://presta-antilles.app/login
             total_ttc: doc.totalTTC,
             tax_credit_enabled: doc.taxCreditEnabled,
             status: doc.status,
-            slots_data: doc.slotsData, // Correctly mapped to snake_case column
+            slots_data: doc.slotsData,
             reminder_sent: false
         };
 
@@ -860,17 +869,17 @@ Connectez-vous ici : https://presta-antilles.app/login
         const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: new Date().toISOString() }).eq('id', id);
         if(!error) {
             setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
-            addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
+            await addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
         }
     };
 
     const refuseQuote = async (id: string) => {
         await updateDocumentStatus(id, 'rejected');
-        addNotification('admin', 'alert', 'Devis Refusé', `Devis refusé par client.`);
+        await addNotification('admin', 'alert', 'Devis Refusé', `Devis refusé par client.`);
     };
 
     const requestInvoice = async (docId: string) => {
-        addNotification('admin', 'info', 'Demande Facture', `Client demande facture pour document ${docId}`);
+        await addNotification('admin', 'info', 'Demande Facture', `Client demande facture pour document ${docId}`);
     };
 
     const refundTransaction = async (ref: string, amount: number) => {
@@ -894,19 +903,15 @@ Connectez-vous ici : https://presta-antilles.app/login
                 status: 'paid'
             };
             await addDocument(refundDoc);
-            addNotification('client', 'info', 'Remboursement', `Avoir de ${amount}€ émis.`, doc.clientId);
+            await addNotification('client', 'info', 'Remboursement', `Avoir de ${amount}€ émis.`, doc.clientId);
         }
     };
 
     // PACKS
     const addPack = async (pack: Pack) => {
-        // Generate UUID if not present or if it's a temp ID
-        const finalId = (pack.id && pack.id.length > 10 && !pack.id.startsWith('p-')) ? pack.id : generateUUID();
+        const finalId = generateUUID();
         
-        // Merge quantity and location into description so they persist in DB text field
         const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
-
-        // Ensure frequency is lowercase to match enum defined in DB (ponctuelle, hebdomadaire, etc)
         const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
 
         const dbPackData = {
@@ -945,10 +950,8 @@ Connectez-vous ici : https://presta-antilles.app/login
                  suppliesDetails: newPack.supplies_details,
                  isSap: newPack.is_sap,
                  contractType: newPack.contract_type,
-                 // Restore from passed state for immediate UI feedback (or parse description)
                  quantity: pack.quantity,
                  location: pack.location,
-                 // Capitalize for UI
                  frequency: capitalize(newPack.frequency) as any
              };
              setPacks(prev => [...prev, mappedPack]);
@@ -965,10 +968,7 @@ Connectez-vous ici : https://presta-antilles.app/login
     };
 
     const addContract = async (contract: Contract) => {
-        // Generate valid UUID if needed
-        const finalId = (contract.id && contract.id.length > 10 && !contract.id.startsWith('c-')) ? contract.id : generateUUID();
-        
-        // Handle pack_id being empty string -> null
+        const finalId = generateUUID();
         const packId = contract.packId === "" ? null : contract.packId;
 
         const dbData = {
@@ -1030,15 +1030,14 @@ Connectez-vous ici : https://presta-antilles.app/login
 
     const addExpense = async (expense: Expense) => {
         const { id, ...eData } = expense;
-        // Map to snake_case for DB
-        const finalId = (id && id.length > 10 && !id.startsWith('e-')) ? id : generateUUID();
+        const finalId = generateUUID();
         const dbData = { 
             id: finalId,
             date: eData.date,
             amount: eData.amount,
             category: eData.category,
             description: eData.description,
-            proof_url: eData.proofUrl // Ensure mapping
+            proof_url: eData.proofUrl
         };
         const { data, error } = await supabase.from('expenses').insert(dbData).select();
         
@@ -1073,15 +1072,30 @@ Connectez-vous ici : https://presta-antilles.app/login
         if (data) {
             const mapped = { ...data[0], clientId: data[0].client_id };
             setMessages(prev => [...prev, mapped]);
-            addNotification('admin', 'message', 'Nouveau Message', `De client: ${text.substring(0, 20)}...`);
+            await addNotification('admin', 'message', 'Nouveau Message', `De client: ${text.substring(0, 20)}...`);
         }
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
-        const { data } = await supabase.from('notifications').insert({
-            targetUserType, targetUserId, type, title, message, date: new Date().toLocaleTimeString(), read: false, link
+        // Save to DB
+        const { data, error } = await supabase.from('notifications').insert({
+            targetUserType, 
+            targetUserId: targetUserId || null, // Ensure explicit null if undefined
+            type, 
+            title, 
+            message, 
+            date: new Date().toLocaleTimeString(), 
+            read: false, 
+            link
         }).select();
-        if (data) setNotifications(prev => [data[0] as AppNotification, ...prev]);
+        
+        if (error) {
+            console.error("Erreur sauvegarde notification:", error);
+        }
+
+        if (data) {
+            setNotifications(prev => [data[0] as AppNotification, ...prev]);
+        }
     };
 
     const markNotificationRead = async (id: string) => {
@@ -1188,7 +1202,7 @@ Connectez-vous ici : https://presta-antilles.app/login
             simulatedProviderId, setSimulatedProviderId,
             activeStream, startLiveStream, stopLiveStream,
             isOnline, pendingSyncCount, loading,
-            getAvailableSlots
+            getAvailableSlots, refreshData
         }}>
             {children}
         </DataContext.Provider>
