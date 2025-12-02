@@ -1,0 +1,458 @@
+
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useData } from '../context/DataContext';
+import { 
+  Filter, 
+  Search, 
+  UserPlus, 
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  X,
+  Phone,
+  CalendarX,
+  Trash2,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  Mail
+} from 'lucide-react';
+
+const Providers: React.FC = () => {
+  const { providers, addProvider, deleteProviders, addLeave } = useData();
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const location = useLocation();
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Modal & Toast
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
+  
+  // Delete Confirm
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+
+  // Form
+  const [formData, setFormData] = useState({
+    lastName: '',
+    firstName: '',
+    specialty: 'Ménage',
+    phone: '',
+    email: '',
+    status: 'Active'
+  });
+
+  const [leaveForm, setLeaveForm] = useState({
+      startDate: '',
+      endDate: ''
+  });
+
+  useEffect(() => {
+    if (location.state) {
+        const state = location.state as { filter?: string };
+        if (state.filter) setFilterStatus(state.filter);
+    }
+  }, [location]);
+
+  const filteredProviders = useMemo(() => {
+    let result = providers;
+    
+    if (filterStatus !== 'all') {
+        result = result.filter(p => p.status.toLowerCase() === filterStatus.toLowerCase());
+    }
+
+    if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        result = result.filter(p => 
+            p.lastName.toLowerCase().includes(query) || 
+            p.firstName.toLowerCase().includes(query) ||
+            p.specialty.toLowerCase().includes(query)
+        );
+    }
+
+    return result;
+  }, [providers, filterStatus, searchQuery]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      addProvider({
+          lastName: formData.lastName,
+          firstName: formData.firstName,
+          specialty: formData.specialty,
+          phone: formData.phone,
+          email: formData.email,
+          status: formData.status as 'Active',
+      });
+      setIsModalOpen(false);
+      // Toast handles inside context or here? Context handles notification, but local toast is nice
+      // showToast(`Prestataire ${formData.firstName} ${formData.lastName} ajouté avec succès !`);
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage', phone: '', email: '', status: 'Active' });
+  };
+
+  const handleLeaveSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (selectedProviderId && leaveForm.startDate && leaveForm.endDate) {
+          addLeave(selectedProviderId, leaveForm.startDate, leaveForm.endDate);
+          setIsLeaveModalOpen(false);
+          showToast('Congés déclarés avec succès. Le planning sera mis à jour.');
+          setLeaveForm({ startDate: '', endDate: '' });
+      }
+  };
+
+  const showToast = (message: string) => {
+    setToast({ show: true, message });
+    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  };
+
+  const openLeaveModal = (id: string) => {
+      setSelectedProviderId(id);
+      setIsLeaveModalOpen(true);
+  };
+
+  // Bulk Actions
+  const toggleSelection = (id: string) => {
+      const newSet = new Set(selectedIds);
+      if (newSet.has(id)) {
+          newSet.delete(id);
+      } else {
+          newSet.add(id);
+      }
+      setSelectedIds(newSet);
+  };
+
+  const toggleSelectAll = () => {
+      if (selectedIds.size === filteredProviders.length) {
+          setSelectedIds(new Set());
+      } else {
+          setSelectedIds(new Set(filteredProviders.map(p => p.id)));
+      }
+  };
+
+  const confirmBulkDelete = () => {
+      if (selectedIds.size > 0) {
+          setDeleteConfirmOpen(true);
+      }
+  };
+
+  const executeBulkDelete = async () => {
+      await deleteProviders(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setDeleteConfirmOpen(false);
+      showToast('Prestataires supprimés avec succès.');
+  };
+
+  return (
+    <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
+      
+       {/* Toast Notification */}
+       <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
+        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
+            <div className="bg-green-500 p-1 rounded-full text-white">
+                <CheckCircle className="w-4 h-4" />
+            </div>
+            <div>
+                <h4 className="font-bold text-sm">Succès</h4>
+                <p className="text-xs text-slate-300">{toast.message}</p>
+            </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div>
+          <h2 className="text-3xl font-serif font-bold text-slate-800">Prestataires</h2>
+          <p className="text-sm text-slate-500 mt-1">Suivi des équipes et heures travaillées</p>
+        </div>
+        
+        <div className="flex gap-4">
+            {selectedIds.size > 0 && (
+               <button onClick={confirmBulkDelete} className="bg-red-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
+                   <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
+               </button>
+            )}
+           <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
+            <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
+            <select 
+                value={filterStatus} 
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
+            >
+                <option value="all">Tous</option>
+                <option value="active">Actifs</option>
+                <option value="passive">Passifs</option>
+                <option value="inactive">Inactifs</option>
+            </select>
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"
+          >
+              <UserPlus className="w-4 h-4" /> Ajouter
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-cream-50/50">
+            <h3 className="font-bold text-slate-700">Liste des intervenants</h3>
+            <div className="relative w-64">
+                <input 
+                    type="text" 
+                    placeholder="Nom, spécialité..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                />
+                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+            </div>
+         </div>
+
+         <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+                <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 border-b border-slate-100">
+                    <tr>
+                        <th className="px-6 py-4 w-10">
+                            <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700">
+                                {selectedIds.size > 0 && selectedIds.size === filteredProviders.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                            </button>
+                        </th>
+                        <th className="px-6 py-4 font-bold">Prestataire</th>
+                        <th className="px-6 py-4 font-bold">Contact</th>
+                        <th className="px-6 py-4 font-bold">Spécialité</th>
+                        <th className="px-6 py-4 font-bold text-center">Heures (Mois)</th>
+                        <th className="px-6 py-4 font-bold text-center">Statut</th>
+                        <th className="px-6 py-4 font-bold text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                    {filteredProviders.length > 0 ? (
+                        filteredProviders.map(p => (
+                            <tr key={p.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(p.id) ? 'bg-blue-50' : ''}`}>
+                                <td className="px-6 py-4">
+                                    <button onClick={() => toggleSelection(p.id)} className="text-slate-400 hover:text-brand-blue">
+                                        {selectedIds.has(p.id) ? <CheckSquare className="w-4 h-4 text-brand-blue" /> : <Square className="w-4 h-4" />}
+                                    </button>
+                                </td>
+                                <td className="px-6 py-4 font-bold text-slate-700">
+                                    {p.firstName} {p.lastName}
+                                    {p.leaves.length > 0 && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded">Congés déclarés</span>}
+                                </td>
+                                <td className="px-6 py-4 text-slate-600">
+                                    <div className="flex flex-col text-xs">
+                                        <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400"/> {p.phone}</span>
+                                        <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400"/> {p.email}</span>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 text-slate-600">
+                                    <span className="bg-slate-100 px-2 py-1 rounded text-xs font-medium">{p.specialty}</span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                    <div className="flex items-center justify-center gap-2 font-mono text-slate-600">
+                                        <Clock className="w-3 h-3 text-slate-400" />
+                                        {p.hoursWorked}h
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                    {p.status === 'Active' && <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full border border-green-200"><CheckCircle className="w-3 h-3"/> Actif</span>}
+                                    {p.status === 'Passive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-orange-700 bg-orange-100 px-2 py-1 rounded-full border border-orange-200"><AlertCircle className="w-3 h-3"/> Passif</span>}
+                                    {p.status === 'Inactive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200"><XCircle className="w-3 h-3"/> Inactif</span>}
+                                </td>
+                                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                    <button onClick={() => openLeaveModal(p.id)} className="text-slate-500 hover:text-brand-orange font-bold text-xs border border-slate-200 rounded px-2 py-1 flex items-center gap-1">
+                                        <CalendarX className="w-3 h-3" /> Congés
+                                    </button>
+                                </td>
+                            </tr>
+                        ))
+                    ) : (
+                        <tr>
+                            <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
+                                Aucun prestataire trouvé.
+                            </td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+         </div>
+      </div>
+
+      {/* NEW PROVIDER MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                {/* Header */}
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">Nouveau Prestataire</h3>
+                        <p className="text-xs text-slate-500 mt-1">Ajouter un membre à l'équipe</p>
+                    </div>
+                    <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Nom</label>
+                            <input 
+                                required
+                                type="text" 
+                                name="lastName"
+                                value={formData.lastName}
+                                onChange={handleInputChange}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Prénom</label>
+                            <input 
+                                required
+                                type="text" 
+                                name="firstName"
+                                value={formData.firstName}
+                                onChange={handleInputChange}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                            />
+                        </div>
+                    </div>
+                    
+                    <div>
+                         <label className="block text-sm font-bold text-slate-700 mb-1">Spécialité</label>
+                         <select 
+                            name="specialty"
+                            value={formData.specialty}
+                            onChange={handleInputChange}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                         >
+                             <option value="Ménage">Ménage / Entretien</option>
+                             <option value="Jardinage">Jardinage</option>
+                             <option value="Bricolage">Bricolage</option>
+                             <option value="Aide à domicile">Aide à domicile</option>
+                             <option value="Autre">Autre</option>
+                         </select>
+                    </div>
+
+                     <div className="grid grid-cols-2 gap-4">
+                         <div>
+                             <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">
+                                <Phone className="w-3 h-3 text-slate-400" /> Mobile
+                             </label>
+                             <input 
+                                required
+                                type="tel" 
+                                name="phone"
+                                value={formData.phone}
+                                onChange={handleInputChange}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                             />
+                        </div>
+                        <div>
+                             <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">
+                                <Mail className="w-3 h-3 text-slate-400" /> Email (Obligatoire)
+                             </label>
+                             <input 
+                                required
+                                type="email" 
+                                name="email"
+                                value={formData.email}
+                                onChange={handleInputChange}
+                                placeholder="Pour envoi identifiants"
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                             />
+                        </div>
+                    </div>
+
+                     <div className="pt-4 flex justify-end gap-3">
+                        <button 
+                            type="button"
+                            onClick={() => setIsModalOpen(false)}
+                            className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            type="submit"
+                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2"
+                        >
+                            <CheckCircle className="w-4 h-4" /> Ajouter & Envoyer ID
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* DECLARE LEAVE MODAL */}
+      {isLeaveModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                <div className="p-6 border-b border-slate-100 bg-cream-50">
+                    <h3 className="text-xl font-serif font-bold text-slate-800">Déclarer Congés</h3>
+                </div>
+                <form onSubmit={handleLeaveSubmit} className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Date Début</label>
+                        <input type="date" required className="w-full p-2 border rounded" value={leaveForm.startDate} onChange={e => setLeaveForm({...leaveForm, startDate: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Date Fin</label>
+                        <input type="date" required className="w-full p-2 border rounded" value={leaveForm.endDate} onChange={e => setLeaveForm({...leaveForm, endDate: e.target.value})} />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                         <button type="button" onClick={() => setIsLeaveModalOpen(false)} className="px-4 py-2 rounded text-slate-600 font-bold">Annuler</button>
+                         <button type="submit" className="px-4 py-2 rounded bg-brand-orange text-white font-bold">Valider</button>
+                    </div>
+                </form>
+            </div>
+          </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">
+                <div className="flex flex-col items-center text-center">
+                    <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                        <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmer la suppression</h3>
+                    <p className="text-sm text-slate-500 mb-6">
+                        Êtes-vous sûr de vouloir supprimer {selectedIds.size} prestataire(s) ? Cette action est irréversible.
+                    </p>
+                    <div className="flex gap-3 w-full">
+                        <button 
+                            onClick={() => setDeleteConfirmOpen(false)}
+                            className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            onClick={executeBulkDelete}
+                            className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md"
+                        >
+                            Supprimer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Providers;

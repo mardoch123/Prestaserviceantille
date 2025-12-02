@@ -1,0 +1,8 @@
+{
+  "name": "Presta Services Antilles - Dashboard",
+  "description": "A comprehensive dashboard for managing service business activities, planning, invoicing, and provider management with a cream and beige aesthetic.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
