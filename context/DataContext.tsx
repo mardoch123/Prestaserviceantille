@@ -1,6 +1,6 @@
 
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
     AppNotification, Message, User, StreamSession, Expense, CompanySettings,
@@ -139,6 +139,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loyaltyRewardHours: 2,
         logoUrl: LOGO_NORMAL
     });
+    const [settingsId, setSettingsId] = useState<number | null>(null);
 
     const [missions, setMissions] = useState<Mission[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -188,7 +189,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 supabase.from('expenses').select('*'),
                 supabase.from('messages').select('*'),
                 supabase.from('notifications').select('*').order('date', { ascending: false }),
-                supabase.from('company_settings').select('*').single()
+                supabase.from('company_settings').select('*').maybeSingle()
             ]);
 
             if (cData) {
@@ -310,6 +311,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (notifData) setNotifications(notifData);
             
             if (settingsData) {
+                setSettingsId(settingsData.id); // Store ID for updates
                 setCompanySettings({
                     name: settingsData.name,
                     address: settingsData.address,
@@ -319,7 +321,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url // Ensure persisted logo is loaded
+                    logoUrl: settingsData.logo_url
                 });
             }
 
@@ -328,44 +330,40 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    // --- AUTH & INIT LOGIC (Fixed Persistence) ---
+    // --- AUTH & INIT LOGIC (Fixed Persistence & Loading) ---
     useEffect(() => {
         let mounted = true;
 
-        const init = async () => {
+        const initAuth = async () => {
             try {
-                // Check if user is already signed in (Persistence)
+                // 1. Check active session
                 const { data: { session } } = await supabase.auth.getSession();
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
-                    // Fetch data AFTER auth is confirmed to ensure RLS policies pass
                     await refreshData();
-                } else {
-                    // No session found, stop loading so login screen appears
-                    if (mounted) setLoading(false);
                 }
             } catch (error) {
-                console.error("Auth init error:", error);
+                console.error("Auth initialization failed:", error);
+            } finally {
+                // 2. Stop loading irrespective of success/failure
                 if (mounted) setLoading(false);
             }
         };
 
-        init();
+        initAuth();
 
-        // Subscribe to auth changes
+        // 3. Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mounted) return;
             
             if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                  if (session?.user) {
-                     // Update profile silently if session refreshes
-                     // Do NOT set loading=true here to avoid infinite loops or UI flashes
                      await fetchUserProfile(session.user);
-                     
-                     // If we are signed in, ensure data is fresh (useful for tab switch/focus)
                      if (event === 'SIGNED_IN') {
+                         setLoading(true); // Temporarily show loading while fetching data
                          await refreshData();
+                         setLoading(false);
                      }
                  }
             } else if (event === 'SIGNED_OUT') {
@@ -374,7 +372,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setClients([]);
                 setProviders([]);
                 setDocuments([]);
-                setLoading(false); // Ensure loading is off on logout
+                setLoading(false);
             }
         });
 
@@ -386,7 +384,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const fetchUserProfile = async (authUser: any) => {
         try {
-            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+            
             if (profile) {
                 setCurrentUser({
                      id: authUser.id,
@@ -395,19 +394,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                      role: profile.role || 'admin',
                      relatedEntityId: profile.relatedEntityId
                  });
-            } else if (authUser.email === 'admin@presta.com') {
-                 // Fallback for initial admin
+            } else {
+                 // Fallback if profile not found (e.g. initial admin)
                  setCurrentUser({
                      id: authUser.id,
-                     email: authUser.email,
-                     name: 'Admin Principal',
+                     email: authUser.email || 'admin@presta.com',
+                     name: 'Admin',
                      role: 'admin'
                  });
             }
         } catch (e) {
             console.error("Error fetching user profile:", e);
-        } finally {
-            setLoading(false); // Critical: always turn off loading after attempt
         }
     };
 
@@ -426,12 +423,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 loyalty_reward_hours: settings.loyaltyRewardHours,
                 logo_url: settings.logoUrl
             };
-            // Upsert based on name or assumes single row. Using Update on known row if possible is better but here we rely on single row logic.
-            // Using match on 'name' since we don't store ID in context
-            const { error } = await supabase
-                .from('company_settings')
-                .update(dbData)
-                .eq('name', companySettings.name); // Updates the row matching current name
+            
+            // Use ID if we have it, otherwise update by name
+            let error;
+            if (settingsId) {
+                const result = await supabase.from('company_settings').update(dbData).eq('id', settingsId);
+                error = result.error;
+            } else {
+                // Fallback or Insert if missing
+                 const result = await supabase.from('company_settings').upsert(dbData, { onConflict: 'name' }).select();
+                 error = result.error;
+                 if (result.data && result.data[0]) {
+                     setSettingsId(result.data[0].id);
+                 }
+            }
 
             if (error) throw error;
             setCompanySettings(settings); // Optimistic update
@@ -442,7 +447,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     // ... [Missions, Clients, Providers, Documents Logic] ...
-    // Note: Kept simplified for brevity, assume addMission etc logic is same as previous but robust
     
     // CLIENTS
     const addClient = async (clientData: CreateClientDTO) => {
@@ -850,7 +854,6 @@ Cordialement, L'équipe.`);
         if (error) { console.error("Login failed:", error.message); throw new Error(error.message); }
         if (data.user) {
             await fetchUserProfile(data.user);
-            await refreshData(); // Ensure data is fetched on explicit login
             return true;
         }
         return false;
