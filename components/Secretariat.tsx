@@ -82,7 +82,8 @@ const Secretariat: React.FC = () => {
       addExpense, 
       companySettings,
       missions,
-      legalTemplate 
+      legalTemplate,
+      updateLeaveStatus
   } = useData();
 
   const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -348,6 +349,11 @@ const Secretariat: React.FC = () => {
           replyToClient(adminMessageInput, selectedChatClientId);
           setAdminMessageInput('');
       }
+  };
+
+  const handleLeaveStatusUpdate = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
+      await updateLeaveStatus(leaveId, providerId, status);
+      showToast(status === 'approved' ? 'Absence validée.' : 'Absence refusée.');
   };
 
   // --- ABSENCE CONFLICT LOGIC ---
@@ -744,11 +750,29 @@ const Secretariat: React.FC = () => {
                                        </div>
                                        <div className="space-y-2">
                                            {provider.leaves.map((leave, i) => (
-                                               <div key={i} className="text-sm bg-slate-50 p-2 rounded flex justify-between items-center">
-                                                   <span className="text-slate-600">Du <strong>{leave.startDate}</strong> au <strong>{leave.endDate}</strong></span>
-                                                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${leave.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                                       {leave.status === 'approved' ? 'Validé' : 'En attente'}
-                                                   </span>
+                                               <div key={i} className="text-sm bg-slate-50 p-2 rounded flex flex-col gap-2">
+                                                   <div className="flex justify-between items-center">
+                                                       <span className="text-slate-600">Du <strong>{leave.startDate}</strong> au <strong>{leave.endDate}</strong></span>
+                                                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${leave.status === 'approved' ? 'bg-green-100 text-green-700' : leave.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                           {leave.status === 'approved' ? 'Validé' : leave.status === 'rejected' ? 'Refusé' : 'En attente'}
+                                                       </span>
+                                                   </div>
+                                                   {leave.status === 'pending' && (
+                                                       <div className="flex justify-end gap-2 border-t border-slate-200 pt-2">
+                                                           <button 
+                                                               onClick={() => handleLeaveStatusUpdate(leave.id, provider.id, 'rejected')}
+                                                               className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1 font-bold"
+                                                           >
+                                                               <X className="w-3 h-3" /> Refuser
+                                                           </button>
+                                                           <button 
+                                                               onClick={() => handleLeaveStatusUpdate(leave.id, provider.id, 'approved')}
+                                                               className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1 font-bold shadow-sm"
+                                                           >
+                                                               <Check className="w-3 h-3" /> Valider
+                                                           </button>
+                                                       </div>
+                                                   )}
                                                </div>
                                            ))}
                                        </div>
@@ -944,7 +968,7 @@ const Secretariat: React.FC = () => {
                                 <p>Siège : {companySettings.address} | Email : {companySettings.email}</p>
                                 <p>N° SAP : {companySettings.siret}</p>
                                 <p className="text-xs italic mt-2 border-t border-beige-300 pt-1 w-fit mx-auto">
-                                    Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox) | Validité : 01/08/2025 &rarr; 31/07/2026
+                                    Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox) | Validité : 01/08/2025 au 31/07/2026
                                 </p>
                             </div>
 

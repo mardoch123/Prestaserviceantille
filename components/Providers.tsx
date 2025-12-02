@@ -18,11 +18,13 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
-  Mail
+  Mail,
+  Edit,
+  KeyRound
 } from 'lucide-react';
 
 const Providers: React.FC = () => {
-  const { providers, addProvider, deleteProviders, addLeave } = useData();
+  const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -32,6 +34,9 @@ const Providers: React.FC = () => {
 
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
   
@@ -86,19 +91,51 @@ const Providers: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const openCreateModal = () => {
+      setIsEditMode(false);
+      setCurrentEditId(null);
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage', phone: '', email: '', status: 'Active' });
+      setIsModalOpen(true);
+  };
+
+  const openEditModal = (provider: any) => {
+      setIsEditMode(true);
+      setCurrentEditId(provider.id);
+      setFormData({
+          lastName: provider.lastName,
+          firstName: provider.firstName,
+          specialty: provider.specialty,
+          phone: provider.phone,
+          email: provider.email,
+          status: provider.status
+      });
+      setIsModalOpen(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
       e.preventDefault();
-      addProvider({
-          lastName: formData.lastName,
-          firstName: formData.firstName,
-          specialty: formData.specialty,
-          phone: formData.phone,
-          email: formData.email,
-          status: formData.status as 'Active',
-      });
+      
+      if (isEditMode && currentEditId) {
+          updateProvider(currentEditId, {
+              lastName: formData.lastName,
+              firstName: formData.firstName,
+              specialty: formData.specialty,
+              phone: formData.phone,
+              email: formData.email,
+              status: formData.status as any
+          });
+          showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
+      } else {
+          addProvider({
+              lastName: formData.lastName,
+              firstName: formData.firstName,
+              specialty: formData.specialty,
+              phone: formData.phone,
+              email: formData.email,
+              status: formData.status as 'Active',
+          });
+      }
       setIsModalOpen(false);
-      // Toast handles inside context or here? Context handles notification, but local toast is nice
-      // showToast(`Prestataire ${formData.firstName} ${formData.lastName} ajouté avec succès !`);
       setFormData({ lastName: '', firstName: '', specialty: 'Ménage', phone: '', email: '', status: 'Active' });
   };
 
@@ -109,6 +146,13 @@ const Providers: React.FC = () => {
           setIsLeaveModalOpen(false);
           showToast('Congés déclarés avec succès. Le planning sera mis à jour.');
           setLeaveForm({ startDate: '', endDate: '' });
+      }
+  };
+
+  const handleResetPassword = (id: string) => {
+      if(window.confirm("Êtes-vous sûr de vouloir réinitialiser le mot de passe de ce prestataire ?")) {
+          resetProviderPassword(id);
+          showToast('Mot de passe réinitialisé et envoyé par email.');
       }
   };
 
@@ -196,7 +240,7 @@ const Providers: React.FC = () => {
             </select>
           </div>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={openCreateModal}
             className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"
           >
               <UserPlus className="w-4 h-4" /> Ajouter
@@ -270,7 +314,24 @@ const Providers: React.FC = () => {
                                     {p.status === 'Inactive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200"><XCircle className="w-3 h-3"/> Inactif</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                    <button onClick={() => openLeaveModal(p.id)} className="text-slate-500 hover:text-brand-orange font-bold text-xs border border-slate-200 rounded px-2 py-1 flex items-center gap-1">
+                                    <button 
+                                        onClick={() => openEditModal(p)}
+                                        className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200" 
+                                        title="Modifier"
+                                    >
+                                        <Edit className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                        onClick={() => handleResetPassword(p.id)}
+                                        className="text-slate-400 hover:text-brand-orange p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200" 
+                                        title="Réinitialiser Mot de Passe"
+                                    >
+                                        <KeyRound className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                        onClick={() => openLeaveModal(p.id)} 
+                                        className="text-slate-500 hover:text-brand-orange font-bold text-xs border border-slate-200 rounded px-2 py-1 flex items-center gap-1"
+                                    >
                                         <CalendarX className="w-3 h-3" /> Congés
                                     </button>
                                 </td>
@@ -288,15 +349,15 @@ const Providers: React.FC = () => {
          </div>
       </div>
 
-      {/* NEW PROVIDER MODAL */}
+      {/* CREATE/EDIT PROVIDER MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
-                        <h3 className="text-xl font-serif font-bold text-slate-800">Nouveau Prestataire</h3>
-                        <p className="text-xs text-slate-500 mt-1">Ajouter un membre à l'équipe</p>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Prestataire' : 'Nouveau Prestataire'}</h3>
+                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : 'Ajouter un membre à l'équipe'}</p>
                     </div>
                     <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
                         <X className="w-5 h-5 text-slate-500" />
@@ -376,6 +437,22 @@ const Providers: React.FC = () => {
                         </div>
                     </div>
 
+                    {isEditMode && (
+                        <div>
+                             <label className="block text-sm font-bold text-slate-700 mb-1">Statut</label>
+                             <select 
+                                name="status"
+                                value={formData.status}
+                                onChange={handleInputChange}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                             >
+                                 <option value="Active">Actif</option>
+                                 <option value="Passive">Passif</option>
+                                 <option value="Inactive">Inactif</option>
+                             </select>
+                        </div>
+                    )}
+
                      <div className="pt-4 flex justify-end gap-3">
                         <button 
                             type="button"
@@ -388,7 +465,7 @@ const Providers: React.FC = () => {
                             type="submit"
                             className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2"
                         >
-                            <CheckCircle className="w-4 h-4" /> Ajouter & Envoyer ID
+                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer ID'}
                         </button>
                     </div>
                 </form>

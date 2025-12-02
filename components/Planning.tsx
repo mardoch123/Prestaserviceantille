@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
@@ -36,10 +37,35 @@ const Planning: React.FC = () => {
       occurrences: 1
   });
 
+  // Calculate Week Date Range
+  const getWeekRange = (offset: number) => {
+      const curr = new Date(); // get current date
+      // First day is the day of the month - the day of the week + 1 (for Monday)
+      // Note: getDay() returns 0 for Sunday, so we handle that
+      const day = curr.getDay() || 7; 
+      const first = curr.getDate() - day + 1 + (offset * 7);
+      
+      const firstDay = new Date(curr.setDate(first));
+      const lastDay = new Date(curr.setDate(first + 6));
+      
+      return { start: firstDay, end: lastDay };
+  };
+
+  const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+
+  // Format date range for display
+  const dateRangeString = `Du ${weekStart.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} au ${weekEnd.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
+
   // Filter Logic
   const filteredItems = useMemo(() => {
       let items = missions;
       
+      // Filter by Date Range (Current Week)
+      const startStr = weekStart.toISOString().split('T')[0];
+      const endStr = weekEnd.toISOString().split('T')[0];
+      
+      items = items.filter(m => m.date >= startStr && m.date <= endStr);
+
       // Filter by Provider (Dropdown)
       if (selectedProvider !== 'all') {
           items = items.filter(item => item.providerName === selectedProvider);
@@ -56,16 +82,16 @@ const Planning: React.FC = () => {
       }
       
       return items;
-  }, [missions, selectedProvider, currentWeekOffset, searchQuery]);
+  }, [missions, selectedProvider, currentWeekOffset, searchQuery, weekStart, weekEnd]);
 
   // Stats Logic
   const today = new Date().toISOString().split('T')[0];
   
-  const missionsCountToday = filteredItems.filter(m => m.date === today).length;
-  const missionsCountWeek = filteredItems.length;
-  const missionsCompletedWeek = filteredItems.filter(m => m.status === 'completed' || m.date < today).length;
+  const missionsCountToday = missions.filter(m => m.date === today).length; // Global today count
+  const missionsCountWeek = filteredItems.length; // Count in view
+  const missionsCompletedWeek = filteredItems.filter(m => m.status === 'completed').length;
 
-  const totalHoursToday = filteredItems
+  const totalHoursToday = missions
       .filter(m => m.date === today)
       .reduce((acc, m) => acc + m.duration, 0);
 
@@ -75,6 +101,7 @@ const Planning: React.FC = () => {
 
   const handlePrevWeek = () => setCurrentWeekOffset(prev => prev - 1);
   const handleNextWeek = () => setCurrentWeekOffset(prev => prev + 1);
+  const handleCurrentWeek = () => setCurrentWeekOffset(0);
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const { name, value } = e.target;
@@ -134,14 +161,13 @@ const Planning: React.FC = () => {
               }
           }
 
-          // Determine Day Index
-          const dayIndex = currentDate.getDay() === 0 ? 5 : currentDate.getDay() - 1; // Mon=0
+          // Determine Day Index is no longer passed to AddMission, calculated in Context/Display
+          // ...
 
           addMission({
-              // Fix: Added missing id
               id: `m-${Date.now()}-${i}`,
               date: dateStr,
-              dayIndex: dayIndex,
+              dayIndex: 0, // Placeholder, ignored by context
               startTime: missionForm.startTime,
               endTime: endTime,
               duration: duration,
@@ -228,7 +254,7 @@ const Planning: React.FC = () => {
   const getDayIndex = (dateStr: string) => {
       const d = new Date(dateStr);
       const day = d.getDay(); 
-      return day === 0 ? 5 : day - 1; 
+      return day === 0 ? 5 : day - 1; // Correct mapping for Monday start
   };
 
   return (
@@ -256,6 +282,11 @@ const Planning: React.FC = () => {
                    </button>
                )}
            </div>
+           
+           {/* Date Range Display */}
+           <div className="hidden md:block bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600">
+               {dateRangeString}
+           </div>
       </div>
 
        {/* Stats */}
@@ -268,24 +299,24 @@ const Planning: React.FC = () => {
            <div className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition">
                <span className="font-bold text-slate-800">Total missions</span>
                <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCountWeek}</span>
-               <span className="text-xs text-teal-500 mt-1 italic">Semaine</span>
+               <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
            </div>
            <div className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300">
                <span className="font-bold text-slate-800">Missions terminées</span>
                <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCompletedWeek}</span>
-               <span className="text-xs text-teal-500 mt-1 italic">Semaine</span>
+               <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
            </div>
        </div>
 
-       {/* Filters */}
+       {/* Filters & Navigation */}
        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
            <div className="flex items-center gap-4">
-                <span className="text-brand-blue italic text-sm font-bold">Semaine :</span>
+                <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
                 <div className="flex items-center gap-1 bg-slate-200/50 p-1 rounded-full">
                     <button onClick={handlePrevWeek} className="bg-[#006699] text-white px-4 py-1 rounded-full text-sm font-bold flex items-center gap-1 hover:bg-blue-800">
                         <ChevronLeft className="w-3 h-3" /> Précédente
                     </button>
-                    <button className="bg-[#66BB44] text-white px-4 py-1 rounded-full text-sm font-bold shadow-sm mx-2">
+                    <button onClick={handleCurrentWeek} className="bg-[#66BB44] text-white px-4 py-1 rounded-full text-sm font-bold shadow-sm mx-2 hover:bg-green-600">
                         En cours
                     </button>
                     <button onClick={handleNextWeek} className="bg-[#006699] text-white px-4 py-1 rounded-full text-sm font-bold flex items-center gap-1 hover:bg-blue-800">
@@ -335,7 +366,7 @@ const Planning: React.FC = () => {
                      {[0,1,2,3,4,5].map(colIndex => (
                         <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30">
                             {filteredItems
-                                .filter(item => (item.dayIndex === colIndex || getDayIndex(item.date) === colIndex))
+                                .filter(item => getDayIndex(item.date) === colIndex)
                                 .filter(item => item.status !== 'cancelled')
                                 .map(item => (
                                     <div 
@@ -353,8 +384,12 @@ const Planning: React.FC = () => {
                                         {selectedMissionIds.has(item.id) && (
                                             <div className="absolute inset-0 bg-blue-500/10 border-2 border-brand-blue rounded pointer-events-none"></div>
                                         )}
-                                        <p className="font-bold text-slate-800 pr-4">{item.clientName}</p>
+                                        <div className="flex justify-between">
+                                            <p className="font-bold text-slate-800 pr-4 truncate">{item.clientName}</p>
+                                            <span className="text-[9px] text-slate-500">{new Date(item.date).getDate()}</span>
+                                        </div>
                                         <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[9px] italic text-slate-500 truncate">{item.providerName}</p>
                                     </div>
                                 ))
                             }
@@ -368,13 +403,17 @@ const Planning: React.FC = () => {
                     Missions à pourvoir
                 </div>
                 <div className="p-2 space-y-2 overflow-y-auto flex-1">
-                    {unassignedMissions.map(m => (
-                        <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100">
-                            <p className="font-bold text-xs text-red-800">{m.clientName}</p>
-                            <p className="text-[10px] text-red-600">{m.date} | {m.service}</p>
-                            <button onClick={() => setSelectedMissionId(m.id)} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
-                        </div>
-                    ))}
+                    {unassignedMissions.length === 0 ? (
+                        <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
+                    ) : (
+                        unassignedMissions.map(m => (
+                            <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100">
+                                <p className="font-bold text-xs text-red-800">{m.clientName}</p>
+                                <p className="text-[10px] text-red-600">{m.date} | {m.service}</p>
+                                <button onClick={() => setSelectedMissionId(m.id)} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
+                            </div>
+                        ))
+                    )}
                 </div>
                 <button onClick={() => setIsModalOpen(true)} className="m-2 bg-brand-orange text-white py-2 rounded font-bold text-sm hover:bg-orange-600 flex items-center justify-center gap-2">
                     <Plus className="w-4 h-4" /> Ajouter Mission
@@ -383,13 +422,13 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Footer Stats */}
-       <div className="bg-slate-200 p-4 mt-6 flex justify-between items-center font-bold text-slate-800">
+       <div className="bg-slate-200 p-4 mt-6 flex justify-between items-center font-bold text-slate-800 rounded-lg">
             <div className="flex items-center gap-2">
-                <span>Total heure du jour :</span>
+                <span>Total heures (Auj.) :</span>
                 <span className="text-xl">{totalHoursToday}h</span>
             </div>
             <div className="flex items-center gap-2">
-                <span>Total heure semaine :</span>
+                <span>Total heures ({currentWeekOffset === 0 ? 'Cette semaine' : 'Semaine sélectionnée'}) :</span>
                 <span className="text-xl">{totalHoursWeek}h</span>
             </div>
        </div>

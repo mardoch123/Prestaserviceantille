@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
@@ -19,11 +20,12 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Edit
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, addClient, deleteClients, addLoyaltyHours } = useData();
+  const { clients, addClient, updateClient, deleteClients, addLoyaltyHours } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -33,6 +35,9 @@ const Clients: React.FC = () => {
 
   // Modal & Toast State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   
   // Loyalty Modal
@@ -77,26 +82,66 @@ const Clients: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const openCreateModal = () => {
+      setIsEditMode(false);
+      setCurrentEditId(null);
+      setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
+      setIsModalOpen(true);
+  };
+
+  const openEditModal = (client: any) => {
+      setIsEditMode(true);
+      setCurrentEditId(client.id);
+      // Split name for form
+      const nameParts = client.name.split(' ');
+      const lastName = nameParts.pop() || '';
+      const firstName = nameParts.join(' ');
+      
+      setFormData({ 
+          lastName, 
+          firstName, 
+          phone: client.phone, 
+          email: client.email, 
+          address: client.address, 
+          city: client.city, 
+          type: 'particulier' 
+      });
+      setIsModalOpen(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-        await addClient({
-            name: `${formData.firstName} ${formData.lastName}`,
-            city: formData.city,
-            address: formData.address,
-            phone: formData.phone,
-            email: formData.email,
-            pack: '-',
-            status: 'new',
-            since: new Date().toISOString().split('T')[0],
-            packsConsumed: 0,
-            loyaltyHoursAvailable: 0
-        });
+        const fullName = `${formData.firstName} ${formData.lastName}`;
+        
+        if (isEditMode && currentEditId) {
+            await updateClient(currentEditId, {
+                name: fullName,
+                city: formData.city,
+                address: formData.address,
+                phone: formData.phone,
+                email: formData.email
+            });
+            showToast('Client modifié avec succès.');
+        } else {
+            await addClient({
+                name: fullName,
+                city: formData.city,
+                address: formData.address,
+                phone: formData.phone,
+                email: formData.email,
+                pack: '-',
+                status: 'new',
+                since: new Date().toISOString().split('T')[0],
+                packsConsumed: 0,
+                loyaltyHoursAvailable: 0
+            });
+            showToast(`Client créé ! Email de connexion envoyé à ${formData.email}.`);
+        }
         setIsModalOpen(false);
-        showToast(`Client créé ! Email de connexion envoyé à ${formData.email}.`);
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
     } catch (err) {
-        alert("Erreur lors de l'ajout du client.");
+        alert("Erreur lors de l'enregistrement.");
     }
   };
 
@@ -176,7 +221,7 @@ const Clients: React.FC = () => {
                 <option value="all">Tous les clients</option><option value="active">Clients Actifs</option><option value="new">Nouveaux Clients</option><option value="prospect">Prospects</option>
             </select>
           </div>
-          <button onClick={() => setIsModalOpen(true)} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
+          <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
         </div>
       </div>
 
@@ -228,13 +273,22 @@ const Clients: React.FC = () => {
                                     {client.status === 'prospect' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs font-bold border border-slate-200">Prospect</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right">
-                                    <button 
-                                        onClick={() => { setSelectedClientId(client.id); setLoyaltyModalOpen(true); }}
-                                        className="text-yellow-500 hover:text-yellow-600 p-1 rounded hover:bg-yellow-50 border border-transparent hover:border-yellow-200"
-                                        title="Cadeau Fidélité"
-                                    >
-                                        <Gift className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center justify-end gap-2">
+                                        <button 
+                                            onClick={() => openEditModal(client)}
+                                            className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200"
+                                            title="Modifier"
+                                        >
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                        <button 
+                                            onClick={() => { setSelectedClientId(client.id); setLoyaltyModalOpen(true); }}
+                                            className="text-yellow-500 hover:text-yellow-600 p-1 rounded hover:bg-yellow-50 border border-transparent hover:border-yellow-200"
+                                            title="Cadeau Fidélité"
+                                        >
+                                            <Gift className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))
@@ -246,12 +300,15 @@ const Clients: React.FC = () => {
          </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
-                    <div><h3 className="text-xl font-serif font-bold text-slate-800">Nouveau Client</h3><p className="text-xs text-slate-500 mt-1">Ajouter une fiche client</p></div>
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Client' : 'Nouveau Client'}</h3>
+                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : 'Ajouter une fiche client'}</p>
+                    </div>
                     <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5 text-slate-500" /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
@@ -274,7 +331,9 @@ const Clients: React.FC = () => {
                     </div>
                     <div className="pt-4 flex justify-end gap-3">
                         <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition">Annuler</button>
-                        <button type="submit" className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Enregistrer</button>
+                        <button type="submit" className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Mettre à jour' : 'Enregistrer'}
+                        </button>
                     </div>
                 </form>
             </div>

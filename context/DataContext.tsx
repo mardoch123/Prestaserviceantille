@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
     AppNotification, Message, User, StreamSession, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave
 } from '../types';
 import { supabase } from '../utils/supabaseClient';
 
@@ -30,6 +30,14 @@ function capitalize(s: string) {
     return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+// Helper to calculate day index from date (0=Monday, 5=Saturday) for UI
+function getDayIndexFromDate(dateStr: string): number {
+    const date = new Date(dateStr);
+    const day = date.getDay(); // 0 = Sunday, 1 = Monday...
+    // We want Monday = 0, Saturday = 5. Sunday = 6 (or -1 depending on logic, handled as 5 here for simplicity or ignored)
+    return day === 0 ? 6 : day - 1; 
+}
+
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
@@ -46,14 +54,18 @@ interface DataContextType {
 
     clients: Client[];
     addClient: (client: CreateClientDTO) => Promise<void>;
+    updateClient: (id: string, data: Partial<Client>) => Promise<void>; // EDIT
     deleteClients: (ids: string[]) => Promise<void>; // BULK DELETE
     addLoyaltyHours: (clientId: string, hours: number) => Promise<void>;
     submitClientReview: (clientId: string, rating: number, comment: string) => Promise<void>;
 
     providers: Provider[];
     addProvider: (provider: CreateProviderDTO) => Promise<void>;
+    updateProvider: (id: string, data: Partial<Provider>) => Promise<void>; // EDIT
     deleteProviders: (ids: string[]) => Promise<void>; // BULK DELETE
     addLeave: (providerId: string, start: string, end: string) => Promise<void>;
+    updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>; // ABSENCE MANAGEMENT
+    resetProviderPassword: (id: string) => Promise<void>; // PASSWORD RESET
 
     documents: Document[];
     addDocument: (doc: Document) => Promise<void>;
@@ -253,7 +265,7 @@ Fait à La Trinité, le [DATE]
             if (mData) {
                 const mappedMissions = mData.map((m: any) => ({
                     ...m,
-                    dayIndex: m.day_index || m.dayIndex,
+                    dayIndex: m.date ? getDayIndexFromDate(m.date) : 0, // Calculate dynamically, do not rely on DB column
                     startTime: m.start_time || m.startTime,
                     endTime: m.end_time || m.endTime,
                     clientId: m.client_id || m.clientId,
@@ -281,19 +293,19 @@ Fait à La Trinité, le [DATE]
                     tvaRate: d.tva_rate || d.tvaRate,
                     totalHT: d.total_ht || d.totalHT,
                     totalTTC: d.total_ttc || d.totalTTC,
-                    taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled
+                    taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+                    slotsData: d.slots_data,
+                    reminderSent: d.reminder_sent,
+                    signatureData: d.signature_data,
+                    signatureDate: d.signature_date
                 }));
                 setDocuments(mappedDocs);
             }
             if (packData) {
                 const mappedPacks = packData.map((p: any) => {
-                    // Extract quantity and location from description if available
-                    // Format used in saving: "... | Quantité: ... | Lieu: ..."
                     const desc = p.description || '';
                     const quantityMatch = desc.match(/Quantité: (.*?)(\||$)/);
                     const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
-                    
-                    // Map DB enum (lowercase) back to UI (Capitalized)
                     const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
 
                     return {
@@ -416,8 +428,11 @@ Fait à La Trinité, le [DATE]
     // MISSIONS
     const addMission = async (mission: Mission) => {
         const { id, ...missionData } = mission;
+        const finalId = (id && id.length > 10 && !id.startsWith('m-')) ? id : generateUUID();
         
+        // Remove dayIndex from insert payload as it is not in DB schema
         const dbMissionData = {
+            id: finalId,
             date: missionData.date,
             start_time: missionData.startTime,
             end_time: missionData.endTime,
@@ -429,8 +444,7 @@ Fait à La Trinité, le [DATE]
             service: missionData.service,
             status: missionData.status,
             color: missionData.color,
-            source: missionData.source,
-            day_index: missionData.dayIndex
+            source: missionData.source
         };
 
         const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
@@ -440,7 +454,7 @@ Fait à La Trinité, le [DATE]
              const newMission = data[0];
              const mappedMission: Mission = {
                 ...newMission,
-                dayIndex: newMission.day_index,
+                dayIndex: getDayIndexFromDate(newMission.date), // Calc local
                 startTime: newMission.start_time,
                 endTime: newMission.end_time,
                 clientId: newMission.client_id,
@@ -562,6 +576,23 @@ Fait à La Trinité, le [DATE]
         }
     };
 
+    const updateClient = async (id: string, data: Partial<Client>) => {
+        const dbData: any = {};
+        if(data.name) dbData.name = data.name;
+        if(data.city) dbData.city = data.city;
+        if(data.address) dbData.address = data.address;
+        if(data.phone) dbData.phone = data.phone;
+        if(data.email) dbData.email = data.email;
+        
+        const { error } = await supabase.from('clients').update(dbData).eq('id', id);
+        
+        if (!error) {
+            setClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+        } else {
+            console.error("Erreur maj client", error);
+        }
+    };
+
     const deleteClients = async (ids: string[]) => {
         const { error } = await supabase.from('clients').delete().in('id', ids);
         if (!error) {
@@ -638,6 +669,23 @@ L'équipe Presta Services Antilles`);
         }
     };
 
+    const updateProvider = async (id: string, data: Partial<Provider>) => {
+        const dbData: any = {};
+        if(data.firstName) dbData.first_name = data.firstName;
+        if(data.lastName) dbData.last_name = data.lastName;
+        if(data.phone) dbData.phone = data.phone;
+        if(data.email) dbData.email = data.email;
+        if(data.specialty) dbData.specialty = data.specialty;
+        if(data.status) dbData.status = data.status;
+
+        const { error } = await supabase.from('providers').update(dbData).eq('id', id);
+        if(!error) {
+            setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+        } else {
+            console.error("Erreur update provider", error);
+        }
+    };
+
     const deleteProviders = async (ids: string[]) => {
         const { error } = await supabase.from('providers').delete().in('id', ids);
         if (!error) {
@@ -662,28 +710,74 @@ L'équipe Presta Services Antilles`);
         }
     };
 
+    const updateLeaveStatus = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
+        const { error } = await supabase.from('leaves').update({ status }).eq('id', leaveId);
+        
+        if (!error) {
+            setProviders(prev => prev.map(p => {
+                if(p.id === providerId) {
+                    const updatedLeaves = p.leaves.map(l => l.id === leaveId ? { ...l, status } : l);
+                    return { ...p, leaves: updatedLeaves };
+                }
+                return p;
+            }));
+        }
+    };
+
+    const resetProviderPassword = async (id: string) => {
+        const provider = providers.find(p => p.id === id);
+        if(provider) {
+            const newPass = Math.random().toString(36).slice(-8);
+            // Simulate Email Sending
+            alert(`[SIMULATION EMAIL]
+------------------------------------------------
+À: ${provider.email}
+Objet: Réinitialisation de mot de passe
+
+Bonjour ${provider.firstName},
+
+Votre mot de passe a été réinitialisé par l'administrateur.
+
+Nouveau mot de passe : ${newPass}
+
+Connectez-vous ici : https://presta-antilles.app/login
+`);
+        }
+    };
+
     // DOCUMENTS
     const addDocument = async (doc: Document) => {
-        const { id, ...docData } = doc;
+        // Generate UUID if needed
+        const finalId = (doc.id && doc.id.length > 10 && !doc.id.startsWith('doc-')) ? doc.id : generateUUID();
+
         const dbDocData = {
-            ref: docData.ref,
-            client_id: docData.clientId,
-            client_name: docData.clientName,
-            date: docData.date,
-            type: docData.type,
-            category: docData.category,
-            description: docData.description,
-            unit_price: docData.unitPrice,
-            quantity: docData.quantity,
-            tva_rate: docData.tvaRate,
-            total_ht: docData.totalHT,
-            total_ttc: docData.totalTTC,
-            tax_credit_enabled: docData.taxCreditEnabled,
-            status: docData.status,
-            slotsData: docData.slotsData
+            id: finalId,
+            ref: doc.ref,
+            client_id: doc.clientId,
+            client_name: doc.clientName,
+            date: doc.date,
+            type: doc.type,
+            category: doc.category,
+            description: doc.description,
+            unit_price: doc.unitPrice,
+            quantity: doc.quantity,
+            tva_rate: doc.tvaRate,
+            total_ht: doc.totalHT,
+            total_ttc: doc.totalTTC,
+            tax_credit_enabled: doc.taxCreditEnabled,
+            status: doc.status,
+            slots_data: doc.slotsData, // Correctly mapped to snake_case column
+            reminder_sent: false
         };
 
-        const { data } = await supabase.from('documents').insert(dbDocData).select();
+        const { data, error } = await supabase.from('documents').insert(dbDocData).select();
+        
+        if (error) {
+            console.error("Error creating document", error);
+            alert("Erreur création document: " + error.message);
+            return;
+        }
+
         if (data) {
              const newDoc = data[0];
              const mappedDoc: Document = {
@@ -694,7 +788,9 @@ L'équipe Presta Services Antilles`);
                  tvaRate: newDoc.tva_rate,
                  totalHT: newDoc.total_ht,
                  totalTTC: newDoc.total_ttc,
-                 taxCreditEnabled: newDoc.tax_credit_enabled
+                 taxCreditEnabled: newDoc.tax_credit_enabled,
+                 slotsData: newDoc.slots_data,
+                 reminderSent: newDoc.reminder_sent
              };
              setDocuments(prev => [...prev, mappedDoc]);
         }
@@ -756,12 +852,12 @@ L'équipe Presta Services Antilles`);
     };
 
     const sendDocumentReminder = async (id: string) => {
-        const { error } = await supabase.from('documents').update({ reminderSent: true }).eq('id', id);
+        const { error } = await supabase.from('documents').update({ reminder_sent: true }).eq('id', id);
         if(!error) setDocuments(prev => prev.map(d => d.id === id ? { ...d, reminderSent: true } : d));
     };
 
     const signQuoteWithData = async (id: string, signatureData: string) => {
-        const { error } = await supabase.from('documents').update({ status: 'signed', signatureData, signatureDate: new Date().toISOString() }).eq('id', id);
+        const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: new Date().toISOString() }).eq('id', id);
         if(!error) {
             setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
             addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
@@ -934,8 +1030,24 @@ L'équipe Presta Services Antilles`);
 
     const addExpense = async (expense: Expense) => {
         const { id, ...eData } = expense;
-        const dbData = { ...eData, proof_url: eData.proofUrl };
-        const { data } = await supabase.from('expenses').insert(dbData).select();
+        // Map to snake_case for DB
+        const finalId = (id && id.length > 10 && !id.startsWith('e-')) ? id : generateUUID();
+        const dbData = { 
+            id: finalId,
+            date: eData.date,
+            amount: eData.amount,
+            category: eData.category,
+            description: eData.description,
+            proof_url: eData.proofUrl // Ensure mapping
+        };
+        const { data, error } = await supabase.from('expenses').insert(dbData).select();
+        
+        if (error) {
+            console.error("Erreur sauvegarde dépense:", error);
+            alert("Erreur sauvegarde dépense: " + error.message);
+            return;
+        }
+
         if (data) {
              const mapped = { ...data[0], proofUrl: data[0].proof_url };
              setExpenses(prev => [...prev, mapped]);
@@ -944,10 +1056,13 @@ L'équipe Presta Services Antilles`);
 
     const replyToClient = async (text: string, clientId: string) => {
         const dbData = { sender: 'admin', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
-        const { data } = await supabase.from('messages').insert(dbData).select();
+        const { data, error } = await supabase.from('messages').insert(dbData).select();
+        
         if(data) {
             const mapped = { ...data[0], clientId: data[0].client_id };
             setMessages(prev => [...prev, mapped]);
+        } else {
+            console.error("Erreur envoi message", error);
         }
     };
 
@@ -1059,8 +1174,8 @@ L'équipe Presta Services Antilles`);
         <DataContext.Provider value={{
             companySettings, updateCompanySettings,
             missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, deleteMissions,
-            clients, addClient, deleteClients, addLoyaltyHours, submitClientReview,
-            providers, addProvider, deleteProviders, addLeave,
+            clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+            providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
             documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction,
             packs, addPack, deletePacks,
             contracts, addContract, updateContract, legalTemplate,
