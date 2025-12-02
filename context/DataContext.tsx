@@ -869,17 +869,30 @@ L'équipe Presta Services Antilles`);
     };
 
     const addContract = async (contract: Contract) => {
-        const { id, ...cData } = contract;
-        // Map camelCase to snake_case if needed, but assuming table is consistent or mapper is handling read
+        // Generate valid UUID if needed
+        const finalId = (contract.id && contract.id.length > 10 && !contract.id.startsWith('c-')) ? contract.id : generateUUID();
+        
+        // Handle pack_id being empty string -> null
+        const packId = contract.packId === "" ? null : contract.packId;
+
         const dbData = {
-            name: cData.name,
-            content: cData.content,
-            pack_id: cData.packId,
-            status: cData.status,
-            is_sap: cData.isSap,
-            validation_date: cData.validationDate
+            id: finalId,
+            name: contract.name,
+            content: contract.content,
+            pack_id: packId,
+            status: contract.status,
+            is_sap: contract.isSap,
+            validation_date: contract.validationDate
         };
-        const { data } = await supabase.from('contracts').insert(dbData).select();
+
+        const { data, error } = await supabase.from('contracts').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error saving contract:", error);
+            alert("Erreur lors de la sauvegarde du contrat: " + error.message);
+            return;
+        }
+
         if (data) {
              const mapped = {
                 ...data[0],
@@ -895,6 +908,7 @@ L'équipe Presta Services Antilles`);
         const dbUpdates: any = { ...updates };
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
+        if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
         
         const { error } = await supabase.from('contracts').update(dbUpdates).eq('id', id);
         if (!error) setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
