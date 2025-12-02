@@ -20,8 +20,7 @@ import {
   AlertTriangle,
   Mail,
   Edit,
-  KeyRound,
-  Eye
+  KeyRound
 } from 'lucide-react';
 
 const Providers: React.FC = () => {
@@ -327,10 +326,10 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                                     <button 
                                         onClick={() => showCredentials(p)}
-                                        className="bg-purple-50 text-purple-600 hover:bg-purple-100 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-purple-200"
+                                        className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200" 
                                         title="Voir Identifiants"
                                     >
-                                        <Eye className="w-3 h-3" /> Voir ID
+                                        <KeyRound className="w-4 h-4" />
                                     </button>
                                     <button 
                                         onClick={() => openEditModal(p)}

@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
@@ -193,7 +194,7 @@ Données traitées : identité et coordonnées, adresse d’intervention, consig
 
 Article 12 – Résiliation
 12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception.
-12.2. Pour manquement : en cas d’un manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit.
+12.2. Pour manquement : en cas de manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit.
 12.3. Effets : les sommes dues au titre des prestations réalisées jusqu’à la date d’effet de la résiliation restent exigibles.
 
 Article 13 – Droit de rétractation (consommateur)
@@ -210,34 +211,12 @@ Validation : Ce contrat doit être validé par l'administrateur avant mise en se
 Fait à La Trinité, le [DATE]
 `;
 
-    const fetchUserProfile = async (authUser: any) => {
-        try {
-            const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).single();
-            if (profile) {
-                setCurrentUser({
-                     id: authUser.id,
-                     email: authUser.email || '',
-                     name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
-                     role: profile.role || 'admin',
-                     relatedEntityId: profile.relatedEntityId
-                 });
-            } else if (authUser.email === 'admin@presta.com') {
-                 // Fallback for initial admin if profile missing
-                 setCurrentUser({
-                     id: authUser.id,
-                     email: authUser.email,
-                     name: 'Admin Principal',
-                     role: 'admin'
-                 });
-            }
-        } catch (e) {
-            console.error("Error fetching user profile:", e);
-        }
-    };
-
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
+            // Ne pas mettre setLoading(true) ici si c'est un refresh silencieux pour ne pas bloquer l'UI
+            // Mais pour le chargement initial c'est géré par le useEffect principal
+            
             const [
                 { data: cData }, 
                 { data: pData }, 
@@ -270,7 +249,7 @@ Fait à La Trinité, le [DATE]
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                     hasLeftReview: c.has_left_review,
-                    initialPassword: c.initial_password // Important for credentials view
+                    initialPassword: c.initial_password
                 }));
                 setClients(mappedClients);
             }
@@ -283,7 +262,7 @@ Fait à La Trinité, le [DATE]
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
                     leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
-                    initialPassword: p.initial_password // Important for credentials view
+                    initialPassword: p.initial_password
                 }));
                 setProviders(mappedProviders);
             }
@@ -392,7 +371,7 @@ Fait à La Trinité, le [DATE]
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url // Ensure logo persists
+                    logoUrl: settingsData.logo_url
                 });
             }
 
@@ -401,7 +380,7 @@ Fait à La Trinité, le [DATE]
         }
     };
 
-    // --- AUTHENTICATION PERSISTENCE ---
+    // --- AUTHENTICATION PERSISTENCE FIX ---
     useEffect(() => {
         let mounted = true;
 
@@ -414,8 +393,6 @@ Fait à La Trinité, le [DATE]
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
                 }
-                
-                if (mounted) await refreshData();
             } catch (error) {
                 console.error("Auth init error:", error);
             } finally {
@@ -424,6 +401,7 @@ Fait à La Trinité, le [DATE]
         };
 
         initializeAuth();
+        refreshData(); // Fetch application data parallel to auth
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -432,7 +410,6 @@ Fait à La Trinité, le [DATE]
                 if (!currentUser || currentUser.id !== session.user.id) {
                      setLoading(true);
                      await fetchUserProfile(session.user);
-                     await refreshData();
                      setLoading(false);
                 }
             } else if (!session && mounted) {
@@ -446,6 +423,31 @@ Fait à La Trinité, le [DATE]
             subscription.unsubscribe();
         };
     }, []);
+
+    const fetchUserProfile = async (authUser: any) => {
+        try {
+            const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            if (profile) {
+                setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email || '',
+                     name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
+                     role: profile.role || 'admin',
+                     relatedEntityId: profile.relatedEntityId
+                 });
+            } else if (authUser.email === 'admin@presta.com') {
+                 // Fallback for initial admin if profile missing
+                 setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email,
+                     name: 'Admin Principal',
+                     role: 'admin'
+                 });
+            }
+        } catch (e) {
+            console.error("Error fetching user profile:", e);
+        }
+    };
 
     // --- ACTIONS ---
 
@@ -462,29 +464,13 @@ Fait à La Trinité, le [DATE]
                 loyalty_reward_hours: settings.loyaltyRewardHours,
                 logo_url: settings.logoUrl
             };
-            
-            // We use the old name to find the record, assuming name is unique or we are updating the single record
-            // If the name is changing, we must use the old name in 'eq'.
-            // For safety, assuming single row or matching by ID is better, but since we don't track ID in local state 
-            // and usually there's only one settings row, we can try to update all or fetch ID first.
-            // Here we'll stick to updating based on current state name which acts as ID.
-            
-            // First fetch the ID to be safe
-            const { data: current } = await supabase.from('company_settings').select('id').limit(1).single();
-            
-            let error;
-            if (current) {
-                const res = await supabase.from('company_settings').update(dbData).eq('id', current.id);
-                error = res.error;
-            } else {
-                // Fallback if no settings exist (should be created on init)
-                 const res = await supabase.from('company_settings').insert(dbData);
-                 error = res.error;
-            }
+            const { error } = await supabase
+                .from('company_settings')
+                .update(dbData)
+                .eq('name', companySettings.name); // Updates the single row based on name or assumes single row logic in DB
 
             if (error) throw error;
             setCompanySettings(settings); // Update local state immediately for UI response
-            await refreshData(); // Force refresh to ensure sync
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
             throw err;
@@ -652,14 +638,15 @@ Fait à La Trinité, le [DATE]
             setClients(prev => [...prev, mappedClient]);
             
             // EMAIL SIMULATION
-            alert(`[EMAIL ENVOYÉ À ${clientData.email}]
+            alert(`[SIMULATION EMAIL]
 ------------------------------------------------
-Sujet: Bienvenue chez Presta Services Antilles
+À: ${clientData.email}
+Objet: Bienvenue chez Presta Services Antilles
 
 Bonjour ${clientData.name},
 
-Votre compte client a été créé avec succès.
-Voici vos identifiants pour vous connecter à votre espace :
+Votre espace client est créé.
+Voici vos identifiants de connexion :
 
 Lien : https://presta-antilles.app/login
 Email : ${clientData.email}
@@ -746,16 +733,16 @@ L'équipe.`);
              await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email} avec ID et MDP.`);
              
              // EMAIL SIMULATION
-             alert(`[EMAIL ENVOYÉ À ${providerData.email}]
+             alert(`[SIMULATION EMAIL]
 ------------------------------------------------
-Sujet: Vos accès Prestataire - Presta Services Antilles
+À: ${providerData.email}
+Objet: Vos accès Prestataire - Presta Services Antilles
 
 Bonjour ${providerData.firstName},
 
-Votre compte prestataire est actif.
-Voici vos identifiants :
+Votre compte prestataire a été créé. Vous pouvez désormais accéder à votre espace de gestion.
 
-Lien : https://presta-antilles.app/login
+Lien de connexion : https://presta-antilles.app/login
 Identifiant : ${providerData.email}
 Mot de passe : ${password}
 
@@ -823,12 +810,15 @@ L'équipe Presta Services Antilles`);
         const provider = providers.find(p => p.id === id);
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
+            // In a real app we'd update Supabase Auth user, but here we update our local ref
+            // and maybe the DB table for 'initial_password' so admin can see it again? 
+            // Or just alert it.
             
             await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
             
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
 
-            alert(`[EMAIL ENVOYÉ]
+            alert(`[SIMULATION EMAIL]
 ------------------------------------------------
 À: ${provider.email}
 Objet: Réinitialisation de mot de passe
@@ -1210,7 +1200,6 @@ Connectez-vous ici : https://presta-antilles.app/login
         // Fetch user details immediately to prevent flicker
         if (data.user) {
             await fetchUserProfile(data.user);
-            await refreshData();
             return true;
         }
         return false;
