@@ -9,8 +9,8 @@ import {
 import { supabase } from '../utils/supabaseClient';
 
 // --- Assets ---
-export const LOGO_NORMAL = "https://via.placeholder.com/150"; 
-export const LOGO_SAP = "https://via.placeholder.com/100?text=SAP";
+export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png"; 
+export const LOGO_SAP = "https://prestaservicesantilles.com/images/logo.png";
 export const CACHET_SIGNATURE = "https://via.placeholder.com/150?text=Cachet";
 
 // Helper for UUID generation
@@ -197,7 +197,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                     hasLeftReview: c.has_left_review,
-                    initialPassword: c.initial_password
+                    // initialPassword non disponible depuis la DB car colonne manquante
                 })));
             }
             
@@ -209,7 +209,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
                     leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
-                    initialPassword: p.initial_password
+                    // initialPassword non disponible depuis la DB car colonne manquante
                 })));
             }
 
@@ -550,8 +550,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             since: clientData.since,
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
-            has_left_review: false,
-            initial_password: password
+            has_left_review: false
+            // initial_password enlevé car la colonne n'existe pas en DB
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
@@ -565,7 +565,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 packsConsumed: newClient.packs_consumed,
                 loyaltyHoursAvailable: newClient.loyalty_hours_available,
                 hasLeftReview: newClient.has_left_review,
-                initialPassword: password
+                initialPassword: password // Stockage local uniquement pour l'alerte
             }]);
             
             alert(`[SIMULATION EMAIL ENVOYÉ À ${clientData.email}]\n\n"Bonjour, votre compte est créé.\nLogin: ${clientData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
@@ -620,8 +620,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             email: providerData.email,
             status: providerData.status,
             hours_worked: 0,
-            rating: 5,
-            initial_password: password
+            rating: 5
+            // initial_password enlevé car la colonne n'existe pas en DB
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
@@ -636,7 +636,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                  lastName: newProvider.last_name,
                  hoursWorked: newProvider.hours_worked,
                  leaves: [],
-                 initialPassword: password
+                 initialPassword: password // Stockage local uniquement pour l'alerte
              }]);
 
              await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
@@ -699,7 +699,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const provider = providers.find(p => p.id === id);
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
-            await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
+            // On ne peut pas mettre à jour la colonne initial_password car elle n'existe pas en DB
+            // await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
+            
+            // Mise à jour de l'état local pour simuler
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
             alert(`[SIMULATION EMAIL]\nNouveau mot de passe envoyé à ${provider.email} : ${newPass}`);
         }
