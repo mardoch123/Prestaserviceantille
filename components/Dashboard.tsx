@@ -32,7 +32,7 @@ const Dashboard: React.FC = () => {
   const turnoverData = useMemo(() => {
     const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
     const currentMonth = new Date().getMonth();
-    const data = [];
+    const data: { name: string; ca: number; monthIndex: number }[] = [];
 
     // Create last 6 months placeholders
     for (let i = 5; i >= 0; i--) {
@@ -372,3 +372,4 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
+    
