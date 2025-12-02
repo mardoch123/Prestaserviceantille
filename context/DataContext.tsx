@@ -392,7 +392,7 @@ Fait à La Trinité, le [DATE]
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url // Ensure logo persists
+                    logoUrl: settingsData.logo_url || LOGO_NORMAL // Use DB value or default
                 });
             }
 
@@ -405,37 +405,38 @@ Fait à La Trinité, le [DATE]
     useEffect(() => {
         let mounted = true;
 
-        const initializeAuth = async () => {
-            setLoading(true);
+        const initAuth = async () => {
             try {
-                // Check for existing session on app load
+                // Initial session check
                 const { data: { session } } = await supabase.auth.getSession();
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
+                    await refreshData();
                 }
-                
-                if (mounted) await refreshData();
             } catch (error) {
-                console.error("Auth init error:", error);
+                console.error("Auth initialization failed:", error);
             } finally {
                 if (mounted) setLoading(false);
             }
         };
 
-        initializeAuth();
+        initAuth();
 
-        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user && mounted) {
-                // If user just signed in or token refreshed, ensure profile is loaded
-                if (!currentUser || currentUser.id !== session.user.id) {
-                     setLoading(true);
+            if (!mounted) return;
+
+            if (event === 'SIGNED_IN' && session) {
+                 setLoading(true);
+                 try {
                      await fetchUserProfile(session.user);
                      await refreshData();
-                     setLoading(false);
-                }
-            } else if (!session && mounted) {
+                 } catch (e) {
+                     console.error("Sign-in refresh failed", e);
+                 } finally {
+                     if (mounted) setLoading(false);
+                 }
+            } else if (event === 'SIGNED_OUT') {
                 setCurrentUser(null);
                 setLoading(false);
             }
@@ -463,12 +464,6 @@ Fait à La Trinité, le [DATE]
                 logo_url: settings.logoUrl
             };
             
-            // We use the old name to find the record, assuming name is unique or we are updating the single record
-            // If the name is changing, we must use the old name in 'eq'.
-            // For safety, assuming single row or matching by ID is better, but since we don't track ID in local state 
-            // and usually there's only one settings row, we can try to update all or fetch ID first.
-            // Here we'll stick to updating based on current state name which acts as ID.
-            
             // First fetch the ID to be safe
             const { data: current } = await supabase.from('company_settings').select('id').limit(1).single();
             
@@ -477,14 +472,16 @@ Fait à La Trinité, le [DATE]
                 const res = await supabase.from('company_settings').update(dbData).eq('id', current.id);
                 error = res.error;
             } else {
-                // Fallback if no settings exist (should be created on init)
                  const res = await supabase.from('company_settings').insert(dbData);
                  error = res.error;
             }
 
             if (error) throw error;
-            setCompanySettings(settings); // Update local state immediately for UI response
-            await refreshData(); // Force refresh to ensure sync
+            
+            // Update local state immediately
+            setCompanySettings(settings);
+            // Don't await refresh here to feel instant, but keep sync
+            refreshData(); 
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
             throw err;
@@ -630,7 +627,7 @@ Fait à La Trinité, le [DATE]
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
             has_left_review: false,
-            initial_password: password // Saving initial password for admin view
+            initial_password: password
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
@@ -724,7 +721,7 @@ L'équipe.`);
             status: providerData.status,
             hours_worked: 0,
             rating: 5,
-            initial_password: password // Saving initial password for admin view
+            initial_password: password
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
