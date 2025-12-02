@@ -20,7 +20,9 @@ import {
   AlertTriangle,
   Mail,
   Edit,
-  KeyRound
+  KeyRound,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 const Providers: React.FC = () => {
@@ -44,6 +46,9 @@ const Providers: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+
+  // Toggle Password View State
+  const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
 
   // Form
   const [formData, setFormData] = useState({
@@ -152,7 +157,7 @@ const Providers: React.FC = () => {
   const handleResetPassword = (id: string) => {
       if(window.confirm("Êtes-vous sûr de vouloir réinitialiser le mot de passe de ce prestataire ?")) {
           resetProviderPassword(id);
-          showToast('Mot de passe réinitialisé et envoyé par email.');
+          showToast('Nouveau mot de passe généré et envoyé.');
       }
   };
 
@@ -166,14 +171,11 @@ const Providers: React.FC = () => {
       setIsLeaveModalOpen(true);
   };
 
-  const showCredentials = (provider: any) => {
-      alert(`[ACCÈS PRESTATAIRE]
-      
-Intervenant : ${provider.firstName} ${provider.lastName}
-Email : ${provider.email}
-Mot de passe initial : ${provider.initialPassword || 'Non disponible (déjà modifié ou inconnu)'}
-
-Lien de connexion : https://presta-antilles.app/login`);
+  const togglePasswordVisibility = (id: string) => {
+      const newSet = new Set(visiblePasswords);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      setVisiblePasswords(newSet);
   };
 
   // Bulk Actions
@@ -283,7 +285,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             </button>
                         </th>
                         <th className="px-6 py-4 font-bold">Prestataire</th>
-                        <th className="px-6 py-4 font-bold">Contact</th>
+                        <th className="px-6 py-4 font-bold">Identifiants</th>
                         <th className="px-6 py-4 font-bold">Spécialité</th>
                         <th className="px-6 py-4 font-bold text-center">Heures (Mois)</th>
                         <th className="px-6 py-4 font-bold text-center">Statut</th>
@@ -302,11 +304,25 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 <td className="px-6 py-4 font-bold text-slate-700">
                                     {p.firstName} {p.lastName}
                                     {p.leaves.length > 0 && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded">Congés déclarés</span>}
+                                    <div className="text-[10px] text-slate-500 font-normal mt-1 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400"/> {p.phone}</div>
                                 </td>
-                                <td className="px-6 py-4 text-slate-600">
-                                    <div className="flex flex-col text-xs">
-                                        <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400"/> {p.phone}</span>
-                                        <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400"/> {p.email}</span>
+                                <td className="px-6 py-4">
+                                     <div className="flex flex-col text-xs bg-slate-50 border border-slate-200 rounded p-2 max-w-[200px]">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="font-bold text-slate-500">Email:</span>
+                                            <span className="text-slate-700 truncate ml-2 max-w-[100px]" title={p.email}>{p.email}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-bold text-slate-500">Mdp:</span>
+                                            <div className="flex items-center gap-1">
+                                                <span className="font-mono text-slate-800 bg-white px-1 rounded border border-slate-100">
+                                                    {visiblePasswords.has(p.id) ? (p.initialPassword || 'N/A') : '••••••'}
+                                                </span>
+                                                <button onClick={() => togglePasswordVisibility(p.id)} className="text-slate-400 hover:text-brand-blue">
+                                                    {visiblePasswords.has(p.id) ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 text-slate-600">
@@ -324,13 +340,6 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     {p.status === 'Inactive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200"><XCircle className="w-3 h-3"/> Inactif</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                    <button 
-                                        onClick={() => showCredentials(p)}
-                                        className="text-slate-400 hover:text-purple-500 p-1 rounded hover:bg-purple-50 border border-transparent hover:border-purple-200" 
-                                        title="Voir Identifiants"
-                                    >
-                                        <KeyRound className="w-4 h-4" />
-                                    </button>
                                     <button 
                                         onClick={() => openEditModal(p)}
                                         className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200" 
@@ -374,7 +383,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Prestataire' : 'Nouveau Prestataire'}</h3>
-                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : "Ajouter un membre à l'équipe"}</p>
+                        <p className="text-xs text-slate-500 mt-1">{isEditMode ? 'Mettre à jour les informations' : "Ajouter un membre à l'équipe et envoyer les accès"}</p>
                     </div>
                     <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
                         <X className="w-5 h-5 text-slate-500" />
@@ -482,7 +491,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             type="submit"
                             className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2"
                         >
-                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer ID'}
+                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer Email'}
                         </button>
                     </div>
                 </form>
