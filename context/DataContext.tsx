@@ -24,6 +24,12 @@ function generateUUID() {
     });
 }
 
+// Helper to capitalize first letter
+function capitalize(s: string) {
+    if (!s) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
@@ -287,6 +293,9 @@ Fait à La Trinité, le [DATE]
                     const quantityMatch = desc.match(/Quantité: (.*?)(\||$)/);
                     const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
                     
+                    // Map DB enum (lowercase) back to UI (Capitalized)
+                    const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
+
                     return {
                         ...p,
                         mainService: p.main_service || p.mainService,
@@ -297,7 +306,8 @@ Fait à La Trinité, le [DATE]
                         isSap: p.is_sap || p.isSap,
                         contractType: p.contract_type || p.contractType,
                         quantity: quantityMatch ? quantityMatch[1].trim() : (p.quantity || ''),
-                        location: locationMatch ? locationMatch[1].trim() : (p.location || '')
+                        location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
+                        frequency: freq
                     };
                 });
                 setPacks(mappedPacks);
@@ -800,13 +810,16 @@ L'équipe Presta Services Antilles`);
         // Merge quantity and location into description so they persist in DB text field
         const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
 
+        // Ensure frequency is lowercase to match enum defined in DB (ponctuelle, hebdomadaire, etc)
+        const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
+
         const dbPackData = {
             id: finalId,
             name: pack.name,
             main_service: pack.mainService,
             description: mergedDescription,
             hours: pack.hours,
-            frequency: pack.frequency,
+            frequency: dbFrequency, 
             supplies_included: pack.suppliesIncluded,
             supplies_details: pack.suppliesDetails,
             type: pack.type,
@@ -838,7 +851,9 @@ L'équipe Presta Services Antilles`);
                  contractType: newPack.contract_type,
                  // Restore from passed state for immediate UI feedback (or parse description)
                  quantity: pack.quantity,
-                 location: pack.location
+                 location: pack.location,
+                 // Capitalize for UI
+                 frequency: capitalize(newPack.frequency) as any
              };
              setPacks(prev => [...prev, mappedPack]);
         }
