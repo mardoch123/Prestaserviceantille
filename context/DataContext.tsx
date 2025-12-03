@@ -160,7 +160,58 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU\nSiège : 31 Résidence L’Autre Bord – 97220 La Trinité\nN° SAP : SAP944789700\nEmail : prestaservicesantilles.rh@gmail.com\nAssurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox)\nValidité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € – Monde entier (hors USA/Canada)\n\nCONTRAT DE PRESTATION DE SERVICE (SAP)\n\n1. INFORMATIONS DU CLIENT\n[INFO_CLIENT]\n\n2. INFORMATIONS DU PACK\n[INFO_PACK]\n\n--------------------------------------------------------------\nCONDITIONS GÉNÉRALES & OBLIGATIONS\n\nArticle 1 – Obligations du Prestataire\nLe Prestataire exécute les Prestations avec diligence et professionnalisme... (Texte complet du PDF)...\n\nFait à La Trinité, le [DATE]\n`;
+    const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
+Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
+N° SAP : SAP944789700
+Email : prestaservicesantilles.rh@gmail.com
+Assurance RCP : Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox
+Validité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € par période – Monde entier (hors USA/Canada).
+Attestation disponible sur demande.
+
+CONTRAT DE PRESTATION DE SERVICE (SAP)
+
+1. INFORMATIONS DU CLIENT
+[INFO_CLIENT]
+
+2. INFORMATIONS DU PACK
+[INFO_PACK]
+
+CONDITIONS GÉNÉRALES & OBLIGATIONS
+
+– Obligations du Prestataire
+Le Prestataire exécute les Prestations avec diligence et professionnalisme, selon les règles de l’art et dans le respect des normes d’hygiène et de sécurité applicables. Il affecte des intervenants compétents et placés sous encadrement. Les Prestations demeurent limitées au périmètre éligible au SAP.
+
+Article 9 – Obligations du Client
+Le Client assure l’accès au domicile aux dates et créneaux convenus, fournit les informations utiles et met à disposition un environnement conforme (électricité, eau, accès sécurisé). Il respecte les modalités de paiement et veille au maintien en place et à la lisibilité du QR code.
+
+– Responsabilité
+Le Prestataire n’est pas responsable (i) des retards résultant d’un manquement du Client, notamment en cas d’accès impossible ou d’absence de QR code, ni (ii) des dommages, défauts ou dysfonctionnements antérieurs à l’intervention. Sa responsabilité est limitée aux dommages directs, certains et prouvés, dans la limite des plafonds de ses assurances.
+
+– Protection des données (RGPD)
+Données traitées : identité et coordonnées, adresse d’intervention, consignes d’accès, données de pointage. Base légale : exécution du Contrat. Durées de conservation : pendant le Contrat puis selon les délais légaux. Droits du Client : accès, rectification, effacement, limitation, opposition et portabilité (contact : prestaservicesantilles.rh@gmail.com). Les sous‑traitants (hébergement, paiement, pointage) sont tenus à des obligations de confidentialité et de sécurité. Aucun transfert hors UE n’est effectué sans garanties adéquates.
+
+– Résiliation
+12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception ou par courriel avec accusé de réception.
+12.2. Pour manquement : en cas de manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit, sans indemnité.
+12.3. Effets : les sommes dues au titre des prestations réalisées jusqu’à la date d’effet de la résiliation restent exigibles.
+
+– Droit de rétractation (consommateur)
+En cas de conclusion à distance ou hors établissement, le Client consommateur dispose d’un délai de 14 jours à compter de la signature pour se rétracter, sans motif ni frais, conformément aux articles L221‑18 et suivants du Code de la consommation. L’exécution des prestations avant l’expiration de ce délai ne peut intervenir qu’avec l’accord exprès du Client, qui reconnaît perdre son droit de rétractation pour les prestations pleinement exécutées. Modèle de formulaire en Annexe 2.
+
+– Médiation de la consommation et litiges
+En cas de litige, le Client peut recourir gratuitement à un médiateur de la consommation : [organisme compétent] – [adresse / site]. À défaut d’accord amiable, le litige sera porté devant les juridictions territorialement compétentes, selon le droit commun. Droit applicable : droit français.
+
+Confidentialité
+Les informations échangées dans le cadre du Contrat sont confidentielles pendant sa durée et pendant 3 ans après son expiration, sauf obligation légale ou décision de justice.
+
+Dispositions diverses
+La nullité d’une clause n’affecte pas la validité du reste du Contrat. Le Client ne peut céder le Contrat sans l’accord écrit préalable du Prestataire. Élection de domicile aux adresses indiquées ci‑dessus.
+
+– Cas particuliers (Annulation)
+Si l’annulation est faite moins de 48 h avant l’intervention, le client reçoit une notification : la mission est considérée comme réalisée et facturée. Elle est ajoutée aux statistiques « missions annulées sous 48 h ». Le créneau devient disponible pour une nouvelle mission. Dans ce cas, 50 % du montant est facturé, hors SAP, sans avance immédiate.
+
+Fait à La Trinité, le [DATE]
+`;
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
@@ -378,24 +429,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             } catch (error) {
                 console.error("Auth check failed:", error);
             } finally {
-                // Force stop loading
-                if (mounted) setLoading(false);
+                // Force stop loading and refresh data after auth check
+                if (mounted) {
+                    await refreshData();
+                    setLoading(false);
+                }
             }
         };
 
         initializeAuth();
-        refreshData(); 
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mounted) return;
             
             if (event === 'SIGNED_IN' && session?.user) {
+                 await refreshData(); // Refresh data on login to ensure we see the database content
                  if (!currentUser) {
                      await fetchUserProfile(session.user);
                  }
                  setLoading(false);
             } else if (event === 'SIGNED_OUT') {
                 setCurrentUser(null);
+                setMissions([]);
+                setClients([]);
+                setProviders([]);
+                setDocuments([]);
                 setLoading(false);
             }
         });
