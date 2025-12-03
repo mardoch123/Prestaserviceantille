@@ -160,23 +160,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
+    // EXACT TEMPLATE FROM PDF OCR
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
 Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
 Email : prestaservicesantilles.rh@gmail.com
 Assurance RCP : Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox
-Validité : 01/08/2025 -> 31/07/2026 – Plafond : 100 000 € par période – Monde entier (hors USA/Canada).
-Attestation disponible sur demande.
 
-CONTRAT DE PRESTATION DE SERVICE (SAP)
+Infos obligatoires
+Assurance :
+Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox – validité : 01/08/2025 → 31/07/2026 – plafond : 100 000 € par période – Monde entier (hors USA/Canada).
+Attestation disponible sur demande.
 
 1. INFORMATIONS DU CLIENT
 [INFO_CLIENT]
 
 2. INFORMATIONS DU PACK
 [INFO_PACK]
-
-CONDITIONS GÉNÉRALES & OBLIGATIONS
 
 – Obligations du Prestataire
 Le Prestataire exécute les Prestations avec diligence et professionnalisme, selon les règles de l’art et dans le respect des normes d’hygiène et de sécurité applicables. Il affecte des intervenants compétents et placés sous encadrement. Les Prestations demeurent limitées au périmètre éligible au SAP.
@@ -207,15 +207,27 @@ Les informations échangées dans le cadre du Contrat sont confidentielles penda
 Dispositions diverses
 La nullité d’une clause n’affecte pas la validité du reste du Contrat. Le Client ne peut céder le Contrat sans l’accord écrit préalable du Prestataire. Élection de domicile aux adresses indiquées ci‑dessus.
 
-– Cas particuliers (Annulation)
-Si l’annulation est faite moins de 48 h avant l’intervention, le client reçoit une notification : la mission est considérée comme réalisée et facturée. Elle est ajoutée aux statistiques « missions annulées sous 48 h ». Le créneau devient disponible pour une nouvelle mission. Dans ce cas, 50 % du montant est facturé, hors SAP, sans avance immédiate.
+Cas particuliers
+• Si l’annulation est faite moins de 48 h avant l’intervention, le client reçoit une notification : la mission est considérée comme réalisée et facturée. Elle est ajoutée aux statistiques « missions annulées sous 48 h ». Le créneau devient disponible pour une nouvelle mission. Dans ce cas, 50 % du montant est facturé, hors SAP, sans avance immédiate.
+• Si 2 devis ont été envoyé en même temps à 2 clients différents le 1er qui aura signé bloquera les créneaux souhaités.
+• Un prestataire peut tomber malade en pleine mission et donc annule la mission avec un motif obligatoire.
+• Une notification par mail doit etre envoyé aux clients comme rappel 48h avant la date d’intervention, disant que la prestation ne peut plus etre annulée
 
 Fait à La Trinité, le [DATE]
+Signature du Client (Précédée de la mention "Lu et approuvé")
+[ESPACE_SIGNATURE]
 `;
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
+            // Check session before fetching
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.user) {
+                console.warn("Attempted to refresh data without session");
+                return;
+            }
+
             const [
                 { data: cData }, 
                 { data: pData }, 
@@ -248,7 +260,6 @@ Fait à La Trinité, le [DATE]
                     packsConsumed: c.packs_consumed || 0,
                     loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                     hasLeftReview: c.has_left_review,
-                    // initialPassword non disponible depuis la DB car colonne manquante
                 })));
             }
             
@@ -260,7 +271,6 @@ Fait à La Trinité, le [DATE]
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
                     leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
-                    // initialPassword non disponible depuis la DB car colonne manquante
                 })));
             }
 
@@ -361,7 +371,7 @@ Fait à La Trinité, le [DATE]
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url // Ensure this is mapped correctly
+                    logoUrl: settingsData.logo_url
                 });
             }
 
@@ -409,14 +419,6 @@ Fait à La Trinité, le [DATE]
     // --- AUTHENTICATION & INITIALIZATION ---
     useEffect(() => {
         let mounted = true;
-        const cachedUserStr = typeof window !== 'undefined' ? localStorage.getItem('presta_current_user') : null;
-        if (cachedUserStr && mounted) {
-            try {
-                const cachedUser = JSON.parse(cachedUserStr);
-                setCurrentUser(cachedUser);
-                setLoading(false);
-            } catch {}
-        }
 
         const initializeAuth = async () => {
             try {
@@ -425,13 +427,22 @@ Fait à La Trinité, le [DATE]
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
+                    // CRITICAL: Only refresh data if we have a valid session
+                    await refreshData();
+                } else if (mounted) {
+                    // No session found, ensure we are clean
+                    setCurrentUser(null);
+                    localStorage.removeItem('presta_current_user');
                 }
             } catch (error) {
                 console.error("Auth check failed:", error);
+                if(mounted) {
+                    setCurrentUser(null);
+                    localStorage.removeItem('presta_current_user');
+                }
             } finally {
-                // Force stop loading and refresh data after auth check
+                // Force stop loading after attempt
                 if (mounted) {
-                    await refreshData();
                     setLoading(false);
                 }
             }
@@ -443,10 +454,12 @@ Fait à La Trinité, le [DATE]
             if (!mounted) return;
             
             if (event === 'SIGNED_IN' && session?.user) {
-                 await refreshData(); // Refresh data on login to ensure we see the database content
+                 // Double check user profile
                  if (!currentUser) {
                      await fetchUserProfile(session.user);
                  }
+                 // Only refresh if we have a session
+                 await refreshData();
                  setLoading(false);
             } else if (event === 'SIGNED_OUT') {
                 setCurrentUser(null);
@@ -454,21 +467,13 @@ Fait à La Trinité, le [DATE]
                 setClients([]);
                 setProviders([]);
                 setDocuments([]);
+                localStorage.removeItem('presta_current_user');
                 setLoading(false);
             }
         });
 
-        // Safety timeout to prevent infinite loading screen
-        const safetyTimer = setTimeout(() => {
-            if (mounted && loading) {
-                console.warn("Forcing loading to false due to timeout");
-                setLoading(false);
-            }
-        }, 3000); // 3 seconds max loading
-
         return () => {
             mounted = false;
-            clearTimeout(safetyTimer);
             subscription.unsubscribe();
         };
     }, []);
@@ -652,7 +657,7 @@ Fait à La Trinité, le [DATE]
                 packsConsumed: newClient.packs_consumed,
                 loyaltyHoursAvailable: newClient.loyalty_hours_available,
                 hasLeftReview: newClient.has_left_review,
-                initialPassword: password // Stockage local uniquement pour l'alerte
+                initialPassword: password 
             }]);
             
             alert(`[SIMULATION EMAIL ENVOYÉ À ${clientData.email}]\n\n"Bonjour, votre compte est créé.\nLogin: ${clientData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
@@ -722,7 +727,7 @@ Fait à La Trinité, le [DATE]
                  lastName: newProvider.last_name,
                  hoursWorked: newProvider.hours_worked,
                  leaves: [],
-                 initialPassword: password // Stockage local uniquement pour l'alerte
+                 initialPassword: password 
              }]);
 
              await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
@@ -1122,16 +1127,30 @@ Fait à La Trinité, le [DATE]
         
         if (data.user) {
             await fetchUserProfile(data.user);
+            // Refresh data immediately after login
+            await refreshData();
             return true;
         }
         return false;
     };
 
     const logout = async () => {
-        await supabase.auth.signOut();
+        // Clear local state first
+        localStorage.removeItem('presta_current_user');
+        // Force clear any other Supabase related items if they exist under a default key
+        localStorage.clear(); 
+        
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
+        setMissions([]);
+        setClients([]);
+        setProviders([]);
+        setDocuments([]);
+        
+        await supabase.auth.signOut();
+        // Force a page reload to ensure clean slate if needed
+        window.location.href = '/';
     };
 
     const startLiveStream = (providerId: string, clientId: string) => {
