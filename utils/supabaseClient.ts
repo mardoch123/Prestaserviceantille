@@ -1,29 +1,50 @@
+
 import { createClient } from '@supabase/supabase-js';
 
-// Safe access to environment variables to prevent crashes if import.meta is not defined in some contexts
+// Robust way to get environment variables in different environments (Vite, Vercel, etc.)
 const getEnvVar = (key: string) => {
+  // Priority 1: Vite import.meta.env
   try {
-    const meta = import.meta as any;
-    if (meta && meta.env) {
-      return meta.env[key] || '';
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
     }
   } catch (e) {
-    console.warn(`Error accessing environment variable ${key}:`, e);
+    console.warn(`Error accessing import.meta.env for ${key}`);
   }
+
+  // Priority 2: Standard process.env (sometimes available in build/runtime)
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      // @ts-ignore
+      return process.env[key];
+    }
+  } catch (e) {
+    // ignore
+  }
+
   return '';
 };
 
 const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
 const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
 
-// Prevent crash if variables are missing.
-// We provide a fallback URL to avoid immediate crash during module load.
-// Note: Requests will fail if the URL is invalid, but the app won't white-screen on load.
+// Check if we have valid credentials
+export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey && supabaseUrl !== 'https://placeholder.supabase.co';
+
+// Fallback to prevent crash during initialization, but requests will fail if used
 const validUrl = supabaseUrl || 'https://placeholder.supabase.co';
 const validKey = supabaseAnonKey || 'placeholder';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL or Anon Key is missing. Check your environment variables.');
+if (!isSupabaseConfigured) {
+  console.warn('Supabase URL or Anon Key is missing. The app will start in offline/demo mode and network requests will fail.');
 }
 
-export const supabase = createClient(validUrl, validKey);
+export const supabase = createClient(validUrl, validKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  }
+});

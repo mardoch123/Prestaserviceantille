@@ -1,12 +1,13 @@
 
 
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
     AppNotification, Message, User, StreamSession, Expense, CompanySettings,
     CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave
 } from '../types';
-import { supabase } from '../utils/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 
 // --- Assets ---
 export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png"; 
@@ -221,10 +222,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
+            if (!isSupabaseConfigured) {
+                console.warn("Supabase not configured. Skipping data fetch.");
+                setLoading(false);
+                return;
+            }
+
             // Check session before fetching
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) {
-                console.warn("Attempted to refresh data without session");
+            const { data: { session }, error: authError } = await supabase.auth.getSession();
+            if (authError || !session?.user) {
+                // If fetching session fails (e.g. invalid URL), catch it
+                if (authError) console.warn("Auth session check failed:", authError.message);
                 return;
             }
 
@@ -376,12 +384,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
         } catch (error) {
-            console.error("Erreur lors du chargement des données:", error);
+            console.error("Erreur lors du chargement des données (réseau ou config):", error);
         }
     };
 
     const fetchUserProfile = async (authUser: any) => {
         try {
+            if (!isSupabaseConfigured) return;
             const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
             let userObj: User | null = null;
             if (profile) {
@@ -422,10 +431,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const initializeAuth = async () => {
             try {
+                if (!isSupabaseConfigured) {
+                    if (mounted) setLoading(false);
+                    return;
+                }
+
                 // Check active session
-                const { data: { session } } = await supabase.auth.getSession();
+                const { data: { session }, error } = await supabase.auth.getSession();
                 
-                if (session?.user && mounted) {
+                if (error) {
+                     console.warn("Auth initialization error:", error.message);
+                } else if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
                     // CRITICAL: Only refresh data if we have a valid session
                     await refreshData();
@@ -449,6 +465,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
 
         initializeAuth();
+
+        // If not configured, we don't attach listener
+        if (!isSupabaseConfigured) return;
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mounted) return;
@@ -1135,9 +1154,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const logout = async () => {
-        // Clear local state first
+        // 1. Always clear local state first to ensure user is logged out visually
         localStorage.removeItem('presta_current_user');
-        // Force clear any other Supabase related items if they exist under a default key
         localStorage.clear(); 
         
         setCurrentUser(null);
@@ -1148,9 +1166,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setProviders([]);
         setDocuments([]);
         
-        await supabase.auth.signOut();
-        // Force a page reload to ensure clean slate if needed
-        window.location.href = '/';
+        // 2. Try network logout, but don't crash if it fails (e.g. Supabase unavailable)
+        try {
+            if (isSupabaseConfigured) {
+                await supabase.auth.signOut();
+            }
+        } catch (e) {
+            console.warn("Logout network request failed (ignoring):", e);
+        }
+        
+        // 3. Force reload to clean state
+        window.location.reload();
     };
 
     const startLiveStream = (providerId: string, clientId: string) => {
