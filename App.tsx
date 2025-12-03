@@ -1,6 +1,4 @@
-
-
-import React from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
@@ -51,6 +49,18 @@ const LoadingScreen = () => (
 
 const AppLayout: React.FC = () => {
     const { currentUser, loading } = useData();
+
+    // Prevent accidental refresh
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            const message = "Êtes-vous sûr de vouloir quitter ? Les modifications non sauvegardées pourraient être perdues.";
+            e.returnValue = message;
+            return message;
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
 
     if (loading) {
         return <LoadingScreen />;
