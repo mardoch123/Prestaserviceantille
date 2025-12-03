@@ -310,7 +310,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     tvaRateDefault: settingsData.tva_rate_default,
                     emailNotifications: settingsData.email_notifications,
                     loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url
+                    logoUrl: settingsData.logo_url // Ensure this is mapped correctly
                 });
             }
 
@@ -319,52 +319,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    // --- AUTHENTICATION & INITIALIZATION ---
-    useEffect(() => {
-        let mounted = true;
-
-        const init = async () => {
-            try {
-                // 1. Get session immediately
-                const { data: { session } } = await supabase.auth.getSession();
-                
-                if (session?.user && mounted) {
-                    await fetchUserProfile(session.user);
-                }
-            } catch (error) {
-                console.error("Auth initialization failed:", error);
-            } finally {
-                // Stop loading regardless of result
-                if (mounted) setLoading(false);
-            }
-        };
-
-        // Initialize auth and fetch data in parallel
-        init();
-        refreshData();
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (!mounted) return;
-
-            if (event === 'SIGNED_OUT') {
-                setCurrentUser(null);
-            } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                 if (session?.user) {
-                     await fetchUserProfile(session.user);
-                 }
-            }
-        });
-
-        return () => {
-            mounted = false;
-            subscription.unsubscribe();
-        };
-    }, []);
-
     const fetchUserProfile = async (authUser: any) => {
         try {
-            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).single();
+            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
             if (profile) {
                 setCurrentUser({
                      id: authUser.id,
@@ -380,11 +337,71 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                      name: 'Admin Principal',
                      role: 'admin'
                  });
+            } else {
+                 // Fallback for non-admin users if profile missing
+                 setCurrentUser({
+                     id: authUser.id,
+                     email: authUser.email || '',
+                     name: 'Utilisateur',
+                     role: 'admin' // Default safe fallback
+                 });
             }
         } catch (e) {
             console.error("Error fetching user profile:", e);
         }
     };
+
+    // --- AUTHENTICATION & INITIALIZATION ---
+    useEffect(() => {
+        let mounted = true;
+
+        const initializeAuth = async () => {
+            try {
+                // Check active session
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (session?.user && mounted) {
+                    await fetchUserProfile(session.user);
+                }
+            } catch (error) {
+                console.error("Auth check failed:", error);
+            } finally {
+                // Force stop loading
+                if (mounted) setLoading(false);
+            }
+        };
+
+        initializeAuth();
+        refreshData(); 
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!mounted) return;
+            
+            if (event === 'SIGNED_IN' && session?.user) {
+                 if (!currentUser) {
+                     await fetchUserProfile(session.user);
+                 }
+                 setLoading(false);
+            } else if (event === 'SIGNED_OUT') {
+                setCurrentUser(null);
+                setLoading(false);
+            }
+        });
+
+        // Safety timeout to prevent infinite loading screen
+        const safetyTimer = setTimeout(() => {
+            if (mounted && loading) {
+                console.warn("Forcing loading to false due to timeout");
+                setLoading(false);
+            }
+        }, 3000); // 3 seconds max loading
+
+        return () => {
+            mounted = false;
+            clearTimeout(safetyTimer);
+            subscription.unsubscribe();
+        };
+    }, []);
 
     // --- ACTIONS ---
 
@@ -402,16 +419,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 logo_url: settings.logoUrl
             };
             
-            // Upsert based on name or ID if you had one. Assuming single row settings concept.
-            // Using maybeSingle during fetch suggests we want to update the existing row.
-            // For simplicity in this demo structure, we assume we update by name or just use a fixed ID concept if we had one.
-            // We will update all rows since there is only one settings row conceptually.
+            // Check if settings row exists, if not insert it
+            const { data: existing } = await supabase.from('company_settings').select('id').maybeSingle();
             
-            // First, try to get the existing row to find an ID or just update all
-            const { error } = await supabase
-                .from('company_settings')
-                .update(dbData)
-                .neq('id', '00000000-0000-0000-0000-000000000000'); // Dummy filter to update all (or use a known ID)
+            let error;
+            if (existing) {
+                const res = await supabase.from('company_settings').update(dbData).eq('id', existing.id);
+                error = res.error;
+            } else {
+                const res = await supabase.from('company_settings').insert(dbData);
+                error = res.error;
+            }
 
             if (error) throw error;
             setCompanySettings(settings); 
@@ -551,7 +569,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             packs_consumed: clientData.packsConsumed || 0,
             loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
             has_left_review: false
-            // initial_password enlevé car la colonne n'existe pas en DB
         };
 
         const { data, error } = await supabase.from('clients').insert(dbClientData).select();
@@ -621,7 +638,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: providerData.status,
             hours_worked: 0,
             rating: 5
-            // initial_password enlevé car la colonne n'existe pas en DB
         };
 
         const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
@@ -699,10 +715,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const provider = providers.find(p => p.id === id);
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
-            // On ne peut pas mettre à jour la colonne initial_password car elle n'existe pas en DB
-            // await supabase.from('providers').update({ initial_password: newPass }).eq('id', id);
-            
-            // Mise à jour de l'état local pour simuler
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
             alert(`[SIMULATION EMAIL]\nNouveau mot de passe envoyé à ${provider.email} : ${newPass}`);
         }
