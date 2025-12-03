@@ -1,6 +1,3 @@
-
-
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
@@ -219,6 +216,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 [ESPACE_SIGNATURE]
 `;
 
+    // Handle online/offline status
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
@@ -231,7 +240,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             // Check session before fetching
             const { data: { session }, error: authError } = await supabase.auth.getSession();
             if (authError || !session?.user) {
-                // If fetching session fails (e.g. invalid URL), catch it
+                // If fetching session fails or no session, stop here
                 if (authError) console.warn("Auth session check failed:", authError.message);
                 return;
             }
@@ -382,9 +391,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     logoUrl: settingsData.logo_url
                 });
             }
+            
+            // Set online if successful
+            setIsOnline(true);
 
-        } catch (error) {
-            console.error("Erreur lors du chargement des données (réseau ou config):", error);
+        } catch (error: any) {
+            console.error("Erreur lors du chargement des données:", error);
+            if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
+                setIsOnline(false);
+            }
         }
     };
 
@@ -472,12 +487,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mounted) return;
             
-            if (event === 'SIGNED_IN' && session?.user) {
-                 // Double check user profile
-                 if (!currentUser) {
+            // Handle various auth events that signify a valid session
+            if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
+                 if (!currentUser || currentUser.id !== session.user.id) {
                      await fetchUserProfile(session.user);
                  }
-                 // Only refresh if we have a session
                  await refreshData();
                  setLoading(false);
             } else if (event === 'SIGNED_OUT') {
@@ -1146,7 +1160,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         
         if (data.user) {
             await fetchUserProfile(data.user);
-            // Refresh data immediately after login
             await refreshData();
             return true;
         }
@@ -1154,7 +1167,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const logout = async () => {
-        // 1. Always clear local state first to ensure user is logged out visually
         localStorage.removeItem('presta_current_user');
         localStorage.clear(); 
         
@@ -1166,7 +1178,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setProviders([]);
         setDocuments([]);
         
-        // 2. Try network logout, but don't crash if it fails (e.g. Supabase unavailable)
         try {
             if (isSupabaseConfigured) {
                 await supabase.auth.signOut();
@@ -1175,7 +1186,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.warn("Logout network request failed (ignoring):", e);
         }
         
-        // 3. Force reload to clean state
         window.location.reload();
     };
 
