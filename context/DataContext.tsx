@@ -322,29 +322,33 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const fetchUserProfile = async (authUser: any) => {
         try {
             const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+            let userObj: User | null = null;
             if (profile) {
-                setCurrentUser({
+                userObj = {
                      id: authUser.id,
                      email: authUser.email || '',
                      name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
                      role: profile.role || 'admin',
                      relatedEntityId: profile.relatedEntityId
-                 });
+                 } as User;
             } else if (authUser.email === 'admin@presta.com') {
-                 setCurrentUser({
+                 userObj = {
                      id: authUser.id,
                      email: authUser.email,
                      name: 'Admin Principal',
                      role: 'admin'
-                 });
+                 } as User;
             } else {
-                 // Fallback for non-admin users if profile missing
-                 setCurrentUser({
+                 userObj = {
                      id: authUser.id,
                      email: authUser.email || '',
                      name: 'Utilisateur',
-                     role: 'admin' // Default safe fallback
-                 });
+                     role: 'admin'
+                 } as User;
+            }
+            if (userObj) {
+                setCurrentUser(userObj);
+                try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch {}
             }
         } catch (e) {
             console.error("Error fetching user profile:", e);
@@ -354,6 +358,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // --- AUTHENTICATION & INITIALIZATION ---
     useEffect(() => {
         let mounted = true;
+        const cachedUserStr = typeof window !== 'undefined' ? localStorage.getItem('presta_current_user') : null;
+        if (cachedUserStr && mounted) {
+            try {
+                const cachedUser = JSON.parse(cachedUserStr);
+                setCurrentUser(cachedUser);
+                setLoading(false);
+            } catch {}
+        }
 
         const initializeAuth = async () => {
             try {
