@@ -38,6 +38,19 @@ function getDayIndexFromDate(dateStr: string): number {
     return day === 0 ? 6 : day - 1; 
 }
 
+// Helper for date manipulation
+function addDays(date: Date, days: number): Date {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+}
+
+function addMonths(date: Date, months: number): Date {
+    const result = new Date(date);
+    result.setMonth(result.getMonth() + months);
+    return result;
+}
+
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
@@ -331,7 +344,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     slotsData: d.slots_data,
                     reminderSent: d.reminder_sent,
                     signatureData: d.signature_data,
-                    signatureDate: d.signature_date
+                    signatureDate: d.signature_date,
+                    recurrenceEndDate: d.recurrence_end_date, // Mapped correctly
+                    frequency: d.frequency
                 })));
             }
             if (packData) {
@@ -528,6 +543,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
     }, []);
 
+    // --- HELPER: REAL EMAIL SENDING VIA SUPABASE FUNCTIONS ---
+    const sendEmail = async (to: string, subject: string, template: string, context: any) => {
+        if (!isSupabaseConfigured) {
+            console.log(`[SIMULATION EMAIL] To: ${to}, Subject: ${subject}`);
+            return;
+        }
+        
+        try {
+            // Call Supabase Edge Function 'send-email'
+            // This function (to be deployed on backend) should handle the actual SMTP/API call (Resend, SendGrid, etc.)
+            const { error } = await supabase.functions.invoke('send-email', {
+                body: { to, subject, template, context }
+            });
+            
+            if (error) {
+                console.error("Email API Error:", error);
+            } else {
+                console.log(`Email sent successfully to ${to}`);
+            }
+        } catch (e) {
+            console.error("Exception calling email function:", e);
+        }
+    };
+
     // --- ACTIONS ---
 
     const updateCompanySettings = async (settings: CompanySettings) => {
@@ -597,7 +636,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 startTime: newMission.start_time,
                 endTime: newMission.end_time,
                 clientId: newMission.client_id,
-                clientName: newMission.client_name,
+                client_name: newMission.client_name,
                 providerId: newMission.provider_id,
                 providerName: newMission.provider_name
              };
@@ -677,6 +716,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
+            
+            // SEND EMAIL
+            const provider = providers.find(p => p.id === providerId);
+            if (provider) {
+                await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
+                    missionId,
+                    clientName: missions.find(m => m.id === missionId)?.clientName
+                });
+            }
         }
     };
 
@@ -711,7 +759,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 initialPassword: password 
             }]);
             
-            alert(`[SIMULATION EMAIL ENVOYÉ À ${clientData.email}]\n\n"Bonjour, votre compte est créé.\nLogin: ${clientData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
+            // SEND EMAIL
+            await sendEmail(clientData.email, 'Bienvenue chez Presta Services Antilles', 'welcome_client', {
+                name: clientData.name,
+                login: clientData.email,
+                password: password,
+                link: 'https://presta-antilles.app/login'
+            });
         }
     };
 
@@ -783,7 +837,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
              await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
              
-             alert(`[SIMULATION EMAIL ENVOYÉ À ${providerData.email}]\n\n"Bonjour ${providerData.firstName},\nVotre compte prestataire est actif.\nLogin: ${providerData.email}\nPass: ${password}\nLien: https://presta-antilles.app/login"`);
+             // SEND EMAIL
+             await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
+                 name: providerData.firstName,
+                 login: providerData.email,
+                 password: password,
+                 link: 'https://presta-antilles.app/login'
+             });
         }
     };
 
@@ -847,7 +907,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
-            alert(`[SIMULATION EMAIL]\nNouveau mot de passe envoyé à ${provider.email} : ${newPass}`);
+            // SEND EMAIL
+            await sendEmail(provider.email, 'Réinitialisation de mot de passe', 'reset_password', {
+                newPassword: newPass
+            });
         }
     };
 
@@ -896,43 +959,94 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  slotsData: newDoc.slots_data,
                  reminderSent: newDoc.reminder_sent
              }]);
+
+             // SEND EMAIL
+             const client = clients.find(c => c.id === doc.clientId);
+             if (client && client.email) {
+                 await sendEmail(client.email, `Nouveau Document : ${doc.type} ${doc.ref}`, 'new_document', {
+                     type: doc.type,
+                     ref: doc.ref,
+                     total: doc.totalTTC
+                 });
+             }
         }
     };
 
-    // Helper to generate missions from document slots
+    // Helper to generate missions from document slots with RECURRENCE handling
     const generateMissionsFromDocument = async (doc: Document) => {
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
 
-        // Map slots to missions
-        // IMPORTANT: Set provider_id to null initially for secretary assignment
-        const newMissionsPromises = doc.slotsData.map(async (slot: any) => {
-            const missionData = {
-                id: generateUUID(),
-                date: slot.date,
-                start_time: slot.startTime,
-                end_time: slot.endTime,
-                duration: slot.duration,
-                client_id: doc.clientId,
-                client_name: doc.clientName,
-                service: doc.description,
-                provider_id: null, 
-                provider_name: 'À assigner',
-                status: 'planned',
-                color: 'gray',
-                source: 'devis',
-                source_document_id: doc.id
-            };
-            
-            return supabase.from('missions').insert(missionData).select();
-        });
+        const missionsToCreate: any[] = [];
+        const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
+        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1)); // Default 1 year cap if unspecified
 
-        const results = await Promise.all(newMissionsPromises);
-        
-        const createdMissions: Mission[] = [];
-        results.forEach(({ data, error }) => {
-            if (!error && data && data.length > 0) {
-                const m = data[0];
-                createdMissions.push({
+        // Loop through each slot defined in the quote
+        for (const slot of doc.slotsData) {
+            // If recurring, we need to generate dates based on frequency
+            if (isRecurring && slot.date) { // slot.date serves as the starting anchor
+                let currentDate = new Date(slot.date);
+                
+                while (currentDate <= endDate) {
+                    const missionId = generateUUID();
+                    missionsToCreate.push({
+                        id: missionId,
+                        date: currentDate.toISOString().split('T')[0],
+                        start_time: slot.startTime,
+                        end_time: slot.endTime,
+                        duration: slot.duration,
+                        client_id: doc.clientId,
+                        client_name: doc.clientName,
+                        service: doc.description,
+                        provider_id: null, 
+                        provider_name: 'À assigner',
+                        status: 'planned',
+                        color: 'gray',
+                        source: 'devis',
+                        source_document_id: doc.id
+                    });
+
+                    // Advance date based on frequency
+                    if (doc.frequency === 'Hebdomadaire') {
+                        currentDate = addDays(currentDate, 7);
+                    } else if (doc.frequency === 'Bimensuelle') {
+                        currentDate = addDays(currentDate, 14);
+                    } else if (doc.frequency === 'Mensuelle') {
+                        currentDate = addMonths(currentDate, 1);
+                    } else {
+                        break; // Safety break
+                    }
+                }
+            } else if (slot.date) {
+                // Non-recurring (Ponctuelle)
+                const missionId = generateUUID();
+                missionsToCreate.push({
+                    id: missionId,
+                    date: slot.date,
+                    start_time: slot.startTime,
+                    end_time: slot.endTime,
+                    duration: slot.duration,
+                    client_id: doc.clientId,
+                    client_name: doc.clientName,
+                    service: doc.description,
+                    provider_id: null, 
+                    provider_name: 'À assigner',
+                    status: 'planned',
+                    color: 'gray',
+                    source: 'devis',
+                    source_document_id: doc.id
+                });
+            }
+        }
+
+        if (missionsToCreate.length > 0) {
+            // Batch insert for performance
+            const { error } = await supabase.from('missions').insert(missionsToCreate);
+            
+            if (error) {
+                console.error("Error creating recursive missions:", error);
+            } else {
+                // Update local state
+                const createdMissions = missionsToCreate.map(m => ({
                     ...m,
                     dayIndex: getDayIndexFromDate(m.date), 
                     startTime: m.start_time,
@@ -941,13 +1055,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     clientName: m.client_name,
                     providerId: m.provider_id,
                     providerName: m.provider_name
-                });
+                }));
+                
+                setMissions(prev => [...prev, ...createdMissions]);
+                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées selon la fréquence ${doc.frequency}.`);
             }
-        });
-
-        if (createdMissions.length > 0) {
-            setMissions(prev => [...prev, ...createdMissions]);
-            await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions créées (À assigner).`);
         }
     };
 
@@ -965,6 +1077,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  if (updatedDoc) {
                     await generateMissionsFromDocument({ ...updatedDoc, status: 'signed' });
                  }
+            }
+
+            // SEND EMAIL ON STATUS CHANGE (e.g. Paid)
+            const client = clients.find(c => c.id === oldDoc?.clientId);
+            if (client && client.email && status !== oldDoc?.status) {
+                await sendEmail(client.email, `Mise à jour Document : ${oldDoc?.ref}`, 'document_status_update', {
+                    ref: oldDoc?.ref,
+                    status: status
+                });
             }
         }
     };

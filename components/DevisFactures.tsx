@@ -239,7 +239,9 @@ const DevisFactures: React.FC = () => {
         totalTTC: totalTTC,
         taxCreditEnabled: taxCreditActive,
         status: modalMode === 'devis' ? 'sent' : 'paid',
-        slotsData: modalMode === 'devis' ? interventionSlots : undefined
+        slotsData: modalMode === 'devis' ? interventionSlots : undefined,
+        frequency: frequency,
+        recurrenceEndDate: recurrenceEndDate
     };
 
     addDocument(newDoc);

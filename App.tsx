@@ -49,10 +49,11 @@ const LoadingScreen = () => (
 );
 
 const AppLayout: React.FC = () => {
-    const { currentUser, loading } = useData();
+    const { currentUser, loading, logout } = useData();
 
-    // Prevent accidental refresh
+    // Prevent accidental refresh and handle security logout on reload
     useEffect(() => {
+        // 1. Prevent Unload Warning
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             const message = "Êtes-vous sûr de vouloir quitter ? Les modifications non sauvegardées pourraient être perdues.";
             e.returnValue = message;
@@ -60,8 +61,20 @@ const AppLayout: React.FC = () => {
         };
 
         window.addEventListener('beforeunload', handleBeforeUnload);
+
+        // 2. Strict Reload Detection: If navigation type is 'reload', logout immediately
+        // This clears cookies/localStorage as requested
+        const navigationEntries = performance.getEntriesByType('navigation');
+        if (navigationEntries.length > 0) {
+            const navEntry = navigationEntries[0] as PerformanceNavigationTiming;
+            if (navEntry.type === 'reload') {
+                console.warn("Reload detected. Logging out for security.");
+                logout(); 
+            }
+        }
+
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, []);
+    }, [logout]);
 
     if (loading) {
         return <LoadingScreen />;
