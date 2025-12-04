@@ -89,7 +89,7 @@ export interface Pack {
     mainService: string; 
     description: string;
     hours: number;
-    frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle';
+    frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle' | 'Régulier';
     quantity?: string; // New field from PDF (nb pièces, m2...)
     location?: string; // New field from PDF (Lieu de réalisation)
     suppliesIncluded: boolean;
@@ -110,6 +110,9 @@ export interface Contract {
     status: 'draft' | 'active' | 'pending_validation';
     isSap?: boolean;
     validationDate?: string;
+    adminSignatureUrl?: string;
+    companyStampUrl?: string;
+    validatedAt?: string;
 }
 
 export interface Mission {

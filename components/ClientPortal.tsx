@@ -1,6 +1,7 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
-import { useData } from '../context/DataContext';
+import { useData, LOGO_NORMAL } from '../context/DataContext';
 import { 
   FileText, 
   Calendar, 
@@ -19,7 +20,6 @@ import {
   AlertTriangle,
   FileSignature
 } from 'lucide-react';
-import { LOGO_NORMAL, LOGO_SAP, CACHET_SIGNATURE } from '../context/DataContext';
 
 const ClientPortal: React.FC = () => {
   const { 
@@ -192,6 +192,14 @@ const ClientPortal: React.FC = () => {
           element.click();
           document.body.removeChild(element);
       }, 1000);
+  };
+  
+  const handleDownloadContract = () => {
+      // Simulate contract download (could be enhanced with real PDF logic)
+      showToast('Téléchargement du contrat signé...');
+      setTimeout(() => {
+          alert("Simulation: Le contrat PDF signé a été téléchargé.");
+      }, 500);
   };
 
   const handleRequestInvoice = (docId: string) => {
@@ -381,6 +389,12 @@ const ClientPortal: React.FC = () => {
                                                  {doc.type === 'Devis' && doc.status === 'sent' && (
                                                      <button onClick={() => openQuoteModal(doc.id)} className="bg-brand-orange text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-orange-600 flex items-center gap-1">
                                                          <PenTool className="w-3 h-3" /> Signer
+                                                     </button>
+                                                 )}
+                                                 
+                                                 {doc.type === 'Devis' && doc.status === 'signed' && (
+                                                     <button onClick={handleDownloadContract} className="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-green-700 flex items-center gap-1">
+                                                         <FileSignature className="w-3 h-3" /> Contrat
                                                      </button>
                                                  )}
 

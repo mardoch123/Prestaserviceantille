@@ -6,10 +6,13 @@ import {
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 
-// --- Assets ---
+// --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png"; 
-export const LOGO_SAP = "https://prestaservicesantilles.com/images/logo.png";
-export const CACHET_SIGNATURE = "https://via.placeholder.com/150?text=Cachet";
+export const LOGO_SAP = "https://prestaservicesantilles.com/sap.png";
+
+// À REMPLACER PAR LES VRAIS LIENS DE VOS IMAGES HÉBERGÉES
+export const COMPANY_STAMP_URL = "https://prestaservicesantilles.com/cachetetsignature.png"; 
+export const COMPANY_SIGNATURE_URL = "https://prestaservicesantilles.com/signature.png";
 
 // Helper for UUID generation
 function generateUUID() {
@@ -79,7 +82,7 @@ interface DataContextType {
     refundTransaction: (ref: string, amount: number) => Promise<void>;
 
     packs: Pack[];
-    addPack: (pack: Pack) => Promise<void>;
+    addPack: (pack: Pack) => Promise<string | null>; // Returns ID if success
     deletePacks: (ids: string[]) => Promise<void>; 
 
     contracts: Contract[];
@@ -128,9 +131,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // --- STATE ---
     const [companySettings, setCompanySettings] = useState<CompanySettings>({
         name: 'PRESTA SERVICES ANTILLES',
-        address: '123 Route de la Plage, 97100 Guadeloupe',
-        siret: '123 456 789 00012',
-        email: 'contact@presta-antilles.com',
+        address: '31 Résidence L’Autre Bord – 97220 La Trinité',
+        siret: 'SAP944789700',
+        email: 'prestaservicesantilles.rh@gmail.com',
         phone: '0590 12 34 56',
         tvaRateDefault: 8.5,
         emailNotifications: true,
@@ -158,15 +161,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    // EXACT TEMPLATE FROM PDF OCR
+    // EXACT TEMPLATE FROM PDF OCR + UPDATED HEADERS
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
 Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
 Email : prestaservicesantilles.rh@gmail.com
-Assurance RCP : Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox
-
-Infos obligatoires
-Assurance :
+Assurance RCP : Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox et Assurance :
 Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox – validité : 01/08/2025 → 31/07/2026 – plafond : 100 000 € par période – Monde entier (hors USA/Canada).
 Attestation disponible sur demande.
 
@@ -564,7 +564,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             service: missionData.service,
             status: missionData.status,
             color: missionData.color,
-            source: missionData.source
+            source: missionData.source,
+            source_document_id: (missionData as any).sourceDocumentId // Optional field
         };
 
         const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
@@ -816,6 +817,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
                 return p;
             }));
+            
+            // Reorganization warning logic
+            if (status === 'approved') {
+               await addNotification('admin', 'alert', 'Congés Validés', 'Pensez à réorganiser les plannings du prestataire.');
+            }
         }
     };
 
@@ -874,9 +880,74 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    // Helper to generate missions from document slots
+    const generateMissionsFromDocument = async (doc: Document) => {
+        if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
+
+        // Map slots to missions
+        // IMPORTANT: Set provider_id to null initially for secretary assignment
+        const newMissionsPromises = doc.slotsData.map(async (slot: any) => {
+            const missionData = {
+                id: generateUUID(),
+                date: slot.date,
+                start_time: slot.startTime,
+                end_time: slot.endTime,
+                duration: slot.duration,
+                client_id: doc.clientId,
+                client_name: doc.clientName,
+                service: doc.description,
+                provider_id: null, 
+                provider_name: 'À assigner',
+                status: 'planned',
+                color: 'gray',
+                source: 'devis',
+                source_document_id: doc.id
+            };
+            
+            return supabase.from('missions').insert(missionData).select();
+        });
+
+        const results = await Promise.all(newMissionsPromises);
+        
+        const createdMissions: Mission[] = [];
+        results.forEach(({ data, error }) => {
+            if (!error && data && data.length > 0) {
+                const m = data[0];
+                createdMissions.push({
+                    ...m,
+                    dayIndex: getDayIndexFromDate(m.date), 
+                    startTime: m.start_time,
+                    endTime: m.end_time,
+                    clientId: m.client_id,
+                    clientName: m.client_name,
+                    providerId: m.provider_id,
+                    providerName: m.provider_name
+                });
+            }
+        });
+
+        if (createdMissions.length > 0) {
+            setMissions(prev => [...prev, ...createdMissions]);
+            await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions créées (À assigner).`);
+        }
+    };
+
     const updateDocumentStatus = async (id: string, status: string) => {
+        const oldDoc = documents.find(d => d.id === id);
         const { error } = await supabase.from('documents').update({ status }).eq('id', id);
-        if (!error) setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
+        
+        if (!error) {
+            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
+            
+            // Trigger auto-scheduling if status becomes signed
+            if (oldDoc && oldDoc.status !== 'signed' && status === 'signed') {
+                 // Fetch latest doc data just in case
+                 const updatedDoc = documents.find(d => d.id === id);
+                 if (updatedDoc) {
+                    await generateMissionsFromDocument({ ...updatedDoc, status: 'signed' });
+                 }
+            }
+        }
     };
 
     const deleteDocument = async (id: string) => {
@@ -937,6 +1008,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if(!error) {
             setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
             await addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
+            
+            // AUTO SCHEDULE
+            const signedDoc = documents.find(d => d.id === id);
+            if (signedDoc) {
+                await generateMissionsFromDocument({ ...signedDoc, status: 'signed' });
+            }
         }
     };
 
@@ -999,8 +1076,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data, error } = await supabase.from('packs').insert(dbPackData).select();
         
         if (error) {
-             alert(`Erreur de sauvegarde: ${error.message}`);
-             return;
+             console.error("Erreur addPack:", error);
+             return null;
         }
 
         if (data) {
@@ -1018,7 +1095,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  location: pack.location,
                  frequency: capitalize(newPack.frequency) as any
              }]);
+             return finalId;
         }
+        return null;
     };
 
     const deletePacks = async (ids: string[]) => {
@@ -1030,7 +1109,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const addContract = async (contract: Contract) => {
         const finalId = generateUUID();
-        const packId = contract.packId === "" ? null : contract.packId;
+        // Robust handling of packId: ensure it's null if empty string
+        const packId = (!contract.packId || contract.packId === "") ? null : contract.packId;
 
         const dbData = {
             id: finalId,
@@ -1039,14 +1119,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             pack_id: packId,
             status: contract.status,
             is_sap: contract.isSap,
-            validation_date: contract.validationDate
+            validation_date: contract.validationDate,
+            admin_signature_url: contract.adminSignatureUrl, // New fields
+            company_stamp_url: contract.companyStampUrl, // New fields
+            validated_at: contract.validatedAt // New fields
         };
 
         const { data, error } = await supabase.from('contracts').insert(dbData).select();
         
         if (error) {
-            alert("Erreur lors de la sauvegarde du contrat: " + error.message);
-            return;
+            console.error("Erreur addContract:", error);
+            // Throw so UI can handle it
+            throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
         }
 
         if (data) {
@@ -1064,7 +1148,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
         if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
-        
+        // New mappings
+        if (updates.adminSignatureUrl) { dbUpdates.admin_signature_url = updates.adminSignatureUrl; delete dbUpdates.adminSignatureUrl; }
+        if (updates.companyStampUrl) { dbUpdates.company_stamp_url = updates.companyStampUrl; delete dbUpdates.companyStampUrl; }
+        if (updates.validatedAt) { dbUpdates.validated_at = updates.validatedAt; delete dbUpdates.validatedAt; }
+
         const { error } = await supabase.from('contracts').update(dbUpdates).eq('id', id);
         if (!error) setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
     };

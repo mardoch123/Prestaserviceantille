@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext'; 
 import { Mission, Document } from '../types';
@@ -44,9 +45,13 @@ const DevisFactures: React.FC = () => {
   
   const [tvaRate, setTvaRate] = useState<0|2.1|8.5>(2.1);
   const [taxCreditActive, setTaxCreditActive] = useState(false);
+  
+  // Planification Prévisionnelle Enhancements
   const [selectedScheduleOptionId, setSelectedScheduleOptionId] = useState<string>('');
   const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
   const [customDays, setCustomDays] = useState(1);
+  const [frequency, setFrequency] = useState<'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle'>('Ponctuelle');
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
@@ -73,6 +78,8 @@ const DevisFactures: React.FC = () => {
     setSelectedScheduleOptionId('');
     setInterventionSlots([]);
     setCustomDays(1);
+    setFrequency('Ponctuelle');
+    setRecurrenceEndDate('');
   };
 
   const calculateDuration = (start: string, end: string): number => {
@@ -83,6 +90,14 @@ const DevisFactures: React.FC = () => {
       const date2 = new Date(0, 0, 0, h2, m2);
       const diffMs = date2.getTime() - date1.getTime();
       return diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
+  };
+
+  // Helper to add hours to time string
+  const addHoursToTime = (time: string, hoursToAdd: number): string => {
+      const [h, m] = time.split(':').map(Number);
+      const date = new Date(0, 0, 0, h, m);
+      date.setHours(date.getHours() + hoursToAdd);
+      return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
   useEffect(() => {
@@ -101,11 +116,25 @@ const DevisFactures: React.FC = () => {
               } else {
                   setUnitPrice(pack.priceHT);
                   setCustomDescription(`${pack.name} - ${pack.description}`);
-                  setInterventionSlots([]);
+                  
+                  // Auto-select frequency based on pack
+                  if(pack.frequency) setFrequency(pack.frequency as any);
+
+                  // Handle Schedule Options
                   if (pack.schedules && pack.schedules.length > 0) {
                       setSelectedScheduleOptionId(pack.schedules[0].id);
+                      // The actual slot generation will happen in the next useEffect dependent on selectedScheduleOptionId
                   } else {
                       setSelectedScheduleOptionId('');
+                      // DEFAULT SLOT GENERATION FOR PACKS WITHOUT OPTIONS
+                      const duration = pack.hours || 2;
+                      setInterventionSlots([{
+                          id: 'default-slot',
+                          date: '',
+                          startTime: '08:00',
+                          endTime: addHoursToTime('08:00', duration),
+                          duration: duration
+                      }]);
                   }
               }
           }
@@ -116,12 +145,19 @@ const DevisFactures: React.FC = () => {
       if (selectedPackId && selectedScheduleOptionId) {
           const pack = packs.find(p => p.id === selectedPackId);
           if (pack?.name === 'Pack personnalisé' || pack?.name === 'Pack Ultime 6') return;
+          
           const schedule = pack?.schedules?.find(s => s.id === selectedScheduleOptionId);
           if (schedule) {
               const newSlots: InterventionSlot[] = [];
               for (let i = 0; i < schedule.days; i++) {
                   const endH = 9 + schedule.hoursPerDay;
-                  newSlots.push({ id: `slot-${i}`, date: '', startTime: `09:00`, endTime: `${endH.toString().padStart(2, '0')}:00`, duration: schedule.hoursPerDay });
+                  newSlots.push({ 
+                      id: `slot-${i}`, 
+                      date: '', 
+                      startTime: `09:00`, 
+                      endTime: `${endH.toString().padStart(2, '0')}:00`, 
+                      duration: schedule.hoursPerDay 
+                  });
               }
               setInterventionSlots(newSlots);
           }
@@ -584,9 +620,9 @@ const DevisFactures: React.FC = () => {
                                     <option value="custom">Pack personnalisé</option>
                                     <option value="ultime">Pack Ultime 6</option>
                                 </select>
-                                {packs.find(p => p.id === selectedPackId)?.schedules && (
+                                {packs.find(p => p.id === selectedPackId)?.schedules && packs.find(p => p.id === selectedPackId)?.schedules!.length > 0 && (
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Fréquence d'intervention</label>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Détails Planning</label>
                                         <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedScheduleOptionId} onChange={(e) => setSelectedScheduleOptionId(e.target.value)}>
                                             {packs.find(p => p.id === selectedPackId)?.schedules?.map(s => (<option key={s.id} value={s.id}>{s.label}</option>))}
                                         </select>
@@ -608,14 +644,34 @@ const DevisFactures: React.FC = () => {
                     {modalMode === 'devis' && (
                         <section>
                              <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-slate-500 uppercase"><span className="bg-brand-blue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> Planification Prévisionnelle</h4>
+                             
+                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 space-y-4">
+                                 <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">Fréquence d'intervention</label>
+                                     <select className="w-full p-2 border rounded bg-white" value={frequency} onChange={(e) => setFrequency(e.target.value as any)}>
+                                         <option value="Ponctuelle">Ponctuelle (Une fois)</option>
+                                         <option value="Hebdomadaire">Hebdomadaire</option>
+                                         <option value="Bimensuelle">Bimensuelle</option>
+                                         <option value="Mensuelle">Mensuelle</option>
+                                     </select>
+                                 </div>
+                                 {frequency !== 'Ponctuelle' && (
+                                     <div>
+                                         <label className="block text-xs font-bold text-slate-500 mb-1">Date de fin (Récurrence)</label>
+                                         <input type="date" className="w-full p-2 border rounded bg-white" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} />
+                                     </div>
+                                 )}
+                             </div>
+
                              {packs.find(p => p.id === selectedPackId)?.name === 'Pack personnalisé' && (
                                  <div className="mb-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                                      <label className="block text-xs font-bold text-slate-500 mb-2">Combien de jours d'intervention ?</label>
                                      <div className="flex items-center gap-4"><input type="number" min="1" max="7" className="p-2 border rounded w-20 font-bold" value={customDays} onChange={(e) => setCustomDays(parseInt(e.target.value) || 1)} /><span className="text-sm text-slate-500">jours à planifier</span></div>
                                  </div>
                              )}
+
                              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Aucun créneau à définir pour cette sélection.</div>) : (
+                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Veuillez sélectionner un pack ou définir une prestation sur mesure.</div>) : (
                                      interventionSlots.map((slot, index) => (
                                          <div key={slot.id} className="p-4 border-b border-slate-100 last:border-0 flex items-center gap-4">
                                              <span className="text-xs font-bold text-slate-400 w-6">J{index + 1}</span>
@@ -645,6 +701,16 @@ const DevisFactures: React.FC = () => {
                              </div>
                          )}
                      </div>
+
+                     {/* 24h Warning */}
+                     {modalMode === 'devis' && (
+                         <div className="bg-orange-50 p-3 rounded-lg border border-orange-200 mb-4 text-xs text-orange-800 flex items-start gap-2">
+                             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                             <p>
+                                 <strong>Attention :</strong> Si ce devis n’est pas validé par le client sous 24h, les dates prévisionnelles indiquées ci-contre ne seront pas bloquées.
+                             </p>
+                         </div>
+                     )}
                      
                      <div className="bg-white p-4 rounded-lg border border-slate-200 mb-4 shadow-sm text-sm">
                          <table className="w-full mb-4">

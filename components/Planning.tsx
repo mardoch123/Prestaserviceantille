@@ -4,9 +4,11 @@ import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 const Planning: React.FC = () => {
   const { missions, providers, clients, addMission, assignProvider, deleteMissions, refreshData } = useData(); 
+  const navigate = useNavigate();
 
   // Filter State
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
@@ -96,7 +98,7 @@ const Planning: React.FC = () => {
       .filter(m => m.date === today)
       .reduce((acc, m) => acc + m.duration, 0);
 
-  const totalHoursWeek = filteredItems
+  const totalHoursFiltered = filteredItems
       .reduce((acc, m) => acc + m.duration, 0);
 
 
@@ -258,6 +260,11 @@ const Planning: React.FC = () => {
       return day === 0 ? 5 : day - 1; // Correct mapping for Monday start
   };
 
+  // Interaction Handlers for Stats Cards - Navigating to Statistics Page with Filters
+  const handleStatClick = (filter: 'planned' | 'completed' | 'all', time: 'day' | 'week') => {
+      navigate('/statistics', { state: { filter, time } });
+  };
+
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 flex flex-col relative">
        
@@ -290,19 +297,31 @@ const Planning: React.FC = () => {
            </div>
       </div>
 
-       {/* Stats */}
+       {/* Stats - Interactive Cards */}
        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-           <div className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300">
+           <div 
+                onClick={() => handleStatClick('planned', 'day')}
+                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
+                title="Voir le détail du jour dans Statistiques"
+           >
                <span className="font-bold text-slate-800">Missions en cours</span>
                <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCountToday}</span>
                <span className="text-xs text-teal-500 mt-1 italic">Nombre du jour</span>
            </div>
-           <div className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition">
+           <div 
+                onClick={() => handleStatClick('all', 'week')}
+                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
+                title="Voir le détail de la semaine dans Statistiques"
+           >
                <span className="font-bold text-slate-800">Total missions</span>
                <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCountWeek}</span>
                <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
            </div>
-           <div className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300">
+           <div 
+                onClick={() => handleStatClick('completed', 'week')}
+                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
+                title="Voir les missions terminées dans Statistiques"
+           >
                <span className="font-bold text-slate-800">Missions terminées</span>
                <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCompletedWeek}</span>
                <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
@@ -422,7 +441,7 @@ const Planning: React.FC = () => {
             </div>
        </div>
 
-       {/* Footer Stats */}
+       {/* Footer Stats - Updated to reflect filtered items */}
        <div className="bg-slate-200 p-4 mt-6 flex justify-between items-center font-bold text-slate-800 rounded-lg">
             <div className="flex items-center gap-2">
                 <span>Total heures (Auj.) :</span>
@@ -430,7 +449,7 @@ const Planning: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
                 <span>Total heures ({currentWeekOffset === 0 ? 'Cette semaine' : 'Semaine sélectionnée'}) :</span>
-                <span className="text-xl">{totalHoursWeek}h</span>
+                <span className="text-xl">{totalHoursFiltered}h</span>
             </div>
        </div>
 
