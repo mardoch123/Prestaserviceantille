@@ -13,6 +13,7 @@ import Providers from './components/Providers';
 import Financials from './components/Financials';
 import Reservations from './components/Reservations';
 import Settings from './components/Settings';
+import QRCodeManager from './components/QRCodeManager';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
 import Login from './components/Login';
@@ -110,6 +111,7 @@ const AppLayout: React.FC = () => {
                   
                   <Routes>
                       <Route path="/" element={<Dashboard />} />
+                      <Route path="/qrcode" element={<QRCodeManager />} />
                       <Route path="/statistics" element={<Statistics />} />
                       <Route path="/clients" element={<Clients />} />
                       <Route path="/providers" element={<Providers />} />

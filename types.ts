@@ -146,6 +146,7 @@ export interface Mission {
     reminder48hSent?: boolean;
     reminder72hSent?: boolean;
     reportSent?: boolean;
+    sourceDocumentId?: string;
 }
 
 // DTO for creating a mission
@@ -183,6 +184,8 @@ export interface Document {
     
     // JSONB fields in Supabase
     slotsData?: any[]; 
+    frequency?: string;
+    recurrenceEndDate?: string;
     
     reviewRequestSent?: boolean;
     signatureData?: string; // URL or Base64
@@ -246,4 +249,14 @@ export interface CompanySettings {
     emailNotifications: boolean;
     loyaltyRewardHours: number;
     logoUrl?: string; // Storage URL or Base64
+}
+
+export interface VisitScan {
+    id: string;
+    clientId: string;
+    scannerId: string; // User ID
+    scannerName: string;
+    scanType: 'entry' | 'exit';
+    timestamp: string;
+    locationData?: any; // JSON for coordinates
 }

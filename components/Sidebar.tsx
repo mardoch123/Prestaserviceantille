@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { 
@@ -9,13 +10,15 @@ import {
   FileText, 
   Calendar, 
   Clock, 
-  PhoneCall 
+  PhoneCall,
+  QrCode
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
 
 const navItems: NavItem[] = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
+  { label: 'Pointage QR', path: '/qrcode', icon: QrCode },
   { label: 'Statistiques', path: '/statistics', icon: BarChart2 },
   { label: 'Clients', path: '/clients', icon: Users },
   { label: 'Prestataires', path: '/providers', icon: Briefcase },

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
     AppNotification, Message, User, StreamSession, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 
@@ -104,6 +104,9 @@ interface DataContextType {
     notifications: AppNotification[];
     markNotificationRead: (id: string) => Promise<void>;
 
+    visitScans: VisitScan[];
+    registerScan: (clientId: string) => Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }>;
+
     currentUser: User | null;
     login: (email: string, password?: string) => Promise<boolean>;
     logout: () => Promise<void>;
@@ -151,6 +154,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
+    const [visitScans, setVisitScans] = useState<VisitScan[]>([]);
     
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [simulatedClientId, setSimulatedClientId] = useState<string | null>(null);
@@ -256,7 +260,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 { data: eData },
                 { data: msgData },
                 { data: notifData },
-                { data: settingsData }
+                { data: settingsData },
+                { data: vsData }
             ] = await Promise.all([
                 supabase.from('clients').select('*'),
                 supabase.from('providers').select('*'),
@@ -268,7 +273,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 supabase.from('expenses').select('*'),
                 supabase.from('messages').select('*'),
                 supabase.from('notifications').select('*').order('date', { ascending: false }),
-                supabase.from('company_settings').select('*').maybeSingle()
+                supabase.from('company_settings').select('*').maybeSingle(),
+                supabase.from('visit_scans').select('*').order('timestamp', { ascending: false })
             ]);
 
             if (cData) {
@@ -378,6 +384,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
             if (notifData) setNotifications(notifData);
             
+            if (vsData) {
+                setVisitScans(vsData.map((s: any) => ({
+                    ...s,
+                    clientId: s.client_id || s.clientId,
+                    scannerId: s.scanner_id || s.scannerId,
+                    scannerName: s.scanner_name || s.scannerName,
+                    scanType: s.scan_type || s.scanType,
+                    locationData: s.location_data
+                })));
+            }
+
             if (settingsData) {
                 setCompanySettings({
                     name: settingsData.name,
@@ -853,7 +870,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             tax_credit_enabled: doc.taxCreditEnabled,
             status: doc.status,
             slots_data: doc.slotsData,
-            reminder_sent: false
+            reminder_sent: false,
+            frequency: doc.frequency,
+            recurrence_end_date: doc.recurrenceEndDate
         };
 
         const { data, error } = await supabase.from('documents').insert(dbDocData).select();
@@ -1236,6 +1255,60 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     };
 
+    // --- VISIT SCANS LOGIC ---
+    const registerScan = async (clientId: string): Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }> => {
+        if (!currentUser) return { success: false, message: "Vous devez être connecté pour scanner." };
+
+        try {
+            // 1. Get recent scans for this client/user today
+            const todayStart = new Date();
+            todayStart.setHours(0,0,0,0);
+            
+            const { data: recentScans } = await supabase
+                .from('visit_scans')
+                .select('*')
+                .eq('client_id', clientId)
+                .eq('scanner_id', currentUser.id)
+                .gte('timestamp', todayStart.toISOString())
+                .order('timestamp', { ascending: false });
+
+            // 2. Determine type: If last was Entry, this is Exit. Default to Entry.
+            const lastScan = recentScans && recentScans.length > 0 ? recentScans[0] : null;
+            const newType: 'entry' | 'exit' = (lastScan && lastScan.scan_type === 'entry') ? 'exit' : 'entry';
+
+            const newScan = {
+                client_id: clientId,
+                scanner_id: currentUser.id,
+                scanner_name: currentUser.name,
+                scan_type: newType,
+                timestamp: new Date().toISOString()
+            };
+
+            const { data, error } = await supabase.from('visit_scans').insert(newScan).select();
+
+            if (error) throw error;
+
+            if (data) {
+                const s = data[0];
+                const mappedScan: VisitScan = {
+                    id: s.id,
+                    clientId: s.client_id,
+                    scannerId: s.scanner_id,
+                    scannerName: s.scanner_name,
+                    scanType: s.scan_type as 'entry' | 'exit',
+                    timestamp: s.timestamp
+                };
+                setVisitScans(prev => [mappedScan, ...prev]);
+                return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée" : "Sortie enregistrée" };
+            }
+            return { success: false, message: "Erreur inconnue lors du scan" };
+
+        } catch (error: any) {
+            console.error("Scan error:", error);
+            return { success: false, message: String(error.message || "Erreur scan") };
+        }
+    };
+
     const login = async (email: string, password?: string): Promise<boolean> => {
         if (!password) return false;
 
@@ -1265,6 +1338,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setClients([]);
         setProviders([]);
         setDocuments([]);
+        setVisitScans([]);
         
         try {
             if (isSupabaseConfigured) {
@@ -1346,6 +1420,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             expenses, addExpense,
             messages, replyToClient, sendClientMessage,
             notifications, markNotificationRead,
+            visitScans, registerScan,
             currentUser, login, logout,
             simulatedClientId, setSimulatedClientId,
             simulatedProviderId, setSimulatedProviderId,
