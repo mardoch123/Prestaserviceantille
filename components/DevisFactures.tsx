@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
@@ -471,7 +469,7 @@ const DevisFactures: React.FC = () => {
                                             ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
                                             ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
                                             ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
+                                            ${doc.status === 'rejected' ? 'bg-red-5 text-red-800 border-red-100' : ''}
                                         `}
                                     >
                                         {doc.type === 'Devis' && (
@@ -620,7 +618,7 @@ const DevisFactures: React.FC = () => {
                                     <option value="custom">Pack personnalisé</option>
                                     <option value="ultime">Pack Ultime 6</option>
                                 </select>
-                                {packs.find(p => p.id === selectedPackId)?.schedules && packs.find(p => p.id === selectedPackId)?.schedules!.length > 0 && (
+                                {(packs.find(p => p.id === selectedPackId)?.schedules?.length || 0) > 0 && (
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Détails Planning</label>
                                         <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedScheduleOptionId} onChange={(e) => setSelectedScheduleOptionId(e.target.value)}>
