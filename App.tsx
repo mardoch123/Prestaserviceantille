@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
@@ -16,8 +17,9 @@ import Settings from './components/Settings';
 import QRCodeManager from './components/QRCodeManager';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
+import MissionReports from './components/MissionReports';
 import Login from './components/Login';
-import { WifiOff, RotateCw, Loader2 } from 'lucide-react';
+import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 const OfflineBanner = () => {
     const { isOnline, pendingSyncCount } = useData();
@@ -41,40 +43,46 @@ const OfflineBanner = () => {
     );
 };
 
-const LoadingScreen = () => (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 text-slate-600">
-        <Loader2 className="w-12 h-12 text-brand-blue animate-spin mb-4" />
-        <p className="font-bold text-lg animate-pulse">Chargement de l'application...</p>
-    </div>
-);
+const LoadingScreen = () => {
+    const [showBypass, setShowBypass] = useState(false);
+
+    useEffect(() => {
+        // If loading takes more than 4 seconds, show the bypass option
+        const timer = setTimeout(() => setShowBypass(true), 4000);
+        return () => clearTimeout(timer);
+    }, []);
+
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 text-slate-600 p-8 text-center">
+            <Loader2 className="w-12 h-12 text-brand-blue animate-spin mb-4" />
+            <p className="font-bold text-lg animate-pulse">Chargement de l'application...</p>
+            <p className="text-xs text-slate-400 mt-2">Initialisation des modules et connexion sécurisée.</p>
+            
+            {showBypass && (
+                <div className="mt-8 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 max-w-sm">
+                        <p className="text-sm text-orange-800 font-bold flex items-center justify-center gap-2 mb-2">
+                            <AlertTriangle className="w-4 h-4" /> Le chargement semble long...
+                        </p>
+                        <p className="text-xs text-orange-600 mb-4">
+                            Cela peut arriver si la connexion est lente ou si la base de données est en veille.
+                        </p>
+                        <button 
+                            onClick={() => window.location.reload()}
+                            className="bg-white border border-orange-300 text-orange-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-orange-100 flex items-center gap-2 mx-auto"
+                        >
+                            <RefreshCw className="w-3 h-3" /> Recharger la page
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 const AppLayout: React.FC = () => {
-    const { currentUser, loading, logout } = useData();
-
-    // Prevent accidental refresh and handle security logout on reload
-    useEffect(() => {
-        // 1. Prevent Unload Warning
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            const message = "Êtes-vous sûr de vouloir quitter ? Les modifications non sauvegardées pourraient être perdues.";
-            e.returnValue = message;
-            return message;
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-
-        // 2. Strict Reload Detection: If navigation type is 'reload', logout immediately
-        // This clears cookies/localStorage as requested
-        const navigationEntries = performance.getEntriesByType('navigation');
-        if (navigationEntries.length > 0) {
-            const navEntry = navigationEntries[0] as PerformanceNavigationTiming;
-            if (navEntry.type === 'reload') {
-                console.warn("Reload detected. Logging out for security.");
-                logout(); 
-            }
-        }
-
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [logout]);
+    const { currentUser, loading } = useData();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     if (loading) {
         return <LoadingScreen />;
@@ -86,7 +94,7 @@ const AppLayout: React.FC = () => {
 
     if (currentUser.role === 'client') {
         return (
-            <div className="h-screen flex flex-col">
+            <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
                 <ClientPortal />
             </div>
@@ -95,7 +103,7 @@ const AppLayout: React.FC = () => {
 
     if (currentUser.role === 'provider') {
         return (
-             <div className="h-screen flex flex-col">
+             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
                 <ProviderPortal />
             </div>
@@ -105,16 +113,16 @@ const AppLayout: React.FC = () => {
     // Admin Layout
     return (
         <div className="flex h-screen bg-cream-50 font-sans overflow-hidden">
-            <Sidebar />
+            <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
             
             {/* Main Content Wrapper */}
-            <div className="flex-1 flex flex-col h-full relative overflow-hidden">
+            <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
               
               {/* Offline Banner */}
               <OfflineBanner />
 
               {/* Header at the top */}
-              <Header />
+              <Header onMenuClick={() => setIsSidebarOpen(true)} />
 
               {/* Content Area */}
               <main className="flex-1 overflow-hidden relative bg-cream-50/50">
@@ -134,6 +142,7 @@ const AppLayout: React.FC = () => {
                       <Route path="/reservations" element={<Reservations />} />
                       <Route path="/secretariat" element={<Secretariat />} />
                       <Route path="/settings" element={<Settings />} />
+                      <Route path="/reports" element={<MissionReports />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
               </main>

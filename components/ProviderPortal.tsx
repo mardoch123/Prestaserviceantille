@@ -45,7 +45,10 @@ const ProviderPortal: React.FC = () => {
   const provider = providers.find(p => p.id === simulatedProviderId);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live'>('dashboard');
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
-  const [showNotifs, setShowNotifs] = useState(false);
+  
+  // Notification State
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
 
   // Live Stream State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -65,7 +68,7 @@ const ProviderPortal: React.FC = () => {
   const [cancelReason, setCancelReason] = useState('');
 
   // Leaves Form
-  const [leaveForm, setLeaveForm] = useState({ start: '', end: '' });
+  const [leaveForm, setLeaveForm] = useState({ start: '', end: '', startTime: '08:00', endTime: '18:00' });
 
   // File Input Refs
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -75,7 +78,9 @@ const ProviderPortal: React.FC = () => {
 
   // Data Calculations
   const providerMissions = provider ? missions.filter(m => m.providerId === provider.id) : [];
-  const providerNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id) && !n.read) : [];
+  // All notifications
+  const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];
+  const unreadProviderNotifs = allProviderNotifs.filter(n => !n.read);
   const activeMissions = providerMissions.filter(m => m.status === 'in_progress' || m.status === 'planned');
 
   // Cleanup on unmount
@@ -109,8 +114,9 @@ const ProviderPortal: React.FC = () => {
       markNotificationRead(notif.id);
       if (notif.link && notif.link.startsWith('mission:')) {
           setActiveTab('dashboard');
-          setShowNotifs(false);
       }
+      setShowNotifDropdown(false);
+      setShowAllNotifsModal(false);
   };
 
   const openExecutionModal = (missionId: string, step: 'start' | 'end' | 'cancel') => {
@@ -236,9 +242,9 @@ const ProviderPortal: React.FC = () => {
   const handleSubmitLeave = (e: React.FormEvent) => {
       e.preventDefault();
       if(leaveForm.start && leaveForm.end) {
-          addLeave(provider.id, leaveForm.start, leaveForm.end);
+          addLeave(provider.id, leaveForm.start, leaveForm.end, leaveForm.startTime, leaveForm.endTime);
           showToast('Congés déclarés. Planning mis à jour.');
-          setLeaveForm({ start: '', end: '' });
+          setLeaveForm({ start: '', end: '', startTime: '08:00', endTime: '18:00' });
       }
   };
   
@@ -315,7 +321,7 @@ const ProviderPortal: React.FC = () => {
        />
 
        {/* Desktop/Tablet Header */}
-       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
+       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
            <div className="flex items-center gap-4">
                <div className="w-10 h-10 rounded-full bg-brand-blue text-white flex items-center justify-center font-bold text-lg border-2 border-blue-100">
                    {provider.firstName.charAt(0)}{provider.lastName.charAt(0)}
@@ -335,25 +341,34 @@ const ProviderPortal: React.FC = () => {
                {/* Notifications */}
                <div className="relative">
                    <button 
-                    onClick={() => setShowNotifs(!showNotifs)}
+                    onClick={() => setShowNotifDropdown(!showNotifDropdown)}
                     className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-brand-blue transition relative"
                    >
-                        <Bell className="w-5 h-5" />
-                        {providerNotifs.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
+                        <Bell className="w-6 h-6" />
+                        {unreadProviderNotifs.length > 0 && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
                    </button>
                    
-                   {showNotifs && (
+                   {showNotifDropdown && (
                        <div className="absolute top-full right-0 mt-2 w-80 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
-                           <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase">Notifications</div>
+                           <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
+                               <span>Notifications</span>
+                               <span className="text-brand-blue">{unreadProviderNotifs.length}</span>
+                           </div>
                            <div className="max-h-64 overflow-y-auto">
-                                {providerNotifs.length === 0 && <div className="p-4 text-center text-slate-400 italic">Rien à signaler</div>}
-                                {providerNotifs.map(n => (
-                                    <div key={n.id} onClick={() => handleNotificationClick(n)} className="p-3 border-b hover:bg-blue-50 cursor-pointer transition">
+                                {allProviderNotifs.length === 0 && <div className="p-4 text-center text-slate-400 italic">Rien à signaler</div>}
+                                {allProviderNotifs.slice(0, 5).map(n => (
+                                    <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 border-b hover:bg-blue-50 cursor-pointer transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
                                         <span className="font-bold block text-brand-blue mb-1">{n.title}</span>
-                                        <p className="text-xs text-slate-600">{n.message}</p>
+                                        <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
                                     </div>
                                 ))}
                            </div>
+                           <button 
+                               onClick={() => { setShowNotifDropdown(false); setShowAllNotifsModal(true); }}
+                               className="w-full py-2 text-center text-xs font-bold text-brand-blue bg-slate-50 hover:bg-slate-100 border-t border-slate-100 transition"
+                           >
+                               Voir toutes
+                           </button>
                        </div>
                    )}
                </div>
@@ -375,7 +390,7 @@ const ProviderPortal: React.FC = () => {
 
        <div className="flex-1 flex overflow-hidden relative">
            {/* Desktop Sidebar */}
-           <nav className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col p-4 space-y-2">
+           <nav className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col p-4 space-y-2 shrink-0">
                 <button 
                     onClick={() => setActiveTab('dashboard')}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -446,9 +461,14 @@ const ProviderPortal: React.FC = () => {
                                                      </div>
                                                  )}
                                                  {m.status === 'in_progress' && (
-                                                      <button onClick={() => openExecutionModal(m.id, 'end')} className="w-full bg-green-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition animate-pulse shadow-lg shadow-green-200">
-                                                         Terminer la mission
-                                                      </button>
+                                                      <div className="flex gap-2">
+                                                          <button onClick={() => openExecutionModal(m.id, 'end')} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition animate-pulse shadow-lg shadow-green-200">
+                                                             Terminer
+                                                          </button>
+                                                          <button onClick={() => openExecutionModal(m.id, 'cancel')} className="px-3 py-2 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition" title="Annuler (Maladie/Force Majeure)">
+                                                              <AlertTriangle className="w-4 h-4" />
+                                                          </button>
+                                                      </div>
                                                  )}
                                                  {m.status === 'completed' && (
                                                      <div className="text-center text-xs font-bold text-green-600 py-2 bg-green-50 rounded-lg border border-green-100">
@@ -542,16 +562,28 @@ const ProviderPortal: React.FC = () => {
                        <div className="max-w-2xl mx-auto">
                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
                                <h3 className="font-bold text-slate-700 mb-4 text-lg">Poser des congés</h3>
-                               <form onSubmit={handleSubmitLeave} className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                                   <div>
-                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Date Début</label>
-                                       <input type="date" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.start} onChange={e => setLeaveForm({...leaveForm, start: e.target.value})} required />
+                               <form onSubmit={handleSubmitLeave} className="space-y-4">
+                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                       <div>
+                                           <label className="text-xs font-bold text-slate-500 mb-1 block">Date Début</label>
+                                           <input type="date" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.start} onChange={e => setLeaveForm({...leaveForm, start: e.target.value})} required />
+                                       </div>
+                                       <div>
+                                           <label className="text-xs font-bold text-slate-500 mb-1 block">Heure Début</label>
+                                           <input type="time" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.startTime} onChange={e => setLeaveForm({...leaveForm, startTime: e.target.value})} required />
+                                       </div>
                                    </div>
-                                   <div>
-                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Date Fin</label>
-                                       <input type="date" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.end} onChange={e => setLeaveForm({...leaveForm, end: e.target.value})} required />
+                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                       <div>
+                                           <label className="text-xs font-bold text-slate-500 mb-1 block">Date Fin</label>
+                                           <input type="date" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.end} onChange={e => setLeaveForm({...leaveForm, end: e.target.value})} required />
+                                       </div>
+                                       <div>
+                                           <label className="text-xs font-bold text-slate-500 mb-1 block">Heure Fin</label>
+                                           <input type="time" className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50" value={leaveForm.endTime} onChange={e => setLeaveForm({...leaveForm, endTime: e.target.value})} required />
+                                       </div>
                                    </div>
-                                   <div className="md:col-span-2">
+                                   <div className="md:col-span-2 pt-2">
                                         <button type="submit" className="w-full bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 transition shadow-md">
                                             Envoyer demande
                                         </button>
@@ -568,10 +600,15 @@ const ProviderPortal: React.FC = () => {
                                        {provider.leaves.map(l => (
                                            <div key={l.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
                                                <div className="flex items-center gap-3">
-                                                   <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
-                                                   <span className="text-sm text-slate-600 font-medium">{l.startDate} au {l.endDate}</span>
+                                                   <div className={`w-2 h-2 rounded-full ${l.status === 'approved' ? 'bg-green-500' : l.status === 'rejected' ? 'bg-red-500' : 'bg-yellow-400'}`}></div>
+                                                   <div className="text-xs text-slate-600 font-medium">
+                                                       <div className="font-bold">{l.startDate} - {l.endDate}</div>
+                                                       <div className="text-slate-400">{l.startTime?.slice(0,5)} à {l.endTime?.slice(0,5)}</div>
+                                                   </div>
                                                </div>
-                                               <span className="text-xs font-bold px-2 py-1 bg-yellow-100 text-yellow-700 rounded">En attente</span>
+                                               <span className={`text-xs font-bold px-2 py-1 rounded ${l.status === 'approved' ? 'bg-green-100 text-green-700' : l.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                   {l.status === 'approved' ? 'Validé' : l.status === 'rejected' ? 'Refusé' : 'En attente'}
+                                               </span>
                                            </div>
                                        ))}
                                    </div>
@@ -584,7 +621,7 @@ const ProviderPortal: React.FC = () => {
        </div>
 
        {/* Mobile Bottom Nav */}
-       <div className="md:hidden bg-white border-t border-slate-200 flex justify-around p-2 pb-safe z-20">
+       <div className="md:hidden bg-white border-t border-slate-200 flex justify-around p-2 pb-safe z-30 shrink-0">
            <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'dashboard' ? 'text-brand-blue' : 'text-slate-400'}`}>
                <Briefcase className="w-6 h-6" />
                <span className="text-[10px] font-bold mt-1">Missions</span>
@@ -599,7 +636,43 @@ const ProviderPortal: React.FC = () => {
            </button>
        </div>
 
-       {/* Execution Modal (Full Screen Mobile / Large Modal Desktop) */}
+       {/* ALL NOTIFICATIONS MODAL */}
+       {showAllNotifsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg h-[80vh] flex flex-col animate-in fade-in zoom-in duration-200">
+                  <div className="p-4 border-b bg-cream-50 flex justify-between items-center shrink-0">
+                      <h3 className="font-bold text-lg text-slate-800">Toutes les notifications</h3>
+                      <button onClick={() => setShowAllNotifsModal(false)} className="p-2 rounded-full hover:bg-slate-200 transition"><X className="w-5 h-5 text-slate-500"/></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-0">
+                      {allProviderNotifs.length === 0 ? (
+                          <div className="p-8 text-center text-slate-400 flex flex-col items-center">
+                              <Bell className="w-12 h-12 mb-2 opacity-20" />
+                              <p>Aucune notification</p>
+                          </div>
+                      ) : (
+                          allProviderNotifs.map(n => (
+                              <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-4 border-b hover:bg-blue-50 cursor-pointer transition flex items-start gap-3 ${!n.read ? 'bg-blue-50/30' : ''}`}>
+                                  <div className={`p-2 rounded-full shrink-0 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-brand-blue/10 text-brand-blue'}`}>
+                                      <Bell className="w-4 h-4" />
+                                  </div>
+                                  <div className="flex-1">
+                                      <div className="flex justify-between items-start mb-1">
+                                          <span className="font-bold text-slate-800 text-sm">{n.title}</span>
+                                          <span className="text-xs text-slate-400 whitespace-nowrap ml-2">{new Date(n.date).toLocaleDateString()}</span>
+                                      </div>
+                                      <p className="text-sm text-slate-600">{n.message}</p>
+                                  </div>
+                                  {!n.read && <div className="w-2 h-2 rounded-full bg-brand-blue mt-2"></div>}
+                              </div>
+                          ))
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+       {/* Execution Modal */}
        {selectedMissionId && executionStep && (
            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm md:p-4">
                <div className="bg-white md:rounded-2xl shadow-2xl w-full md:max-w-4xl h-full md:h-auto md:max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">

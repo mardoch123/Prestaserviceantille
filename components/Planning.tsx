@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
@@ -193,16 +195,27 @@ const Planning: React.FC = () => {
       setTimeout(() => setToast({ show: false, message: '' }), 3000);
   };
 
-  const isProviderAvailable = (providerId: string, dateStr: string) => {
+  const isProviderAvailable = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59') => {
       const provider = providers.find(p => p.id === providerId);
       if (!provider) return false;
       
-      const checkDate = new Date(dateStr);
+      const missionStart = new Date(`${dateStr}T${startTime}`);
+      const missionEnd = new Date(`${dateStr}T${endTime}`);
       
       for (const leave of provider.leaves) {
-          const start = new Date(leave.startDate);
-          const end = new Date(leave.endDate);
-          if (checkDate >= start && checkDate <= end) {
+          // Skip if rejected
+          if (leave.status === 'rejected') continue;
+
+          // Default full day if times missing
+          const lStartTime = leave.startTime || '00:00';
+          const lEndTime = leave.endTime || '23:59';
+
+          const leaveStart = new Date(`${leave.startDate}T${lStartTime}`);
+          const leaveEnd = new Date(`${leave.endDate}T${lEndTime}`);
+          
+          // Check overlap
+          // Overlap condition: (StartA < EndB) and (EndA > StartB)
+          if (missionStart < leaveEnd && missionEnd > leaveStart) {
               return false;
           }
       }
@@ -551,10 +564,10 @@ const Planning: React.FC = () => {
                              >
                                 <option value="">(À assigner plus tard)</option>
                                 {providers.map(p => {
-                                    const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date) : true;
+                                    const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available}>
-                                            {p.firstName} {p.lastName} {!available ? '(Congés)' : ''}
+                                            {p.firstName} {p.lastName} {!available ? '(Congés/Indisp.)' : ''}
                                         </option>
                                     );
                                 })}
@@ -673,7 +686,7 @@ const Planning: React.FC = () => {
                             >
                                 <option value="">Sélectionner dans la liste...</option>
                                 {providers.map(p => {
-                                    const available = missionToAssign.date ? isProviderAvailable(p.id, missionToAssign.date) : true;
+                                    const available = missionToAssign.date ? isProviderAvailable(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : true;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available} className={!available ? 'text-slate-400' : ''}>
                                             {p.firstName} {p.lastName} {available ? '✅' : '(Indisponible/Congés)'}

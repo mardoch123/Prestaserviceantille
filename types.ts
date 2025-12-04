@@ -37,6 +37,8 @@ export interface Leave {
     providerId: string; // FK
     startDate: string;
     endDate: string;
+    startTime?: string; 
+    endTime?: string;   
     status: 'pending' | 'approved' | 'rejected';
 }
 
@@ -111,8 +113,10 @@ export interface Contract {
     isSap?: boolean;
     validationDate?: string;
     adminSignatureUrl?: string;
+    clientSignatureUrl?: string; // Added signature for client
     companyStampUrl?: string;
     validatedAt?: string;
+    signedAt?: string;
 }
 
 export interface Mission {
@@ -144,7 +148,7 @@ export interface Mission {
     cancellationReason?: string;
     lateCancellation?: boolean;
     reminder48hSent?: boolean;
-    reminder72hSent?: boolean;
+    reminder72hSent?: boolean; // New reminder flag
     reportSent?: boolean;
     sourceDocumentId?: string;
 }
@@ -193,16 +197,21 @@ export interface Document {
     reminderSent?: boolean;
 }
 
+// Updated based on DB schema provided in prompt
 export interface AppNotification {
     id: string;
-    targetUserType: 'admin' | 'client' | 'provider';
-    targetUserId?: string; // FK
     type: 'info' | 'alert' | 'success' | 'message';
     title: string;
     message: string;
     date: string;
-    read: boolean;
+    is_read: boolean; // DB column name
+    read?: boolean; // UI Alias
     link?: string;
+    created_at?: string;
+    
+    // Target columns added via SQL
+    targetUserType?: 'admin' | 'client' | 'provider';
+    targetUserId?: string; 
 }
 
 export interface Message {

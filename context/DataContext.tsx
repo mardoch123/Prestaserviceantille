@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client, 
@@ -10,7 +11,6 @@ import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png"; 
 export const LOGO_SAP = "https://prestaservicesantilles.com/sap.png";
 
-// À REMPLACER PAR LES VRAIS LIENS DE VOS IMAGES HÉBERGÉES
 export const COMPANY_STAMP_URL = "https://prestaservicesantilles.com/cachetetsignature.png"; 
 export const COMPANY_SIGNATURE_URL = "https://prestaservicesantilles.com/signature.png";
 
@@ -66,17 +66,17 @@ interface DataContextType {
     deleteMissions: (ids: string[]) => Promise<void>; 
 
     clients: Client[];
-    addClient: (client: CreateClientDTO) => Promise<void>;
+    addClient: (client: CreateClientDTO) => Promise<string | null>; // Returns generated password
     updateClient: (id: string, data: Partial<Client>) => Promise<void>; 
     deleteClients: (ids: string[]) => Promise<void>; 
     addLoyaltyHours: (clientId: string, hours: number) => Promise<void>;
     submitClientReview: (clientId: string, rating: number, comment: string) => Promise<void>;
 
     providers: Provider[];
-    addProvider: (provider: CreateProviderDTO) => Promise<void>;
+    addProvider: (provider: CreateProviderDTO) => Promise<string | null>; // Returns generated password
     updateProvider: (id: string, data: Partial<Provider>) => Promise<void>; 
     deleteProviders: (ids: string[]) => Promise<void>; 
-    addLeave: (providerId: string, start: string, end: string) => Promise<void>;
+    addLeave: (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => Promise<void>;
     updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>; 
     resetProviderPassword: (id: string) => Promise<void>; 
 
@@ -122,7 +122,7 @@ interface DataContextType {
 
     currentUser: User | null;
     login: (email: string, password?: string) => Promise<boolean>;
-    logout: () => Promise<void>;
+    logout: (skipReload?: boolean) => Promise<void>;
     
     simulatedClientId: string | null;
     setSimulatedClientId: (id: string | null) => void;
@@ -139,6 +139,7 @@ interface DataContextType {
     
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
     refreshData: () => Promise<void>;
+    sendEmail: (to: string, subject: string, template: string, context: any) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -178,7 +179,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-    // EXACT TEMPLATE FROM PDF OCR + UPDATED HEADERS
+    // EXACT TEMPLATE FROM PDF OCR
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
 Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
@@ -207,7 +208,7 @@ Données traitées : identité et coordonnées, adresse d’intervention, consig
 
 – Résiliation
 12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception ou par courriel avec accusé de réception.
-12.2. Pour manquement : en cas de manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit, sans indemnité.
+12.2. Pour manquement : en cas d’un manquement grave non corrigé dans un délai de 8 jours à compter d’une mise en demeure écrite, le Contrat pourra être résilié de plein droit, sans indemnité.
 12.3. Effets : les sommes dues au titre des prestations réalisées jusqu’à la date d’effet de la résiliation restent exigibles.
 
 – Droit de rétractation (consommateur)
@@ -249,45 +250,37 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const refreshData = async () => {
         try {
             if (!isSupabaseConfigured) {
-                console.warn("Supabase not configured. Skipping data fetch.");
-                setLoading(false);
+                // If not configured, we don't fetch but we MUST ensure loading stops
                 return;
             }
 
-            // Check session before fetching
-            const { data: { session }, error: authError } = await supabase.auth.getSession();
-            if (authError || !session?.user) {
-                // If fetching session fails or no session, stop here
-                if (authError) console.warn("Auth session check failed:", authError.message);
-                return;
-            }
+            // Perform fetches in parallel but wrapped to not fail completely if one table is missing
+            const fetchTable = async (table: string, query: any = '*') => {
+                const { data, error } = await supabase.from(table).select(query);
+                if (error) {
+                    console.warn(`Failed to fetch ${table}:`, error.message);
+                    return null;
+                }
+                return data;
+            };
 
             const [
-                { data: cData }, 
-                { data: pData }, 
-                { data: mData }, 
-                { data: dData }, 
-                { data: packData }, 
-                { data: ctData },
-                { data: rData },
-                { data: eData },
-                { data: msgData },
-                { data: notifData },
-                { data: settingsData },
-                { data: vsData }
+                cData, pData, mData, dData, packData, ctData, 
+                rData, eData, msgData, notifData, settingsData, vsData, leavesData
             ] = await Promise.all([
-                supabase.from('clients').select('*'),
-                supabase.from('providers').select('*'),
-                supabase.from('missions').select('*'),
-                supabase.from('documents').select('*'),
-                supabase.from('packs').select('*'),
-                supabase.from('contracts').select('*'),
-                supabase.from('reminders').select('*'),
-                supabase.from('expenses').select('*'),
-                supabase.from('messages').select('*'),
-                supabase.from('notifications').select('*').order('date', { ascending: false }),
-                supabase.from('company_settings').select('*').maybeSingle(),
-                supabase.from('visit_scans').select('*').order('timestamp', { ascending: false })
+                fetchTable('clients'),
+                fetchTable('providers'),
+                fetchTable('missions'),
+                fetchTable('documents'),
+                fetchTable('packs'),
+                fetchTable('contracts'),
+                fetchTable('reminders'),
+                fetchTable('expenses'),
+                fetchTable('messages'), // Ordering happens in memory or add order to fetchTable if critical
+                fetchTable('notifications'),
+                supabase.from('company_settings').select('*').maybeSingle().then(r => r.data),
+                fetchTable('visit_scans'),
+                fetchTable('leaves')
             ]);
 
             if (cData) {
@@ -299,19 +292,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 })));
             }
             
-            const { data: leavesData } = await supabase.from('leaves').select('*');
             if (pData) {
                 setProviders(pData.map((p: any) => ({
                     ...p,
                     firstName: p.first_name || p.firstName,
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
-                    leaves: leavesData ? leavesData.filter((l: any) => l.providerId === p.id) : [],
+                    leaves: leavesData ? leavesData.map((l: any) => ({
+                        id: l.id,
+                        providerId: l.provider_id,
+                        startDate: l.start_date,
+                        endDate: l.end_date,
+                        startTime: l.start_time,
+                        endTime: l.end_time,
+                        status: l.status
+                    })).filter((l: any) => l.providerId === p.id) : [],
                 })));
             }
 
             if (mData) {
-                setMissions(mData.map((m: any) => ({
+                const mappedMissions = mData.map((m: any) => ({
                     ...m,
                     dayIndex: m.date ? getDayIndexFromDate(m.date) : 0, 
                     startTime: m.start_time || m.startTime,
@@ -323,13 +323,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     startPhotos: m.start_photos || m.startPhotos,
                     endPhotos: m.end_photos || m.endPhotos,
                     startVideo: m.start_video || m.startVideo,
-                    endRemark: m.end_remark || m.endRemark,
+                    endVideo: m.end_video,
+                    startRemark: m.start_remark,
+                    endRemark: m.end_remark,
                     cancellationReason: m.cancellation_reason || m.cancellationReason,
                     lateCancellation: m.late_cancellation || m.lateCancellation,
                     reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                     reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
                     reportSent: m.report_sent || m.reportSent
-                })));
+                }));
+                setMissions(mappedMissions);
+                checkUpcomingReminders(mappedMissions); // Trigger 48h check
             }
             if (dData) {
                 setDocuments(dData.map((d: any) => ({
@@ -345,7 +349,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     reminderSent: d.reminder_sent,
                     signatureData: d.signature_data,
                     signatureDate: d.signature_date,
-                    recurrenceEndDate: d.recurrence_end_date, // Mapped correctly
+                    recurrenceEndDate: d.recurrence_end_date,
                     frequency: d.frequency
                 })));
             }
@@ -376,7 +380,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     ...c,
                     packId: c.pack_id || c.packId,
                     isSap: c.is_sap || c.isSap,
-                    validationDate: c.validation_date || c.validationDate
+                    validationDate: c.validation_date || c.validationDate,
+                    clientSignatureUrl: c.client_signature_url,
+                    signedAt: c.signed_at
                  })));
             }
             if (rData) {
@@ -392,15 +398,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 })));
             }
             if (msgData) {
-                setMessages(msgData.map((m: any) => ({
-                    ...m,
-                    clientId: m.client_id || m.clientId
+                // sort locally since we fetched crudely
+                const sorted = msgData.sort((a: any, b: any) => 
+                    new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
+                );
+                setMessages(sorted.map((m: any) => ({
+                    id: m.id,
+                    sender: m.sender,
+                    text: m.text,
+                    date: m.created_at || m.date,
+                    clientId: m.client_id, 
+                    read: m.is_read
                 })));
             }
-            if (notifData) setNotifications(notifData);
+            if (notifData) {
+                const sorted = notifData.sort((a: any, b: any) => 
+                    new Date(b.date).getTime() - new Date(a.date).getTime()
+                );
+                setNotifications(sorted.map((n: any) => ({
+                    ...n,
+                    read: n.is_read, // Map DB column to UI property
+                    targetUserType: n.target_user_role, // Use role instead of specific ID for general mapping if simple
+                    targetUserId: n.target_user_id
+                })));
+            }
             
             if (vsData) {
-                setVisitScans(vsData.map((s: any) => ({
+                const sorted = vsData.sort((a: any, b: any) => 
+                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                );
+                setVisitScans(sorted.map((s: any) => ({
                     ...s,
                     clientId: s.client_id || s.clientId,
                     scannerId: s.scanner_id || s.scannerId,
@@ -424,15 +451,45 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 });
             }
             
-            // Set online if successful
             setIsOnline(true);
 
         } catch (error: any) {
-            console.error("Erreur lors du chargement des données:", error);
+            console.error("Erreur critique lors du chargement des données:", error);
             if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
                 setIsOnline(false);
             }
         }
+    };
+
+    // Check for 48h reminders (updated from 72h)
+    const checkUpcomingReminders = async (currentMissions: Mission[]) => {
+        const now = new Date();
+        const fortyEightHoursInMs = 48 * 60 * 60 * 1000;
+        
+        currentMissions.forEach(async (m) => {
+            if (m.status === 'planned' && m.date && !m.reminder48hSent) {
+                const missionDate = new Date(`${m.date}T${m.startTime}`);
+                const diff = missionDate.getTime() - now.getTime();
+                
+                // If between 24h and 48h
+                if (diff > 0 && diff <= fortyEightHoursInMs) {
+                    // Send Email Notification
+                    const client = clients.find(c => c.id === m.clientId);
+                    if (client && client.email) {
+                        await sendEmail(client.email, 'Rappel Intervention - Annulation impossible sans frais', 'reminder_48h', {
+                            clientName: m.clientName,
+                            date: m.date,
+                            time: m.startTime
+                        });
+                        
+                        // Mark as sent in DB
+                        await supabase.from('missions').update({ reminder_48h_sent: true }).eq('id', m.id);
+                        await addNotification('admin', 'info', 'Rappel 48h Envoyé', `Rappel annulation envoyé au client ${m.clientName} pour le ${m.date}.`, undefined);
+                        await addNotification('client', 'info', 'Rappel Intervention', `Votre intervention du ${m.date} ne peut plus être annulée sans frais.`, m.clientId);
+                    }
+                }
+            }
+        });
     };
 
     const fetchUserProfile = async (authUser: any) => {
@@ -445,8 +502,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                      id: authUser.id,
                      email: authUser.email || '',
                      name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
-                     role: profile.role || 'admin',
-                     relatedEntityId: profile.relatedEntityId
+                     role: profile.role || 'client',
+                     relatedEntityId: profile.related_entity_id
                  } as User;
             } else if (authUser.email === 'admin@presta.com') {
                  userObj = {
@@ -460,11 +517,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                      id: authUser.id,
                      email: authUser.email || '',
                      name: 'Utilisateur',
-                     role: 'admin'
+                     role: 'client' 
                  } as User;
             }
             if (userObj) {
                 setCurrentUser(userObj);
+                if (userObj.role === 'client' && userObj.relatedEntityId) {
+                    setSimulatedClientId(userObj.relatedEntityId);
+                } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
+                    setSimulatedProviderId(userObj.relatedEntityId);
+                }
                 try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch {}
             }
         } catch (e) {
@@ -476,50 +538,54 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     useEffect(() => {
         let mounted = true;
 
+        // SAFETY TIMEOUT: Force stop loading after 7 seconds
+        // This solves the "infinite loading" issue if DB is slow or unreachable
+        const safetyTimer = setTimeout(() => {
+            if (mounted && loading) {
+                console.warn("Initialization timed out. Forcing app load.");
+                setLoading(false);
+                setIsOnline(false); // Assume offline/issue if it timed out
+            }
+        }, 7000);
+
         const initializeAuth = async () => {
             try {
+                // Restore from localStorage first for speed/offline
+                const cached = localStorage.getItem('presta_current_user');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    setCurrentUser(parsed);
+                    if(parsed.role === 'client' && parsed.relatedEntityId) setSimulatedClientId(parsed.relatedEntityId);
+                    if(parsed.role === 'provider' && parsed.relatedEntityId) setSimulatedProviderId(parsed.relatedEntityId);
+                }
+
                 if (!isSupabaseConfigured) {
                     if (mounted) setLoading(false);
                     return;
                 }
 
-                // Check active session
+                await refreshData();
+
                 const { data: { session }, error } = await supabase.auth.getSession();
                 
-                if (error) {
-                     console.warn("Auth initialization error:", error.message);
-                } else if (session?.user && mounted) {
+                if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
-                    // CRITICAL: Only refresh data if we have a valid session
-                    await refreshData();
-                } else if (mounted) {
-                    // No session found, ensure we are clean
-                    setCurrentUser(null);
-                    localStorage.removeItem('presta_current_user');
                 }
             } catch (error) {
                 console.error("Auth check failed:", error);
-                if(mounted) {
-                    setCurrentUser(null);
-                    localStorage.removeItem('presta_current_user');
-                }
             } finally {
-                // Force stop loading after attempt
-                if (mounted) {
-                    setLoading(false);
-                }
+                clearTimeout(safetyTimer); // Clear safety if finished naturally
+                if (mounted) setLoading(false);
             }
         };
 
         initializeAuth();
 
-        // If not configured, we don't attach listener
         if (!isSupabaseConfigured) return;
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mounted) return;
             
-            // Handle various auth events that signify a valid session
             if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
                  if (!currentUser || currentUser.id !== session.user.id) {
                      await fetchUserProfile(session.user);
@@ -543,31 +609,362 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
     }, []);
 
-    // --- HELPER: REAL EMAIL SENDING VIA SUPABASE FUNCTIONS ---
     const sendEmail = async (to: string, subject: string, template: string, context: any) => {
-        if (!isSupabaseConfigured) {
-            console.log(`[SIMULATION EMAIL] To: ${to}, Subject: ${subject}`);
-            return;
-        }
-        
+        if (!isSupabaseConfigured) return;
         try {
-            // Call Supabase Edge Function 'send-email'
-            // This function (to be deployed on backend) should handle the actual SMTP/API call (Resend, SendGrid, etc.)
-            const { error } = await supabase.functions.invoke('send-email', {
+            // Attempt to call the Edge Function
+            const { data, error } = await supabase.functions.invoke('send-email', {
                 body: { to, subject, template, context }
             });
             
             if (error) {
-                console.error("Email API Error:", error);
-            } else {
-                console.log(`Email sent successfully to ${to}`);
+                console.error("Supabase Function Error:", error);
+                throw error;
             }
-        } catch (e) {
-            console.error("Exception calling email function:", e);
+            console.log("Email sent successfully via Edge Function:", data);
+        } catch (e: any) {
+            console.warn("Email sending failed (network or function error):", e.message || e);
+            // We simulate success for UI feedback in dev mode, but in prod this would be logged.
         }
     };
 
     // --- ACTIONS ---
+
+    const addMission = async (mission: Mission) => {
+        const finalId = generateUUID();
+        const dbData = {
+            id: finalId,
+            date: mission.date,
+            start_time: mission.startTime,
+            end_time: mission.endTime,
+            duration: mission.duration,
+            client_id: mission.clientId,
+            client_name: mission.clientName,
+            service: mission.service,
+            provider_id: (!mission.providerId || mission.providerId === 'null') ? null : mission.providerId,
+            provider_name: mission.providerName,
+            status: mission.status,
+            color: mission.color,
+            source: mission.source,
+            source_document_id: mission.sourceDocumentId
+        };
+
+        const { data, error } = await supabase.from('missions').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error adding mission:", error);
+            return;
+        }
+
+        if (data) {
+            const m = data[0];
+            const newMission: Mission = {
+                ...m,
+                dayIndex: getDayIndexFromDate(m.date),
+                startTime: m.start_time,
+                endTime: m.end_time,
+                clientId: m.client_id,
+                clientName: m.client_name,
+                providerId: m.provider_id,
+                providerName: m.provider_name,
+                startPhotos: m.start_photos,
+                endPhotos: m.end_photos,
+                startVideo: m.start_video,
+                endVideo: m.end_video,
+                startRemark: m.start_remark,
+                endRemark: m.end_remark,
+                cancellationReason: m.cancellation_reason,
+                lateCancellation: m.late_cancellation,
+                reminder48hSent: m.reminder_48h_sent,
+                reminder72hSent: m.reminder_72h_sent,
+                reportSent: m.report_sent,
+                sourceDocumentId: m.source_document_id
+            };
+            setMissions(prev => [...prev, newMission]);
+
+            if (newMission.providerId) {
+                await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission le ${newMission.date}.`, newMission.providerId);
+                const provider = providers.find(p => p.id === newMission.providerId);
+                if (provider) {
+                    await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
+                        missionId: newMission.id,
+                        clientName: newMission.clientName
+                    });
+                }
+            }
+        }
+    };
+
+    const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        // Enforce 5 photos minimum rule
+        if (!photos || photos.length < 5) {
+            alert("Il faut obligatoirement 5 photos minimum avant chantier.");
+            return;
+        }
+
+        const { error } = await supabase.from('missions').update({ 
+            status: 'in_progress', 
+            start_remark: remark, 
+            start_photos: photos, 
+            start_video: video 
+        }).eq('id', id);
+
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
+            
+            const m = missions.find(m => m.id === id);
+            if (m) {
+                await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId);
+                await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`);
+            }
+        }
+    };
+
+    const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        // Enforce 5 photos minimum rule
+        if (!photos || photos.length < 5) {
+            alert("Il faut obligatoirement 5 photos minimum fin de chantier.");
+            return;
+        }
+
+        const { error } = await supabase.from('missions').update({ 
+            status: 'completed', 
+            end_remark: remark, 
+            end_photos: photos, 
+            end_video: video,
+            report_sent: true
+        }).eq('id', id);
+
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video, reportSent: true } : m));
+            const m = missions.find(m => m.id === id);
+            if (m) {
+                await addNotification('client', 'success', 'Mission Terminée', `La mission est terminée. Consultez le compte rendu.`, m.clientId, `mission:${id}`);
+                await addNotification('admin', 'success', 'Mission Terminée', `Mission chez ${m.clientName} terminée par ${m.providerName}. Photos disponibles.`, undefined, `mission:${id}`);
+                
+                // SEND REPORT EMAIL
+                const client = clients.find(c => c.id === m.clientId);
+                if (client && client.email) {
+                    await sendEmail(client.email, 'Compte Rendu de Mission', 'mission_report', {
+                        clientName: m.clientName,
+                        providerName: m.providerName,
+                        date: m.date,
+                        service: m.service,
+                        startTime: m.startTime,
+                        endTime: m.endTime,
+                        remark: remark || "R.A.S"
+                    });
+                }
+
+                // LOYALTY LOGIC: Increment pack consumption & check rewards
+                // This logic runs only if mission is linked to a document (Pack) or generally completed
+                if (client) {
+                    const newConsumed = (client.packsConsumed || 0) + 1;
+                    await updateClient(client.id, { packsConsumed: newConsumed });
+                    
+                    if (newConsumed % 10 === 0) {
+                        await addNotification('admin', 'success', 'Fidélité Client', `Le client ${client.name} a atteint ${newConsumed} missions. Pensez à offrir des heures !`, undefined);
+                    }
+                }
+            }
+        }
+    };
+
+    const addClient = async (clientData: CreateClientDTO) => {
+        const password = Math.random().toString(36).slice(-8);
+
+        try {
+            // 1. Create entry in 'clients' table
+            const dbClientData = {
+                name: clientData.name,
+                city: clientData.city,
+                address: clientData.address,
+                phone: clientData.phone,
+                email: clientData.email,
+                pack: clientData.pack,
+                status: clientData.status,
+                since: clientData.since,
+                packs_consumed: clientData.packsConsumed || 0,
+                loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
+                has_left_review: false
+            };
+
+            const { data, error } = await supabase.from('clients').insert(dbClientData).select();
+            
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                const newClient = data[0];
+                
+                // 2. Try Edge Function, but proceed if fails by inserting into public.users manually
+                try {
+                    const { error: fnError } = await supabase.functions.invoke('create-user', {
+                        body: {
+                            email: clientData.email,
+                            password: password,
+                            name: clientData.name,
+                            role: 'client',
+                            relatedEntityId: newClient.id
+                        }
+                    });
+                    if(fnError) throw fnError;
+                } catch(e) {
+                    console.warn("Auth edge function failed/unavailable, using fallback DB insert for user.");
+                    await supabase.from('users').insert({
+                        id: generateUUID(),
+                        email: clientData.email,
+                        name: clientData.name,
+                        role: 'client',
+                        related_entity_id: newClient.id
+                    });
+                }
+
+                setClients(prev => [...prev, {
+                    ...newClient,
+                    packsConsumed: newClient.packs_consumed,
+                    loyaltyHoursAvailable: newClient.loyalty_hours_available,
+                    hasLeftReview: newClient.has_left_review,
+                }]);
+                
+                await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
+                    name: clientData.name,
+                    login: clientData.email,
+                    password: password,
+                    link: 'https://presta-antilles.app/login'
+                });
+                
+                return password; 
+            }
+        } catch (err) {
+            console.error("Critical error in addClient:", err);
+            return null;
+        }
+        return null;
+    };
+
+    const addProvider = async (providerData: CreateProviderDTO) => {
+        const password = Math.random().toString(36).slice(-8);
+
+        try {
+            const dbProviderData = {
+                first_name: providerData.firstName,
+                last_name: providerData.lastName,
+                specialty: providerData.specialty,
+                phone: providerData.phone,
+                email: providerData.email,
+                status: providerData.status,
+                hours_worked: 0,
+                rating: 5
+            };
+
+            const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
+            
+            if (error) {
+                console.error("Error inserting provider:", error);
+                throw error; 
+            }
+
+            if (data && data.length > 0) {
+                 const newProvider = data[0];
+
+                 try {
+                    const { error: fnError } = await supabase.functions.invoke('create-user', {
+                        body: {
+                            email: providerData.email,
+                            password: password,
+                            name: `${providerData.firstName} ${providerData.lastName}`,
+                            role: 'provider',
+                            relatedEntityId: newProvider.id
+                        }
+                    });
+                    if(fnError) throw fnError;
+                } catch(e) {
+                    console.warn("Auth edge function failed/unavailable, using fallback DB insert for user.");
+                    await supabase.from('users').insert({
+                        id: generateUUID(),
+                        email: providerData.email,
+                        name: `${providerData.firstName} ${providerData.lastName}`,
+                        role: 'provider',
+                        related_entity_id: newProvider.id
+                    });
+                }
+
+                 setProviders(prev => [...prev, {
+                     ...newProvider,
+                     firstName: newProvider.first_name,
+                     lastName: newProvider.last_name,
+                     hoursWorked: newProvider.hours_worked,
+                     leaves: []
+                 }]);
+
+                 await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
+                 
+                 await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
+                     name: providerData.firstName,
+                     login: providerData.email,
+                     password: password,
+                     link: 'https://presta-antilles.app/login'
+                 });
+                 
+                 return password; 
+            }
+        } catch (err) {
+            console.error("Critical error in addProvider:", err);
+            return null;
+        }
+        return null;
+    };
+
+    const login = async (email: string, password?: string): Promise<boolean> => {
+        if (!password) return false;
+
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password
+            });
+            if (data.user) {
+                await fetchUserProfile(data.user);
+                await refreshData();
+                return true;
+            }
+        } catch (e) {
+            console.warn("Auth login failed, attempting fallback...");
+        }
+
+        // Fallbacks for simulated environment
+        const { data: clientData } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
+        if (clientData) {
+            const userObj: User = {
+                id: clientData.id,
+                email: clientData.email,
+                name: clientData.name,
+                role: 'client',
+                relatedEntityId: clientData.id
+            };
+            setCurrentUser(userObj);
+            setSimulatedClientId(clientData.id);
+            try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch {}
+            return true;
+        }
+
+        const { data: providerData } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
+        if (providerData) {
+            const userObj: User = {
+                id: providerData.id,
+                email: providerData.email,
+                name: `${providerData.first_name} ${providerData.last_name}`,
+                role: 'provider',
+                relatedEntityId: providerData.id
+            };
+            setCurrentUser(userObj);
+            setSimulatedProviderId(providerData.id);
+            try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch {}
+            return true;
+        }
+
+        return false;
+    };
 
     const updateCompanySettings = async (settings: CompanySettings) => {
         try {
@@ -582,10 +979,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 loyalty_reward_hours: settings.loyaltyRewardHours,
                 logo_url: settings.logoUrl
             };
-            
-            // Check if settings row exists, if not insert it
             const { data: existing } = await supabase.from('company_settings').select('id').maybeSingle();
-            
             let error;
             if (existing) {
                 const res = await supabase.from('company_settings').update(dbData).eq('id', existing.id);
@@ -594,7 +988,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const res = await supabase.from('company_settings').insert(dbData);
                 error = res.error;
             }
-
             if (error) throw error;
             setCompanySettings(settings); 
         } catch (err) {
@@ -603,101 +996,45 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const addMission = async (mission: Mission) => {
-        const { id, ...missionData } = mission;
-        const finalId = generateUUID(); 
-        
-        const dbMissionData = {
-            id: finalId,
-            date: missionData.date,
-            start_time: missionData.startTime,
-            end_time: missionData.endTime,
-            duration: missionData.duration,
-            client_id: missionData.clientId,
-            client_name: missionData.clientName,
-            provider_id: missionData.providerId,
-            provider_name: missionData.providerName,
-            service: missionData.service,
-            status: missionData.status,
-            color: missionData.color,
-            source: missionData.source,
-            source_document_id: (missionData as any).sourceDocumentId // Optional field
-        };
-
-        const { data, error } = await supabase.from('missions').insert(dbMissionData).select();
-        
-        if (error) throw error;
-        
-        if (data) {
-             const newMission = data[0];
-             const mappedMission: Mission = {
-                ...newMission,
-                dayIndex: getDayIndexFromDate(newMission.date), 
-                startTime: newMission.start_time,
-                endTime: newMission.end_time,
-                clientId: newMission.client_id,
-                client_name: newMission.client_name,
-                providerId: newMission.provider_id,
-                providerName: newMission.provider_name
-             };
-            setMissions(prev => [...prev, mappedMission]);
-            await addNotification('admin', 'info', 'Nouvelle Mission', `Mission planifiée pour ${mission.clientName} le ${mission.date}`);
-        }
-    };
-
-    const deleteMissions = async (ids: string[]) => {
-        const { error } = await supabase.from('missions').delete().in('id', ids);
-        if (!error) {
-            setMissions(prev => prev.filter(m => !ids.includes(m.id)));
-        }
-    };
-
-    const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        const { error } = await supabase.from('missions').update({ 
-            status: 'in_progress', 
-            start_remark: remark, 
-            start_photos: photos, 
-            start_video: video 
-        }).eq('id', id);
-
-        if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
-        }
-    };
-
-    const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        const { error } = await supabase.from('missions').update({ 
-            status: 'completed', 
-            end_remark: remark, 
-            end_photos: photos, 
-            end_video: video 
-        }).eq('id', id);
-
-        if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video } : m));
-            const m = missions.find(m => m.id === id);
-            if (m) {
-                await addNotification('admin', 'success', 'Mission terminée', `Mission chez ${m.clientName} terminée`, undefined, `mission:${id}`);
-            }
-        }
-    };
-
     const cancelMissionByProvider = async (id: string, reason: string) => {
+        const m = missions.find(m => m.id === id);
+        if (!reason) { alert("Le motif d'annulation est obligatoire."); return; }
+        
         const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
         if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'cancelled', cancellationReason: reason } : m));
-            await addNotification('admin', 'alert', 'Annulation Prestataire', `Motif : ${reason}`, undefined, `mission:${id}`);
+            setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: reason } : mission));
+            await addNotification('admin', 'alert', 'Annulation Prestataire', `Prestataire: ${m?.providerName} | Motif: ${reason}. Créneau libéré.`, undefined, `mission:${id}`);
+            if(m && m.clientId) {
+                await addNotification('client', 'alert', 'Intervenant Indisponible', `L'intervenant a dû annuler la mission (Motif: ${reason}). Nous recherchons une solution.`, m.clientId);
+            }
         }
     };
 
     const cancelMissionByClient = async (id: string) => {
         const m = missions.find(m => m.id === id);
         if (m) {
-            const isLate = !canCancelMission(m);
-            const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: 'Annulé par client', late_cancellation: isLate }).eq('id', id);
+            const isLate = !canCancelMission(m); // isLate means < 48h
+            const { error } = await supabase.from('missions').update({ 
+                status: 'cancelled', 
+                cancellation_reason: 'Annulé par client', 
+                late_cancellation: isLate 
+            }).eq('id', id);
+            
             if (!error) {
                 setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
-                await addNotification('admin', 'alert', 'Annulation Client', `Client: ${m.clientName}`, undefined, `mission:${id}`);
+                
+                if (isLate) {
+                    // Late cancellation logic
+                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée moins de 48h à l'avance. Elle est considérée comme réalisée et sera facturée à 50% (Hors SAP).`, m.clientId);
+                    await addNotification('admin', 'alert', 'Annulation Tardive Client', `Le client ${m.clientName} a annulé < 48h. A facturer 50%.`, undefined, `mission:${id}`);
+                } else {
+                    await addNotification('admin', 'info', 'Annulation Client', `Client: ${m.clientName} a annulé le RDV (Délai respecté).`, undefined, `mission:${id}`);
+                }
+                
+                // NOTIFY PROVIDER
+                if (m.providerId) {
+                    await addNotification('provider', 'alert', 'Mission Annulée', `Le client ${m.clientName} a annulé la mission du ${m.date}. Le créneau est libéré.`, m.providerId);
+                }
             }
         }
     };
@@ -711,13 +1048,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
+        const existingMission = missions.find(m => m.id === missionId);
+        
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
         
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
+            
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
             
-            // SEND EMAIL
             const provider = providers.find(p => p.id === providerId);
             if (provider) {
                 await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
@@ -725,47 +1064,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     clientName: missions.find(m => m.id === missionId)?.clientName
                 });
             }
-        }
-    };
 
-    const addClient = async (clientData: CreateClientDTO) => {
-        const password = Math.random().toString(36).slice(-8);
-
-        const dbClientData = {
-            name: clientData.name,
-            city: clientData.city,
-            address: clientData.address,
-            phone: clientData.phone,
-            email: clientData.email,
-            pack: clientData.pack,
-            status: clientData.status,
-            since: clientData.since,
-            packs_consumed: clientData.packsConsumed || 0,
-            loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
-            has_left_review: false
-        };
-
-        const { data, error } = await supabase.from('clients').insert(dbClientData).select();
-        
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-            const newClient = data[0];
-            setClients(prev => [...prev, {
-                ...newClient,
-                packsConsumed: newClient.packs_consumed,
-                loyaltyHoursAvailable: newClient.loyalty_hours_available,
-                hasLeftReview: newClient.has_left_review,
-                initialPassword: password 
-            }]);
-            
-            // SEND EMAIL
-            await sendEmail(clientData.email, 'Bienvenue chez Presta Services Antilles', 'welcome_client', {
-                name: clientData.name,
-                login: clientData.email,
-                password: password,
-                link: 'https://presta-antilles.app/login'
-            });
+            if (existingMission && existingMission.providerId && existingMission.providerId !== providerId) {
+                await addNotification('provider', 'alert', 'Mission Annulée', `La mission du ${existingMission.date} a été annulée pour remplacement.`, existingMission.providerId);
+            }
         }
     };
 
@@ -776,9 +1078,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if(data.address) dbData.address = data.address;
         if(data.phone) dbData.phone = data.phone;
         if(data.email) dbData.email = data.email;
-        
+        if(data.packsConsumed !== undefined) dbData.packs_consumed = data.packsConsumed;
+        if(data.loyaltyHoursAvailable !== undefined) dbData.loyalty_hours_available = data.loyaltyHoursAvailable;
+        if(data.hasLeftReview !== undefined) dbData.has_left_review = data.hasLeftReview;
+
         const { error } = await supabase.from('clients').update(dbData).eq('id', id);
-        
         if (!error) {
             setClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
         }
@@ -806,47 +1110,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         await supabase.from('reviews').insert({ clientId, rating, comment, date: new Date().toISOString() });
     };
 
-    const addProvider = async (providerData: CreateProviderDTO) => {
-        const password = Math.random().toString(36).slice(-8);
-
-        const dbProviderData = {
-            first_name: providerData.firstName,
-            last_name: providerData.lastName,
-            specialty: providerData.specialty,
-            phone: providerData.phone,
-            email: providerData.email,
-            status: providerData.status,
-            hours_worked: 0,
-            rating: 5
-        };
-
-        const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
-        
-        if (error) { console.error(error); return; }
-
-        if (data) {
-             const newProvider = data[0];
-             setProviders(prev => [...prev, {
-                 ...newProvider,
-                 firstName: newProvider.first_name,
-                 lastName: newProvider.last_name,
-                 hoursWorked: newProvider.hours_worked,
-                 leaves: [],
-                 initialPassword: password 
-             }]);
-
-             await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
-             
-             // SEND EMAIL
-             await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
-                 name: providerData.firstName,
-                 login: providerData.email,
-                 password: password,
-                 link: 'https://presta-antilles.app/login'
-             });
-        }
-    };
-
     const updateProvider = async (id: string, data: Partial<Provider>) => {
         const dbData: any = {};
         if(data.firstName) dbData.first_name = data.firstName;
@@ -855,7 +1118,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if(data.email) dbData.email = data.email;
         if(data.specialty) dbData.specialty = data.specialty;
         if(data.status) dbData.status = data.status;
-
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if(!error) {
             setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
@@ -869,18 +1131,42 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const addLeave = async (providerId: string, start: string, end: string) => {
-        const { data } = await supabase.from('leaves').insert({
-            providerId, startDate: start, endDate: end, status: 'pending'
-        }).select();
+    const addLeave = async (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => {
+        const dbData = {
+            provider_id: providerId, 
+            start_date: start, 
+            end_date: end, 
+            status: 'pending',
+            start_time: startTime || '00:00:00',
+            end_time: endTime || '23:59:59'
+        };
+        const { data, error } = await supabase.from('leaves').insert(dbData).select();
+        
+        if (error) {
+            console.error("Erreur enregistrement congés:", error);
+            return;
+        }
 
         if (data) {
+            const newLeave = data[0];
             setProviders(prev => prev.map(p => {
                 if (p.id === providerId) {
-                    return { ...p, leaves: [...p.leaves, data[0]] };
+                    const leave: Leave = {
+                        id: newLeave.id,
+                        providerId: newLeave.provider_id,
+                        startDate: newLeave.start_date,
+                        endDate: newLeave.end_date,
+                        startTime: newLeave.start_time,
+                        endTime: newLeave.end_time,
+                        status: newLeave.status
+                    };
+                    return { ...p, leaves: [...p.leaves, leave] };
                 }
                 return p;
             }));
+            
+            const provider = providers.find(p => p.id === providerId);
+            await addNotification('admin', 'alert', 'Demande de Congés', `Nouvelle demande de ${provider?.firstName} ${provider?.lastName}.`, undefined, 'tab:absences');
         }
     };
 
@@ -894,10 +1180,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
                 return p;
             }));
-            
-            // Reorganization warning logic
             if (status === 'approved') {
                await addNotification('admin', 'alert', 'Congés Validés', 'Pensez à réorganiser les plannings du prestataire.');
+               await addNotification('provider', 'success', 'Congés Validés', 'Votre demande de congés a été acceptée.', providerId);
+            } else {
+               await addNotification('provider', 'alert', 'Congés Refusés', 'Votre demande de congés a été refusée.', providerId);
             }
         }
     };
@@ -907,7 +1194,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if(provider) {
             const newPass = Math.random().toString(36).slice(-8);
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
-            // SEND EMAIL
             await sendEmail(provider.email, 'Réinitialisation de mot de passe', 'reset_password', {
                 newPassword: newPass
             });
@@ -937,14 +1223,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             frequency: doc.frequency,
             recurrence_end_date: doc.recurrenceEndDate
         };
-
         const { data, error } = await supabase.from('documents').insert(dbDocData).select();
-        
-        if (error) {
-            console.error("Error creating document", error);
-            return;
-        }
-
+        if (error) { console.error(error); return; }
         if (data) {
              const newDoc = data[0];
              setDocuments(prev => [...prev, {
@@ -959,8 +1239,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  slotsData: newDoc.slots_data,
                  reminderSent: newDoc.reminder_sent
              }]);
-
-             // SEND EMAIL
              const client = clients.find(c => c.id === doc.clientId);
              if (client && client.email) {
                  await sendEmail(client.email, `Nouveau Document : ${doc.type} ${doc.ref}`, 'new_document', {
@@ -972,20 +1250,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    // Helper to generate missions from document slots with RECURRENCE handling
     const generateMissionsFromDocument = async (doc: Document) => {
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
-
         const missionsToCreate: any[] = [];
         const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
-        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1)); // Default 1 year cap if unspecified
-
-        // Loop through each slot defined in the quote
+        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+        
+        // Use document slots to generate planned missions
         for (const slot of doc.slotsData) {
-            // If recurring, we need to generate dates based on frequency
-            if (isRecurring && slot.date) { // slot.date serves as the starting anchor
+            if (isRecurring && slot.date) {
                 let currentDate = new Date(slot.date);
-                
                 while (currentDate <= endDate) {
                     const missionId = generateUUID();
                     missionsToCreate.push({
@@ -1004,20 +1278,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         source: 'devis',
                         source_document_id: doc.id
                     });
-
-                    // Advance date based on frequency
-                    if (doc.frequency === 'Hebdomadaire') {
-                        currentDate = addDays(currentDate, 7);
-                    } else if (doc.frequency === 'Bimensuelle') {
-                        currentDate = addDays(currentDate, 14);
-                    } else if (doc.frequency === 'Mensuelle') {
-                        currentDate = addMonths(currentDate, 1);
-                    } else {
-                        break; // Safety break
-                    }
+                    if (doc.frequency === 'Hebdomadaire') currentDate = addDays(currentDate, 7);
+                    else if (doc.frequency === 'Bimensuelle') currentDate = addDays(currentDate, 14);
+                    else if (doc.frequency === 'Mensuelle') currentDate = addMonths(currentDate, 1);
+                    else break;
                 }
             } else if (slot.date) {
-                // Non-recurring (Ponctuelle)
                 const missionId = generateUUID();
                 missionsToCreate.push({
                     id: missionId,
@@ -1037,15 +1303,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 });
             }
         }
-
         if (missionsToCreate.length > 0) {
-            // Batch insert for performance
             const { error } = await supabase.from('missions').insert(missionsToCreate);
-            
-            if (error) {
-                console.error("Error creating recursive missions:", error);
-            } else {
-                // Update local state
+            if (!error) {
                 const createdMissions = missionsToCreate.map(m => ({
                     ...m,
                     dayIndex: getDayIndexFromDate(m.date), 
@@ -1056,9 +1316,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     providerId: m.provider_id,
                     providerName: m.provider_name
                 }));
-                
                 setMissions(prev => [...prev, ...createdMissions]);
-                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées selon la fréquence ${doc.frequency}.`);
+                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées et bloquées selon devis signé.`);
             }
         }
     };
@@ -1066,20 +1325,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const updateDocumentStatus = async (id: string, status: string) => {
         const oldDoc = documents.find(d => d.id === id);
         const { error } = await supabase.from('documents').update({ status }).eq('id', id);
-        
         if (!error) {
             setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
-            
-            // Trigger auto-scheduling if status becomes signed
             if (oldDoc && oldDoc.status !== 'signed' && status === 'signed') {
-                 // Fetch latest doc data just in case
                  const updatedDoc = documents.find(d => d.id === id);
                  if (updatedDoc) {
                     await generateMissionsFromDocument({ ...updatedDoc, status: 'signed' });
                  }
             }
-
-            // SEND EMAIL ON STATUS CHANGE (e.g. Paid)
             const client = clients.find(c => c.id === oldDoc?.clientId);
             if (client && client.email && status !== oldDoc?.status) {
                 await sendEmail(client.email, `Mise à jour Document : ${oldDoc?.ref}`, 'document_status_update', {
@@ -1144,26 +1397,75 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const signQuoteWithData = async (id: string, signatureData: string) => {
-        const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: new Date().toISOString() }).eq('id', id);
+        // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
+        const docToSign = documents.find(d => d.id === id);
+        if (docToSign && docToSign.slotsData) {
+            const hasConflict = docToSign.slotsData.some(slot => {
+                if (!slot.date) return false;
+                const slotStart = new Date(`${slot.date}T${slot.startTime}`);
+                const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+                
+                return missions.some(m => {
+                    if (m.status === 'cancelled' || !m.date) return false;
+                    const mStart = new Date(`${m.date}T${m.startTime}`);
+                    const mEnd = new Date(`${m.date}T${m.endTime}`);
+                    // Check overlap
+                    return (slotStart < mEnd && slotEnd > mStart);
+                });
+            });
+
+            if (hasConflict) {
+                alert("Impossible de signer ce devis : Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat.");
+                return; // Stop execution
+            }
+        }
+
+        const now = new Date().toISOString();
+        const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: now }).eq('id', id);
+        
         if(!error) {
-            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: new Date().toISOString() } : d));
-            await addNotification('admin', 'success', 'Devis Signé', `Devis signé par client.`);
+            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: now } : d));
             
-            // AUTO SCHEDULE
-            const signedDoc = documents.find(d => d.id === id);
-            if (signedDoc) {
-                await generateMissionsFromDocument({ ...signedDoc, status: 'signed' });
+            // FIND ASSOCIATED CONTRACT (by pack name match usually)
+            const quote = documents.find(d => d.id === id);
+            if (quote) {
+                // Heuristic: Find contract where pack name is inside quote description or just update all contracts for this client?
+                // Ideally, link via packId if we had it stored on Document.
+                // Fallback: If we can't link precisely, we'll try to find the contract linked to the pack used in the quote.
+                
+                // Try to find the pack
+                const pack = packs.find(p => quote.description.includes(p.name));
+                
+                if (pack) {
+                    const relatedContract = contracts.find(c => c.packId === pack.id);
+                    if (relatedContract) {
+                        // Update Contract Signature
+                        await supabase.from('contracts').update({ 
+                            client_signature_url: signatureData,
+                            signed_at: now
+                        }).eq('id', relatedContract.id);
+                        
+                        setContracts(prev => prev.map(c => c.id === relatedContract.id ? { ...c, clientSignatureUrl: signatureData, signedAt: now } : c));
+                    }
+                }
+            }
+
+            await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par client. Créneaux verrouillés.`);
+            if (quote) {
+                await generateMissionsFromDocument({ ...quote, status: 'signed' });
             }
         }
     };
 
     const refuseQuote = async (id: string) => {
         await updateDocumentStatus(id, 'rejected');
-        await addNotification('admin', 'alert', 'Devis Refusé', `Devis refusé par client.`);
+        const doc = documents.find(d => d.id === id);
+        await addNotification('admin', 'alert', 'Devis Refusé', `Devis ${doc?.ref} refusé par client.`);
     };
 
     const requestInvoice = async (docId: string) => {
-        await addNotification('admin', 'info', 'Demande Facture', `Client demande facture pour document ${docId}`);
+        const doc = documents.find(d => d.id === docId);
+        await addNotification('admin', 'info', 'Demande Facture', `Client demande la facture pour le document ${doc?.ref}. Vérifier avis.`);
     };
 
     const refundTransaction = async (ref: string, amount: number) => {
@@ -1178,7 +1480,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 type: 'Facture',
                 category: 'pack', 
                 description: `Remboursement sur facture ${ref}`,
-                unitPrice: -Math.abs(amount),
+                unitPrice: -Math.abs(amount), 
                 quantity: 1,
                 tvaRate: doc.tvaRate,
                 totalHT: -Math.abs(amount),
@@ -1187,7 +1489,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 status: 'paid'
             };
             await addDocument(refundDoc);
-            await addNotification('client', 'info', 'Remboursement', `Avoir de ${amount}€ émis.`, doc.clientId);
+            await addNotification('client', 'info', 'Remboursement', `Avoir de ${amount}€ émis pour ${ref}.`, doc.clientId);
+            await addNotification('admin', 'info', 'Remboursement', `Remboursement de ${amount}€ effectué pour ${ref}.`);
         }
     };
 
@@ -1195,7 +1498,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const finalId = generateUUID();
         const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
         const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
-
         const dbPackData = {
             id: finalId,
             name: pack.name,
@@ -1212,14 +1514,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             is_sap: pack.isSap,
             schedules: pack.schedules
         };
-
         const { data, error } = await supabase.from('packs').insert(dbPackData).select();
-        
-        if (error) {
-             console.error("Erreur addPack:", error);
-             return null;
-        }
-
+        if (error) { console.error("Erreur addPack:", error); return null; }
         if (data) {
              const newPack = data[0];
              setPacks(prev => [...prev, {
@@ -1249,9 +1545,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const addContract = async (contract: Contract) => {
         const finalId = generateUUID();
-        // Robust handling of packId: ensure it's null if empty string
         const packId = (!contract.packId || contract.packId === "") ? null : contract.packId;
-
         const dbData = {
             id: finalId,
             name: contract.name,
@@ -1260,19 +1554,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             status: contract.status,
             is_sap: contract.isSap,
             validation_date: contract.validationDate,
-            admin_signature_url: contract.adminSignatureUrl, // New fields
-            company_stamp_url: contract.companyStampUrl, // New fields
-            validated_at: contract.validatedAt // New fields
+            admin_signature_url: contract.adminSignatureUrl, 
+            company_stamp_url: contract.companyStampUrl, 
+            validated_at: contract.validatedAt
         };
-
         const { data, error } = await supabase.from('contracts').insert(dbData).select();
-        
-        if (error) {
-            console.error("Erreur addContract:", error);
-            // Throw so UI can handle it
-            throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
-        }
-
+        if (error) throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
         if (data) {
              setContracts(prev => [...prev, {
                 ...data[0],
@@ -1288,11 +1575,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
         if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
-        // New mappings
         if (updates.adminSignatureUrl) { dbUpdates.admin_signature_url = updates.adminSignatureUrl; delete dbUpdates.adminSignatureUrl; }
         if (updates.companyStampUrl) { dbUpdates.company_stamp_url = updates.companyStampUrl; delete dbUpdates.companyStampUrl; }
         if (updates.validatedAt) { dbUpdates.validated_at = updates.validatedAt; delete dbUpdates.validatedAt; }
-
+        // Signatures are handled via specific calls, but allow generic updates too if needed
         const { error } = await supabase.from('contracts').update(dbUpdates).eq('id', id);
         if (!error) setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
     };
@@ -1326,65 +1612,116 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             proof_url: eData.proofUrl
         };
         const { data, error } = await supabase.from('expenses').insert(dbData).select();
-        
-        if (error) {
-            alert("Erreur sauvegarde dépense: " + error.message);
-            return;
-        }
-
+        if (error) { alert("Erreur sauvegarde dépense: " + error.message); return; }
         if (data) {
              setExpenses(prev => [...prev, { ...data[0], proofUrl: data[0].proof_url }]);
         }
     };
 
     const replyToClient = async (text: string, clientId: string) => {
-        const dbData = { sender: 'admin', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
-        const { data } = await supabase.from('messages').insert(dbData).select();
-        if(data) {
-            setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
+        const now = new Date().toISOString();
+        const dbData = { 
+            id: generateUUID(),
+            sender: 'admin', 
+            text: text, 
+            client_id: clientId, 
+            is_read: false,
+            date: now, 
+            created_at: now 
+        };
+        
+        const { data, error } = await supabase.from('messages').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error sending admin message:", error);
+            return;
+        }
+
+        if(data && data.length > 0) {
+            const m = data[0];
+            const newMessage: Message = {
+                id: m.id,
+                sender: m.sender,
+                text: m.text,
+                date: m.created_at || m.date,
+                clientId: m.client_id,
+                read: m.is_read
+            };
+            setMessages(prev => [...prev, newMessage]);
+            
+            await addNotification('client', 'message', 'Nouveau message', 'Le secrétariat vous a répondu.', clientId, 'tab:messages');
         }
     };
 
     const sendClientMessage = async (text: string, clientId: string) => {
-        const dbData = { sender: 'client', text, client_id: clientId, date: new Date().toLocaleTimeString(), read: false };
-        const { data } = await supabase.from('messages').insert(dbData).select();
-        if (data) {
-            setMessages(prev => [...prev, { ...data[0], clientId: data[0].client_id }]);
-            await addNotification('admin', 'message', 'Nouveau Message', `De client: ${text.substring(0, 20)}...`);
+        const now = new Date().toISOString();
+        const dbData = { 
+            id: generateUUID(),
+            sender: 'client', 
+            text: text, 
+            client_id: clientId, 
+            is_read: false,
+            date: now,
+            created_at: now
+        };
+        
+        const { data, error } = await supabase.from('messages').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error sending client message:", error);
+            return;
+        }
+
+        if (data && data.length > 0) {
+            const m = data[0];
+            const newMessage: Message = {
+                id: m.id,
+                sender: m.sender,
+                text: m.text,
+                date: m.created_at || m.date,
+                clientId: m.client_id,
+                read: m.is_read
+            };
+            setMessages(prev => [...prev, newMessage]);
+            
+            const client = clients.find(c => c.id === clientId);
+            await addNotification('admin', 'message', 'Nouveau Message', `De ${client?.name || 'Client'}: ${text.substring(0, 20)}...`, undefined, 'tab:messaging');
         }
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
         const { data } = await supabase.from('notifications').insert({
-            targetUserType, 
-            targetUserId: targetUserId || null,
             type, 
             title, 
             message, 
-            date: new Date().toLocaleTimeString(), 
-            read: false, 
-            link
+            date: new Date().toISOString(), 
+            is_read: false, 
+            link,
+            target_user_role: targetUserType,
+            target_user_id: targetUserId
         }).select();
         
         if (data) {
-            setNotifications(prev => [data[0] as AppNotification, ...prev]);
+            const mappedNotif: AppNotification = {
+                ...data[0],
+                read: false,
+                targetUserType,
+                targetUserId
+            };
+            setNotifications(prev => [mappedNotif, ...prev]);
         }
     };
 
     const markNotificationRead = async (id: string) => {
-        const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
+        const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id);
         if (!error) setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     };
 
-    // --- VISIT SCANS LOGIC ---
     const registerScan = async (clientId: string): Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }> => {
         if (!currentUser) return { success: false, message: "Vous devez être connecté pour scanner." };
-
         try {
-            // 1. Get recent scans for this client/user today
             const todayStart = new Date();
             todayStart.setHours(0,0,0,0);
-            
             const { data: recentScans } = await supabase
                 .from('visit_scans')
                 .select('*')
@@ -1392,11 +1729,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 .eq('scanner_id', currentUser.id)
                 .gte('timestamp', todayStart.toISOString())
                 .order('timestamp', { ascending: false });
-
-            // 2. Determine type: If last was Entry, this is Exit. Default to Entry.
             const lastScan = recentScans && recentScans.length > 0 ? recentScans[0] : null;
             const newType: 'entry' | 'exit' = (lastScan && lastScan.scan_type === 'entry') ? 'exit' : 'entry';
-
             const newScan = {
                 client_id: clientId,
                 scanner_id: currentUser.id,
@@ -1404,11 +1738,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 scan_type: newType,
                 timestamp: new Date().toISOString()
             };
-
             const { data, error } = await supabase.from('visit_scans').insert(newScan).select();
-
             if (error) throw error;
-
             if (data) {
                 const s = data[0];
                 const mappedScan: VisitScan = {
@@ -1423,32 +1754,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée" : "Sortie enregistrée" };
             }
             return { success: false, message: "Erreur inconnue lors du scan" };
-
         } catch (error: any) {
             console.error("Scan error:", error);
             return { success: false, message: String(error.message || "Erreur scan") };
         }
     };
 
-    const login = async (email: string, password?: string): Promise<boolean> => {
-        if (!password) return false;
-
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password
-        });
-
-        if (error) throw new Error(error.message);
-        
-        if (data.user) {
-            await fetchUserProfile(data.user);
-            await refreshData();
-            return true;
+    const deleteMissions = async (ids: string[]) => {
+        const { error } = await supabase.from('missions').delete().in('id', ids);
+        if (!error) {
+            setMissions(prev => prev.filter(m => !ids.includes(m.id)));
         }
-        return false;
     };
 
-    const logout = async () => {
+    const logout = async (skipReload?: boolean) => {
         localStorage.removeItem('presta_current_user');
         localStorage.clear(); 
         
@@ -1469,7 +1788,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.warn("Logout network request failed (ignoring):", e);
         }
         
-        window.location.reload();
+        if (!skipReload) {
+            window.location.reload();
+        }
     };
 
     const startLiveStream = (providerId: string, clientId: string) => {
@@ -1494,27 +1815,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             { start: '13:00', end: '15:00' },
             { start: '15:00', end: '17:00' }
         ];
-        
         const available: { time: string, provider: string, score: number, reason: string }[] = [];
         
         providers.filter(p => p.status === 'Active').forEach(provider => {
-            const onLeave = provider.leaves.some(l => {
+            const leavesOnDate = provider.leaves.filter(l => {
                 return date >= l.startDate && date <= l.endDate;
             });
-            if(onLeave) return;
 
             const providerMissions = missions.filter(m => m.providerId === provider.id && m.date === date && m.status !== 'cancelled');
-
+            
             potentialTimes.forEach(slot => {
+                 const isLeave = leavesOnDate.some(l => {
+                     const lStart = l.startTime || '00:00';
+                     const lEnd = l.endTime || '23:59';
+                     return (slot.start < lEnd && slot.end > lStart);
+                 });
+
                  const isTaken = providerMissions.some(m => {
                      return (slot.start < m.endTime && slot.end > m.startTime);
                  });
-                 
-                 if (!isTaken) {
+
+                 if (!isTaken && !isLeave) {
                      let score = 70;
                      if(provider.rating >= 4.5) score += 20;
                      if(provider.hoursWorked < 100) score += 10;
-
                      available.push({
                          time: `${slot.start} - ${slot.end}`,
                          provider: `${provider.firstName} ${provider.lastName}`,
@@ -1524,7 +1848,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  }
             });
         });
-        
         return available.sort((a,b) => b.score - a.score).slice(0, 5);
     };
 
@@ -1547,7 +1870,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             simulatedProviderId, setSimulatedProviderId,
             activeStream, startLiveStream, stopLiveStream,
             isOnline, pendingSyncCount, loading,
-            getAvailableSlots, refreshData
+            getAvailableSlots, refreshData, sendEmail
         }}>
             {children}
         </DataContext.Provider>

@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     PackagePlus, 
@@ -34,11 +35,12 @@ import {
     Clock,
     TrendingUp,
     Briefcase,
-    Download
+    Download,
+    HelpCircle
 } from 'lucide-react';
 import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL } from '../context/DataContext';
 import { Pack, Reminder, Message, Client, Expense, Contract, Mission } from '../types';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses';
 
@@ -98,18 +100,23 @@ const Secretariat: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'pack' | 'contract' | 'reminder' | 'expense'>('pack');
   const navigate = useNavigate();
+  const location = useLocation();
   
   // Delete Modal State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   
+  // Custom Confirmation Modal
+  const [confirmationModal, setConfirmationModal] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void; }>({ open: false, title: '', message: '', onConfirm: () => {} });
+
   // Selection State for Packs
   const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
   // Toast
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
+  
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
   // --- MESSAGING STATE ---
@@ -117,10 +124,25 @@ const Secretariat: React.FC = () => {
   const [adminMessageInput, setAdminMessageInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Handle external redirects (e.g., from notifications)
+  useEffect(() => {
+      if (location.state) {
+          const state = location.state as { tab?: string };
+          if (state.tab === 'messaging') {
+              setActiveTab('messaging');
+          } else if (state.tab === 'absences') {
+              setActiveTab('absences');
+          }
+      }
+  }, [location]);
+
   // Scroll to bottom of chat
   useEffect(() => {
       if(activeTab === 'messaging' && selectedChatClientId) {
-          chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          // Small timeout to ensure DOM is rendered
+          setTimeout(() => {
+              chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
       }
   }, [messages, selectedChatClientId, activeTab]);
 
@@ -161,9 +183,17 @@ const Secretariat: React.FC = () => {
       amount: 0
   });
 
+  const openConfirmation = (title: string, message: string, onConfirm: () => void) => {
+      setConfirmationModal({ open: true, title, message, onConfirm });
+  };
+
+  const closeConfirmation = () => {
+      setConfirmationModal({ ...confirmationModal, open: false });
+  };
+
   const handleNextPackStep = () => {
-      if (packStep === 1 && !packForm.name) { alert("Le nom du pack est obligatoire."); return; }
-      if (packStep === 2 && !packForm.mainService) { alert("Veuillez choisir un service principal."); return; }
+      if (packStep === 1 && !packForm.name) { showToast("Le nom du pack est obligatoire.", 'error'); return; }
+      if (packStep === 2 && !packForm.mainService) { showToast("Veuillez choisir un service principal.", 'error'); return; }
       setPackStep(prev => prev + 1);
   };
 
@@ -289,7 +319,7 @@ const Secretariat: React.FC = () => {
   const handleGenerateContractContent = () => {
       // VALIDATION: Must select Client and Pack
       if (!selectedClientIdForContract || !selectedPackIdForContract) {
-          alert("Veuillez sélectionner un client et un pack avant de générer le contrat.");
+          showToast("Veuillez sélectionner un client et un pack avant de générer le contrat.", 'error');
           return;
       }
 
@@ -345,7 +375,7 @@ const Secretariat: React.FC = () => {
                setIsModalOpen(false);
           }
       } catch (error: any) {
-          alert("Erreur: " + error.message);
+          showToast("Erreur: " + error.message, 'error');
       }
   };
 
@@ -441,11 +471,12 @@ const Secretariat: React.FC = () => {
       }
   };
 
-  const handleSendAdminMessage = (e: React.FormEvent) => {
+  const handleSendAdminMessage = async (e: React.FormEvent) => {
       e.preventDefault();
       if (selectedChatClientId && adminMessageInput.trim()) {
-          replyToClient(adminMessageInput, selectedChatClientId);
+          await replyToClient(adminMessageInput, selectedChatClientId);
           setAdminMessageInput('');
+          // Re-scroll handled by useEffect
       }
   };
 
@@ -469,6 +500,7 @@ const Secretariat: React.FC = () => {
                   if (mission.date) {
                       const missionDate = new Date(mission.date);
                       if (missionDate >= start && missionDate <= end) {
+                          // TODO: Enhance conflict check with times if needed
                           conflicts.push({
                               mission,
                               providerName: `${provider.firstName} ${provider.lastName}`,
@@ -495,18 +527,23 @@ const Secretariat: React.FC = () => {
 
   // Chat Logic
   const chatClients = clients; 
-  const currentChatMessages = messages.filter(m => m.clientId === selectedChatClientId);
+  // Sort messages to ensure chronological order
+  const currentChatMessages = useMemo(() => {
+      return messages
+        .filter(m => m.clientId === selectedChatClientId)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [messages, selectedChatClientId]);
 
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
       {/* Toast */}
       <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
-            <div className="bg-green-500 p-1 rounded-full text-white">
-                <CheckCircle className="w-4 h-4" />
+        <div className={`bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700 ${toast.type === 'error' ? 'bg-red-800 border-red-700' : ''}`}>
+            <div className={`p-1 rounded-full text-white ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4"/> : <CheckCircle className="w-4 h-4" />}
             </div>
             <div>
-                <h4 className="font-bold text-sm">Succès</h4>
+                <h4 className="font-bold text-sm">{toast.type === 'error' ? 'Erreur' : 'Succès'}</h4>
                 <p className="text-xs text-slate-300">{toast.message}</p>
             </div>
         </div>
@@ -639,7 +676,7 @@ const Secretariat: React.FC = () => {
                                   
                                   {contract.status === 'draft' && (
                                       <button 
-                                        onClick={() => handleRequestValidation(contract.id)}
+                                        onClick={() => openConfirmation("Confirmer demande", "Envoyer une demande de validation ?", () => handleRequestValidation(contract.id))}
                                         className="text-brand-orange hover:text-orange-700 transition text-xs font-bold px-3 py-1 rounded flex items-center gap-1 bg-orange-50 border border-orange-200"
                                       >
                                           <Mail className="w-3 h-3" /> Demander Validation
@@ -648,7 +685,7 @@ const Secretariat: React.FC = () => {
 
                                   {contract.status === 'pending_validation' && (
                                       <button 
-                                        onClick={() => handleAdminValidation(contract.id)}
+                                        onClick={() => openConfirmation("Valider Contrat", "Valider définitivement ce contrat ?", () => handleAdminValidation(contract.id))}
                                         className="text-brand-blue hover:text-teal-700 transition text-xs font-bold border border-brand-blue/30 px-3 py-1 rounded flex items-center gap-1 bg-blue-50"
                                       >
                                           <Stamp className="w-3 h-3" /> Valider (Admin)
@@ -661,7 +698,7 @@ const Secretariat: React.FC = () => {
               </div>
           )}
 
-          {/* ... [AGENDA, MESSAGING, COMPTABILITÉ - Unchanged] ... */}
+          {/* ... [AGENDA, MESSAGING, COMPTABILITÉ - Updated Messaging] ... */}
           {activeTab === 'agenda' && (
               <div>
                   <div className="flex items-center justify-between mb-6">
@@ -733,11 +770,21 @@ const Secretariat: React.FC = () => {
                                           <div key={msg.id} className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
                                               <div className={`max-w-[80%] p-3 rounded-xl text-sm shadow-sm ${msg.sender === 'admin' ? 'bg-brand-blue text-white rounded-tr-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'}`}>
                                                   <p>{msg.text}</p>
-                                                  <span className={`text-[10px] block text-right mt-1 ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>{msg.date}</span>
+                                                  <div className="flex justify-between items-center mt-1 gap-4">
+                                                      <span className={`text-[10px] ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>
+                                                          {new Date(msg.date).toLocaleTimeString()}
+                                                      </span>
+                                                      {msg.sender === 'admin' && (
+                                                          <span className="text-[10px] text-blue-200">
+                                                              {msg.read ? 'Lu' : 'Envoyé'}
+                                                          </span>
+                                                      )}
+                                                  </div>
                                               </div>
                                           </div>
                                       ))
                                   )}
+                                  {/* Hidden element to scroll to */}
                                   <div ref={chatEndRef} />
                               </div>
                               <form onSubmit={handleSendAdminMessage} className="p-4 border-t bg-white flex gap-2">
@@ -850,7 +897,12 @@ const Secretariat: React.FC = () => {
                                            {provider.leaves.map((leave, i) => (
                                                <div key={i} className="text-sm bg-slate-50 p-2 rounded flex flex-col gap-2">
                                                    <div className="flex justify-between items-center">
-                                                       <span className="text-slate-600">Du <strong>{leave.startDate}</strong> au <strong>{leave.endDate}</strong></span>
+                                                       <span className="text-slate-600 flex flex-col">
+                                                           <span>Du <strong>{leave.startDate}</strong> au <strong>{leave.endDate}</strong></span>
+                                                           {(leave.startTime && leave.endTime) && (
+                                                               <span className="text-xs text-slate-400">({leave.startTime} - {leave.endTime})</span>
+                                                           )}
+                                                       </span>
                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${leave.status === 'approved' ? 'bg-green-100 text-green-700' : leave.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                            {leave.status === 'approved' ? 'Validé' : leave.status === 'rejected' ? 'Refusé' : 'En attente'}
                                                        </span>
@@ -858,13 +910,13 @@ const Secretariat: React.FC = () => {
                                                    {leave.status === 'pending' && (
                                                        <div className="flex justify-end gap-2 border-t border-slate-200 pt-2">
                                                            <button 
-                                                               onClick={() => handleLeaveStatusUpdate(leave.id, provider.id, 'rejected')}
+                                                               onClick={() => openConfirmation("Refuser Congés", "Refuser la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'rejected'))}
                                                                className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1 font-bold"
                                                            >
                                                                <X className="w-3 h-3" /> Refuser
                                                            </button>
                                                            <button 
-                                                               onClick={() => handleLeaveStatusUpdate(leave.id, provider.id, 'approved')}
+                                                               onClick={() => openConfirmation("Valider Congés", "Accepter la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'approved'))}
                                                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1 font-bold shadow-sm"
                                                            >
                                                                <Check className="w-3 h-3" /> Valider
@@ -1231,6 +1283,25 @@ const Secretariat: React.FC = () => {
                 </div>
             </div>
         </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmationModal.open && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">
+                  <div className="flex flex-col items-center text-center">
+                      <div className="w-12 h-12 bg-blue-100 text-brand-blue rounded-full flex items-center justify-center mb-4">
+                          <HelpCircle className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-800 mb-2">{confirmationModal.title}</h3>
+                      <p className="text-sm text-slate-500 mb-6">{confirmationModal.message}</p>
+                      <div className="flex gap-3 w-full">
+                          <button onClick={closeConfirmation} className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition">Annuler</button>
+                          <button onClick={() => { confirmationModal.onConfirm(); closeConfirmation(); }} className="flex-1 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md">Confirmer</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

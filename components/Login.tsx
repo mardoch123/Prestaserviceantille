@@ -1,21 +1,30 @@
 
-
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
-import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const { login, companySettings } = useData();
+  const { login, companySettings, addClient, addProvider } = useData();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Loading states for test generation
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [creatingProvider, setCreatingProvider] = useState(false);
+
   // États pour la modale d'initialisation
   const [showInitModal, setShowInitModal] = useState(false);
   const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [initMessage, setInitMessage] = useState('');
+
+  // États pour la modale d'affichage des identifiants (Pop-up)
+  const [credentialModal, setCredentialModal] = useState<{ open: boolean, type: string, email: string, pass: string } | null>(null);
+
+  // Check if running on specifically the production domain to hide dev tools
+  const isProduction = window.location.origin === 'https://prestaserviceantille.vercel.app';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +104,80 @@ const Login: React.FC = () => {
     }
   };
 
+  const generateTestClient = async () => {
+      setCreatingClient(true);
+      setError('');
+      try {
+          const email = `client_${Date.now()}@test.com`;
+          const pass = await addClient({
+              name: "Client Test",
+              city: "Fort-de-France",
+              address: "123 Rue de la Liberté",
+              phone: "0696 11 22 33",
+              email: email,
+              pack: "-",
+              status: "active",
+              since: new Date().toISOString().split('T')[0],
+              packsConsumed: 0,
+              loyaltyHoursAvailable: 0
+          });
+          
+          if (pass) {
+              setCredentialModal({
+                  open: true,
+                  type: 'Client',
+                  email: email,
+                  pass: pass
+              });
+          } else {
+              throw new Error("Erreur création client (pas de mot de passe retourné).");
+          }
+      } catch (err: any) {
+          console.error(err);
+          setError(err.message || "Impossible de créer le client test.");
+      } finally {
+          setCreatingClient(false);
+      }
+  };
+
+  const generateTestProvider = async () => {
+      setCreatingProvider(true);
+      setError('');
+      try {
+          const email = `provider_${Date.now()}@test.com`;
+          const pass = await addProvider({
+              firstName: "Jean",
+              lastName: "Testeur",
+              email: email,
+              phone: "0696 99 88 77",
+              specialty: "Ménage",
+              status: "Active"
+          });
+          
+          if (pass) {
+              setCredentialModal({
+                  open: true,
+                  type: 'Prestataire',
+                  email: email,
+                  pass: pass
+              });
+          } else {
+              throw new Error("Erreur création prestataire (pas de mot de passe retourné).");
+          }
+      } catch (err: any) {
+          console.error(err);
+          setError(err.message || "Impossible de créer le prestataire test.");
+      } finally {
+          setCreatingProvider(false);
+      }
+  };
+
+  const copyCredentials = () => {
+      if (credentialModal) {
+          navigator.clipboard.writeText(`Email: ${credentialModal.email}\nPass: ${credentialModal.pass}`);
+      }
+  };
+
   return (
     <div className="min-h-screen bg-cream-50 flex items-center justify-center relative overflow-hidden">
        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
@@ -108,143 +191,169 @@ const Login: React.FC = () => {
                      <img src={companySettings.logoUrl} alt="Logo Entreprise" className="w-full h-full object-contain drop-shadow-md" />
                  ) : (
                      <div className="w-24 h-24 rounded-full bg-white border-4 border-brand-orange flex items-center justify-center shadow-md">
-                        <span className="text-brand-blue font-bold text-xs text-center leading-tight">PRESTA<br/>SERVICES<br/>ANTILLES</span>
+                        <span className="text-brand-blue font-bold text-xs">LOGO</span>
                      </div>
                  )}
              </div>
              <h1 className="text-2xl font-serif font-bold text-slate-800">Espace Connexion</h1>
-             <p className="text-slate-500 text-sm mt-2">
-                 Portail unique pour Administrateurs, Clients et Prestataires.
-             </p>
+             <p className="text-slate-500 text-sm mt-2">Accédez à votre tableau de bord</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Email</label>
+                  <input 
+                    type="email" 
+                    required 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-blue focus:border-transparent outline-none transition"
+                    placeholder="votre@email.com"
+                  />
+              </div>
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Mot de passe</label>
+                  <div className="relative">
+                      <input 
+                        type="password" 
+                        required 
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-blue focus:border-transparent outline-none transition pr-10"
+                        placeholder="••••••••"
+                      />
+                      <Lock className="w-5 h-5 text-slate-400 absolute right-3 top-3.5" />
+                  </div>
+              </div>
+
               {error && (
-                  <div className="bg-red-50 text-red-600 text-xs p-3 rounded border border-red-200 text-center font-bold">
+                  <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2 animate-pulse">
+                      <AlertTriangle className="w-4 h-4" />
                       {error}
                   </div>
               )}
 
-              <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Email</label>
-                  <input 
-                    type="email" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none transition"
-                    placeholder="votre@email.com"
-                    required
-                  />
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Mot de passe</label>
-                  <div className="relative">
-                      <input 
-                        type="password" 
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none transition"
-                        placeholder="••••••••"
-                        required
-                      />
-                      <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
-                  </div>
-              </div>
-
               <button 
-                type="submit"
+                type="submit" 
                 disabled={loading}
-                className="w-full py-3 rounded-xl font-bold text-white shadow-lg transition transform hover:scale-[1.02] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed bg-brand-blue hover:bg-blue-700"
+                className="w-full bg-brand-blue hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
               >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Se connecter'}
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Se connecter"}
               </button>
           </form>
 
-          <div className="mt-8 pt-4 border-t border-slate-100">
-             <button 
-                type="button"
-                onClick={handleOpenInitModal}
-                className="w-full flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-brand-blue transition font-bold opacity-60 hover:opacity-100"
-             >
-                 <Wand2 className="w-3 h-3" /> Initialiser Admin (1ère connexion)
-             </button>
-          </div>
+          {/* Development Tools Section - Only shown if not in production */}
+          {!isProduction && (
+              <div className="mt-8 pt-6 border-t border-slate-200">
+                  <p className="text-center text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Outils de Développement</p>
+                  
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                      <button 
+                          onClick={generateTestClient} 
+                          disabled={creatingClient}
+                          className="flex flex-col items-center justify-center p-3 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-200"
+                      >
+                          {creatingClient ? <Loader2 className="w-5 h-5 animate-spin mb-1"/> : <Users className="w-5 h-5 mb-1"/>}
+                          <span className="text-xs font-bold">Créer Client Test</span>
+                      </button>
+                      
+                      <button 
+                          onClick={generateTestProvider}
+                          disabled={creatingProvider} 
+                          className="flex flex-col items-center justify-center p-3 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-200"
+                      >
+                          {creatingProvider ? <Loader2 className="w-5 h-5 animate-spin mb-1"/> : <Briefcase className="w-5 h-5 mb-1"/>}
+                          <span className="text-xs font-bold">Créer Pro Test</span>
+                      </button>
+                  </div>
+
+                  <button 
+                      onClick={handleOpenInitModal}
+                      className="w-full text-xs text-slate-400 hover:text-brand-blue underline flex items-center justify-center gap-1"
+                  >
+                      <Wand2 className="w-3 h-3" /> Initialiser Admin (Si 1ère fois)
+                  </button>
+              </div>
+          )}
        </div>
 
+       {/* Modale d'initialisation Admin */}
        {showInitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200 relative">
-                <button 
-                    onClick={() => setShowInitModal(false)} 
-                    className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
-                    disabled={initStatus === 'loading'}
-                >
-                    <X className="w-5 h-5" />
-                </button>
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center animate-in fade-in zoom-in duration-200">
+                   <h3 className="text-lg font-bold text-slate-800 mb-2">Initialisation Admin</h3>
+                   <p className="text-sm text-slate-500 mb-6">
+                       Cela va créer un compte `admin@presta.com` / `admin123` et configurer les tables de base.
+                   </p>
+                   
+                   {initStatus === 'loading' && <Loader2 className="w-8 h-8 text-brand-blue animate-spin mx-auto mb-4" />}
+                   
+                   {initStatus === 'success' && (
+                       <div className="bg-green-50 text-green-700 p-3 rounded-lg mb-4 flex items-center justify-center gap-2">
+                           <CheckCircle className="w-5 h-5" /> Succès !
+                       </div>
+                   )}
 
-                <div className="text-center mb-6">
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <Wand2 className="w-6 h-6 text-brand-blue" />
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800">Configuration Admin</h3>
-                </div>
+                   {initStatus === 'error' && (
+                       <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">
+                           {initMessage}
+                       </div>
+                   )}
 
-                {initStatus === 'idle' && (
-                    <div className="space-y-4">
-                        <p className="text-sm text-slate-600 text-center">
-                            Cette action va créer le compte administrateur principal.
-                        </p>
-                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs font-mono text-slate-600 space-y-1">
-                            <p><strong>Email :</strong> admin@presta.com</p>
-                            <p><strong>Pass :</strong> admin123</p>
-                        </div>
-                        <button 
-                            onClick={executeCreateAdmin}
-                            className="w-full bg-brand-blue text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition"
-                        >
-                            Créer le compte maintenant
-                        </button>
-                    </div>
-                )}
+                   <div className="flex gap-3 justify-center">
+                       <button onClick={() => setShowInitModal(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg font-bold text-sm">Fermer</button>
+                       {initStatus !== 'success' && (
+                           <button onClick={executeCreateAdmin} className="px-4 py-2 bg-brand-blue text-white rounded-lg font-bold text-sm hover:bg-teal-700">Lancer</button>
+                       )}
+                   </div>
+               </div>
+           </div>
+       )}
 
-                {initStatus === 'loading' && (
-                    <div className="text-center py-4">
-                        <Loader2 className="w-10 h-10 text-brand-blue animate-spin mx-auto mb-4" />
-                        <p className="text-sm font-bold text-slate-600">Configuration en cours...</p>
-                    </div>
-                )}
+       {/* Credential Pop-up Modal */}
+       {credentialModal && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-300">
+                   <div className="bg-green-600 p-6 text-center text-white">
+                       <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                           <CheckCircle className="w-8 h-8 text-white" />
+                       </div>
+                       <h3 className="text-xl font-bold">Compte Créé !</h3>
+                       <p className="text-green-100 text-sm mt-1">{credentialModal.type} ajouté avec succès.</p>
+                   </div>
+                   
+                   <div className="p-6">
+                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 relative group">
+                           <button 
+                               onClick={copyCredentials}
+                               className="absolute top-2 right-2 p-2 text-slate-400 hover:text-brand-blue hover:bg-white rounded-lg transition"
+                               title="Copier"
+                           >
+                               <Copy className="w-4 h-4" />
+                           </button>
+                           <div className="mb-3">
+                               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Email</p>
+                               <p className="font-mono text-slate-800 font-bold break-all select-all">{credentialModal.email}</p>
+                           </div>
+                           <div>
+                               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Mot de passe</p>
+                               <p className="font-mono text-brand-blue font-bold text-lg select-all">{credentialModal.pass}</p>
+                           </div>
+                       </div>
 
-                {initStatus === 'success' && (
-                    <div className="text-center space-y-4">
-                        <div className="bg-green-100 text-green-700 p-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2">
-                            <CheckCircle className="w-4 h-4" /> Compte créé avec succès !
-                        </div>
-                        <button 
-                            onClick={() => setShowInitModal(false)}
-                            className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition"
-                        >
-                            Fermer et se connecter
-                        </button>
-                    </div>
-                )}
-
-                {initStatus === 'error' && (
-                    <div className="text-center space-y-4">
-                        <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2 text-left">
-                            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                            <span>{initMessage}</span>
-                        </div>
-                        <button 
-                            onClick={() => setInitStatus('idle')}
-                            className="w-full bg-slate-200 text-slate-700 py-2 rounded-xl font-bold hover:bg-slate-300 transition"
-                        >
-                            Réessayer
-                        </button>
-                    </div>
-                )}
-            </div>
-        </div>
+                       <button 
+                           onClick={() => {
+                               setCredentialModal(null);
+                               setEmail(credentialModal.email);
+                               setPassword(credentialModal.pass);
+                           }}
+                           className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition shadow-lg"
+                       >
+                           Utiliser ces identifiants
+                       </button>
+                   </div>
+               </div>
+           </div>
        )}
     </div>
   );

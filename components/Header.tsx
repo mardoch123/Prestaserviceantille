@@ -1,10 +1,14 @@
 
 import React, { useState } from 'react';
-import { Bell, User, ChevronDown, Settings, LogOut, Eye, Briefcase, Camera, Video, X } from 'lucide-react';
+import { Bell, User, ChevronDown, Settings, LogOut, Eye, Briefcase, Camera, Video, X, Menu } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+    onMenuClick: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { notifications, markNotificationRead, currentUser, logout, missions } = useData();
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
@@ -24,21 +28,36 @@ const Header: React.FC = () => {
           const missionId = notif.link.split(':')[1];
           setSelectedMissionReportId(missionId);
           setShowNotifications(false);
+      } else if (notif.link === 'tab:messaging') {
+          navigate('/secretariat', { state: { tab: 'messaging' } });
+          setShowNotifications(false);
       }
   };
 
   const selectedMission = missions.find(m => m.id === selectedMissionReportId);
 
   return (
-    <header className="h-16 bg-white border-b border-beige-200 flex items-center justify-between px-6 md:px-8 shrink-0 z-20 relative">
-      <div className="hidden md:block">
-        <h1 className="text-lg font-serif font-bold text-slate-700">
-          Bonjour, <span className="text-brand-blue">{currentUser?.name || 'Utilisateur'}</span>
-        </h1>
-        <p className="text-xs text-slate-400">Espace de gestion {currentUser?.role === 'admin' ? 'Secrétariat' : currentUser?.role}</p>
+    <header className="h-16 bg-white border-b border-beige-200 flex items-center justify-between px-4 md:px-8 shrink-0 z-20 relative">
+      <div className="flex items-center gap-3">
+          <button 
+            onClick={onMenuClick}
+            className="p-2 md:hidden text-slate-500 hover:bg-slate-100 rounded-lg transition"
+          >
+              <Menu className="w-6 h-6" />
+          </button>
+          
+          <div>
+            <h1 className="text-lg font-serif font-bold text-slate-700 hidden md:block">
+              Bonjour, <span className="text-brand-blue">{currentUser?.name || 'Utilisateur'}</span>
+            </h1>
+            <h1 className="text-lg font-serif font-bold text-slate-700 md:hidden">
+              Presta Services
+            </h1>
+            <p className="text-xs text-slate-400 hidden md:block">Espace de gestion {currentUser?.role === 'admin' ? 'Secrétariat' : currentUser?.role}</p>
+          </div>
       </div>
-      <div className="md:hidden"></div>
-      <div className="flex items-center gap-6">
+
+      <div className="flex items-center gap-4 md:gap-6">
         {currentUser?.role === 'admin' && (
             <div className="relative">
                 <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 text-slate-400 hover:text-brand-orange transition-colors rounded-full hover:bg-cream-50">
@@ -70,11 +89,11 @@ const Header: React.FC = () => {
                 )}
             </div>
         )}
-        <div className="h-8 w-px bg-slate-100"></div>
+        <div className="h-8 w-px bg-slate-100 hidden md:block"></div>
         <div className="flex items-center gap-3 cursor-pointer group relative">
           <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center border border-brand-blue/20 text-brand-blue font-bold shadow-sm"><User className="w-5 h-5" /></div>
           <div className="hidden md:block text-left"><p className="text-sm font-bold text-slate-700 group-hover:text-brand-blue transition-colors">{currentUser?.name}</p><p className="text-[10px] text-slate-400 capitalize">{currentUser?.role}</p></div>
-          <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-transform group-hover:translate-y-0.5" />
+          <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-transform group-hover:translate-y-0.5 hidden md:block" />
           <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1">
              <button onClick={() => navigate('/settings')} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-cream-50 rounded-lg flex items-center gap-2"><Settings className="w-4 h-4" /> Paramètres</button>
              <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2"><LogOut className="w-4 h-4" /> Déconnexion</button>

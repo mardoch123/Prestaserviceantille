@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
@@ -9,11 +10,12 @@ import {
   ArrowDownRight, 
   ArrowUpRight,
   FileText,
-  RotateCcw
+  RotateCcw,
+  CheckCircle
 } from 'lucide-react';
 
 const Financials: React.FC = () => {
-  const { documents, refundTransaction } = useData();
+  const { documents, refundTransaction, markInvoicePaid } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const location = useLocation();
 
@@ -27,7 +29,7 @@ const Financials: React.FC = () => {
   const filteredTransactions = useMemo(() => {
     // Transform Documents (Invoices) into Transactions for display
     const transactions = documents
-        .filter(d => d.type === 'Facture') // Only show invoices and refunds (which are usually invoices with negative or specific flag)
+        .filter(d => d.type === 'Facture') 
         .map(d => ({
             id: d.id,
             ref: d.ref,
@@ -40,14 +42,20 @@ const Financials: React.FC = () => {
 
     if (filterStatus === 'all') return transactions;
     if (filterStatus === 'refund') return transactions.filter(t => t.type === 'refund');
-    // For pending/paid
+    
     return transactions.filter(t => t.status === filterStatus && t.type === 'income');
   }, [filterStatus, documents]);
 
   const handleRefund = (ref: string, amount: number) => {
-      const confirm = window.confirm(`Rembourser ${amount}€ pour la facture ${ref} ? Cela créera un avoir.`);
+      const confirm = window.confirm(`Rembourser ${amount}€ pour la facture ${ref} ? Cela créera un avoir comptable.`);
       if (confirm) {
           refundTransaction(ref, amount);
+      }
+  };
+
+  const handleManualPayment = (id: string) => {
+      if(window.confirm("Confirmer la réception du paiement ?")) {
+          markInvoicePaid(id);
       }
   };
 
@@ -56,7 +64,7 @@ const Financials: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h2 className="text-3xl font-serif font-bold text-slate-800">Financier</h2>
-          <p className="text-sm text-slate-500 mt-1">Suivi de la trésorerie (Données réelles)</p>
+          <p className="text-sm text-slate-500 mt-1">Suivi de la trésorerie et ajustements comptables</p>
         </div>
         
         <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
@@ -115,17 +123,27 @@ const Financials: React.FC = () => {
                                 <td className="px-6 py-4 text-center">
                                     {t.status === 'paid' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold border border-green-200">Réglé</span>}
                                     {t.status === 'pending' && <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-bold border border-orange-200">En attente</span>}
-                                    {t.status === 'rejected' && <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold border border-red-200">Refusé</span>}
+                                    {t.status === 'rejected' && <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold border border-red-200">Annulé</span>}
                                 </td>
                                 <td className={`px-6 py-4 text-right font-bold ${t.type === 'refund' ? 'text-red-500' : 'text-slate-700'}`}>
                                     {t.type === 'refund' ? '-' : '+'} {t.amount.toFixed(2)} €
                                 </td>
-                                <td className="px-6 py-4 text-right">
+                                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                    {t.status === 'pending' && t.type === 'income' && (
+                                        <button 
+                                            onClick={() => handleManualPayment(t.id)}
+                                            className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50 flex items-center gap-1 text-xs font-bold border border-transparent hover:border-green-200"
+                                            title="Marquer comme payé (Virement externe)"
+                                        >
+                                            <CheckCircle className="w-4 h-4"/> Encaisser
+                                        </button>
+                                    )}
+                                    
                                     {t.type === 'income' && t.status === 'paid' && (
                                         <button 
                                             onClick={() => handleRefund(t.ref, t.amount)}
                                             className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50"
-                                            title="Créer un Avoir / Rembourser"
+                                            title="Rembourser le client"
                                         >
                                             <RotateCcw className="w-4 h-4" />
                                         </button>

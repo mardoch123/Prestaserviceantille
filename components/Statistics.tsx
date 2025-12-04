@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
@@ -47,7 +48,7 @@ const StatCard: React.FC<{
 );
 
 const Statistics: React.FC = () => {
-  const { missions } = useData(); // Use real missions from context now
+  const { missions, documents } = useData(); 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
@@ -67,10 +68,7 @@ const Statistics: React.FC = () => {
 
   // Filter Logic
   const filteredData = useMemo(() => {
-    // 1. Filter by Time (Simplified for prototype: assume all context missions are relevant for now or filter by simple string match if date exists)
     let timeData = missions; 
-    
-    // 2. Filter by Status
     if (statusFilter === 'all') return timeData;
     return timeData.filter(m => m.status === statusFilter);
   }, [timeFilter, statusFilter, missions]);
@@ -87,19 +85,28 @@ const Statistics: React.FC = () => {
     };
   }, [missions]);
 
-  const totalRevenue = filteredData.reduce((acc, curr) => {
-    // Estimate amount if not on mission object (fallback to duration * rate)
-    const amount = (curr.duration || 2) * 40; // Assume 40€/h base if no amount
+  const totalRevenue = useMemo(() => {
+      // Base revenue from completed missions and late cancellations
+      const revenueFromMissions = filteredData.reduce((acc, curr) => {
+        const amount = (curr.duration || 2) * 40; // Simulated hourly rate base
 
-    if (curr.status === 'cancelled' && !curr.lateCancellation) return acc;
-    
-    // If cancelled late, we charge 50%
-    if (curr.status === 'cancelled' && curr.lateCancellation) return acc + (amount * 0.5);
-    
-    if (curr.status === 'completed') return acc + amount;
-    
-    return acc;
-  }, 0);
+        if (curr.status === 'cancelled' && !curr.lateCancellation) return acc;
+        
+        // If cancelled late, we charge 50%
+        if (curr.status === 'cancelled' && curr.lateCancellation) return acc + (amount * 0.5);
+        
+        if (curr.status === 'completed') return acc + amount;
+        
+        return acc;
+      }, 0);
+
+      // Subtract Refunds from paid negative invoices
+      const refunds = documents
+        .filter(d => d.totalTTC < 0 && d.status === 'paid')
+        .reduce((acc, d) => acc + Math.abs(d.totalTTC), 0);
+
+      return revenueFromMissions - refunds;
+  }, [filteredData, documents]);
 
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40">
@@ -173,7 +180,7 @@ const Statistics: React.FC = () => {
             </p>
           </div>
           <div className="bg-green-50 px-4 py-2 rounded-lg border border-green-100">
-            <span className="text-xs text-green-800 font-bold uppercase tracking-wider">Chiffre d'affaire (Est.)</span>
+            <span className="text-xs text-green-800 font-bold uppercase tracking-wider">Chiffre d'affaire (Net après remboursements)</span>
             <p className="text-xl font-bold text-green-700">{totalRevenue.toFixed(2)} €</p>
           </div>
         </div>
@@ -190,10 +197,9 @@ const Statistics: React.FC = () => {
                 <th className="px-6 py-4 font-bold text-right">Montant</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-55">
               {filteredData.length > 0 ? (
                 filteredData.map((mission) => {
-                    // Calculated fields for display since we use shared Mission type
                     const baseAmount = (mission.duration || 2) * 40;
                     
                     return (
@@ -232,7 +238,6 @@ const Statistics: React.FC = () => {
                               )}
                             </div>
                           )}
-                          {/* Reminder indicator */}
                           {mission.reminder48hSent && mission.status === 'planned' && (
                               <div className="text-[10px] text-blue-500 font-bold mt-1 text-center">Rappel 48h envoyé</div>
                           )}

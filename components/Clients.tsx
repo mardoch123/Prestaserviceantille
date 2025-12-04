@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
@@ -22,7 +21,8 @@ import {
   AlertTriangle,
   Loader2,
   Edit,
-  KeyRound
+  KeyRound,
+  Copy
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
@@ -49,6 +49,9 @@ const Clients: React.FC = () => {
 
   // Delete Confirmation
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // Credential Modal State
+  const [newCredential, setNewCredential] = useState<{ email: string, pass: string } | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -124,7 +127,7 @@ const Clients: React.FC = () => {
             });
             showToast('Client modifié avec succès.');
         } else {
-            await addClient({
+            const newPass = await addClient({
                 name: fullName,
                 city: formData.city,
                 address: formData.address,
@@ -136,7 +139,12 @@ const Clients: React.FC = () => {
                 packsConsumed: 0,
                 loyaltyHoursAvailable: 0
             });
-            showToast(`Client créé ! Email de connexion envoyé à ${formData.email}.`);
+            
+            if (newPass) {
+                setNewCredential({ email: formData.email, pass: newPass });
+            } else {
+                showToast(`Client créé ! Email de connexion envoyé à ${formData.email}.`);
+            }
         }
         setIsModalOpen(false);
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
@@ -353,6 +361,39 @@ Lien de connexion : https://presta-antilles.app/login`);
                 </form>
             </div>
         </div>
+      )}
+
+      {/* Credential Pop-up */}
+      {newCredential && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+                   <div className="bg-green-600 p-4 text-center">
+                       <CheckCircle className="w-12 h-12 text-white mx-auto mb-2" />
+                       <h3 className="text-xl font-bold text-white">Client Créé</h3>
+                   </div>
+                   <div className="p-6">
+                       <p className="text-sm text-slate-600 mb-4 text-center">
+                           Voici les identifiants générés pour ce nouveau compte :
+                       </p>
+                       <div className="bg-slate-100 p-4 rounded-lg border border-slate-200 space-y-3">
+                           <div>
+                               <span className="text-xs font-bold text-slate-500 uppercase block">Email</span>
+                               <span className="text-sm font-mono text-slate-800 font-bold break-all">{newCredential.email}</span>
+                           </div>
+                           <div>
+                               <span className="text-xs font-bold text-slate-500 uppercase block">Mot de passe initial</span>
+                               <span className="text-lg font-mono text-brand-blue font-bold tracking-wider">{newCredential.pass}</span>
+                           </div>
+                       </div>
+                       <button 
+                           onClick={() => setNewCredential(null)}
+                           className="w-full mt-6 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition"
+                       >
+                           Fermer
+                       </button>
+                   </div>
+               </div>
+           </div>
       )}
 
       {loyaltyModalOpen && (

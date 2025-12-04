@@ -1,5 +1,7 @@
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext'; 
 import { Mission, Document } from '../types';
@@ -45,11 +47,14 @@ const DevisFactures: React.FC = () => {
   const [taxCreditActive, setTaxCreditActive] = useState(false);
   
   // Planification Prévisionnelle Enhancements
-  const [selectedScheduleOptionId, setSelectedScheduleOptionId] = useState<string>('');
   const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
-  const [customDays, setCustomDays] = useState(1);
-  const [frequency, setFrequency] = useState<'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle'>('Ponctuelle');
-  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
+  
+  // Use Case Logic States
+  const [packSpecificConfig, setPackSpecificConfig] = useState<{
+      frequencyChoice?: string; // "4j x 3h" or "3j x 4h" for Tranquility
+      customDays?: number; // For Personnalisé
+      customTotalHours?: number; // For Personnalisé
+  }>({});
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
@@ -73,11 +78,8 @@ const DevisFactures: React.FC = () => {
     setTvaRate(2.1); 
     setTaxCreditActive(false);
     setSelectedPackId('');
-    setSelectedScheduleOptionId('');
     setInterventionSlots([]);
-    setCustomDays(1);
-    setFrequency('Ponctuelle');
-    setRecurrenceEndDate('');
+    setPackSpecificConfig({});
   };
 
   const calculateDuration = (start: string, end: string): number => {
@@ -94,7 +96,8 @@ const DevisFactures: React.FC = () => {
   const addHoursToTime = (time: string, hoursToAdd: number): string => {
       const [h, m] = time.split(':').map(Number);
       const date = new Date(0, 0, 0, h, m);
-      date.setHours(date.getHours() + hoursToAdd);
+      date.setHours(date.getHours() + Math.floor(hoursToAdd));
+      date.setMinutes(date.getMinutes() + (hoursToAdd % 1) * 60);
       return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
@@ -102,110 +105,127 @@ const DevisFactures: React.FC = () => {
       if (serviceType === 'pack' && selectedPackId) {
           const pack = packs.find(p => p.id === selectedPackId);
           if (pack) {
-              if (pack.name === 'Pack personnalisé') {
-                  setUnitPrice(0);
-                  setCustomDescription('Prestation sur mesure');
-                  setCustomDays(1);
-                  setInterventionSlots([{ id: 'slot-0', date: '', startTime: '09:00', endTime: '11:00', duration: 2 }]);
-              } else if (pack.name === 'Pack Ultime 6') {
-                  setUnitPrice(pack.priceHT);
-                  setCustomDescription(pack.description);
-                  setInterventionSlots([{ id: 'slot-ultime', date: '', startTime: '09:00', endTime: '15:00', duration: 6 }]);
-              } else {
-                  setUnitPrice(pack.priceHT);
-                  setCustomDescription(`${pack.name} - ${pack.description}`);
-                  
-                  // Auto-select frequency based on pack
-                  if(pack.frequency) setFrequency(pack.frequency as any);
+              setUnitPrice(pack.priceHT);
+              setCustomDescription(`${pack.name} - ${pack.description}`);
+              
+              // RESET CONFIG ON PACK CHANGE
+              setPackSpecificConfig({});
+              setInterventionSlots([]);
 
-                  // Handle Schedule Options
-                  if (pack.schedules && pack.schedules.length > 0) {
-                      setSelectedScheduleOptionId(pack.schedules[0].id);
-                      // The actual slot generation will happen in the next useEffect dependent on selectedScheduleOptionId
-                  } else {
-                      setSelectedScheduleOptionId('');
-                      // DEFAULT SLOT GENERATION FOR PACKS WITHOUT OPTIONS
-                      const duration = pack.hours || 2;
-                      setInterventionSlots([{
-                          id: 'default-slot',
-                          date: '',
-                          startTime: '08:00',
-                          endTime: addHoursToTime('08:00', duration),
-                          duration: duration
-                      }]);
-                  }
+              // Initial Setup based on Pack Name (Logic from images)
+              if (pack.name.includes("Tranquility")) {
+                  // Default to first option
+                  setPackSpecificConfig({ frequencyChoice: "4j_3h" }); 
+              } else if (pack.name.includes("Ultime 6")) {
+                  // Auto generate single slot 6h
+                  setInterventionSlots([{ 
+                      id: 'slot-ultime', 
+                      date: new Date().toISOString().split('T')[0], 
+                      startTime: '09:00', 
+                      endTime: '15:00', 
+                      duration: 6 
+                  }]);
+              } else if (pack.name.includes("personnalisé")) {
+                  // Reset for manual entry
+                  setPackSpecificConfig({ customDays: 1, customTotalHours: 2 });
+                  setInterventionSlots([{ 
+                      id: 'slot-custom-0', 
+                      date: new Date().toISOString().split('T')[0], 
+                      startTime: '09:00', 
+                      endTime: '11:00', 
+                      duration: 2 
+                  }]);
               }
           }
       }
   }, [selectedPackId, serviceType, packs]);
 
-  useEffect(() => {
-      if (selectedPackId && selectedScheduleOptionId) {
-          const pack = packs.find(p => p.id === selectedPackId);
-          if (pack?.name === 'Pack personnalisé' || pack?.name === 'Pack Ultime 6') return;
-          
-          const schedule = pack?.schedules?.find(s => s.id === selectedScheduleOptionId);
-          if (schedule) {
-              const newSlots: InterventionSlot[] = [];
-              for (let i = 0; i < schedule.days; i++) {
-                  const endH = 9 + schedule.hoursPerDay;
-                  newSlots.push({ 
-                      id: `slot-${i}`, 
-                      date: '', 
-                      startTime: `09:00`, 
-                      endTime: `${endH.toString().padStart(2, '0')}:00`, 
-                      duration: schedule.hoursPerDay 
-                  });
-              }
-              setInterventionSlots(newSlots);
+  // Handler for Generating Slots based on Configuration
+  const generateSlots = () => {
+      const pack = packs.find(p => p.id === selectedPackId);
+      if (!pack) return;
+
+      const newSlots: InterventionSlot[] = [];
+      const baseDate = new Date(); // Start from today or logic
+
+      if (pack.name.includes("Tranquility")) {
+          // Logic for Tranquility: 12h total
+          // Option 1: 4 days x 3 hours
+          // Option 2: 3 days x 4 hours
+          const choice = packSpecificConfig.frequencyChoice || "4j_3h";
+          const days = choice === "4j_3h" ? 4 : 3;
+          const hours = choice === "4j_3h" ? 3 : 4;
+
+          for(let i=0; i<days; i++) {
+              const date = new Date(baseDate);
+              date.setDate(date.getDate() + (i * 2)); // Spread every 2 days by default
+              newSlots.push({
+                  id: `slot-tranquility-${i}`,
+                  date: date.toISOString().split('T')[0],
+                  startTime: '09:00',
+                  endTime: addHoursToTime('09:00', hours),
+                  duration: hours
+              });
+          }
+      } else if (pack.name.includes("personnalisé")) {
+          const days = packSpecificConfig.customDays || 1;
+          const totalHours = packSpecificConfig.customTotalHours || 2;
+          const hoursPerDay = totalHours / days;
+
+          for(let i=0; i<days; i++) {
+              const date = new Date(baseDate);
+              date.setDate(date.getDate() + i);
+              newSlots.push({
+                  id: `slot-custom-${i}`,
+                  date: date.toISOString().split('T')[0],
+                  startTime: '09:00',
+                  endTime: addHoursToTime('09:00', hoursPerDay),
+                  duration: hoursPerDay
+              });
           }
       }
-  }, [selectedScheduleOptionId, selectedPackId, packs]);
-
-  useEffect(() => {
-      const pack = packs.find(p => p.id === selectedPackId);
-      if (pack?.name === 'Pack personnalisé') {
-          setInterventionSlots(prev => {
-              const currentCount = prev.length;
-              if (customDays > currentCount) {
-                  const toAdd = customDays - currentCount;
-                  const newSlots = [];
-                  for(let i=0; i<toAdd; i++) {
-                      newSlots.push({ id: `custom-${Date.now()}-${i}`, date: '', startTime: '09:00', endTime: '11:00', duration: 2 });
-                  }
-                  return [...prev, ...newSlots];
-              } else if (customDays < currentCount) {
-                  return prev.slice(0, customDays);
-              }
-              return prev;
-          });
-      }
-  }, [customDays, selectedPackId, packs]);
+      setInterventionSlots(newSlots);
+  };
 
   const updateSlot = (index: number, field: keyof InterventionSlot, value: string) => {
       const newSlots = [...interventionSlots];
       const currentSlot = newSlots[index];
-      const pack = packs.find(p => p.id === selectedPackId);
-      const isUltime6 = pack?.name === 'Pack Ultime 6';
-
+      
       if (field === 'startTime') {
-         if (isUltime6) {
-             const [h, m] = value.split(':').map(Number);
-             const endH = (h + 6) % 24;
-             const newEnd = `${endH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-             newSlots[index] = { ...currentSlot, startTime: value, endTime: newEnd, duration: 6 };
-         } else {
-             const dur = calculateDuration(value, currentSlot.endTime);
-             newSlots[index] = { ...currentSlot, startTime: value, duration: dur };
-         }
+          // Keep duration constant if possible, shift end time
+          const end = addHoursToTime(value, currentSlot.duration);
+          newSlots[index] = { ...currentSlot, startTime: value, endTime: end };
       } else if (field === 'endTime') {
-          if (!isUltime6) {
-              const dur = calculateDuration(currentSlot.startTime, value);
-              newSlots[index] = { ...currentSlot, endTime: value, duration: dur };
-          }
+          // Recalculate duration
+          const dur = calculateDuration(currentSlot.startTime, value);
+          newSlots[index] = { ...currentSlot, endTime: value, duration: dur };
       } else {
           newSlots[index] = { ...currentSlot, [field]: value };
       }
+      setInterventionSlots(newSlots);
+  };
+
+  const addNewSlot = () => {
+      const lastSlot = interventionSlots[interventionSlots.length - 1];
+      let newDate = new Date().toISOString().split('T')[0];
+      if (lastSlot) {
+          const d = new Date(lastSlot.date);
+          d.setDate(d.getDate() + 1);
+          newDate = d.toISOString().split('T')[0];
+      }
+      
+      setInterventionSlots([...interventionSlots, {
+          id: `manual-${Date.now()}`,
+          date: newDate,
+          startTime: '09:00',
+          endTime: '11:00',
+          duration: 2
+      }]);
+  };
+
+  const removeSlot = (index: number) => {
+      const newSlots = [...interventionSlots];
+      newSlots.splice(index, 1);
       setInterventionSlots(newSlots);
   };
 
@@ -222,16 +242,22 @@ const DevisFactures: React.FC = () => {
     const tvaAmount = totalHT * (tvaRate / 100);
     const totalTTC = totalHT + tvaAmount;
 
-    // Using generateUUID from context implicitly by passing partial object
+    // Determine description suffix based on slots if custom
+    let finalDescription = customDescription;
+    const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+    if(serviceType === 'pack' && packs.find(p=>p.id === selectedPackId)?.name.includes("personnalisé")) {
+        finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
+    }
+
     const newDoc: Document = {
-        id: `doc-${Date.now()}`, // Will be overwritten by context
-        ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}`,
+        id: `doc-${Date.now()}`, 
+        ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
         clientId: selectedClientId,
         clientName: clientName,
         date: new Date().toISOString().split('T')[0],
         type: modalMode === 'devis' ? 'Devis' : 'Facture',
         category: serviceType,
-        description: customDescription,
+        description: finalDescription,
         unitPrice: unitPrice,
         quantity: packQuantity,
         tvaRate: tvaRate,
@@ -240,8 +266,6 @@ const DevisFactures: React.FC = () => {
         taxCreditEnabled: taxCreditActive,
         status: modalMode === 'devis' ? 'sent' : 'paid',
         slotsData: modalMode === 'devis' ? interventionSlots : undefined,
-        frequency: frequency,
-        recurrenceEndDate: recurrenceEndDate
     };
 
     addDocument(newDoc);
@@ -250,7 +274,6 @@ const DevisFactures: React.FC = () => {
         interventionSlots.forEach((slot) => {
              if (slot.date) {
                  addMission({
-                     // Fix: Added missing id
                      id: `m-${Date.now()}-${slot.id}`,
                      date: slot.date,
                      startTime: slot.startTime,
@@ -258,7 +281,7 @@ const DevisFactures: React.FC = () => {
                      duration: slot.duration,
                      clientName,
                      clientId: selectedClientId,
-                     service: customDescription,
+                     service: finalDescription,
                      providerId: null,
                      providerName: 'À assigner',
                      status: 'planned',
@@ -387,6 +410,12 @@ const DevisFactures: React.FC = () => {
   const totalTTC = totalHT + tvaAmount;
   const taxCreditAmount = taxCreditActive ? totalTTC * 0.5 : 0;
   const clientToPay = totalTTC - taxCreditAmount;
+
+  // Helper to check pack name safely
+  const packNameIncludes = (str: string) => {
+      const pack = packs.find(p => p.id === selectedPackId);
+      return pack?.name.toLowerCase().includes(str.toLowerCase()) || false;
+  };
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 relative">
@@ -617,17 +646,7 @@ const DevisFactures: React.FC = () => {
                                 <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedPackId} onChange={(e) => setSelectedPackId(e.target.value)}>
                                     <option value="">Sélectionner un pack...</option>
                                     {packs.map(p => <option key={p.id} value={p.id}>{p.name} - {p.priceHT}€ HT</option>)}
-                                    <option value="custom">Pack personnalisé</option>
-                                    <option value="ultime">Pack Ultime 6</option>
                                 </select>
-                                {(packs.find(p => p.id === selectedPackId)?.schedules?.length || 0) > 0 && (
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Détails Planning</label>
-                                        <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedScheduleOptionId} onChange={(e) => setSelectedScheduleOptionId(e.target.value)}>
-                                            {packs.find(p => p.id === selectedPackId)?.schedules?.map(s => (<option key={s.id} value={s.id}>{s.label}</option>))}
-                                        </select>
-                                    </div>
-                                )}
                                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><span className="text-sm font-bold text-slate-600">Prix Unitaire HT</span><span className="font-mono font-bold text-slate-800">{unitPrice} €</span></div>
                             </div>
                         ) : (
@@ -641,51 +660,112 @@ const DevisFactures: React.FC = () => {
                         )}
                     </section>
 
-                    {modalMode === 'devis' && (
+                    {modalMode === 'devis' && selectedPackId && (
                         <section>
                              <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-slate-500 uppercase"><span className="bg-brand-blue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> Planification Prévisionnelle</h4>
                              
-                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 space-y-4">
-                                 <div>
-                                     <label className="block text-xs font-bold text-slate-500 mb-1">Fréquence d'intervention</label>
-                                     <select className="w-full p-2 border rounded bg-white" value={frequency} onChange={(e) => setFrequency(e.target.value as any)}>
-                                         <option value="Ponctuelle">Ponctuelle (Une fois)</option>
-                                         <option value="Hebdomadaire">Hebdomadaire</option>
-                                         <option value="Bimensuelle">Bimensuelle</option>
-                                         <option value="Mensuelle">Mensuelle</option>
-                                     </select>
-                                 </div>
-                                 {frequency !== 'Ponctuelle' && (
-                                     <div>
-                                         <label className="block text-xs font-bold text-slate-500 mb-1">Date de fin (Récurrence)</label>
-                                         <input type="date" className="w-full p-2 border rounded bg-white" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} />
+                             {/* Specific Use Case Controls based on Pack Name */}
+                             
+                             {/* CAS 1: PACK TRANQUILITY (12h) */}
+                             {packNameIncludes('Tranquility') && (
+                                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4 space-y-4 animate-in fade-in">
+                                     <div className="flex justify-between items-center">
+                                         <label className="text-sm font-bold text-slate-700">Fréquence :</label>
+                                         <select 
+                                            className="p-2 border rounded-lg bg-white text-sm font-bold"
+                                            value={packSpecificConfig.frequencyChoice || "4j_3h"}
+                                            onChange={(e) => setPackSpecificConfig({...packSpecificConfig, frequencyChoice: e.target.value})}
+                                         >
+                                             <option value="4j_3h">4 jours x 3 heures</option>
+                                             <option value="3j_4h">3 jours x 4 heures</option>
+                                         </select>
                                      </div>
-                                 )}
-                             </div>
-
-                             {packs.find(p => p.id === selectedPackId)?.name === 'Pack personnalisé' && (
-                                 <div className="mb-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                     <label className="block text-xs font-bold text-slate-500 mb-2">Combien de jours d'intervention ?</label>
-                                     <div className="flex items-center gap-4"><input type="number" min="1" max="7" className="p-2 border rounded w-20 font-bold" value={customDays} onChange={(e) => setCustomDays(parseInt(e.target.value) || 1)} /><span className="text-sm text-slate-500">jours à planifier</span></div>
+                                     <p className="text-xs text-blue-600">Le pack Tranquility compte 12 heures ajustables.</p>
+                                     <button onClick={generateSlots} className="w-full bg-blue-600 text-white py-2 rounded font-bold text-xs hover:bg-blue-700">
+                                         Générer les créneaux
+                                     </button>
                                  </div>
                              )}
 
+                             {/* CAS 2: PACK ULTIME 6 (6h) */}
+                             {packNameIncludes('Ultime 6') && (
+                                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 mb-4 space-y-4 animate-in fade-in">
+                                     <div className="flex items-center gap-2 text-purple-800 font-bold text-sm">
+                                         <Zap className="w-4 h-4"/> Pack Ultime 6 (Journée unique)
+                                     </div>
+                                     <p className="text-xs text-purple-600">Le pack Ultime 6 compte 6 heures en 1 journée.</p>
+                                     <div className="flex items-center gap-2 bg-white p-2 rounded border border-purple-200 text-xs">
+                                         <AlertTriangle className="w-3 h-3 text-orange-500" /> Ces créneaux sont libres : aucun client n'a réservé à ces heures.
+                                     </div>
+                                 </div>
+                             )}
+
+                             {/* CAS 3: PACK PERSONNALISÉ */}
+                             {packNameIncludes('personnalisé') && (
+                                 <div className="bg-slate-100 p-4 rounded-lg border border-slate-200 mb-4 space-y-4 animate-in fade-in">
+                                     <div className="grid grid-cols-2 gap-4">
+                                         <div>
+                                             <label className="block text-xs font-bold text-slate-500 mb-1">Nbre de jours</label>
+                                             <input 
+                                                type="number" 
+                                                className="w-full p-2 border rounded bg-white font-bold"
+                                                min="1"
+                                                value={packSpecificConfig.customDays || 1}
+                                                onChange={(e) => setPackSpecificConfig({...packSpecificConfig, customDays: parseInt(e.target.value)})}
+                                             />
+                                         </div>
+                                         <div>
+                                             <label className="block text-xs font-bold text-slate-500 mb-1">Nbre d'heures (Total)</label>
+                                             <input 
+                                                type="number" 
+                                                className="w-full p-2 border rounded bg-white font-bold"
+                                                min="1"
+                                                value={packSpecificConfig.customTotalHours || 2}
+                                                onChange={(e) => setPackSpecificConfig({...packSpecificConfig, customTotalHours: parseInt(e.target.value)})}
+                                             />
+                                         </div>
+                                     </div>
+                                     <button onClick={generateSlots} className="w-full bg-slate-700 text-white py-2 rounded font-bold text-xs hover:bg-slate-800">
+                                         Calculer et Générer
+                                     </button>
+                                 </div>
+                             )}
+
+                             {/* SLOTS DISPLAY */}
                              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Veuillez sélectionner un pack ou définir une prestation sur mesure.</div>) : (
+                                 <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
+                                     <span className="text-xs font-bold text-slate-500 uppercase">Dates d'intervention</span>
+                                     <button onClick={addNewSlot} className="text-brand-blue hover:bg-blue-50 p-1 rounded"><PlusCircle className="w-4 h-4"/></button>
+                                 </div>
+                                 
+                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Aucun créneau défini. Cliquez sur générer ou ajoutez manuellement.</div>) : (
                                      interventionSlots.map((slot, index) => (
-                                         <div key={slot.id} className="p-4 border-b border-slate-100 last:border-0 flex items-center gap-4">
-                                             <span className="text-xs font-bold text-slate-400 w-6">J{index + 1}</span>
-                                             <input type="date" className="flex-1 p-2 border rounded bg-slate-50 text-sm" value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value)} />
-                                             <div className="flex items-center gap-2">
-                                                 <input type="time" className="p-2 border rounded bg-slate-50 text-sm w-24" value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value)} />
-                                                 <span className="text-slate-400">-</span>
-                                                 <input type="time" className="p-2 border rounded bg-slate-50 text-sm w-24" value={slot.endTime} readOnly={packs.find(p => p.id === selectedPackId)?.name === 'Pack Ultime 6'} onChange={(e) => updateSlot(index, 'endTime', e.target.value)} />
+                                         <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50">
+                                             <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
+                                             <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value)} />
+                                             <div className="flex items-center gap-1">
+                                                 <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value)} />
+                                                 <span className="text-slate-400 text-xs">à</span>
+                                                 <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value)} />
                                              </div>
-                                             <div className="w-20 text-right text-xs font-bold text-slate-500">{slot.duration.toFixed(1)}h</div>
+                                             <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
+                                             <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4"/></button>
                                          </div>
                                      ))
                                  )}
+                                 
+                                 {/* Total calculation */}
+                                 {interventionSlots.length > 0 && (
+                                     <div className="p-3 bg-slate-50 text-right text-xs font-bold text-slate-600 border-t border-slate-200">
+                                         Total : <span className="text-brand-blue text-sm">{interventionSlots.reduce((acc, s) => acc + s.duration, 0)} heures</span>
+                                     </div>
+                                 )}
                              </div>
+                             
+                             <p className="text-[10px] text-slate-400 mt-2 italic">
+                                 Les créneaux sont reportés sur le contrat avec les informations clients.
+                                 La signature du devis entraîne la signature du contrat après lecture par le client.
+                             </p>
                         </section>
                     )}
                     <div className="flex justify-end"><button className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2" onClick={handleSuccess} disabled={!selectedClientId}><CheckCircle className="w-4 h-4" /> Valider et Envoyer</button></div>

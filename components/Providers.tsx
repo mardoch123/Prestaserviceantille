@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
@@ -20,8 +19,35 @@ import {
   AlertTriangle,
   Mail,
   Edit,
-  KeyRound
+  KeyRound,
+  Loader2
 } from 'lucide-react';
+
+// Extended List of Specialties
+const PROVIDER_SPECIALTIES = [
+    "Ménage / Entretien",
+    "Jardinage",
+    "Bricolage",
+    "Plomberie",
+    "Électricité",
+    "Peinture",
+    "Climatisation",
+    "Piscine / Entretien Bassin",
+    "Maçonnerie",
+    "Menuiserie",
+    "Serrurerie",
+    "Aide à domicile (Personnes âgées)",
+    "Garde d'enfants",
+    "Soutien scolaire",
+    "Assistance administrative",
+    "Informatique / Numérique",
+    "Coiffure à domicile",
+    "Esthétique à domicile",
+    "Livraison de repas",
+    "Déménagement",
+    "Gardiennage",
+    "Autre"
+];
 
 const Providers: React.FC = () => {
   const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword } = useData();
@@ -34,6 +60,7 @@ const Providers: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
@@ -42,10 +69,13 @@ const Providers: React.FC = () => {
   
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
+  // Credential Modal State
+  const [newCredential, setNewCredential] = useState<{ email: string, pass: string } | null>(null);
+
   const [formData, setFormData] = useState({
     lastName: '',
     firstName: '',
-    specialty: 'Ménage',
+    specialty: 'Ménage / Entretien',
     phone: '',
     email: '',
     status: 'Active'
@@ -87,7 +117,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage', phone: '', email: '', status: 'Active' });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active' });
       setIsModalOpen(true);
   };
 
@@ -105,31 +135,50 @@ const Providers: React.FC = () => {
       setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
+      setIsSubmitting(true);
       
-      if (isEditMode && currentEditId) {
-          updateProvider(currentEditId, {
-              lastName: formData.lastName,
-              firstName: formData.firstName,
-              specialty: formData.specialty,
-              phone: formData.phone,
-              email: formData.email,
-              status: formData.status as any
-          });
-          showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
-      } else {
-          addProvider({
-              lastName: formData.lastName,
-              firstName: formData.firstName,
-              specialty: formData.specialty,
-              phone: formData.phone,
-              email: formData.email,
-              status: formData.status as 'Active',
-          });
+      try {
+          if (isEditMode && currentEditId) {
+              await updateProvider(currentEditId, {
+                  lastName: formData.lastName,
+                  firstName: formData.firstName,
+                  specialty: formData.specialty,
+                  phone: formData.phone,
+                  email: formData.email,
+                  status: formData.status as any
+              });
+              showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
+              setIsModalOpen(false);
+          } else {
+              // Creating new provider
+              const newPass = await addProvider({
+                  lastName: formData.lastName,
+                  firstName: formData.firstName,
+                  specialty: formData.specialty,
+                  phone: formData.phone,
+                  email: formData.email,
+                  status: formData.status as 'Active',
+              });
+              
+              if (newPass) {
+                  setIsModalOpen(false);
+                  // Open the credential modal
+                  setNewCredential({ email: formData.email, pass: newPass });
+              } else {
+                  showToast(`Prestataire créé, mais erreur lors de la génération du mot de passe.`);
+                  setIsModalOpen(false);
+              }
+          }
+          // Reset form
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active' });
+      } catch (error) {
+          console.error("Erreur soumission prestataire:", error);
+          showToast("Une erreur est survenue.");
+      } finally {
+          setIsSubmitting(false);
       }
-      setIsModalOpen(false);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage', phone: '', email: '', status: 'Active' });
   };
 
   const handleLeaveSubmit = (e: React.FormEvent) => {
@@ -404,11 +453,9 @@ Lien de connexion : https://presta-antilles.app/login`);
                             onChange={handleInputChange}
                             className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
                          >
-                             <option value="Ménage">Ménage / Entretien</option>
-                             <option value="Jardinage">Jardinage</option>
-                             <option value="Bricolage">Bricolage</option>
-                             <option value="Aide à domicile">Aide à domicile</option>
-                             <option value="Autre">Autre</option>
+                             {PROVIDER_SPECIALTIES.map(specialty => (
+                                 <option key={specialty} value={specialty}>{specialty}</option>
+                             ))}
                          </select>
                     </div>
 
@@ -463,19 +510,55 @@ Lien de connexion : https://presta-antilles.app/login`);
                             type="button"
                             onClick={() => setIsModalOpen(false)}
                             className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                            disabled={isSubmitting}
                         >
                             Annuler
                         </button>
                         <button 
                             type="submit"
-                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2"
+                            disabled={isSubmitting}
+                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2 disabled:opacity-70"
                         >
-                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer ID'}
+                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer ID'}
                         </button>
                     </div>
                 </form>
             </div>
         </div>
+      )}
+
+      {/* Credential Pop-up */}
+      {newCredential && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+                   <div className="bg-green-600 p-4 text-center">
+                       <CheckCircle className="w-12 h-12 text-white mx-auto mb-2" />
+                       <h3 className="text-xl font-bold text-white">Prestataire Créé</h3>
+                   </div>
+                   <div className="p-6">
+                       <p className="text-sm text-slate-600 mb-4 text-center">
+                           Voici les identifiants générés pour ce nouveau compte :
+                       </p>
+                       <div className="bg-slate-100 p-4 rounded-lg border border-slate-200 space-y-3">
+                           <div>
+                               <span className="text-xs font-bold text-slate-500 uppercase block">Email</span>
+                               <span className="text-sm font-mono text-slate-800 font-bold break-all">{newCredential.email}</span>
+                           </div>
+                           <div>
+                               <span className="text-xs font-bold text-slate-500 uppercase block">Mot de passe initial</span>
+                               <span className="text-lg font-mono text-brand-blue font-bold tracking-wider">{newCredential.pass}</span>
+                           </div>
+                       </div>
+                       <button 
+                           onClick={() => setNewCredential(null)}
+                           className="w-full mt-6 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition"
+                       >
+                           Fermer
+                       </button>
+                   </div>
+               </div>
+           </div>
       )}
 
       {isLeaveModalOpen && (
