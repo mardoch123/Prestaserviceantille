@@ -539,18 +539,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         let mounted = true;
 
         // SAFETY TIMEOUT: Force stop loading after 7 seconds
-        // This solves the "infinite loading" issue if DB is slow or unreachable
         const safetyTimer = setTimeout(() => {
             if (mounted && loading) {
                 console.warn("Initialization timed out. Forcing app load.");
                 setLoading(false);
-                setIsOnline(false); // Assume offline/issue if it timed out
+                setIsOnline(false); 
             }
         }, 7000);
 
         const initializeAuth = async () => {
             try {
-                // Restore from localStorage first for speed/offline
+                // Check LocalStorage first for instant UI response
                 const cached = localStorage.getItem('presta_current_user');
                 if (cached) {
                     const parsed = JSON.parse(cached);
@@ -564,17 +563,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return;
                 }
 
-                await refreshData();
-
+                // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
                 
                 if (session?.user && mounted) {
                     await fetchUserProfile(session.user);
+                    // IMPORTANT: Fetch data immediately if authenticated to prevent "empty dashboard"
+                    await refreshData();
+                } else {
+                    // Even if no session, try to refresh data once (maybe public data?) or just stop loading
+                    // In this app, data is protected, so if no session, we just stop loading to show Login.
                 }
+                
             } catch (error) {
                 console.error("Auth check failed:", error);
             } finally {
-                clearTimeout(safetyTimer); // Clear safety if finished naturally
+                clearTimeout(safetyTimer);
                 if (mounted) setLoading(false);
             }
         };
@@ -587,9 +591,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (!mounted) return;
             
             if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
+                 // Double check profile fetch if needed
                  if (!currentUser || currentUser.id !== session.user.id) {
                      await fetchUserProfile(session.user);
                  }
+                 // Ensure data is refreshed whenever auth state confirms a session
                  await refreshData();
                  setLoading(false);
             } else if (event === 'SIGNED_OUT') {
@@ -618,10 +624,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             });
             
             if (error) {
-                console.error("Supabase Function Error:", error);
-                throw error;
+                // Log but do not throw to prevent app crash
+                console.warn("Supabase Function Warning (Email):", error.message);
+                return;
             }
-            console.log("Email sent successfully via Edge Function:", data);
+            console.log("Email sent request:", data);
         } catch (e: any) {
             console.warn("Email sending failed (network or function error):", e.message || e);
             // We simulate success for UI feedback in dev mode, but in prod this would be logged.
@@ -837,7 +844,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (data && data.length > 0) {
                 const newClient = data[0];
                 
-                // Then try to create the Auth User
+                // Then try to create the Auth User via Edge Function
                 try {
                     const { error: fnError } = await supabase.functions.invoke('create-user', {
                         body: {
@@ -849,9 +856,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         }
                     });
                     
-                    if(fnError) throw fnError;
+                    if(fnError) {
+                        console.warn("Error creating auth user via function:", fnError);
+                        // Continue anyway, the client record is created
+                    }
                     
-                    // Send Email only if auth created successfully
+                    // Send Email only if auth created successfully or generic welcome
                     await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
                         name: clientData.name,
                         login: clientData.email,
@@ -861,8 +871,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 } catch(e) {
                     console.warn("Auth edge function failed/unavailable or restricted.", e);
-                    // Fallback: We still want the client in the DB even if auth fails
-                    // Just notify admin or toast that credentials weren't sent
                 }
 
                 setClients(prev => [...prev, {
@@ -917,7 +925,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             relatedEntityId: newProvider.id
                         }
                     });
-                    if(fnError) throw fnError;
+                    if(fnError) {
+                        console.warn("Error creating provider auth:", fnError);
+                    }
                     
                     await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
                          name: providerData.firstName,
