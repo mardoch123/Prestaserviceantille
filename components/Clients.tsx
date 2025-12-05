@@ -38,6 +38,7 @@ const Clients: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   
@@ -114,6 +115,7 @@ const Clients: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
         const fullName = `${formData.firstName} ${formData.lastName}`;
         
@@ -126,6 +128,7 @@ const Clients: React.FC = () => {
                 email: formData.email
             });
             showToast('Client modifié avec succès.');
+            setIsModalOpen(false);
         } else {
             const newPass = await addClient({
                 name: fullName,
@@ -140,16 +143,19 @@ const Clients: React.FC = () => {
                 loyaltyHoursAvailable: 0
             });
             
+            setIsModalOpen(false);
+            
             if (newPass) {
                 setNewCredential({ email: formData.email, pass: newPass });
             } else {
-                showToast(`Client créé ! Email de connexion envoyé à ${formData.email}.`);
+                showToast(`Client créé avec succès ! (Pas d'email envoyé)`);
             }
         }
-        setIsModalOpen(false);
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
-    } catch (err) {
-        alert("Erreur lors de l'enregistrement.");
+    } catch (err: any) {
+        alert("Erreur lors de l'enregistrement: " + err.message);
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
@@ -354,8 +360,13 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </div>
                     <div className="pt-4 flex justify-end gap-3">
                         <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition">Annuler</button>
-                        <button type="submit" className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4" /> {isEditMode ? 'Mettre à jour' : 'Enregistrer'}
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting}
+                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isEditMode ? 'Mettre à jour' : 'Enregistrer'}
                         </button>
                     </div>
                 </form>

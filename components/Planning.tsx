@@ -1,15 +1,12 @@
 
-
-
-
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, addMission, assignProvider, deleteMissions, refreshData } = useData(); 
+  const { missions, providers, clients, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
   const navigate = useNavigate();
 
   // Filter State
@@ -19,6 +16,7 @@ const Planning: React.FC = () => {
   
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
@@ -30,7 +28,7 @@ const Planning: React.FC = () => {
   const [selectedMissionIds, setSelectedMissionIds] = useState<Set<string>>(new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  // Form State - Updated for End Date/Time
+  // Form State - Mission
   const initialFormState = {
       clientId: '',
       service: '',
@@ -43,6 +41,13 @@ const Planning: React.FC = () => {
       occurrences: 1
   };
   const [missionForm, setMissionForm] = useState(initialFormState);
+
+  // Form State - Reminder
+  const [reminderForm, setReminderForm] = useState({
+      text: '',
+      date: new Date().toISOString().split('T')[0],
+      notifyEmail: true
+  });
 
   // Calculate Week Date Range
   const getWeekRange = (offset: number) => {
@@ -61,46 +66,42 @@ const Planning: React.FC = () => {
   // Format date range for display
   const dateRangeString = `Du ${weekStart.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} au ${weekEnd.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
 
-  // Filter Logic
-  const filteredItems = useMemo(() => {
-      let items = missions;
-      
-      // Filter by Date Range (Current Week)
+  // Filter Logic (Missions & Reminders)
+  const { filteredMissions, filteredReminders } = useMemo(() => {
       const startStr = weekStart.toISOString().split('T')[0];
       const endStr = weekEnd.toISOString().split('T')[0];
       
-      items = items.filter(m => m.date >= startStr && m.date <= endStr);
-
-      // Filter by Provider (Dropdown)
+      // Missions
+      let fMissions = missions.filter(m => m.date >= startStr && m.date <= endStr);
       if (selectedProvider !== 'all') {
-          items = items.filter(item => item.providerName === selectedProvider);
+          fMissions = fMissions.filter(item => item.providerName === selectedProvider);
       }
-
-      // Filter by Search (Client Name, Provider Name, Service)
       if (searchQuery) {
           const query = searchQuery.toLowerCase();
-          items = items.filter(item => 
+          fMissions = fMissions.filter(item => 
               item.clientName.toLowerCase().includes(query) ||
               (item.providerName && item.providerName.toLowerCase().includes(query)) ||
               item.service.toLowerCase().includes(query)
           );
       }
+
+      // Reminders (Only for the week view, no provider filter usually, unless tagged)
+      let fReminders = reminders.filter(r => r.date >= startStr && r.date <= endStr);
       
-      return items;
-  }, [missions, selectedProvider, currentWeekOffset, searchQuery, weekStart, weekEnd]);
+      return { filteredMissions: fMissions, filteredReminders: fReminders };
+  }, [missions, reminders, selectedProvider, currentWeekOffset, searchQuery, weekStart, weekEnd]);
 
   // Stats Logic
   const today = new Date().toISOString().split('T')[0];
-  
   const missionsCountToday = missions.filter(m => m.date === today).length; 
-  const missionsCountWeek = filteredItems.length; 
-  const missionsCompletedWeek = filteredItems.filter(m => m.status === 'completed').length;
+  const missionsCountWeek = filteredMissions.length; 
+  const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
 
   const totalHoursToday = missions
       .filter(m => m.date === today)
       .reduce((acc, m) => acc + m.duration, 0);
 
-  const totalHoursFiltered = filteredItems
+  const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);
 
 
@@ -137,11 +138,11 @@ const Planning: React.FC = () => {
           const client = clients.find(c => c.id === missionForm.clientId);
           const provider = providers.find(p => p.id === missionForm.providerId);
           
-          if (!client) { alert("Client invalide"); setIsSubmitting(false); return; }
+          if (!client) { throw new Error("Client invalide"); }
 
           // Recurrence Logic
           const startDateObj = new Date(missionForm.date);
-          if(isNaN(startDateObj.getTime())) { alert("Date invalide"); setIsSubmitting(false); return; }
+          if(isNaN(startDateObj.getTime())) { throw new Error("Date invalide"); }
 
           const count = missionForm.recurrence === 'none' ? 1 : parseInt(missionForm.occurrences.toString()) || 1;
           
@@ -182,9 +183,32 @@ const Planning: React.FC = () => {
           setIsModalOpen(false);
           setMissionForm(initialFormState); // Reset form cleanly
 
-      } catch (error) {
+      } catch (error: any) {
           console.error("Erreur planning", error);
-          alert("Une erreur est survenue lors de la planification.");
+          alert("Une erreur est survenue : " + error.message);
+      } finally {
+          setIsSubmitting(false); // CRITICAL: Always reset submitting state
+      }
+  };
+
+  const handleReminderSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!reminderForm.text || !reminderForm.date) return;
+      setIsSubmitting(true);
+      try {
+          await addReminder({
+              id: '', 
+              text: reminderForm.text,
+              date: reminderForm.date,
+              notifyEmail: reminderForm.notifyEmail,
+              completed: false
+          });
+          showToast('Rappel ajouté à l\'agenda !');
+          setIsReminderModalOpen(false);
+          setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true });
+      } catch (err) {
+          console.error(err);
+          alert("Erreur ajout rappel");
       } finally {
           setIsSubmitting(false);
       }
@@ -397,14 +421,29 @@ const Planning: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-6 flex-1 min-h-[400px]">
                      {[0,1,2,3,4,5].map(colIndex => (
-                        <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30">
-                            {filteredItems
+                        <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30 space-y-2">
+                            {/* Reminders for this day */}
+                            {filteredReminders
+                                .filter(r => getDayIndex(r.date) === colIndex && !r.completed)
+                                .map(r => (
+                                    <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-2 rounded shadow-sm text-xs relative group animate-in zoom-in duration-200">
+                                        <div className="flex justify-between items-start">
+                                            <p className="font-bold text-yellow-800 line-clamp-2">{r.text}</p>
+                                            <button onClick={() => toggleReminder(r.id)} className="text-yellow-600 hover:text-green-600"><CheckCircle className="w-3 h-3"/></button>
+                                        </div>
+                                        {r.notifyEmail && <div className="absolute top-1 right-1 opacity-20"><Mail className="w-3 h-3"/></div>}
+                                    </div>
+                                ))
+                            }
+
+                            {/* Missions for this day */}
+                            {filteredMissions
                                 .filter(item => getDayIndex(item.date) === colIndex)
                                 .filter(item => item.status !== 'cancelled')
                                 .map(item => (
                                     <div 
                                         key={item.id} 
-                                        className={`mb-2 bg-${item.color === 'gray' ? 'slate-200' : item.color + '-100'} p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-${item.color === 'gray' ? 'slate-500' : 'brand-blue'} relative group`}
+                                        className={`bg-${item.color === 'gray' ? 'slate-200' : item.color + '-100'} p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-${item.color === 'gray' ? 'slate-500' : 'brand-blue'} relative group`}
                                         onClick={(e) => toggleMissionSelection(item.id, e)}
                                     >
                                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -433,9 +472,16 @@ const Planning: React.FC = () => {
             
             <div className="hidden md:block w-64 bg-white border border-slate-200 flex flex-col">
                 <div className="bg-slate-100 p-3 text-center font-bold text-slate-700 border-b border-slate-200">
-                    Missions à pourvoir
+                    Actions & Missions
                 </div>
                 <div className="p-2 space-y-2 overflow-y-auto flex-1">
+                    <button 
+                        onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true }); }}
+                        className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
+                    >
+                        <Flag className="w-3 h-3" /> Ajouter un Rappel
+                    </button>
+
                     {unassignedMissions.length === 0 ? (
                         <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
                     ) : (
@@ -648,9 +694,59 @@ const Planning: React.FC = () => {
         </div>
        )}
 
+       {/* REMINDER MODAL */}
+       {isReminderModalOpen && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
+                   <div className="p-4 bg-yellow-50 border-b border-yellow-100 flex justify-between items-center">
+                       <h3 className="font-bold text-yellow-800 flex items-center gap-2"><Flag className="w-4 h-4"/> Nouveau Rappel</h3>
+                       <button onClick={() => setIsReminderModalOpen(false)}><X className="w-5 h-5 text-slate-400"/></button>
+                   </div>
+                   <form onSubmit={handleReminderSubmit} className="p-6 space-y-4">
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Message</label>
+                           <input 
+                                required
+                                type="text"
+                                className="w-full border rounded p-2 text-sm"
+                                placeholder="Ex: Appeler Mr Dupont..."
+                                value={reminderForm.text}
+                                onChange={(e) => setReminderForm({...reminderForm, text: e.target.value})}
+                           />
+                       </div>
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Date</label>
+                           <input 
+                                required
+                                type="date"
+                                className="w-full border rounded p-2 text-sm"
+                                value={reminderForm.date}
+                                onChange={(e) => setReminderForm({...reminderForm, date: e.target.value})}
+                           />
+                       </div>
+                       <div className="flex items-center gap-2 pt-2">
+                           <input 
+                                type="checkbox"
+                                id="notifyEmail"
+                                checked={reminderForm.notifyEmail}
+                                onChange={(e) => setReminderForm({...reminderForm, notifyEmail: e.target.checked})}
+                                className="w-4 h-4 text-brand-blue"
+                           />
+                           <label htmlFor="notifyEmail" className="text-sm font-bold text-slate-700">M'envoyer une notification par email</label>
+                       </div>
+                       <div className="flex justify-end pt-4">
+                           <button type="submit" disabled={isSubmitting} className="bg-brand-blue text-white px-4 py-2 rounded font-bold text-sm hover:bg-teal-700">
+                               {isSubmitting ? '...' : 'Ajouter au planning'}
+                           </button>
+                       </div>
+                   </form>
+               </div>
+           </div>
+       )}
+
        {/* ASSIGNMENT MODAL */}
        {selectedMissionId && missionToAssign && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
                     <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                         <div>

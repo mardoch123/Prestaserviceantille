@@ -1,7 +1,6 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext'; 
 import { Mission, Document } from '../types';
@@ -46,6 +45,9 @@ const DevisFactures: React.FC = () => {
   const [tvaRate, setTvaRate] = useState<0|2.1|8.5>(2.1);
   const [taxCreditActive, setTaxCreditActive] = useState(false);
   
+  // Loading state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Planification Prévisionnelle Enhancements
   const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
   
@@ -235,65 +237,72 @@ const DevisFactures: React.FC = () => {
       toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '' }); }, 3000);
   };
 
-  const handleSuccess = () => {
-    const client = clients.find(c => c.id === selectedClientId);
-    const clientName = client?.name || 'Client Inconnu';
-    const totalHT = unitPrice * packQuantity;
-    const tvaAmount = totalHT * (tvaRate / 100);
-    const totalTTC = totalHT + tvaAmount;
+  const handleSuccess = async () => {
+    setIsSubmitting(true);
+    try {
+        const client = clients.find(c => c.id === selectedClientId);
+        const clientName = client?.name || 'Client Inconnu';
+        const totalHT = unitPrice * packQuantity;
+        const tvaAmount = totalHT * (tvaRate / 100);
+        const totalTTC = totalHT + tvaAmount;
 
-    // Determine description suffix based on slots if custom
-    let finalDescription = customDescription;
-    const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
-    if(serviceType === 'pack' && packs.find(p=>p.id === selectedPackId)?.name.includes("personnalisé")) {
-        finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
+        // Determine description suffix based on slots if custom
+        let finalDescription = customDescription;
+        const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+        if(serviceType === 'pack' && packs.find(p=>p.id === selectedPackId)?.name.includes("personnalisé")) {
+            finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
+        }
+
+        const newDoc: Document = {
+            id: '', 
+            ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
+            clientId: selectedClientId,
+            clientName: clientName,
+            date: new Date().toISOString().split('T')[0],
+            type: modalMode === 'devis' ? 'Devis' : 'Facture',
+            category: serviceType,
+            description: finalDescription,
+            unitPrice: unitPrice,
+            quantity: packQuantity,
+            tvaRate: tvaRate,
+            totalHT: totalHT,
+            totalTTC: totalTTC,
+            taxCreditEnabled: taxCreditActive,
+            status: modalMode === 'devis' ? 'sent' : 'paid',
+            slotsData: modalMode === 'devis' ? interventionSlots : undefined,
+        };
+
+        await addDocument(newDoc);
+
+        if (modalMode === 'facture' && interventionSlots.length > 0) {
+            for (const slot of interventionSlots) {
+                 if (slot.date) {
+                     await addMission({
+                         id: '',
+                         date: slot.date,
+                         startTime: slot.startTime,
+                         endTime: slot.endTime,
+                         duration: slot.duration,
+                         clientName,
+                         clientId: selectedClientId,
+                         service: finalDescription,
+                         providerId: null,
+                         providerName: 'À assigner',
+                         status: 'planned',
+                         color: 'gray',
+                         source: 'devis'
+                     });
+                 }
+            }
+        }
+        
+        setIsModalOpen(false);
+        showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
+    } catch (e: any) {
+        alert("Erreur création document: " + e.message);
+    } finally {
+        setIsSubmitting(false);
     }
-
-    const newDoc: Document = {
-        id: `doc-${Date.now()}`, 
-        ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
-        clientId: selectedClientId,
-        clientName: clientName,
-        date: new Date().toISOString().split('T')[0],
-        type: modalMode === 'devis' ? 'Devis' : 'Facture',
-        category: serviceType,
-        description: finalDescription,
-        unitPrice: unitPrice,
-        quantity: packQuantity,
-        tvaRate: tvaRate,
-        totalHT: totalHT,
-        totalTTC: totalTTC,
-        taxCreditEnabled: taxCreditActive,
-        status: modalMode === 'devis' ? 'sent' : 'paid',
-        slotsData: modalMode === 'devis' ? interventionSlots : undefined,
-    };
-
-    addDocument(newDoc);
-
-    if (modalMode === 'facture' && interventionSlots.length > 0) {
-        interventionSlots.forEach((slot) => {
-             if (slot.date) {
-                 addMission({
-                     id: `m-${Date.now()}-${slot.id}`,
-                     date: slot.date,
-                     startTime: slot.startTime,
-                     endTime: slot.endTime,
-                     duration: slot.duration,
-                     clientName,
-                     clientId: selectedClientId,
-                     service: finalDescription,
-                     providerId: null,
-                     providerName: 'À assigner',
-                     status: 'planned',
-                     color: 'gray',
-                     source: 'devis'
-                 });
-             }
-        });
-    }
-    
-    setIsModalOpen(false);
-    showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
   };
 
   // --- ACTION HANDLERS ---
@@ -359,12 +368,16 @@ const DevisFactures: React.FC = () => {
       setDocumentToDelete(null);
   };
 
-  const handleDuplicate = (id: string, ref: string, e: React.MouseEvent) => {
+  const handleDuplicate = async (id: string, ref: string, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      duplicateDocument(id);
-      setFilterStatus('all'); 
-      showToast('Document dupliqué !');
+      try {
+          await duplicateDocument(id);
+          setFilterStatus('all'); 
+          showToast('Document dupliqué !');
+      } catch (err: any) {
+          alert("Erreur duplication: " + err.message);
+      }
   };
 
   const handleStatusChange = (id: string, newStatus: string, e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -768,7 +781,16 @@ const DevisFactures: React.FC = () => {
                              </p>
                         </section>
                     )}
-                    <div className="flex justify-end"><button className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2" onClick={handleSuccess} disabled={!selectedClientId}><CheckCircle className="w-4 h-4" /> Valider et Envoyer</button></div>
+                    <div className="flex justify-end">
+                        <button 
+                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50" 
+                            onClick={handleSuccess} 
+                            disabled={!selectedClientId || isSubmitting}
+                        >
+                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
+                        </button>
+                    </div>
                  </div>
 
                  <div className="lg:col-span-5 bg-slate-50 p-6 rounded-xl h-fit border border-slate-200">

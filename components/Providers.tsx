@@ -162,13 +162,13 @@ const Providers: React.FC = () => {
                   status: formData.status as 'Active',
               });
               
+              setIsModalOpen(false);
+              
               if (newPass) {
-                  setIsModalOpen(false);
                   // Open the credential modal
                   setNewCredential({ email: formData.email, pass: newPass });
               } else {
-                  showToast(`Prestataire créé, mais erreur lors de la génération du mot de passe.`);
-                  setIsModalOpen(false);
+                  showToast(`Prestataire créé avec succès ! (Pas d'email envoyé)`);
               }
           }
           // Reset form

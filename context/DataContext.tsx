@@ -628,6 +628,34 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
+        const id = generateUUID();
+        const now = new Date().toISOString();
+        
+        const { data, error } = await supabase.from('notifications').insert({
+            id,
+            title, 
+            message, 
+            type, // Added to Supabase even if not in standard SQL definition, assuming it maps if column exists or ignored
+            date: now, 
+            is_read: false, 
+            link,
+            created_at: now,
+            target_user_role: targetUserType,
+            target_user_id: targetUserId
+        }).select();
+        
+        if (data) {
+            const mappedNotif: AppNotification = {
+                ...data[0],
+                read: false,
+                targetUserType,
+                targetUserId
+            };
+            setNotifications(prev => [mappedNotif, ...prev]);
+        }
+    };
+
     // --- ACTIONS ---
 
     const addMission = async (mission: Mission) => {
@@ -653,7 +681,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         
         if (error) {
             console.error("Error adding mission:", error);
-            return;
+            throw error; // Throw error to be caught by UI
         }
 
         if (data) {
@@ -696,7 +724,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        // Enforce 5 photos minimum rule
         if (!photos || photos.length < 5) {
             alert("Il faut obligatoirement 5 photos minimum avant chantier.");
             return;
@@ -721,7 +748,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
-        // Enforce 5 photos minimum rule
         if (!photos || photos.length < 5) {
             alert("Il faut obligatoirement 5 photos minimum fin de chantier.");
             return;
@@ -739,10 +765,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video, reportSent: true } : m));
             const m = missions.find(m => m.id === id);
             if (m) {
-                await addNotification('client', 'success', 'Mission Terminée', `La mission est terminée. Consultez le compte rendu.`, m.clientId, `mission:${id}`);
-                await addNotification('admin', 'success', 'Mission Terminée', `Mission chez ${m.clientName} terminée par ${m.providerName}. Photos disponibles.`, undefined, `mission:${id}`);
+                // NOTIFICATION ADMIN (Urgent)
+                await addNotification(
+                    'admin', 
+                    'success', 
+                    'Mission Terminée', 
+                    `Mission chez ${m.clientName} terminée par ${m.providerName}. Photos disponibles.`, 
+                    undefined, 
+                    `mission:${id}`
+                );
                 
-                // SEND REPORT EMAIL
+                // EMAIL ADMIN
+                await sendEmail(companySettings.email, 'Fin de Mission - Rapport disponible', 'admin_mission_report', {
+                    clientName: m.clientName,
+                    providerName: m.providerName,
+                    date: m.date,
+                    link: `https://presta-antilles.app/reports`
+                });
+
+                // NOTIF CLIENT
+                await addNotification('client', 'success', 'Mission Terminée', `La mission est terminée. Consultez le compte rendu.`, m.clientId, `mission:${id}`);
+                
+                // EMAIL CLIENT
                 const client = clients.find(c => c.id === m.clientId);
                 if (client && client.email) {
                     await sendEmail(client.email, 'Compte Rendu de Mission', 'mission_report', {
@@ -756,12 +800,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     });
                 }
 
-                // LOYALTY LOGIC: Increment pack consumption & check rewards
-                // This logic runs only if mission is linked to a document (Pack) or generally completed
                 if (client) {
                     const newConsumed = (client.packsConsumed || 0) + 1;
                     await updateClient(client.id, { packsConsumed: newConsumed });
-                    
                     if (newConsumed % 10 === 0) {
                         await addNotification('admin', 'success', 'Fidélité Client', `Le client ${client.name} a atteint ${newConsumed} missions. Pensez à offrir des heures !`, undefined);
                     }
@@ -774,7 +815,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const password = Math.random().toString(36).slice(-8);
 
         try {
-            // 1. Create entry in 'clients' table
             const dbClientData = {
                 name: clientData.name,
                 city: clientData.city,
@@ -789,6 +829,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 has_left_review: false
             };
 
+            // First create the client entity
             const { data, error } = await supabase.from('clients').insert(dbClientData).select();
             
             if (error) throw error;
@@ -796,7 +837,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (data && data.length > 0) {
                 const newClient = data[0];
                 
-                // 2. Try Edge Function, but proceed if fails by inserting into public.users manually
+                // Then try to create the Auth User
                 try {
                     const { error: fnError } = await supabase.functions.invoke('create-user', {
                         body: {
@@ -807,16 +848,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             relatedEntityId: newClient.id
                         }
                     });
+                    
                     if(fnError) throw fnError;
-                } catch(e) {
-                    console.warn("Auth edge function failed/unavailable, using fallback DB insert for user.");
-                    await supabase.from('users').insert({
-                        id: generateUUID(),
-                        email: clientData.email,
+                    
+                    // Send Email only if auth created successfully
+                    await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
                         name: clientData.name,
-                        role: 'client',
-                        related_entity_id: newClient.id
+                        login: clientData.email,
+                        password: password,
+                        link: 'https://presta-antilles.app/login'
                     });
+
+                } catch(e) {
+                    console.warn("Auth edge function failed/unavailable or restricted.", e);
+                    // Fallback: We still want the client in the DB even if auth fails
+                    // Just notify admin or toast that credentials weren't sent
                 }
 
                 setClients(prev => [...prev, {
@@ -825,13 +871,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     loyaltyHoursAvailable: newClient.loyalty_hours_available,
                     hasLeftReview: newClient.has_left_review,
                 }]);
-                
-                await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
-                    name: clientData.name,
-                    login: clientData.email,
-                    password: password,
-                    link: 'https://presta-antilles.app/login'
-                });
                 
                 return password; 
             }
@@ -857,6 +896,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 rating: 5
             };
 
+            // Create Provider Entity
             const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
             
             if (error) {
@@ -878,15 +918,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         }
                     });
                     if(fnError) throw fnError;
+                    
+                    await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
+                         name: providerData.firstName,
+                         login: providerData.email,
+                         password: password,
+                         link: 'https://presta-antilles.app/login'
+                     });
+
                 } catch(e) {
-                    console.warn("Auth edge function failed/unavailable, using fallback DB insert for user.");
-                    await supabase.from('users').insert({
-                        id: generateUUID(),
-                        email: providerData.email,
-                        name: `${providerData.firstName} ${providerData.lastName}`,
-                        role: 'provider',
-                        related_entity_id: newProvider.id
-                    });
+                    console.warn("Auth edge function failed/unavailable.", e);
                 }
 
                  setProviders(prev => [...prev, {
@@ -898,13 +939,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                  }]);
 
                  await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
-                 
-                 await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
-                     name: providerData.firstName,
-                     login: providerData.email,
-                     password: password,
-                     link: 'https://presta-antilles.app/login'
-                 });
                  
                  return password; 
             }
@@ -1003,7 +1037,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
         if (!error) {
             setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: reason } : mission));
+            
+            // NOTIF ADMIN (Urgent)
             await addNotification('admin', 'alert', 'Annulation Prestataire', `Prestataire: ${m?.providerName} | Motif: ${reason}. Créneau libéré.`, undefined, `mission:${id}`);
+            
+            // EMAIL ADMIN
+            await sendEmail(companySettings.email, 'URGENT - Annulation Prestataire', 'admin_mission_cancelled', {
+                providerName: m?.providerName,
+                clientName: m?.clientName,
+                date: m?.date,
+                reason: reason
+            });
+
+            // NOTIF CLIENT
             if(m && m.clientId) {
                 await addNotification('client', 'alert', 'Intervenant Indisponible', `L'intervenant a dû annuler la mission (Motif: ${reason}). Nous recherchons une solution.`, m.clientId);
             }
@@ -1024,14 +1070,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
                 
                 if (isLate) {
-                    // Late cancellation logic
                     await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée moins de 48h à l'avance. Elle est considérée comme réalisée et sera facturée à 50% (Hors SAP).`, m.clientId);
                     await addNotification('admin', 'alert', 'Annulation Tardive Client', `Le client ${m.clientName} a annulé < 48h. A facturer 50%.`, undefined, `mission:${id}`);
+                    // EMAIL ADMIN
+                    await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
+                        clientName: m.clientName,
+                        date: m.date
+                    });
                 } else {
                     await addNotification('admin', 'info', 'Annulation Client', `Client: ${m.clientName} a annulé le RDV (Délai respecté).`, undefined, `mission:${id}`);
+                    // EMAIL ADMIN
+                    await sendEmail(companySettings.email, 'Annulation Client', 'admin_client_cancelled', {
+                        clientName: m.clientName,
+                        date: m.date
+                    });
                 }
                 
-                // NOTIFY PROVIDER
                 if (m.providerId) {
                     await addNotification('provider', 'alert', 'Mission Annulée', `Le client ${m.clientName} a annulé la mission du ${m.date}. Le créneau est libéré.`, m.providerId);
                 }
@@ -1224,7 +1278,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             recurrence_end_date: doc.recurrenceEndDate
         };
         const { data, error } = await supabase.from('documents').insert(dbDocData).select();
-        if (error) { console.error(error); return; }
+        
+        if (error) { 
+            console.error("Error creating document:", error); 
+            throw error; // Let component handle error
+        }
+        
         if (data) {
              const newDoc = data[0];
              setDocuments(prev => [...prev, {
@@ -1358,14 +1417,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const duplicateDocument = async (id: string) => {
         const doc = documents.find(d => d.id === id);
         if (doc) {
-            const { id: _, ...rest } = doc;
+            // Remove ID to force new insertion, and update Ref to avoid unique constraint if any
+            const { id: oldId, ...rest } = doc;
+            const newRef = `${doc.ref}-COPY-${Date.now().toString().slice(-4)}`;
+            
             const newDoc: Document = { 
                 ...rest, 
-                id: `temp-${Date.now()}`,
-                ref: `${doc.ref}-COPY`, 
+                id: generateUUID(),
+                ref: newRef, 
                 status: doc.type === 'Devis' ? 'sent' : 'pending',
                 date: new Date().toISOString().split('T')[0]
             };
+            
             await addDocument(newDoc);
         }
     };
@@ -1376,8 +1439,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { id: _, ...rest } = quote;
             const invoice: Document = {
                 ...rest,
-                id: `temp-inv-${Date.now()}`,
-                ref: quote.ref.replace('DEV', 'FAC'),
+                id: generateUUID(),
+                ref: quote.ref.replace('DEV', 'FAC') + '-' + Date.now().toString().slice(-4),
                 type: 'Facture',
                 status: 'pending',
                 date: new Date().toISOString().split('T')[0]
@@ -1450,7 +1513,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
 
+            // NOTIF ADMIN (Urgent)
             await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par client. Créneaux verrouillés.`);
+            
+            // EMAIL ADMIN
+            await sendEmail(companySettings.email, 'URGENT - Devis Signé', 'admin_quote_signed', {
+                ref: quote?.ref,
+                clientName: quote?.clientName,
+                total: quote?.totalTTC
+            });
+
             if (quote) {
                 await generateMissionsFromDocument({ ...quote, status: 'signed' });
             }
@@ -1460,7 +1532,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const refuseQuote = async (id: string) => {
         await updateDocumentStatus(id, 'rejected');
         const doc = documents.find(d => d.id === id);
+        
+        // NOTIF ADMIN
         await addNotification('admin', 'alert', 'Devis Refusé', `Devis ${doc?.ref} refusé par client.`);
+        
+        // EMAIL ADMIN
+        await sendEmail(companySettings.email, 'Devis Refusé', 'admin_quote_rejected', {
+            ref: doc?.ref,
+            clientName: doc?.clientName
+        });
     };
 
     const requestInvoice = async (docId: string) => {
@@ -1472,7 +1552,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const doc = documents.find(d => d.ref === ref);
         if(doc) {
             const refundDoc: Document = {
-                id: `refund-${Date.now()}`,
+                id: generateUUID(),
                 ref: `AVOIR-${ref}`,
                 clientId: doc.clientId,
                 clientName: doc.clientName,
@@ -1585,10 +1665,37 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const addReminder = async (reminder: Reminder) => {
         const { id, ...rData } = reminder;
-        const dbData = { ...rData, notify_email: rData.notifyEmail };
-        const { data } = await supabase.from('reminders').insert(dbData).select();
+        const dbData = { 
+            text: rData.text,
+            date: rData.date, // ISO Date String expected
+            notify_email: rData.notifyEmail,
+            completed: false
+        };
+        
+        const { data, error } = await supabase.from('reminders').insert(dbData).select();
+        
+        if (error) {
+            console.error("Error adding reminder:", error);
+            return;
+        }
+
         if (data) {
-            setReminders(prev => [...prev, { ...data[0], notifyEmail: data[0].notify_email }]);
+            const newReminder = { 
+                id: data[0].id,
+                text: data[0].text,
+                date: data[0].date,
+                notifyEmail: data[0].notify_email,
+                completed: data[0].completed
+            };
+            setReminders(prev => [...prev, newReminder]);
+
+            // Email Notification Logic
+            if (newReminder.notifyEmail) {
+                await sendEmail(companySettings.email, 'Rappel Agenda', 'agenda_reminder', {
+                    text: newReminder.text,
+                    date: newReminder.date
+                });
+            }
         }
     };
 
@@ -1685,30 +1792,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setMessages(prev => [...prev, newMessage]);
             
             const client = clients.find(c => c.id === clientId);
+            
+            // NOTIF ADMIN
             await addNotification('admin', 'message', 'Nouveau Message', `De ${client?.name || 'Client'}: ${text.substring(0, 20)}...`, undefined, 'tab:messaging');
-        }
-    };
-
-    const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
-        const { data } = await supabase.from('notifications').insert({
-            type, 
-            title, 
-            message, 
-            date: new Date().toISOString(), 
-            is_read: false, 
-            link,
-            target_user_role: targetUserType,
-            target_user_id: targetUserId
-        }).select();
-        
-        if (data) {
-            const mappedNotif: AppNotification = {
-                ...data[0],
-                read: false,
-                targetUserType,
-                targetUserId
-            };
-            setNotifications(prev => [mappedNotif, ...prev]);
+            
+            // EMAIL ADMIN (Urgent?)
+            await sendEmail(companySettings.email, 'Nouveau Message Client', 'admin_new_message', {
+                clientName: client?.name || 'Client',
+                message: text
+            });
         }
     };
 

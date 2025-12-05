@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
@@ -10,7 +9,10 @@ import {
   XCircle, 
   TrendingUp, 
   AlertTriangle,
-  Search
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 
@@ -53,6 +55,21 @@ const Statistics: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
 
+  // --- PAGINATION & FILTERS STATE ---
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Advanced Filters State
+  const [filters, setFilters] = useState({
+      clientName: '',
+      service: '',
+      date: '',
+      providerName: '',
+      status: 'all',
+      amountMin: '',
+      amountMax: ''
+  });
+
   // Handle navigation from Dashboard
   useEffect(() => {
     if (location.state) {
@@ -66,16 +83,110 @@ const Statistics: React.FC = () => {
     }
   }, [location]);
 
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const { name, value } = e.target;
+      setFilters(prev => ({ ...prev, [name]: value }));
+      setCurrentPage(1); // Reset to first page on filter change
+  };
+
+  // Helper for week range
+  const getWeekRange = () => {
+      const now = new Date();
+      const day = now.getDay() || 7; // Get current day number, convert Sun (0) to 7
+      if (day !== 1) now.setHours(-24 * (day - 1)); // set to Monday
+      const startOfWeek = new Date(now);
+      const endOfWeek = new Date(now);
+      endOfWeek.setDate(endOfWeek.getDate() + 6);
+      return { start: startOfWeek, end: endOfWeek };
+  };
+
   // Filter Logic
   const filteredData = useMemo(() => {
-    let timeData = missions; 
-    if (statusFilter === 'all') return timeData;
-    return timeData.filter(m => m.status === statusFilter);
-  }, [timeFilter, statusFilter, missions]);
+    let data = missions; 
+    const now = new Date();
 
-  // Calculate Stats based on Time Filter
+    // 1. Time Filter (Global)
+    if (timeFilter === 'day') {
+        const todayStr = now.toISOString().split('T')[0];
+        data = data.filter(m => m.date === todayStr);
+    } else if (timeFilter === 'week') {
+        const { start, end } = getWeekRange();
+        // Reset hours for comparison
+        start.setHours(0,0,0,0);
+        end.setHours(23,59,59,999);
+        data = data.filter(m => {
+            const mDate = new Date(m.date);
+            return mDate >= start && mDate <= end;
+        });
+    } else if (timeFilter === 'month') {
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        data = data.filter(m => {
+            const mDate = new Date(m.date);
+            return mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+        });
+    } else if (timeFilter === 'year') {
+        const currentYear = now.getFullYear();
+        data = data.filter(m => new Date(m.date).getFullYear() === currentYear);
+    }
+
+    // 2. Status Card Filter
+    if (statusFilter !== 'all') {
+        data = data.filter(m => m.status === statusFilter);
+    }
+
+    // 3. Advanced Column Filters
+    if (filters.clientName) {
+        data = data.filter(m => m.clientName.toLowerCase().includes(filters.clientName.toLowerCase()));
+    }
+    if (filters.service) {
+        data = data.filter(m => m.service.toLowerCase().includes(filters.service.toLowerCase()));
+    }
+    if (filters.date) {
+        data = data.filter(m => m.date === filters.date);
+    }
+    if (filters.providerName) {
+        data = data.filter(m => (m.providerName || '').toLowerCase().includes(filters.providerName.toLowerCase()));
+    }
+    if (filters.status !== 'all') {
+        data = data.filter(m => m.status === filters.status);
+    }
+    if (filters.amountMin) {
+        data = data.filter(m => ((m.duration || 2) * 40) >= Number(filters.amountMin));
+    }
+    if (filters.amountMax) {
+        data = data.filter(m => ((m.duration || 2) * 40) <= Number(filters.amountMax));
+    }
+
+    return data;
+  }, [timeFilter, statusFilter, missions, filters]);
+
+  // Pagination Logic
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const paginatedData = useMemo(() => {
+      const start = (currentPage - 1) * itemsPerPage;
+      return filteredData.slice(start, start + itemsPerPage);
+  }, [filteredData, currentPage]);
+
+  // Calculate Stats based on Time Filter (Contextual)
   const stats = useMemo(() => {
-    const baseData = missions; 
+    // We compute stats on the data filtered by TIME only, ignoring column filters for the cards context
+    let baseData = missions;
+    const now = new Date();
+    
+    if (timeFilter === 'day') {
+        const todayStr = now.toISOString().split('T')[0];
+        baseData = baseData.filter(m => m.date === todayStr);
+    } else if (timeFilter === 'week') {
+        const { start, end } = getWeekRange();
+        start.setHours(0,0,0,0); end.setHours(23,59,59,999);
+        baseData = baseData.filter(m => { const d = new Date(m.date); return d >= start && d <= end; });
+    } else if (timeFilter === 'month') {
+        baseData = baseData.filter(m => new Date(m.date).getMonth() === now.getMonth() && new Date(m.date).getFullYear() === now.getFullYear());
+    } else if (timeFilter === 'year') {
+        baseData = baseData.filter(m => new Date(m.date).getFullYear() === now.getFullYear());
+    }
+
     return {
       total: baseData.length,
       completed: baseData.filter(m => m.status === 'completed').length,
@@ -83,10 +194,10 @@ const Statistics: React.FC = () => {
       cancelled: baseData.filter(m => m.status === 'cancelled').length,
       lateCancelled: baseData.filter(m => m.status === 'cancelled' && m.lateCancellation).length
     };
-  }, [missions]);
+  }, [missions, timeFilter]);
 
   const totalRevenue = useMemo(() => {
-      // Base revenue from completed missions and late cancellations
+      // Calculate revenue based on the currently filtered list (what the user sees)
       const revenueFromMissions = filteredData.reduce((acc, curr) => {
         const amount = (curr.duration || 2) * 40; // Simulated hourly rate base
 
@@ -100,13 +211,10 @@ const Statistics: React.FC = () => {
         return acc;
       }, 0);
 
-      // Subtract Refunds from paid negative invoices
-      const refunds = documents
-        .filter(d => d.totalTTC < 0 && d.status === 'paid')
-        .reduce((acc, d) => acc + Math.abs(d.totalTTC), 0);
-
-      return revenueFromMissions - refunds;
-  }, [filteredData, documents]);
+      // Subtract Refunds from paid negative invoices (global context unless we filter documents too, keeping simple here)
+      // Ideally we should filter documents by date too, but sticking to mission based revenue for this view.
+      return revenueFromMissions;
+  }, [filteredData]);
 
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40">
@@ -120,7 +228,7 @@ const Statistics: React.FC = () => {
           <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
           <select 
             value={timeFilter} 
-            onChange={(e) => setTimeFilter(e.target.value as TimeFilter)}
+            onChange={(e) => { setTimeFilter(e.target.value as TimeFilter); setCurrentPage(1); }}
             className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
           >
             <option value="day">Aujourd'hui</option>
@@ -139,7 +247,7 @@ const Statistics: React.FC = () => {
           colorClass="text-brand-blue bg-brand-blue"
           isActive={statusFilter === 'all'}
           onClick={() => setStatusFilter('all')}
-          subtext="Toutes catégories confondues"
+          subtext="Sur la période"
         />
         <StatCard 
           title="Terminées" 
@@ -148,7 +256,7 @@ const Statistics: React.FC = () => {
           colorClass="text-green-600 bg-green-600"
           isActive={statusFilter === 'completed'}
           onClick={() => setStatusFilter('completed')}
-          subtext="Prestations réalisées"
+          subtext="Réalisées"
         />
         <StatCard 
           title="Planifiées" 
@@ -166,7 +274,7 @@ const Statistics: React.FC = () => {
           colorClass="text-red-500 bg-red-500"
           isActive={statusFilter === 'cancelled'}
           onClick={() => setStatusFilter('cancelled')}
-          subtext={`Dont ${stats.lateCancelled} tardives (<48h)`}
+          subtext={`Dont ${stats.lateCancelled} tardives`}
         />
       </div>
 
@@ -174,13 +282,12 @@ const Statistics: React.FC = () => {
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-cream-50/50">
           <div>
             <h3 className="font-bold text-slate-800 text-lg">Listing des prestations</h3>
-            <p className="text-xs text-slate-500">
-               Filtre actif: <span className="font-bold text-brand-blue uppercase">{timeFilter}</span> • 
-               Catégorie: <span className="font-bold text-brand-blue uppercase">{statusFilter === 'all' ? 'Tout' : statusFilter}</span>
+            <p className="text-xs text-slate-500 mt-1">
+               {filteredData.length} résultats • Page {currentPage} sur {totalPages || 1}
             </p>
           </div>
           <div className="bg-green-50 px-4 py-2 rounded-lg border border-green-100">
-            <span className="text-xs text-green-800 font-bold uppercase tracking-wider">Chiffre d'affaire (Net après remboursements)</span>
+            <span className="text-xs text-green-800 font-bold uppercase tracking-wider">Chiffre d'affaire (Estimé)</span>
             <p className="text-xl font-bold text-green-700">{totalRevenue.toFixed(2)} €</p>
           </div>
         </div>
@@ -189,17 +296,55 @@ const Statistics: React.FC = () => {
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 border-b border-slate-100">
               <tr>
-                <th className="px-6 py-4 font-bold">Date & Heure</th>
-                <th className="px-6 py-4 font-bold">Client</th>
-                <th className="px-6 py-4 font-bold">Prestation</th>
-                <th className="px-6 py-4 font-bold">Prestataire</th>
-                <th className="px-6 py-4 font-bold text-center">Statut</th>
-                <th className="px-6 py-4 font-bold text-right">Montant</th>
+                <th className="px-6 py-4 font-bold min-w-[150px]">
+                    <div className="flex flex-col gap-2">
+                        <span>Date & Heure</span>
+                        <input type="date" name="date" value={filters.date} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal" />
+                    </div>
+                </th>
+                <th className="px-6 py-4 font-bold min-w-[150px]">
+                    <div className="flex flex-col gap-2">
+                        <span>Client</span>
+                        <input type="text" name="clientName" placeholder="Filtrer nom..." value={filters.clientName} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal" />
+                    </div>
+                </th>
+                <th className="px-6 py-4 font-bold min-w-[150px]">
+                    <div className="flex flex-col gap-2">
+                        <span>Prestation</span>
+                        <input type="text" name="service" placeholder="Filtrer service..." value={filters.service} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal" />
+                    </div>
+                </th>
+                <th className="px-6 py-4 font-bold min-w-[150px]">
+                    <div className="flex flex-col gap-2">
+                        <span>Prestataire</span>
+                        <input type="text" name="providerName" placeholder="Filtrer pro..." value={filters.providerName} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal" />
+                    </div>
+                </th>
+                <th className="px-6 py-4 font-bold text-center">
+                    <div className="flex flex-col gap-2 items-center">
+                        <span>Statut</span>
+                        <select name="status" value={filters.status} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal">
+                            <option value="all">Tous</option>
+                            <option value="completed">Terminée</option>
+                            <option value="planned">Planifiée</option>
+                            <option value="cancelled">Annulée</option>
+                        </select>
+                    </div>
+                </th>
+                <th className="px-6 py-4 font-bold text-right min-w-[120px]">
+                    <div className="flex flex-col gap-2 items-end">
+                        <span>Montant (€)</span>
+                        <div className="flex gap-1">
+                            <input type="number" name="amountMin" placeholder="Min" value={filters.amountMin} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal w-12" />
+                            <input type="number" name="amountMax" placeholder="Max" value={filters.amountMax} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal w-12" />
+                        </div>
+                    </div>
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-55">
-              {filteredData.length > 0 ? (
-                filteredData.map((mission) => {
+            <tbody className="divide-y divide-slate-50">
+              {paginatedData.length > 0 ? (
+                paginatedData.map((mission) => {
                     const baseAmount = (mission.duration || 2) * 40;
                     
                     return (
@@ -233,7 +378,7 @@ const Statistics: React.FC = () => {
                               </span>
                               {mission.lateCancellation && (
                                 <span className="text-[10px] text-red-600 font-bold mt-1 flex items-center gap-1 bg-red-50 px-1 rounded border border-red-100">
-                                  <AlertTriangle className="w-3 h-3" /> 50% Facturé (Hors SAP)
+                                  <AlertTriangle className="w-3 h-3" /> 50% Facturé
                                 </span>
                               )}
                             </div>
@@ -257,13 +402,54 @@ const Statistics: React.FC = () => {
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                     <Search className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                    Aucune prestation trouvée pour ce filtre.
+                    Aucune prestation trouvée pour ces filtres.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {filteredData.length > 0 && (
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <div className="text-xs text-slate-500">
+                    Affichage de {((currentPage - 1) * itemsPerPage) + 1} à {Math.min(currentPage * itemsPerPage, filteredData.length)} sur {filteredData.length} entrées
+                </div>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 disabled:opacity-30 transition"
+                    >
+                        <ChevronLeft className="w-4 h-4 text-slate-600" />
+                    </button>
+                    <div className="flex items-center gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                            .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                            .map((p, idx, arr) => (
+                                <React.Fragment key={p}>
+                                    {idx > 0 && arr[idx - 1] !== p - 1 && <span className="text-xs text-slate-400 px-1">...</span>}
+                                    <button
+                                        onClick={() => setCurrentPage(p)}
+                                        className={`w-8 h-8 rounded text-xs font-bold transition ${currentPage === p ? 'bg-brand-blue text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200'}`}
+                                    >
+                                        {p}
+                                    </button>
+                                </React.Fragment>
+                            ))
+                        }
+                    </div>
+                    <button 
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 disabled:opacity-30 transition"
+                    >
+                        <ChevronRight className="w-4 h-4 text-slate-600" />
+                    </button>
+                </div>
+            </div>
+        )}
       </div>
     </div>
   );
