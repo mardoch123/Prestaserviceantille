@@ -20,27 +20,7 @@ import MissionReports from './components/MissionReports';
 import Login from './components/Login';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 
-const OfflineBanner = () => {
-    const { isOnline, pendingSyncCount } = useData();
-
-    if (isOnline && pendingSyncCount === 0) return null;
-
-    return (
-        <div className={`w-full py-2 px-4 text-sm font-bold text-center flex items-center justify-center gap-2 transition-colors duration-300 ${isOnline ? 'bg-green-600 text-white' : 'bg-slate-800 text-white'}`}>
-            {!isOnline ? (
-                <>
-                    <WifiOff className="w-4 h-4" />
-                    Mode Hors-Ligne : {pendingSyncCount} action(s) en attente de synchronisation
-                </>
-            ) : (
-                <>
-                    <RotateCw className="w-4 h-4 animate-spin" />
-                    Synchronisation en cours ({pendingSyncCount} restant)...
-                </>
-            )}
-        </div>
-    );
-};
+// OfflineBanner removed
 
 const LoadingScreen = () => {
     const [showReset, setShowReset] = useState(false);
@@ -61,10 +41,10 @@ const LoadingScreen = () => {
             <Loader2 className="w-12 h-12 text-brand-blue animate-spin mb-4" />
             <p className="font-bold text-lg animate-pulse">Chargement de l'application...</p>
             <p className="text-xs text-slate-400 mt-2">Initialisation des modules...</p>
-            
+
             {showReset && (
                 <div className="mt-8 animate-in fade-in slide-in-from-bottom-4">
-                    <button 
+                    <button
                         onClick={handleReset}
                         className="bg-white border border-red-200 text-red-600 px-6 py-3 rounded-lg text-sm font-bold hover:bg-red-50 flex items-center gap-2 mx-auto shadow-sm transition"
                     >
@@ -91,7 +71,6 @@ const AppLayout: React.FC = () => {
     if (currentUser.role === 'client') {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
-                <OfflineBanner />
                 <ClientPortal />
             </div>
         );
@@ -99,8 +78,7 @@ const AppLayout: React.FC = () => {
 
     if (currentUser.role === 'provider') {
         return (
-             <div className="h-screen flex flex-col overflow-hidden">
-                <OfflineBanner />
+            <div className="h-screen flex flex-col overflow-hidden">
                 <ProviderPortal />
             </div>
         );
@@ -110,51 +88,48 @@ const AppLayout: React.FC = () => {
     return (
         <div className="flex h-screen bg-cream-50 font-sans overflow-hidden">
             <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-            
+
             {/* Main Content Wrapper */}
             <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
-              
-              {/* Offline Banner */}
-              <OfflineBanner />
 
-              {/* Header at the top */}
-              <Header onMenuClick={() => setIsSidebarOpen(true)} />
+                {/* Header at the top */}
+                <Header onMenuClick={() => setIsSidebarOpen(true)} />
 
-              {/* Content Area */}
-              <main className="flex-1 overflow-hidden relative bg-cream-50/50">
-                  {/* Decorative background elements inside the scrollable area's container */}
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl -z-10 transform translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
-                  <div className="absolute bottom-0 left-0 w-96 h-96 bg-brand-blue/5 rounded-full blur-3xl -z-10 transform -translate-x-1/2 translate-y-1/2 pointer-events-none"></div>
-                  
-                  <Routes>
-                      <Route path="/" element={<Dashboard />} />
-                      <Route path="/qrcode" element={<QRCodeManager />} />
-                      <Route path="/statistics" element={<Statistics />} />
-                      <Route path="/clients" element={<Clients />} />
-                      <Route path="/providers" element={<Providers />} />
-                      <Route path="/invoices" element={<DevisFactures />} />
-                      <Route path="/planning" element={<Planning />} />
-                      <Route path="/financials" element={<Financials />} />
-                      <Route path="/reservations" element={<Reservations />} />
-                      <Route path="/secretariat" element={<Secretariat />} />
-                      <Route path="/settings" element={<Settings />} />
-                      <Route path="/reports" element={<MissionReports />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-              </main>
+                {/* Content Area */}
+                <main className="flex-1 overflow-hidden relative bg-cream-50/50">
+                    {/* Decorative background elements inside the scrollable area's container */}
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl -z-10 transform translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
+                    <div className="absolute bottom-0 left-0 w-96 h-96 bg-brand-blue/5 rounded-full blur-3xl -z-10 transform -translate-x-1/2 translate-y-1/2 pointer-events-none"></div>
+
+                    <Routes>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/qrcode" element={<QRCodeManager />} />
+                        <Route path="/statistics" element={<Statistics />} />
+                        <Route path="/clients" element={<Clients />} />
+                        <Route path="/providers" element={<Providers />} />
+                        <Route path="/invoices" element={<DevisFactures />} />
+                        <Route path="/planning" element={<Planning />} />
+                        <Route path="/financials" element={<Financials />} />
+                        <Route path="/reservations" element={<Reservations />} />
+                        <Route path="/secretariat" element={<Secretariat />} />
+                        <Route path="/settings" element={<Settings />} />
+                        <Route path="/reports" element={<MissionReports />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                </main>
             </div>
         </div>
     );
 }
 
 const App: React.FC = () => {
-  return (
-    <DataProvider>
-        <HashRouter>
-            <AppLayout />
-        </HashRouter>
-    </DataProvider>
-  );
+    return (
+        <DataProvider>
+            <HashRouter>
+                <AppLayout />
+            </HashRouter>
+        </DataProvider>
+    );
 };
 
 export default App;

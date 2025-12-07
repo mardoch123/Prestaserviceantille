@@ -32,8 +32,8 @@ const getEnvVar = (key: string) => {
 const DEFAULT_URL = 'https://myzbkbqkjykdsaymujvl.supabase.co';
 const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15emJrYnFranlrZHNheW11anZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMzk1NjcsImV4cCI6MjA3OTYxNTU2N30.LFFKlGHjC6hfCQynUDCZp_2XdZLDrxAuK9D4NNFYbKI';
 
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || DEFAULT_URL;
-const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || DEFAULT_KEY;
+export const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || DEFAULT_URL;
+export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || DEFAULT_KEY;
 
 // Check if we have valid credentials
 export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey && supabaseUrl !== 'https://placeholder.supabase.co';
