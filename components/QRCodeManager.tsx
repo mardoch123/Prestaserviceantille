@@ -33,8 +33,9 @@ const QRCodeManager: React.FC = () => {
 
         // Construct a URL that represents the scan action
         // Ideally this URL opens the app at the scanning page with the client pre-selected
-        // For simulation, we use a generic URL structure
-        const qrData = `https://presta-antilles.app/scan?client=${clientId}`;
+        // We use window.location.origin to support both localhost and production
+        const baseUrl = window.location.origin;
+        const qrData = `${baseUrl}/#/scan?client=${clientId}`;
         const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
 
         const printWindow = window.open('', '', 'width=600,height=800');
@@ -305,8 +306,8 @@ const QRCodeManager: React.FC = () => {
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1 w-fit mx-auto ${scan.scanType === 'entry'
-                                                        ? 'bg-green-100 text-green-700 border-green-200'
-                                                        : 'bg-orange-100 text-orange-700 border-orange-200'
+                                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                                    : 'bg-orange-100 text-orange-700 border-orange-200'
                                                     }`}>
                                                     {scan.scanType === 'entry' ? <ArrowRight className="w-3 h-3" /> : <LogOut className="w-3 h-3 transform rotate-180" />}
                                                     {scan.scanType === 'entry' ? 'ENTRÉE' : 'SORTIE'}

@@ -624,12 +624,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const handleReconnection = async () => {
             if (document.visibilityState === 'visible') {
                 console.log("App focused/visible - Checking connection...");
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    setIsOnline(true);
-                    await refreshData();
-                } else {
-                    console.log("No active session found on wake.");
+                try {
+                    const { data, error } = await supabase.auth.getSession();
+                    if (error) {
+                        console.warn("Session check error on wake:", error);
+                        return;
+                    }
+
+                    if (data?.session) {
+                        setIsOnline(true);
+                        await refreshData();
+                    } else {
+                        console.log("No active session found on wake.");
+                    }
+                } catch (err) {
+                    console.warn("Unexpected error during reconnection check:", err);
+                    // Prevent crash by catching all async errors
                 }
             }
         };
@@ -813,7 +823,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     clientName: m.clientName,
                     providerName: m.providerName,
                     date: m.date,
-                    link: `https://presta-antilles.app/reports`
+                    link: `https://outremerfermetures.com/reports`
                 });
 
                 // NOTIF CLIENT
@@ -892,7 +902,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         name: clientData.name,
                         login: clientData.email,
                         password: password,
-                        link: 'https://presta-antilles.app/login'
+                        link: 'https://outremerfermetures.com/login'
                     });
 
                 } catch (e) {
@@ -959,7 +969,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         name: providerData.firstName,
                         login: providerData.email,
                         password: password,
-                        link: 'https://presta-antilles.app/login'
+                        link: 'https://outremerfermetures.com/login'
                     });
 
                 } catch (e) {
@@ -1746,14 +1756,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const secretaryName = currentUser?.name || 'Secrétaire';
 
             await sendEmail(
-                'ecoagirmartinique@gmail.com',
+                'prestaservicesantilles.rh@gmail.com',
                 `Demande de validation - Contrat ${contract.id}`,
                 'contract_validation_request',
                 {
                     contractRef: contract.id,
                     clientName: clientName,
                     secretaryName: secretaryName,
-                    link: 'https://presta-antilles.app/login'
+                    link: 'https://outremerfermetures.com/login'
                 }
             );
 
@@ -1811,7 +1821,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (approved) {
                 const clientName = contract.name || 'Client';
                 await sendEmail(
-                    'contact@presta-antilles.com',
+                    'prestaservicesantilles.rh@gmail.com',
                     `Contrat ${contract.id} validé`,
                     'contract_validated',
                     {
