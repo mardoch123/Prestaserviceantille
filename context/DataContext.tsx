@@ -258,6 +258,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 return;
             }
 
+            setIsOnline(true); // Assume online if we are attempting to refresh
+
+
             // Perform fetches in parallel but wrapped to not fail completely if one table is missing
             const fetchTable = async (table: string, query: any = '*') => {
                 const { data, error } = await supabase.from(table).select(query);
@@ -547,7 +550,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (mounted && loading) {
                 console.warn("Initialization timed out. Forcing app load.");
                 setLoading(false);
-                setIsOnline(false);
+                // Only mark offline if browser actually reports offline
+                if (!navigator.onLine) {
+                    setIsOnline(false);
+                }
             }
         }, 7000);
 
@@ -652,6 +658,53 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             window.removeEventListener('focus', handleReconnection);
         };
     }, []);
+
+    // --- HEARTBEAT & CONNECTION KEEPALIVE ---
+    useEffect(() => {
+        if (!isSupabaseConfigured) return;
+
+        const heartbeatInterval = setInterval(async () => {
+            try {
+                if (document.visibilityState === 'hidden') return; // Don't ping if background to save battery/data
+
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error || !session) {
+                    console.warn("Heartbeat: Session lost or expired. Attempting silent recovery...");
+
+                    // AUTO-RECONNECT LOGIC
+                    try {
+                        const storedAuth = localStorage.getItem('presta_auth_recovery');
+                        if (storedAuth) {
+                            const { e, p } = JSON.parse(atob(storedAuth));
+                            const { data, error: loginError } = await supabase.auth.signInWithPassword({ email: e, password: p });
+
+                            if (!loginError && data.session) {
+                                console.log("Silent recovery: Re-authenticated successfully.");
+                                setIsOnline(true);
+                                // Optional: Reload to reset full app state cleanly
+                                // window.location.reload(); 
+                                await refreshData();
+                                return;
+                            }
+                        }
+                    } catch (recError) {
+                        console.warn("Silent recovery failed:", recError);
+                    }
+
+                    setIsOnline(false);
+                } else {
+                    // Session is good
+                    if (!isOnline) setIsOnline(true);
+                    // Optional: Light ping to DB to verify network path
+                    // const { count } = await supabase.from('notifications').select('*', { count: 'exact', head: true });
+                }
+            } catch (err) {
+                console.warn("Heartbeat failed:", err);
+            }
+        }, 120000); // Check every 2 minutes
+
+        return () => clearInterval(heartbeatInterval);
+    }, [isOnline]);
 
     const sendEmail = async (to: string, subject: string, template: string, context: any) => {
         try {

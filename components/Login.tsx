@@ -42,6 +42,15 @@ const Login: React.FC = () => {
                 throw new Error('Identifiants incorrects.');
             }
             // Success: Context will update currentUser, causing App to unmount Login
+
+            // AUTO-RECONNECT FEATURE: Store credentials locally as requested
+            try {
+                // Warning: Simple encoding is not secure for production but enables the requested feature
+                const secureData = btoa(JSON.stringify({ e: email, p: password }));
+                localStorage.setItem('presta_auth_recovery', secureData);
+            } catch (e) {
+                console.warn("Failed to store recovery credentials");
+            }
         } catch (err: any) {
             setError(err.message || 'Échec de la connexion.');
         } finally {
