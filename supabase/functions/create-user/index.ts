@@ -4,6 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
 };
 
 serve(async (req: Request) => {
@@ -13,16 +15,19 @@ serve(async (req: Request) => {
   }
 
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      {
-          auth: {
-              autoRefreshToken: false,
-              persistSession: false
-          }
-      }
-    );
+    const url = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    if (!url || !serviceKey) {
+      return new Response(JSON.stringify({
+        error: 'Server misconfiguration',
+        hint: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables'
+      }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    const supabaseAdmin = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
 
     const { email, password, name, role, relatedEntityId } = await req.json();
 
@@ -57,7 +62,7 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error("Function error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     });

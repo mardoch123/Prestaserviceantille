@@ -178,10 +178,7 @@ const Planning: React.FC = () => {
           showToast(count > 1 ? `${count} missions planifiées !` : 'Mission ajoutée avec succès !');
           
           // Refresh data to get real IDs from DB for the newly created missions
-          if (refreshData) {
-              const timeout = new Promise<void>((resolve) => setTimeout(() => resolve(), 3000));
-              await Promise.race([refreshData(), timeout]);
-          }
+          if (refreshData) await refreshData();
 
           setIsModalOpen(false);
           setMissionForm(initialFormState); // Reset form cleanly
@@ -292,7 +289,7 @@ const Planning: React.FC = () => {
   };
 
   const unassignedMissions = missions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
-  const missionToAssign = missions.find(m => m.id === selectedMissionId) || unassignedMissions.find(m => m.id === selectedMissionId) || null;
+  const missionToAssign = missions.find(m => m.id === selectedMissionId);
 
   const getDayIndex = (dateStr: string) => {
       const d = new Date(dateStr);
@@ -748,7 +745,7 @@ const Planning: React.FC = () => {
        )}
 
        {/* ASSIGNMENT MODAL */}
-       {selectedMissionId !== null && (
+       {selectedMissionId && missionToAssign && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
                     <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
@@ -764,15 +761,15 @@ const Planning: React.FC = () => {
                     <div className="p-6 space-y-6">
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
                             <h4 className="font-bold text-slate-700 mb-2 border-b pb-1">Détails Mission</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                                 <div className="text-slate-500">Client</div>
-                                <div className="font-bold text-slate-800">{missionToAssign?.clientName || '—'}</div>
+                                <div className="font-bold text-slate-800">{missionToAssign.clientName}</div>
                                 <div className="text-slate-500">Date</div>
-                                <div className="font-bold text-slate-800">{missionToAssign?.date || '—'}</div>
+                                <div className="font-bold text-slate-800">{missionToAssign.date}</div>
                                 <div className="text-slate-500">Horaire</div>
-                                <div className="font-bold text-slate-800">{missionToAssign?.startTime || '—'} - {missionToAssign?.endTime || '—'}</div>
+                                <div className="font-bold text-slate-800">{missionToAssign.startTime} - {missionToAssign.endTime}</div>
                                 <div className="text-slate-500">Service</div>
-                                <div className="font-bold text-brand-blue">{missionToAssign?.service || '—'}</div>
+                                <div className="font-bold text-brand-blue">{missionToAssign.service}</div>
                             </div>
                         </div>
 
@@ -785,7 +782,7 @@ const Planning: React.FC = () => {
                             >
                                 <option value="">Sélectionner dans la liste...</option>
                                 {providers.map(p => {
-                                    const available = missionToAssign ? isProviderAvailable(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : true;
+                                    const available = missionToAssign.date ? isProviderAvailable(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : true;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available} className={!available ? 'text-slate-400' : ''}>
                                             {p.firstName} {p.lastName} {available ? '✅' : '(Indisponible/Congés)'}
@@ -806,7 +803,7 @@ const Planning: React.FC = () => {
                             <button onClick={() => setSelectedMissionId(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-lg transition">Annuler</button>
                             <button 
                                 onClick={handleConfirmAssignment}
-                                disabled={!assignProviderId || !missionToAssign}
+                                disabled={!assignProviderId}
                                 className="px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                             >
                                 <Mail className="w-4 h-4" /> Envoyer & Assigner

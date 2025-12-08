@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
     PackagePlus,
@@ -35,13 +37,16 @@ import {
     Briefcase,
     Download,
     HelpCircle,
-    Filter
+    Filter,
+    Calendar,
+    SlidersHorizontal,
+    XCircle
 } from 'lucide-react';
-import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
+import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL } from '../context/DataContext';
 import { Pack, Reminder, Message, Client, Expense, Contract, Mission } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'scans';
+type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses';
 
 // EXACT LIST FROM PDF OCR
 const SAP_SERVICES = [
@@ -89,14 +94,14 @@ const Secretariat: React.FC = () => {
         replyToClient,
         expenses,
         addExpense,
-        updateExpense,
-        deleteExpense,
         companySettings,
         missions,
         legalTemplate,
         updateLeaveStatus,
-        sendEmail,
-        visitScans
+        updateExpense,
+        requestContractValidation,
+        validateContract,
+        currentUser
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -104,6 +109,15 @@ const Secretariat: React.FC = () => {
     const [modalType, setModalType] = useState<'pack' | 'contract' | 'reminder' | 'expense'>('pack');
     const navigate = useNavigate();
     const location = useLocation();
+
+    // --- EXPENSE FILTERS STATE ---
+    const [expenseFilters, setExpenseFilters] = useState({
+        startDate: '',
+        endDate: '',
+        category: '',
+        minAmount: '',
+        maxAmount: ''
+    });
 
     // Delete Modal State
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -127,13 +141,6 @@ const Secretariat: React.FC = () => {
     const [adminMessageInput, setAdminMessageInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
 
-    // --- EXPENSE FILTER STATE ---
-    const [expenseSearch, setExpenseSearch] = useState('');
-    const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
-    const [expenseDateStart, setExpenseDateStart] = useState<string>('');
-    const [expenseDateEnd, setExpenseDateEnd] = useState<string>('');
-    const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
-
     // Handle external redirects (e.g., from notifications)
     useEffect(() => {
         if (location.state) {
@@ -149,18 +156,19 @@ const Secretariat: React.FC = () => {
     // Scroll to bottom of chat
     useEffect(() => {
         if (activeTab === 'messaging' && selectedChatClientId) {
+            // Small timeout to ensure DOM is rendered
             setTimeout(() => {
                 chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
             }, 100);
         }
     }, [messages, selectedChatClientId, activeTab]);
 
-    // --- PACK FORM STATE ---
+    // --- PACK FORM STATE (UPDATED TO MATCH PDF PROCESS) ---
     const [packStep, setPackStep] = useState(1);
     const [packForm, setPackForm] = useState<Partial<Pack>>({
         type: 'ponctuel',
         hours: 3,
-        frequency: 'Ponctuelle',
+        frequency: 'Ponctuelle', // Default per PDF
         priceHT: 0,
         suppliesIncluded: false,
         isSap: true,
@@ -170,10 +178,13 @@ const Secretariat: React.FC = () => {
         schedules: []
     });
 
+    // Extra state for "Régulier" days count
     const [regularDaysCount, setRegularDaysCount] = useState(1);
 
     // --- CONTRACT EDIT STATE ---
     const [contractForm, setContractForm] = useState<Partial<Contract>>({ name: '', content: '' });
+
+    // Contract specific selectors for PDF Logic
     const [selectedClientIdForContract, setSelectedClientIdForContract] = useState<string>('');
     const [selectedPackIdForContract, setSelectedPackIdForContract] = useState<string>('');
     const [contractLogoType, setContractLogoType] = useState<'SAP' | 'Standard'>('SAP');
@@ -185,18 +196,31 @@ const Secretariat: React.FC = () => {
 
     // Expense Form
     const [expenseForm, setExpenseForm] = useState<Partial<Expense>>({
+        id: '',
         category: 'fournitures',
         amount: 0,
+        description: '',
         date: new Date().toISOString().split('T')[0]
     });
 
-    const [scanSearch, setScanSearch] = useState('');
-    const [scanClientId, setScanClientId] = useState<string>('all');
-    const [scanTypeFilter, setScanTypeFilter] = useState<'all' | 'entry' | 'exit'>('all');
-    const [scanDateStart, setScanDateStart] = useState<string>('');
-    const [scanDateEnd, setScanDateEnd] = useState<string>('');
-    const [scanTimeStart, setScanTimeStart] = useState<string>('');
-    const [scanTimeEnd, setScanTimeEnd] = useState<string>('');
+    const filteredExpenses = useMemo(() => {
+        return expenses.filter(exp => {
+            const date = new Date(exp.date);
+            const start = expenseFilters.startDate ? new Date(expenseFilters.startDate) : null;
+            const end = expenseFilters.endDate ? new Date(expenseFilters.endDate) : null;
+            const amount = exp.amount;
+            const min = expenseFilters.minAmount ? parseFloat(expenseFilters.minAmount) : 0;
+            const max = expenseFilters.maxAmount ? parseFloat(expenseFilters.maxAmount) : Infinity;
+
+            if (start && date < start) return false;
+            if (end && date > end) return false;
+            if (expenseFilters.category && exp.category !== expenseFilters.category) return false;
+            if (amount < min) return false;
+            if (amount <= max && max !== Infinity && amount > max) return false;
+
+            return true;
+        });
+    }, [expenses, expenseFilters]);
 
     const openConfirmation = (title: string, message: string, onConfirm: () => void) => {
         setConfirmationModal({ open: true, title, message, onConfirm });
@@ -216,7 +240,7 @@ const Secretariat: React.FC = () => {
 
     const handleSavePack = async () => {
         const priceHT = packForm.priceHT || 0;
-        const tva = 0.021; // 2.1%
+        const tva = 0.021; // 2.1% from PDF
         const priceTTC = priceHT * (1 + tva);
         const taxCredit = priceTTC * 0.5;
 
@@ -226,7 +250,7 @@ const Secretariat: React.FC = () => {
         }
 
         const newPack: Pack = {
-            id: '',
+            id: '', // Will be generated
             name: packForm.name || 'Nouveau Pack',
             mainService: packForm.mainService || 'Service',
             description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
@@ -240,22 +264,25 @@ const Secretariat: React.FC = () => {
             suppliesIncluded: packForm.suppliesIncluded || false,
             suppliesDetails: packForm.suppliesDetails,
             contractType: packForm.contractType || 'Contrat Prestataire Standard',
-            isSap: packForm.isSap ?? true,
+            isSap: true,
             schedules: []
         };
 
         const createdPackId = await addPack(newPack);
 
         if (createdPackId) {
+            // AUTO-GENERATE CONTRACT
             const contractContent = legalTemplate.replace('[INFO_PACK]', `Nom : ${newPack.name}\nService : ${newPack.mainService}\nType Contrat : ${newPack.contractType}`);
+
             await addContract({
                 id: '',
                 name: `Contrat Type - ${newPack.name}`,
                 content: contractContent,
                 packId: createdPackId,
                 status: 'draft',
-                isSap: newPack.isSap
+                isSap: true
             });
+
             showToast('Pack créé et Contrat Type généré automatiquement !');
         } else {
             showToast('Pack créé avec succès.');
@@ -282,6 +309,7 @@ const Secretariat: React.FC = () => {
         setRegularDaysCount(1);
     };
 
+    // Pack Selection Logic
     const togglePackSelection = (id: string) => {
         const newSet = new Set(selectedPackIds);
         if (newSet.has(id)) {
@@ -308,12 +336,13 @@ const Secretariat: React.FC = () => {
     const openContractModal = (contract?: Contract) => {
         if (contract) {
             setContractForm(contract);
-            setSelectedClientIdForContract('');
+            // If editing existing contract, ensure we have IDs if present
+            setSelectedClientIdForContract(''); // Reset selectors on edit generally unless linked
             setSelectedPackIdForContract(contract.packId || '');
             setContractLogoType(contract.isSap ? 'SAP' : 'Standard');
         } else {
             setContractForm({
-                id: '',
+                id: '', // Will be generated
                 name: 'Nouveau Contrat',
                 content: legalTemplate,
                 status: 'draft'
@@ -327,23 +356,29 @@ const Secretariat: React.FC = () => {
     };
 
     const handleGenerateContractContent = () => {
+        // VALIDATION: Must select Client and Pack
         if (!selectedClientIdForContract || !selectedPackIdForContract) {
             showToast("Veuillez sélectionner un client et un pack avant de générer le contrat.", 'error');
             return;
         }
 
         let content = legalTemplate;
+
+        // Inject Client Info
         const client = clients.find(c => c.id === selectedClientIdForContract);
         if (client) {
             const clientInfo = `Nom : ${client.name}\nAdresse : ${client.address}, ${client.city}\nTéléphone : ${client.phone}\nEmail : ${client.email}`;
             content = content.replace('[INFO_CLIENT]', clientInfo);
         }
 
+        // Inject Pack Info
         const pack = packs.find(p => p.id === selectedPackIdForContract);
         if (pack) {
             const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}`;
             content = content.replace('[INFO_PACK]', packInfo);
         }
+
+        // Inject Date
         content = content.replace('[DATE]', new Date().toLocaleDateString());
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
@@ -363,7 +398,7 @@ const Secretariat: React.FC = () => {
                     await updateContract(existing.id, {
                         name: contractForm.name,
                         content: contractForm.content,
-                        packId: selectedPackIdForContract || existing.packId,
+                        packId: selectedPackIdForContract || existing.packId, // Preserve or update
                         isSap: contractLogoType === 'SAP'
                     });
                     showToast('Contrat modifié.');
@@ -373,6 +408,7 @@ const Secretariat: React.FC = () => {
                 }
                 setIsModalOpen(false);
             } else {
+                // New creation
                 await addContract(contractPayload);
                 showToast('Nouveau contrat sauvegardé.');
                 setIsModalOpen(false);
@@ -382,16 +418,9 @@ const Secretariat: React.FC = () => {
         }
     };
 
-    const handleRequestValidation = async (contractId: string) => {
-        const contract = contracts.find(c => c.id === contractId);
-        if (contract) {
-            await updateContract(contractId, { status: 'pending_validation' });
-            await sendEmail('ecoagirmartinique@gmail.com', 'Validation Contrat Requise', 'contract_validation', {
-                contractName: contract.name,
-                clientName: 'Client Associé'
-            });
-            showToast('Demande de validation envoyée à l\'administrateur par email.');
-        }
+    const handleRequestValidation = (contractId: string) => {
+        requestContractValidation(contractId);
+        showToast('Demande de validation envoyée au super administrateur avec succès.');
     };
 
     const handleSaveReminder = () => {
@@ -408,35 +437,20 @@ const Secretariat: React.FC = () => {
         }
     };
 
-    // --- EXPENSE ACTIONS ---
-    const openExpenseModal = (expense?: Expense) => {
-        if (expense) {
-            setEditingExpenseId(expense.id);
-            setExpenseForm(expense);
-        } else {
-            setEditingExpenseId(null);
-            setExpenseForm({
-                category: 'fournitures',
-                amount: 0,
-                date: new Date().toISOString().split('T')[0]
-            });
-        }
-        setModalType('expense');
-        setIsModalOpen(true);
-    };
-
     const handleSaveExpense = async () => {
         if (expenseForm.description && expenseForm.amount && expenseForm.date) {
-            if (editingExpenseId) {
-                await updateExpense(editingExpenseId, {
+            if (expenseForm.id) {
+                // MODE MODIFICATION
+                await updateExpense(expenseForm.id, {
                     description: expenseForm.description,
                     amount: expenseForm.amount,
                     date: expenseForm.date,
-                    category: expenseForm.category
+                    category: expenseForm.category || 'autre'
                 });
-                showToast('Dépense modifiée.');
+                showToast('Dépense mise à jour.');
             } else {
-                await addExpense({
+                // MODE CRÉATION
+                addExpense({
                     id: `e-${Date.now()}`,
                     description: expenseForm.description,
                     amount: expenseForm.amount,
@@ -447,32 +461,29 @@ const Secretariat: React.FC = () => {
                 showToast('Dépense ajoutée à la comptabilité.');
             }
             setIsModalOpen(false);
-            setEditingExpenseId(null);
-            setExpenseForm({ category: 'fournitures', amount: 0 });
+            setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: '' });
+        } else {
+            showToast('Veuillez remplir tous les champs obligatoires.', 'error');
         }
     };
 
-    const handleDeleteExpense = async (id: string) => {
-        if (window.confirm("Supprimer cette dépense ?")) {
-            await deleteExpense(id);
-            showToast('Dépense supprimée.');
-        }
+    const handleEditExpense = (expense: Expense) => {
+        setExpenseForm(expense);
+        setModalType('expense');
+        setIsModalOpen(true);
     };
 
     const handleAdminValidation = async (contractId: string) => {
-        const contract = contracts.find(c => c.id === contractId);
-        if (!contract) return;
-
-        await sendEmail('ecoagirmartinique@gmail.com', 'Aperçu Contrat à valider', 'contract_validation', {
-            contractName: contract.name,
-            clientName: 'Client Associé'
-        });
-
-        handleDownloadPDF({ ...contract, status: contract.status });
-        showToast('Aperçu envoyé à l\'admin. Validation en attente.');
+        if (currentUser?.role !== 'super_admin') {
+            showToast('Action non autorisée. Réservé au Super Admin.', 'error');
+            return;
+        }
+        await validateContract(contractId, true); // True for validate
+        showToast('Contrat validé et cacheté définitivement.');
     };
 
     const handleDownloadPDF = (contract: Contract) => {
+        // Simulated PDF Download via Print Window
         const printWindow = window.open('', '', 'width=800,height=600');
         if (printWindow) {
             printWindow.document.write(`
@@ -492,11 +503,9 @@ const Secretariat: React.FC = () => {
               </head>
               <body>
                 <div class="header">
-                   <img src="${contract.isSap ? LOGO_SAP : LOGO_NORMAL}" class="logo" />
+                   <img src="${LOGO_NORMAL}" class="logo" />
                    <h2>${companySettings.name}</h2>
                    <p>${companySettings.address} | N° SAP: ${companySettings.siret}</p>
-                   <p>Email: ${companySettings.email}</p>
-                   <p>Assurance RCP: Contrat n° RCP250714175810 – Assurup (Hiscox) – Validité: 01/08/2025 → 31/07/2026 – Plafond: 100 000 € par période</p>
                 </div>
                 <div class="content">
                   ${contract.content}
@@ -524,6 +533,7 @@ const Secretariat: React.FC = () => {
         if (selectedChatClientId && adminMessageInput.trim()) {
             await replyToClient(adminMessageInput, selectedChatClientId);
             setAdminMessageInput('');
+            // Re-scroll handled by useEffect
         }
     };
 
@@ -532,19 +542,22 @@ const Secretariat: React.FC = () => {
         showToast(status === 'approved' ? 'Absence validée. Planning mis à jour.' : 'Absence refusée.');
     };
 
+    // --- ABSENCE CONFLICT LOGIC ---
     const absenceConflicts = useMemo(() => {
         const conflicts: { mission: Mission, providerName: string, leaveStart: string, leaveEnd: string }[] = [];
         providers.forEach(provider => {
             provider.leaves.forEach(leave => {
-                if (leave.status === 'rejected') return;
+                if (leave.status === 'rejected') return; // Ignore rejected leaves
                 const start = new Date(leave.startDate);
                 const end = new Date(leave.endDate);
 
+                // Find missions during this leave
                 const providerMissions = missions.filter(m => m.providerId === provider.id && m.status === 'planned');
                 providerMissions.forEach(mission => {
                     if (mission.date) {
                         const missionDate = new Date(mission.date);
                         if (missionDate >= start && missionDate <= end) {
+                            // TODO: Enhance conflict check with times if needed
                             conflicts.push({
                                 mission,
                                 providerName: `${provider.firstName} ${provider.lastName}`,
@@ -559,26 +572,19 @@ const Secretariat: React.FC = () => {
         return conflicts;
     }, [providers, missions]);
 
+    // Agenda Data (Sorted Missions)
     const agendaMissions = useMemo(() => {
         return [...missions]
             .filter(m => m.status === 'planned')
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }, [missions]);
 
-    // --- FILTERED EXPENSES ---
-    const filteredExpenses = useMemo(() => {
-        return expenses.filter(e => {
-            const matchSearch = e.description.toLowerCase().includes(expenseSearch.toLowerCase());
-            const matchCategory = expenseCategoryFilter === 'all' || e.category === expenseCategoryFilter;
-            const matchStart = !expenseDateStart || e.date >= expenseDateStart;
-            const matchEnd = !expenseDateEnd || e.date <= expenseDateEnd;
-            return matchSearch && matchCategory && matchStart && matchEnd;
-        });
-    }, [expenses, expenseSearch, expenseCategoryFilter, expenseDateStart, expenseDateEnd]);
-
+    // Expenses Stats (Computed from Filtered)
     const totalExpenses = filteredExpenses.reduce((acc, curr) => acc + curr.amount, 0);
 
+    // Chat Logic
     const chatClients = clients;
+    // Sort messages to ensure chronological order
     const currentChatMessages = useMemo(() => {
         return messages
             .filter(m => m.clientId === selectedChatClientId)
@@ -587,6 +593,7 @@ const Secretariat: React.FC = () => {
 
     return (
         <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
+            {/* Toast */}
             <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
                 <div className={`bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700 ${toast.type === 'error' ? 'bg-red-800 border-red-700' : ''}`}>
                     <div className={`p-1 rounded-full text-white ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
@@ -601,19 +608,45 @@ const Secretariat: React.FC = () => {
 
             <h2 className="text-3xl font-serif font-bold text-slate-800 mb-6">Secrétariat</h2>
 
+            {/* Tabs */}
             <div className="flex flex-wrap gap-1 mb-6 bg-slate-100 p-1 rounded-lg w-fit">
-                <button onClick={() => setActiveTab('packs')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'packs' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><PackagePlus className="w-4 h-4" /> Packs & Contrats</button>
-                <button onClick={() => setActiveTab('absences')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'absences' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><CalendarX className="w-4 h-4" /> Absences</button>
-                <button onClick={() => setActiveTab('agenda')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'agenda' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><StickyNote className="w-4 h-4" /> Agenda</button>
-                <button onClick={() => setActiveTab('messaging')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'messaging' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><MessageSquare className="w-4 h-4" /> Messagerie</button>
-                <button onClick={() => setActiveTab('expenses')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'expenses' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><Euro className="w-4 h-4" /> Comptabilité</button>
-                <button onClick={() => setActiveTab('scans')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'scans' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}><HelpCircle className="w-4 h-4" /> Historique Scans</button>
+                <button
+                    onClick={() => setActiveTab('packs')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'packs' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <PackagePlus className="w-4 h-4" /> Packs & Contrats
+                </button>
+                <button
+                    onClick={() => setActiveTab('absences')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'absences' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <CalendarX className="w-4 h-4" /> Absences
+                </button>
+                <button
+                    onClick={() => setActiveTab('agenda')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'agenda' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <StickyNote className="w-4 h-4" /> Agenda
+                </button>
+                <button
+                    onClick={() => setActiveTab('messaging')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'messaging' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <MessageSquare className="w-4 h-4" /> Messagerie
+                </button>
+                <button
+                    onClick={() => setActiveTab('expenses')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'expenses' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <Euro className="w-4 h-4" /> Comptabilité
+                </button>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[500px] p-6">
+
+                {/* --- TAB: PACKS & CONTRACTS --- */}
                 {activeTab === 'packs' && (
                     <div className="space-y-8">
-                        {/* ... (Existing code for Packs UI) ... */}
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-3">
                                 <h3 className="text-lg font-bold text-slate-700">Gestion des Packs</h3>
@@ -627,6 +660,7 @@ const Secretariat: React.FC = () => {
                                 <Plus className="w-4 h-4" /> Créer un Pack
                             </button>
                         </div>
+                        {/* Packs List */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {packs.map(pack => (
                                 <div key={pack.id} className={`border rounded-lg p-4 hover:shadow-md transition bg-cream-50/30 relative ${selectedPackIds.has(pack.id) ? 'border-brand-blue ring-1 ring-brand-blue' : 'border-slate-200'}`}>
@@ -653,7 +687,9 @@ const Secretariat: React.FC = () => {
                                         <span>{pack.priceHT}€ HT</span>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between">
-                                        <span className="text-xs text-green-600 font-medium">Crédit Impôt: {pack.priceTaxCredit}€</span>
+                                        <span className="text-xs text-green-600 font-medium">
+                                            Crédit Impôt: {pack.priceTaxCredit}€
+                                        </span>
                                         {pack.isSap && <span className="text-[10px] bg-brand-blue text-white px-1 rounded">SAP</span>}
                                     </div>
                                 </div>
@@ -668,7 +704,7 @@ const Secretariat: React.FC = () => {
                         </div>
                         <div className="space-y-3">
                             {contracts.map(contract => (
-                                <div key={contract.id} className={`flex flex-col md:flex-row md:items-center justify-between p-4 border rounded-lg gap-4 ${contract.status === 'pending_validation' ? 'border-orange-200 bg-orange-50' : 'border-slate-200'}`}>
+                                <div key={contract.id} className={`flex items-center justify-between p-4 border rounded-lg ${contract.status === 'pending_validation' ? 'border-orange-200 bg-orange-50' : 'border-slate-200'}`}>
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-slate-100 rounded">
                                             <FileSignature className="w-5 h-5 text-slate-500" />
@@ -683,22 +719,48 @@ const Secretariat: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 self-end md:self-auto">
+                                    <div className="flex items-center gap-2">
                                         <button onClick={() => handleDownloadPDF(contract)} className="text-slate-400 hover:text-brand-blue p-1" title="Télécharger PDF">
                                             <Download className="w-4 h-4" />
                                         </button>
-                                        <button onClick={() => openContractModal(contract)} className="text-slate-400 hover:text-brand-blue p-1 border border-transparent hover:border-slate-200 rounded" title="Modifier / Renommer">
+                                        <button
+                                            onClick={() => openContractModal(contract)}
+                                            className="text-slate-400 hover:text-brand-blue p-1 border border-transparent hover:border-slate-200 rounded"
+                                            title="Modifier / Renommer"
+                                        >
                                             <Edit className="w-4 h-4" />
                                         </button>
+
                                         {contract.status === 'draft' && (
-                                            <button onClick={() => openConfirmation("Confirmer demande", "Envoyer une demande de validation ?", () => handleRequestValidation(contract.id))} className="text-brand-orange hover:text-orange-700 transition text-xs font-bold px-3 py-1 rounded flex items-center gap-1 bg-orange-50 border border-orange-200">
+                                            <button
+                                                onClick={() => openConfirmation("Confirmer demande", "Envoyer une demande de validation ?", () => handleRequestValidation(contract.id))}
+                                                className="text-brand-orange hover:text-orange-700 transition text-xs font-bold px-3 py-1 rounded flex items-center gap-1 bg-orange-50 border border-orange-200"
+                                            >
                                                 <Mail className="w-3 h-3" /> Demander Validation
                                             </button>
                                         )}
+
                                         {contract.status === 'pending_validation' && (
-                                            <button onClick={() => openConfirmation("Valider Contrat", "Valider définitivement ce contrat ?", () => handleAdminValidation(contract.id))} className="text-brand-blue hover:text-teal-700 transition text-xs font-bold border border-brand-blue/30 px-3 py-1 rounded flex items-center gap-1 bg-blue-50">
-                                                <Stamp className="w-3 h-3" /> Valider (Admin)
-                                            </button>
+                                            currentUser?.role === 'super_admin' ? (
+                                                <div className="flex gap-1">
+                                                    <button
+                                                        onClick={() => openConfirmation("Rejeter Contrat", "Refuser la validation de ce contrat ?", () => validateContract(contract.id, false))}
+                                                        className="text-red-600 hover:text-red-700 transition text-xs font-bold border border-red-200 px-3 py-1 rounded flex items-center gap-1 bg-red-50"
+                                                    >
+                                                        <XCircle className="w-3 h-3" /> Rejeter
+                                                    </button>
+                                                    <button
+                                                        onClick={() => openConfirmation("Valider Contrat", "Valider définitivement ce contrat ?", () => handleAdminValidation(contract.id))}
+                                                        className="text-white hover:bg-green-700 transition text-xs font-bold border border-transparent px-3 py-1 rounded flex items-center gap-1 bg-green-600 shadow-sm"
+                                                    >
+                                                        <Stamp className="w-3 h-3" /> Valider (Super Admin)
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-orange-600 italic font-medium flex items-center gap-1 bg-orange-50 px-2 py-1 rounded border border-orange-100">
+                                                    <Clock className="w-3 h-3" /> En attente validation Super Admin
+                                                </span>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -707,8 +769,8 @@ const Secretariat: React.FC = () => {
                     </div>
                 )}
 
+                {/* ... [AGENDA, MESSAGING, COMPTABILITÉ - Updated Messaging] ... */}
                 {activeTab === 'agenda' && (
-                    /* ... (Agenda UI same as before) ... */
                     <div>
                         <div className="flex items-center justify-between mb-6">
                             <h3 className="text-lg font-bold text-slate-700">Agenda des Missions</h3>
@@ -748,17 +810,23 @@ const Secretariat: React.FC = () => {
                 )}
 
                 {activeTab === 'messaging' && (
-                    /* ... (Messaging UI same as before) ... */
                     <div className="flex h-[600px] border rounded-lg overflow-hidden">
+                        {/* Sidebar Users */}
                         <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto">
                             <div className="p-4 border-b bg-white font-bold text-slate-700">Conversations</div>
                             {chatClients.map(client => (
-                                <div key={client.id} onClick={() => setSelectedChatClientId(client.id)} className={`p-4 border-b cursor-pointer hover:bg-blue-50 transition ${selectedChatClientId === client.id ? 'bg-blue-100 border-l-4 border-l-brand-blue' : ''}`}>
+                                <div
+                                    key={client.id}
+                                    onClick={() => setSelectedChatClientId(client.id)}
+                                    className={`p-4 border-b cursor-pointer hover:bg-blue-50 transition ${selectedChatClientId === client.id ? 'bg-blue-100 border-l-4 border-l-brand-blue' : ''}`}
+                                >
                                     <div className="font-bold text-slate-800 text-sm">{client.name}</div>
                                     <div className="text-xs text-slate-500 truncate">{client.city}</div>
                                 </div>
                             ))}
                         </div>
+
+                        {/* Chat Area */}
                         <div className="w-2/3 flex flex-col bg-white">
                             {selectedChatClientId ? (
                                 <>
@@ -774,18 +842,33 @@ const Secretariat: React.FC = () => {
                                                     <div className={`max-w-[80%] p-3 rounded-xl text-sm shadow-sm ${msg.sender === 'admin' ? 'bg-brand-blue text-white rounded-tr-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'}`}>
                                                         <p>{msg.text}</p>
                                                         <div className="flex justify-between items-center mt-1 gap-4">
-                                                            <span className={`text-[10px] ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>{new Date(msg.date).toLocaleTimeString()}</span>
-                                                            {msg.sender === 'admin' && <span className="text-[10px] text-blue-200">{msg.read ? 'Lu' : 'Envoyé'}</span>}
+                                                            <span className={`text-[10px] ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>
+                                                                {new Date(msg.date).toLocaleTimeString()}
+                                                            </span>
+                                                            {msg.sender === 'admin' && (
+                                                                <span className="text-[10px] text-blue-200">
+                                                                    {msg.read ? 'Lu' : 'Envoyé'}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
                                             ))
                                         )}
+                                        {/* Hidden element to scroll to */}
                                         <div ref={chatEndRef} />
                                     </div>
                                     <form onSubmit={handleSendAdminMessage} className="p-4 border-t bg-white flex gap-2">
-                                        <input type="text" className="flex-1 border rounded-lg px-4 py-2 text-sm outline-none focus:border-brand-blue" placeholder="Votre réponse..." value={adminMessageInput} onChange={e => setAdminMessageInput(e.target.value)} />
-                                        <button type="submit" className="bg-brand-blue text-white p-2 rounded-lg hover:bg-teal-700 disabled:opacity-50" disabled={!adminMessageInput.trim()}><Send className="w-5 h-5" /></button>
+                                        <input
+                                            type="text"
+                                            className="flex-1 border rounded-lg px-4 py-2 text-sm outline-none focus:border-brand-blue"
+                                            placeholder="Votre réponse..."
+                                            value={adminMessageInput}
+                                            onChange={e => setAdminMessageInput(e.target.value)}
+                                        />
+                                        <button type="submit" className="bg-brand-blue text-white p-2 rounded-lg hover:bg-teal-700 disabled:opacity-50" disabled={!adminMessageInput.trim()}>
+                                            <Send className="w-5 h-5" />
+                                        </button>
                                     </form>
                                 </>
                             ) : (
@@ -800,59 +883,91 @@ const Secretariat: React.FC = () => {
 
                 {activeTab === 'expenses' && (
                     <div>
-                        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-700">Comptabilité Générale</h3>
-                            <div className="flex flex-wrap gap-2">
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="Rechercher..."
-                                        className="pl-8 pr-3 py-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none"
-                                        value={expenseSearch}
-                                        onChange={(e) => setExpenseSearch(e.target.value)}
-                                    />
-                                    <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                                </div>
-                                <select
-                                    className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none"
-                                    value={expenseCategoryFilter}
-                                    onChange={(e) => setExpenseCategoryFilter(e.target.value)}
-                                >
-                                    <option value="all">Toutes catégories</option>
-                                    <option value="fournitures">Fournitures</option>
-                                    <option value="carburant">Carburant</option>
-                                    <option value="administratif">Administratif</option>
-                                    <option value="autre">Autre</option>
-                                </select>
-                                <input
-                                    type="date"
-                                    className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none"
-                                    value={expenseDateStart}
-                                    onChange={(e) => setExpenseDateStart(e.target.value)}
-                                    placeholder="Début"
-                                />
-                                <input
-                                    type="date"
-                                    className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none"
-                                    value={expenseDateEnd}
-                                    onChange={(e) => setExpenseDateEnd(e.target.value)}
-                                    placeholder="Fin"
-                                />
-                                <button onClick={() => openExpenseModal()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700">
-                                    <Plus className="w-4 h-4" /> Saisir Dépense
-                                </button>
-                            </div>
+                            <button onClick={() => { setModalType('expense'); setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: new Date().toISOString().split('T')[0] }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700">
+                                <Plus className="w-4 h-4" /> Saisir Dépense
+                            </button>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex items-center gap-4">
                                 <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600">
                                     <TrendingUp className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 uppercase font-bold">Total Dépenses</p>
+                                    <p className="text-xs text-slate-500 uppercase font-bold">Total Filtré</p>
                                     <p className="text-2xl font-bold text-slate-800">{totalExpenses.toFixed(2)} €</p>
                                 </div>
+                            </div>
+
+                            {/* FILTERS UI */}
+                            <div className="md:col-span-3 bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
+                                <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded">
+                                    <Filter className="w-4 h-4" /> Filtres
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="date"
+                                        value={expenseFilters.startDate}
+                                        onChange={e => setExpenseFilters({ ...expenseFilters, startDate: e.target.value })}
+                                        className="border rounded px-2 py-1 text-xs"
+                                        title="Date début"
+                                    />
+                                    <span className="text-slate-300">-</span>
+                                    <input
+                                        type="date"
+                                        value={expenseFilters.endDate}
+                                        onChange={e => setExpenseFilters({ ...expenseFilters, endDate: e.target.value })}
+                                        className="border rounded px-2 py-1 text-xs"
+                                        title="Date fin"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-2 border-l pl-4">
+                                    <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+                                    <select
+                                        value={expenseFilters.category}
+                                        onChange={e => setExpenseFilters({ ...expenseFilters, category: e.target.value })}
+                                        className="border rounded px-2 py-1 text-xs bg-white"
+                                    >
+                                        <option value="">Toutes Catégories</option>
+                                        <option value="fournitures">Fournitures</option>
+                                        <option value="carburant">Carburant</option>
+                                        <option value="administratif">Administratif</option>
+                                        <option value="autre">Autre</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex items-center gap-2 border-l pl-4">
+                                    <Euro className="w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="number"
+                                        placeholder="Min"
+                                        value={expenseFilters.minAmount}
+                                        onChange={e => setExpenseFilters({ ...expenseFilters, minAmount: e.target.value })}
+                                        className="border rounded px-2 py-1 text-xs w-20"
+                                    />
+                                    <span className="text-slate-300">-</span>
+                                    <input
+                                        type="number"
+                                        placeholder="Max"
+                                        value={expenseFilters.maxAmount}
+                                        onChange={e => setExpenseFilters({ ...expenseFilters, maxAmount: e.target.value })}
+                                        className="border rounded px-2 py-1 text-xs w-20"
+                                    />
+                                </div>
+
+                                {(expenseFilters.startDate || expenseFilters.endDate || expenseFilters.category || expenseFilters.minAmount || expenseFilters.maxAmount) && (
+                                    <button
+                                        onClick={() => setExpenseFilters({ startDate: '', endDate: '', category: '', minAmount: '', maxAmount: '' })}
+                                        className="text-xs text-red-500 hover:text-red-700 underline ml-auto"
+                                    >
+                                        Effacer
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -864,15 +979,14 @@ const Secretariat: React.FC = () => {
                                         <th className="px-6 py-3">Description</th>
                                         <th className="px-6 py-3">Catégorie</th>
                                         <th className="px-6 py-3 text-right">Montant</th>
-                                        <th className="px-6 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {filteredExpenses.length === 0 ? (
-                                        <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée.</td></tr>
+                                        <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
                                     ) : (
                                         filteredExpenses.map((expense) => (
-                                            <tr key={expense.id} className="hover:bg-slate-50">
+                                            <tr key={expense.id} className="hover:bg-slate-50 group">
                                                 <td className="px-6 py-4 text-slate-600">{expense.date}</td>
                                                 <td className="px-6 py-4 font-bold text-slate-700">{expense.description}</td>
                                                 <td className="px-6 py-4">
@@ -880,10 +994,13 @@ const Secretariat: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4 text-right font-bold text-red-500">- {expense.amount.toFixed(2)} €</td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        <button onClick={() => openExpenseModal(expense)} className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100"><Edit className="w-4 h-4" /></button>
-                                                        <button onClick={() => handleDeleteExpense(expense.id)} className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
-                                                    </div>
+                                                    <button
+                                                        onClick={() => handleEditExpense(expense)}
+                                                        className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
+                                                        title="Modifier"
+                                                    >
+                                                        <Edit className="w-3 h-3" />
+                                                    </button>
                                                 </td>
                                             </tr>
                                         ))
@@ -894,78 +1011,12 @@ const Secretariat: React.FC = () => {
                     </div>
                 )}
 
-                {activeTab === 'scans' && (
-                    <div>
-                        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                            <h3 className="text-lg font-bold text-slate-700">Historique des Scans</h3>
-                            <div className="flex flex-wrap gap-2">
-                                <div className="relative">
-                                    <input type="text" placeholder="Rechercher..." className="pl-8 pr-3 py-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanSearch} onChange={(e) => setScanSearch(e.target.value)} />
-                                    <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                                </div>
-                                <select className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanClientId} onChange={(e) => setScanClientId(e.target.value)}>
-                                    <option value="all">Tous les clients</option>
-                                    {clients.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                                </select>
-                                <select className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanTypeFilter} onChange={(e) => setScanTypeFilter(e.target.value as any)}>
-                                    <option value="all">Tous les types</option>
-                                    <option value="entry">Entrée</option>
-                                    <option value="exit">Sortie</option>
-                                </select>
-                                <input type="date" className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanDateStart} onChange={(e) => setScanDateStart(e.target.value)} />
-                                <input type="date" className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanDateEnd} onChange={(e) => setScanDateEnd(e.target.value)} />
-                                <input type="time" className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanTimeStart} onChange={(e) => setScanTimeStart(e.target.value)} />
-                                <input type="time" className="p-2 border rounded-lg text-sm bg-slate-50 focus:border-brand-blue outline-none" value={scanTimeEnd} onChange={(e) => setScanTimeEnd(e.target.value)} />
-                            </div>
-                        </div>
-                        <div className="bg-white border rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                                    <tr>
-                                        <th className="px-6 py-3">Date</th>
-                                        <th className="px-6 py-3">Heure</th>
-                                        <th className="px-6 py-3">Client</th>
-                                        <th className="px-6 py-3">Scanner</th>
-                                        <th className="px-6 py-3">Type</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {visitScans
-                                        .filter(s => {
-                                            const clientMatch = scanClientId === 'all' || s.clientId === scanClientId;
-                                            const typeMatch = scanTypeFilter === 'all' || s.scanType === scanTypeFilter;
-                                            const txt = `${s.scannerName || ''} ${(clients.find(c => c.id === s.clientId)?.name) || ''}`.toLowerCase();
-                                            const searchMatch = !scanSearch || txt.includes(scanSearch.toLowerCase());
-                                            const d = new Date(s.timestamp);
-                                            const dateStr = d.toISOString().split('T')[0];
-                                            const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-                                            const dateStartMatch = !scanDateStart || dateStr >= scanDateStart;
-                                            const dateEndMatch = !scanDateEnd || dateStr <= scanDateEnd;
-                                            const timeStartMatch = !scanTimeStart || timeStr >= scanTimeStart;
-                                            const timeEndMatch = !scanTimeEnd || timeStr <= scanTimeEnd;
-                                            return clientMatch && typeMatch && searchMatch && dateStartMatch && dateEndMatch && timeStartMatch && timeEndMatch;
-                                        })
-                                        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                                        .map(s => (
-                                            <tr key={s.id} className="hover:bg-slate-50">
-                                                <td className="px-6 py-4 text-slate-600">{new Date(s.timestamp).toLocaleDateString()}</td>
-                                                <td className="px-6 py-4 text-slate-600">{new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                                                <td className="px-6 py-4 font-bold text-slate-700">{clients.find(c => c.id === s.clientId)?.name || s.clientId}</td>
-                                                <td className="px-6 py-4">{s.scannerName}</td>
-                                                <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${s.scanType === 'entry' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{s.scanType === 'entry' ? 'Entrée' : 'Sortie'}</span></td>
-                                            </tr>
-                                        ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
+                {/* --- TAB: ABSENCES --- */}
                 {activeTab === 'absences' && (
-                    /* ... (Absences UI same as before) ... */
                     <div>
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4">Absences Prestataires (Congés)</h3>
+                            {/* Alert if conflicts */}
                             {absenceConflicts.length > 0 && (
                                 <div className="text-red-600 font-bold flex items-center gap-2 text-sm bg-red-50 px-3 py-1 rounded-full border border-red-200">
                                     <AlertTriangle className="w-4 h-4" /> {absenceConflicts.length} Conflit(s) détecté(s)
@@ -997,7 +1048,9 @@ const Secretariat: React.FC = () => {
                                                         <div className="flex justify-between items-center">
                                                             <span className="text-slate-600 flex flex-col">
                                                                 <span>Du <strong>{leave.startDate}</strong> au <strong>{leave.endDate}</strong></span>
-                                                                {(leave.startTime && leave.endTime) && <span className="text-xs text-slate-400">({leave.startTime} - {leave.endTime})</span>}
+                                                                {(leave.startTime && leave.endTime) && (
+                                                                    <span className="text-xs text-slate-400">({leave.startTime} - {leave.endTime})</span>
+                                                                )}
                                                             </span>
                                                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${leave.status === 'approved' ? 'bg-green-100 text-green-700' : leave.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                                 {leave.status === 'approved' ? 'Validé' : leave.status === 'rejected' ? 'Refusé' : 'En attente'}
@@ -1005,10 +1058,16 @@ const Secretariat: React.FC = () => {
                                                         </div>
                                                         {leave.status === 'pending' && (
                                                             <div className="flex justify-end gap-2 border-t border-slate-200 pt-2">
-                                                                <button onClick={() => openConfirmation("Refuser Congés", "Refuser la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'rejected'))} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1 font-bold">
+                                                                <button
+                                                                    onClick={() => openConfirmation("Refuser Congés", "Refuser la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'rejected'))}
+                                                                    className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1 font-bold"
+                                                                >
                                                                     <X className="w-3 h-3" /> Refuser
                                                                 </button>
-                                                                <button onClick={() => openConfirmation("Valider Congés", "Accepter la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'approved'))} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1 font-bold shadow-sm">
+                                                                <button
+                                                                    onClick={() => openConfirmation("Valider Congés", "Accepter la demande de congés ?", () => handleLeaveStatusUpdate(leave.id, provider.id, 'approved'))}
+                                                                    className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1 font-bold shadow-sm"
+                                                                >
                                                                     <Check className="w-3 h-3" /> Valider
                                                                 </button>
                                                             </div>
@@ -1025,160 +1084,305 @@ const Secretariat: React.FC = () => {
                 )}
             </div>
 
+            {/* --- MODALS --- */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${modalType === 'contract' ? 'max-w-full md:max-w-4xl h-[90vh]' : 'max-w-xl'} overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200`}>
+                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${modalType === 'contract' ? 'max-w-4xl h-[90vh]' : 'max-w-xl'} overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200`}>
                         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                             <div>
                                 <h3 className="text-xl font-serif font-bold text-slate-800">
                                     {modalType === 'pack' && 'Créer Pack (Processus)'}
                                     {modalType === 'contract' && 'Création Contrat SAP'}
                                     {modalType === 'reminder' && 'Nouveau Rappel'}
-                                    {modalType === 'expense' && (editingExpenseId ? 'Modifier Dépense' : 'Saisir Dépense')}
+                                    {modalType === 'expense' && 'Saisir Dépense'}
                                 </h3>
                             </div>
                             <button onClick={closePackModal} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5 text-slate-500" /></button>
                         </div>
 
                         <div className={`p-6 overflow-y-auto ${modalType === 'contract' ? 'flex-1' : ''}`}>
+
+                            {/* PACK FORM - Unchanged except for logic in handleSavePack */}
                             {modalType === 'pack' && (
-                                /* ... (Pack Wizard Logic - Unchanged) ... */
                                 <div className="space-y-6">
                                     {/* STEP 1: Nom du Pack */}
                                     {packStep === 1 && (
                                         <div className="space-y-4">
-                                            <h4 className="font-bold text-brand-blue flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">1</span> Nom du Pack</h4>
+                                            <h4 className="font-bold text-brand-blue flex items-center gap-2">
+                                                <span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">1</span>
+                                                Nom du Pack
+                                            </h4>
                                             <div>
                                                 <label className="font-bold text-slate-700 block mb-1">Saisir un nom distinctif et commercial</label>
-                                                <input type="text" className="w-full p-3 border rounded-lg focus:border-brand-blue outline-none" value={packForm.name || ''} onChange={e => setPackForm({ ...packForm, name: e.target.value })} placeholder="Ex : Pack Zen Jardin, Ultime 6..." autoFocus />
+                                                <input
+                                                    type="text"
+                                                    className="w-full p-3 border rounded-lg focus:border-brand-blue outline-none"
+                                                    value={packForm.name || ''}
+                                                    onChange={e => setPackForm({ ...packForm, name: e.target.value })}
+                                                    placeholder="Ex : Pack Zen Jardin, Ultime 6..."
+                                                    autoFocus
+                                                />
                                             </div>
                                         </div>
                                     )}
-                                    {/* STEP 2 */}
                                     {packStep === 2 && (
                                         <div className="space-y-4">
-                                            <h4 className="font-bold text-brand-blue flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">2</span> Type de prestation principale</h4>
+                                            <h4 className="font-bold text-brand-blue flex items-center gap-2">
+                                                <span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">2</span>
+                                                Type de prestation principale
+                                            </h4>
                                             <div>
                                                 <label className="font-bold text-slate-700 block mb-2">Choisir parmi les services éligibles SAP :</label>
                                                 <div className="max-h-60 overflow-y-auto border rounded-lg divide-y divide-slate-100">
                                                     {SAP_SERVICES.map(s => (
-                                                        <div key={s} onClick={() => setPackForm({ ...packForm, mainService: s })} className={`p-3 cursor-pointer text-sm font-medium hover:bg-blue-50 transition ${packForm.mainService === s ? 'bg-blue-50 text-brand-blue border-l-4 border-l-brand-blue' : 'text-slate-600'}`}>{s}</div>
+                                                        <div
+                                                            key={s}
+                                                            onClick={() => setPackForm({ ...packForm, mainService: s })}
+                                                            className={`p-3 cursor-pointer text-sm font-medium hover:bg-blue-50 transition ${packForm.mainService === s ? 'bg-blue-50 text-brand-blue border-l-4 border-l-brand-blue' : 'text-slate-600'}`}
+                                                        >
+                                                            {s}
+                                                        </div>
                                                     ))}
                                                 </div>
                                             </div>
                                         </div>
                                     )}
-                                    {/* STEP 3 */}
                                     {packStep === 3 && (
                                         <div className="space-y-4">
-                                            <h4 className="font-bold text-brand-blue flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">3</span> Détails du pack</h4>
+                                            <h4 className="font-bold text-brand-blue flex items-center gap-2">
+                                                <span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">3</span>
+                                                Détails du pack
+                                            </h4>
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Durée (h)</label><input type="number" className="w-full p-2 border rounded" value={packForm.hours || ''} onChange={e => setPackForm({ ...packForm, hours: Number(e.target.value) })} /></div>
                                                 <div>
-                                                    <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Fréquence</label>
-                                                    <select className="w-full p-2 border rounded" value={packForm.frequency || 'Ponctuelle'} onChange={e => { const val = e.target.value; setPackForm({ ...packForm, frequency: val as any, type: val === 'Ponctuelle' ? 'ponctuel' : 'regulier' }); }}>
+                                                    <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Durée de la prestation (h)</label>
+                                                    <input type="number" placeholder="Ex: 3" className="w-full p-2 border rounded" value={packForm.hours || ''} onChange={e => setPackForm({ ...packForm, hours: Number(e.target.value) })} />
+                                                </div>
+                                                <div>
+                                                    <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Fréquence / Type</label>
+                                                    <select
+                                                        className="w-full p-2 border rounded"
+                                                        value={packForm.frequency || 'Ponctuelle'}
+                                                        onChange={e => {
+                                                            const val = e.target.value;
+                                                            setPackForm({ ...packForm, frequency: val as any, type: val === 'Ponctuelle' ? 'ponctuel' : 'regulier' });
+                                                        }}
+                                                    >
                                                         <option value="Ponctuelle">Ponctuelle (1 fois)</option>
-                                                        <option value="Hebdomadaire">Hebdomadaire</option>
-                                                        <option value="Bimensuelle">Bimensuelle</option>
+                                                        <option value="Hebdomadaire">Hebdomadaire (Chaque semaine)</option>
+                                                        <option value="Bimensuelle">Bimensuelle (2 fois/mois)</option>
                                                         <option value="Mensuelle">Mensuelle</option>
-                                                        <option value="Régulier">Régulier</option>
+                                                        <option value="Régulier">Régulier (Personnalisé)</option>
                                                     </select>
                                                 </div>
                                             </div>
+
                                             {(packForm.frequency === 'Régulier' || packForm.type === 'regulier') && (
                                                 <div className="bg-blue-50 p-3 rounded border border-blue-200">
-                                                    <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Jours d'intervention</label>
-                                                    <input type="number" min="1" className="w-20 p-2 border rounded text-center font-bold" value={regularDaysCount} onChange={e => setRegularDaysCount(Number(e.target.value))} />
+                                                    <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Nombre de jours d'intervention</label>
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            className="w-20 p-2 border rounded text-center font-bold"
+                                                            value={regularDaysCount}
+                                                            onChange={e => setRegularDaysCount(Number(e.target.value))}
+                                                        />
+                                                        <span className="text-sm text-slate-600">jours</span>
+                                                    </div>
                                                 </div>
                                             )}
+
                                             <div>
-                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Type de logo (Contrat)</label>
-                                                <select className="w-full p-2 border rounded" value={packForm.isSap ? 'SAP' : 'Standard'} onChange={e => setPackForm({ ...packForm, isSap: e.target.value === 'SAP' })}>
-                                                    <option value="SAP">SAP</option>
-                                                    <option value="Standard">Normal</option>
+                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Type de Contrat</label>
+                                                <select className="w-full p-2 border rounded" value={packForm.contractType || 'Contrat Prestataire Standard'} onChange={e => setPackForm({ ...packForm, contractType: e.target.value })}>
+                                                    {CONTRACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                                 </select>
                                             </div>
-                                            <div><label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Type Contrat</label><select className="w-full p-2 border rounded" value={packForm.contractType || 'Contrat Prestataire Standard'} onChange={e => setPackForm({ ...packForm, contractType: e.target.value })}>{CONTRACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                                            <div><label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Lieu</label><input type="text" className="w-full p-2 border rounded" value={packForm.location || 'Domicile Client'} onChange={e => setPackForm({ ...packForm, location: e.target.value })} /></div>
-                                            <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                                <div className="flex items-center gap-2 mb-2"><input type="checkbox" checked={packForm.suppliesIncluded} onChange={e => setPackForm({ ...packForm, suppliesIncluded: e.target.checked })} className="w-4 h-4 text-brand-blue" /><span className="font-bold text-slate-700 text-sm">Matériel inclus</span></div>
-                                                {packForm.suppliesIncluded && <input type="text" placeholder="Détail..." className="w-full p-2 border rounded text-sm" value={packForm.suppliesDetails || ''} onChange={e => setPackForm({ ...packForm, suppliesDetails: e.target.value })} />}
+
+                                            <div>
+                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Lieu de réalisation</label>
+                                                <input type="text" placeholder="Ex: Domicile Client" className="w-full p-2 border rounded" value={packForm.location || 'Domicile Client'} onChange={e => setPackForm({ ...packForm, location: e.target.value })} />
                                             </div>
-                                            <div><label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif HT (€)</label><input type="number" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceHT || ''} onChange={e => setPackForm({ ...packForm, priceHT: Number(e.target.value) })} /></div>
+
+                                            <div className="bg-slate-50 p-3 rounded border border-slate-200">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <input type="checkbox" checked={packForm.suppliesIncluded} onChange={e => setPackForm({ ...packForm, suppliesIncluded: e.target.checked })} className="w-4 h-4 text-brand-blue" />
+                                                    <span className="font-bold text-slate-700 text-sm">Matériel / Produits fournis (Oui/Non)</span>
+                                                </div>
+                                                {packForm.suppliesIncluded && (
+                                                    <input type="text" placeholder="Détail fournitures (ex: Désinfectants, Lave-vitres...)" className="w-full p-2 border rounded text-sm" value={packForm.suppliesDetails || ''} onChange={e => setPackForm({ ...packForm, suppliesDetails: e.target.value })} />
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif Standard HT (€)</label>
+                                                <input type="number" placeholder="Ex: 99" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceHT || ''} onChange={e => setPackForm({ ...packForm, priceHT: Number(e.target.value) })} />
+
+                                                {/* Simulation TTC & Reste à charge */}
+                                                <div className="mt-2 text-sm space-y-2">
+                                                    <div className="bg-slate-100 p-2 rounded flex justify-between">
+                                                        <span>Montant sans avance (Total TTC) :</span>
+                                                        <strong>{((packForm.priceHT || 0) * 1.021).toFixed(2)} €</strong>
+                                                    </div>
+                                                    <div className="bg-green-50 p-2 rounded border border-green-200 flex justify-between text-green-800">
+                                                        <span>Montant avec avance immédiate (-50%) :</span>
+                                                        <strong>{((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</strong>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
-                                    {/* STEP 4 */}
+
+                                    {/* STEP 4: Validation */}
                                     {packStep === 4 && (
                                         <div className="space-y-4 text-center">
-                                            <h4 className="font-bold text-brand-blue flex items-center justify-center gap-2 mb-4"><span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">4</span> Confirmation</h4>
+                                            <h4 className="font-bold text-brand-blue flex items-center justify-center gap-2 mb-4">
+                                                <span className="w-6 h-6 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs">4</span>
+                                                Confirmation & Contrat
+                                            </h4>
+
                                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-left space-y-2 text-sm">
                                                 <p><strong>Nom :</strong> {packForm.name}</p>
                                                 <p><strong>Service :</strong> {packForm.mainService}</p>
-                                                <p><strong>Prix :</strong> {packForm.priceHT} € HT</p>
+                                                <p><strong>Contrat :</strong> {packForm.contractType}</p>
+                                                <p><strong>Détails :</strong> {packForm.hours}h, {packForm.frequency} {packForm.type === 'regulier' ? `(${regularDaysCount} jours)` : ''}</p>
+                                                <p><strong>Prix Client (Avance) :</strong> {((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</p>
                                             </div>
-                                            <div className="flex flex-col items-center gap-2 text-green-600 bg-green-50 p-3 rounded"><CheckCircle className="w-8 h-8" /><span className="text-sm font-bold">Contrat généré auto.</span></div>
+
+                                            <div className="flex flex-col items-center gap-2 text-green-600 bg-green-50 p-3 rounded">
+                                                <CheckCircle className="w-8 h-8" />
+                                                <span className="text-sm font-bold">Un contrat type sera généré automatiquement.</span>
+                                            </div>
                                         </div>
                                     )}
+
                                     <div className="flex justify-between pt-4 border-t border-slate-100">
-                                        {packStep > 1 && <button onClick={handlePrevPackStep} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded flex items-center gap-1"><ChevronLeft className="w-4 h-4" /> Précédent</button>}
-                                        {packStep < 4 ? <button onClick={handleNextPackStep} className="ml-auto px-6 py-2 bg-brand-blue text-white rounded font-bold flex items-center gap-2">Suivant <ChevronRight className="w-4 h-4" /></button> : <button onClick={handleSavePack} className="ml-auto px-6 py-2 bg-green-600 text-white rounded font-bold flex items-center gap-2 shadow-lg"><Save className="w-4 h-4" /> Créer</button>}
+                                        {packStep > 1 && (
+                                            <button onClick={handlePrevPackStep} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded flex items-center gap-1">
+                                                <ChevronLeft className="w-4 h-4" /> Précédent
+                                            </button>
+                                        )}
+                                        {packStep < 4 ? (
+                                            <button onClick={handleNextPackStep} className="ml-auto px-6 py-2 bg-brand-blue text-white rounded font-bold flex items-center gap-2">
+                                                Suivant <ChevronRight className="w-4 h-4" />
+                                            </button>
+                                        ) : (
+                                            <button onClick={handleSavePack} className="ml-auto px-6 py-2 bg-green-600 text-white rounded font-bold flex items-center gap-2 shadow-lg">
+                                                <Save className="w-4 h-4" /> Valider et Créer le Pack
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             )}
 
+                            {/* UPDATED CONTRACT FORM TO MATCH PDF */}
                             {modalType === 'contract' && (
                                 <div className="flex flex-col h-full gap-4">
+                                    {/* Visual Header per PDF */}
                                     <div className="bg-cream-100 p-4 rounded-lg border border-beige-200 text-sm text-slate-700 font-serif space-y-1 text-center">
                                         <h4 className="font-bold text-lg uppercase text-brand-blue">{companySettings.name} – SASU</h4>
-                                        <p>Siège : {companySettings.address}</p>
+                                        <p>Siège : {companySettings.address} | Email : {companySettings.email}</p>
+                                        <p>N° SAP : {companySettings.siret}</p>
+                                        <p className="text-xs italic mt-2 border-t border-beige-300 pt-1 w-fit mx-auto">
+                                            Assurance RCP : Contrat n° RCP250714175810 – Assurup (Hiscox) | Validité : 01/08/2025 au 31/07/2026
+                                        </p>
                                     </div>
-                                    {/* Responsive Flexbox */}
-                                    <div className="flex flex-col md:flex-row gap-4 bg-slate-50 p-4 rounded border border-slate-200">
-                                        <div className="flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Client</label>
-                                            <select className="w-full p-2 border rounded text-sm" value={selectedClientIdForContract} onChange={e => setSelectedClientIdForContract(e.target.value)}>
-                                                <option value="">-- Sélectionner --</option>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Nom du contrat</label>
+                                            <input type="text" className="w-full p-2 border rounded text-sm font-bold" placeholder="Ex: Contrat Standard 2024" value={contractForm.name} onChange={e => setContractForm({ ...contractForm, name: e.target.value })} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Type de Logo (PDF)</label>
+                                            <div className="flex items-center gap-4 py-2">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input type="radio" name="logoType" value="SAP" checked={contractLogoType === 'SAP'} onChange={() => setContractLogoType('SAP')} />
+                                                    <span className="text-sm font-bold">Logo SAP</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input type="radio" name="logoType" value="Standard" checked={contractLogoType === 'Standard'} onChange={() => setContractLogoType('Standard')} />
+                                                    <span className="text-sm font-bold">Hors SAP</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Selection Logic */}
+                                    <div className="bg-slate-50 p-4 rounded border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-end">
+                                        <div className="w-full md:flex-1">
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Client (Infos obligatoires)</label>
+                                            <select
+                                                className="w-full p-2 border rounded text-sm"
+                                                value={selectedClientIdForContract}
+                                                onChange={e => setSelectedClientIdForContract(e.target.value)}
+                                            >
+                                                <option value="">-- Sélectionner un client --</option>
                                                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </select>
                                         </div>
-                                        <div className="flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Pack</label>
-                                            <select className="w-full p-2 border rounded text-sm" value={selectedPackIdForContract} onChange={e => setSelectedPackIdForContract(e.target.value)}>
-                                                <option value="">-- Sélectionner --</option>
+                                        <div className="w-full md:flex-1">
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Pack (Infos Pack)</label>
+                                            <select
+                                                className="w-full p-2 border rounded text-sm"
+                                                value={selectedPackIdForContract}
+                                                onChange={e => setSelectedPackIdForContract(e.target.value)}
+                                            >
+                                                <option value="">-- Sélectionner un pack --</option>
                                                 {packs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                             </select>
                                         </div>
-                                        <div className="flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Type de logo</label>
-                                            <select className="w-full p-2 border rounded text-sm" value={contractLogoType} onChange={e => setContractLogoType(e.target.value as any)}>
-                                                <option value="SAP">SAP</option>
-                                                <option value="Standard">Normal</option>
-                                            </select>
-                                        </div>
-                                        <button onClick={handleGenerateContractContent} className="bg-brand-blue text-white px-4 py-2 rounded font-bold text-sm hover:bg-teal-700 mt-auto md:mt-0 self-start md:self-end w-full md:w-auto">
-                                            Générer
+                                        <button
+                                            onClick={handleGenerateContractContent}
+                                            className="w-full md:w-auto bg-brand-blue text-white px-4 py-2 rounded font-bold text-sm hover:bg-teal-700 mt-2 md:mt-0"
+                                        >
+                                            Générer Contrat
                                         </button>
                                     </div>
+
                                     <div className="flex-1 relative border rounded overflow-hidden">
                                         <textarea
-                                            className="w-full h-full p-6 font-mono text-sm leading-relaxed bg-white outline-none resize-none"
+                                            className="w-full h-full p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none"
                                             value={contractForm.content}
                                             onChange={e => setContractForm({ ...contractForm, content: e.target.value })}
-                                            placeholder="Contenu du contrat..."
                                         />
                                     </div>
+
+                                    {/* Footer Visual */}
+                                    <div className="flex flex-col md:flex-row justify-between items-center md:items-end p-4 bg-slate-50 border border-slate-200 rounded text-center text-xs text-slate-500 gap-6 md:gap-0">
+                                        <div className="w-full md:w-1/3 border-t border-slate-300 pt-2">
+                                            <p className="font-bold">Signature du Client</p>
+                                            <p>(Précédée de la mention "Lu et approuvé")</p>
+                                            <div className="h-16 md:h-10 mt-2 bg-white border border-dashed border-slate-300 rounded flex items-center justify-center">Espace Signature</div>
+                                        </div>
+                                        <div className="w-full md:w-1/3 border-t border-slate-300 pt-2">
+                                            <p className="font-bold">L'Entreprise</p>
+                                            <p>(Cachet et Signature)</p>
+                                            <div className="h-16 md:h-10 mt-2 bg-white border border-dashed border-slate-300 rounded flex items-center justify-center font-bold text-red-300 relative overflow-hidden">
+                                                {contractForm.status === 'active' ? (
+                                                    <>
+                                                        <img src={COMPANY_STAMP_URL} alt="Cachet" className="absolute bottom-0 right-0 w-16 opacity-50" />
+                                                        <span className="relative z-10 text-green-600">VALIDÉ & CACHETÉ</span>
+                                                    </>
+                                                ) : 'EN ATTENTE VALIDATION'}
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="flex justify-end gap-2 pt-2">
                                         <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 border rounded font-bold text-slate-500">Annuler</button>
                                         <button onClick={handleSaveContract} className="px-6 py-2 bg-brand-blue text-white rounded font-bold hover:bg-teal-700 flex items-center gap-2">
-                                            <Save className="w-4 h-4" /> Enregistrer
+                                            <Save className="w-4 h-4" /> Enregistrer le Contrat
                                         </button>
                                     </div>
                                 </div>
                             )}
 
+                            {/* ... [Reminder and Expense forms unchanged] ... */}
                             {modalType === 'reminder' && (
                                 <div className="space-y-4">
-                                    <div><label className="font-bold text-slate-700 block mb-1">Message</label><input type="text" className="w-full p-2 border rounded" value={reminderForm.text} onChange={e => setReminderForm({ ...reminderForm, text: e.target.value })} /></div>
+                                    <div><label className="font-bold text-slate-700 block mb-1">Message</label><input type="text" className="w-full p-2 border rounded" value={reminderForm.text} onChange={e => setReminderForm({ ...reminderForm, text: e.target.value })} placeholder="Ex: Relancer client X" /></div>
                                     <div><label className="font-bold text-slate-700 block mb-1">Date</label><input type="date" className="w-full p-2 border rounded" value={reminderForm.date} onChange={e => setReminderForm({ ...reminderForm, date: e.target.value })} /></div>
                                     <div className="flex items-center gap-2"><input type="checkbox" checked={reminderForm.notifyEmail} onChange={e => setReminderForm({ ...reminderForm, notifyEmail: e.target.checked })} className="w-5 h-5" /><span className="font-bold text-slate-700">Notification Email</span></div>
                                     <div className="flex justify-end pt-4"><button onClick={handleSaveReminder} className="px-6 py-2 bg-brand-orange text-white rounded font-bold">Ajouter</button></div>
@@ -1187,11 +1391,15 @@ const Secretariat: React.FC = () => {
 
                             {modalType === 'expense' && (
                                 <div className="space-y-4">
-                                    <div><label className="font-bold text-slate-700 block mb-1">Description</label><input type="text" className="w-full p-2 border rounded" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} /></div>
-                                    <div><label className="font-bold text-slate-700 block mb-1">Montant (€)</label><input type="number" className="w-full p-2 border rounded" value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) })} /></div>
-                                    <div><label className="font-bold text-slate-700 block mb-1">Date</label><input type="date" className="w-full p-2 border rounded" value={expenseForm.date} onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} /></div>
-                                    <div><label className="font-bold text-slate-700 block mb-1">Catégorie</label><select className="w-full p-2 border rounded" value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value as any })}><option value="fournitures">Fournitures</option><option value="carburant">Carburant</option><option value="administratif">Administratif</option><option value="autre">Autre</option></select></div>
-                                    <div className="flex justify-end pt-4"><button onClick={handleSaveExpense} className="px-6 py-2 bg-slate-800 text-white rounded font-bold">{editingExpenseId ? 'Modifier' : 'Enregistrer'}</button></div>
+                                    <div><label className="font-bold text-slate-700 block mb-1">Description</label><input type="text" className="w-full p-2 border rounded" value={expenseForm.description || ''} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} /></div>
+                                    <div><label className="font-bold text-slate-700 block mb-1">Montant (€)</label><input type="number" className="w-full p-2 border rounded" value={expenseForm.amount || 0} onChange={e => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) })} /></div>
+                                    <div><label className="font-bold text-slate-700 block mb-1">Date</label><input type="date" className="w-full p-2 border rounded" value={expenseForm.date || ''} onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} /></div>
+                                    <div><label className="font-bold text-slate-700 block mb-1">Catégorie</label><select className="w-full p-2 border rounded" value={expenseForm.category || 'fournitures'} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value as any })}><option value="fournitures">Fournitures</option><option value="carburant">Carburant</option><option value="administratif">Administratif</option><option value="autre">Autre</option></select></div>
+                                    <div className="flex justify-end pt-4">
+                                        <button onClick={handleSaveExpense} className="px-6 py-2 bg-slate-800 text-white rounded font-bold">
+                                            {expenseForm.id ? 'Mettre à jour' : 'Enregistrer'}
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -1212,8 +1420,18 @@ const Secretariat: React.FC = () => {
                                 Êtes-vous sûr de vouloir supprimer {selectedPackIds.size} pack(s) ? Cette action est irréversible.
                             </p>
                             <div className="flex gap-3 w-full">
-                                <button onClick={() => setDeleteConfirmOpen(false)} className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition">Annuler</button>
-                                <button onClick={executeDeletePacks} className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md">Supprimer</button>
+                                <button
+                                    onClick={() => setDeleteConfirmOpen(false)}
+                                    className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={executeDeletePacks}
+                                    className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md"
+                                >
+                                    Supprimer
+                                </button>
                             </div>
                         </div>
                     </div>

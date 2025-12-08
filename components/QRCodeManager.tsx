@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import { 
-    QrCode, 
-    Printer, 
-    History, 
-    Search, 
-    MapPin, 
-    Clock, 
+import {
+    QrCode,
+    Printer,
+    History,
+    Search,
+    MapPin,
+    Clock,
     UserCheck,
     CheckCircle,
     XCircle,
@@ -81,9 +81,9 @@ const QRCodeManager: React.FC = () => {
     // --- Scan Logic ---
     const handleSimulateScan = async () => {
         if (!selectedClientForScan) return;
-        
+
         setScanResult(null); // Reset UI
-        
+
         // Add artificial delay for realism
         await new Promise(r => setTimeout(r, 800));
 
@@ -95,15 +95,40 @@ const QRCodeManager: React.FC = () => {
     };
 
     // --- History Logic ---
+    const [scanFilters, setScanFilters] = useState({
+        startDate: '',
+        endDate: '',
+        clientId: '',
+        type: ''
+    });
+
     const scansHistory = useMemo(() => {
-        return visitScans.map(scan => {
+        let filtered = visitScans;
+
+        if (scanFilters.startDate) {
+            filtered = filtered.filter(s => new Date(s.timestamp) >= new Date(scanFilters.startDate));
+        }
+        if (scanFilters.endDate) {
+            // End of day
+            const end = new Date(scanFilters.endDate);
+            end.setHours(23, 59, 59, 999);
+            filtered = filtered.filter(s => new Date(s.timestamp) <= end);
+        }
+        if (scanFilters.clientId) {
+            filtered = filtered.filter(s => s.clientId === scanFilters.clientId);
+        }
+        if (scanFilters.type) {
+            filtered = filtered.filter(s => s.scanType === scanFilters.type);
+        }
+
+        return filtered.map(scan => {
             const client = clients.find(c => c.id === scan.clientId);
             return {
                 ...scan,
                 clientName: client ? client.name : 'Client Inconnu'
             };
-        });
-    }, [visitScans, clients]);
+        }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }, [visitScans, clients, scanFilters]);
 
     return (
         <div className="p-8 h-full overflow-y-auto bg-white/40">
@@ -140,9 +165,9 @@ const QRCodeManager: React.FC = () => {
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="font-bold text-lg text-slate-700">Liste des clients</h3>
                         <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="Rechercher un client..." 
+                            <input
+                                type="text"
+                                placeholder="Rechercher un client..."
                                 className="pl-10 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-brand-blue"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -158,7 +183,7 @@ const QRCodeManager: React.FC = () => {
                                     <p className="font-bold text-slate-800">{client.name}</p>
                                     <p className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {client.city}</p>
                                 </div>
-                                <button 
+                                <button
                                     onClick={() => handlePrint(client.id)}
                                     className="bg-slate-100 p-2 rounded-full hover:bg-brand-blue hover:text-white transition text-slate-600"
                                     title="Imprimer QR Code"
@@ -178,7 +203,7 @@ const QRCodeManager: React.FC = () => {
             {activeTab === 'scan' && (
                 <div className="flex flex-col items-center justify-center h-[500px] bg-slate-900 rounded-xl shadow-inner relative overflow-hidden animate-in fade-in">
                     <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-                    
+
                     <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center z-10">
                         <div className="w-16 h-16 bg-brand-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
                             <ScanLine className="w-8 h-8 text-brand-blue animate-pulse" />
@@ -188,7 +213,7 @@ const QRCodeManager: React.FC = () => {
                             Simulez le scan d'un code client avec votre compte actuel ({currentUser?.name || 'Inconnu'}).
                         </p>
 
-                        <select 
+                        <select
                             className="w-full p-3 border border-slate-300 rounded-lg mb-4 text-sm font-bold bg-slate-50 outline-none focus:border-brand-blue"
                             value={selectedClientForScan}
                             onChange={(e) => setSelectedClientForScan(e.target.value)}
@@ -197,7 +222,7 @@ const QRCodeManager: React.FC = () => {
                             {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
 
-                        <button 
+                        <button
                             onClick={handleSimulateScan}
                             disabled={!selectedClientForScan}
                             className="w-full bg-brand-blue text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform active:scale-95"
@@ -221,9 +246,39 @@ const QRCodeManager: React.FC = () => {
             {/* --- HISTORY TAB --- */}
             {activeTab === 'history' && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-in fade-in">
-                    <div className="p-6 border-b border-slate-100 bg-slate-50">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                         <h3 className="font-bold text-slate-700">Derniers pointages</h3>
                     </div>
+
+                    {/* FILTERS */}
+                    <div className="p-4 bg-white border-b border-slate-100 flex flex-wrap gap-4 items-center text-sm">
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-slate-400" />
+                            <input type="date" className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.startDate} onChange={e => setScanFilters({ ...scanFilters, startDate: e.target.value })} title="Date Début" />
+                            <span className="text-slate-300">-</span>
+                            <input type="date" className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.endDate} onChange={e => setScanFilters({ ...scanFilters, endDate: e.target.value })} title="Date Fin" />
+                        </div>
+                        <div className="flex items-center gap-2 border-l pl-4">
+                            <MapPin className="w-4 h-4 text-slate-400" />
+                            <select className="border rounded px-2 py-1 bg-slate-50 max-w-[150px]" value={scanFilters.clientId} onChange={e => setScanFilters({ ...scanFilters, clientId: e.target.value })}>
+                                <option value="">Tous les clients</option>
+                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2 border-l pl-4">
+                            <ArrowRight className="w-4 h-4 text-slate-400" />
+                            <select className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.type} onChange={e => setScanFilters({ ...scanFilters, type: e.target.value })}>
+                                <option value="">Type (Tous)</option>
+                                <option value="entry">Entrées</option>
+                                <option value="exit">Sorties</option>
+                            </select>
+                        </div>
+
+                        {(scanFilters.startDate || scanFilters.endDate || scanFilters.clientId || scanFilters.type) && (
+                            <button onClick={() => setScanFilters({ startDate: '', endDate: '', clientId: '', type: '' })} className="ml-auto text-red-500 text-xs hover:underline">Effacer filtres</button>
+                        )}
+                    </div>
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
@@ -237,7 +292,7 @@ const QRCodeManager: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {scansHistory.length === 0 ? (
-                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun historique de scan.</td></tr>
+                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun historique de scan trouvé.</td></tr>
                                 ) : (
                                     scansHistory.map(scan => (
                                         <tr key={scan.id} className="hover:bg-slate-50">
@@ -249,11 +304,10 @@ const QRCodeManager: React.FC = () => {
                                                 <UserCheck className="w-4 h-4 text-slate-400" /> {scan.scannerName}
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1 w-fit mx-auto ${
-                                                    scan.scanType === 'entry' 
-                                                    ? 'bg-green-100 text-green-700 border-green-200' 
-                                                    : 'bg-orange-100 text-orange-700 border-orange-200'
-                                                }`}>
+                                                <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1 w-fit mx-auto ${scan.scanType === 'entry'
+                                                        ? 'bg-green-100 text-green-700 border-green-200'
+                                                        : 'bg-orange-100 text-orange-700 border-orange-200'
+                                                    }`}>
                                                     {scan.scanType === 'entry' ? <ArrowRight className="w-3 h-3" /> : <LogOut className="w-3 h-3 transform rotate-180" />}
                                                     {scan.scanType === 'entry' ? 'ENTRÉE' : 'SORTIE'}
                                                 </span>
@@ -279,21 +333,21 @@ export default QRCodeManager;
 
 function LogOut(props: any) {
     return (
-      <svg
-        {...props}
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-        <polyline points="16 17 21 12 16 7" />
-        <line x1="21" x2="9" y1="12" y2="12" />
-      </svg>
+        <svg
+            {...props}
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" x2="9" y1="12" y2="12" />
+        </svg>
     )
 }

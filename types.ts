@@ -3,33 +3,33 @@
 import { LucideIcon } from "lucide-react";
 
 export interface NavItem {
-  label: string;
-  path: string;
-  icon: LucideIcon;
+    label: string;
+    path: string;
+    icon: LucideIcon;
 }
 
 export interface User {
     id: string; // UUID
     name: string;
     email: string;
-    role: 'admin' | 'client' | 'provider';
+    role: 'admin' | 'super_admin' | 'client' | 'provider';
     relatedEntityId?: string; // UUID linkage to Client or Provider table
 }
 
 export enum DashboardViewMode {
-  COMMERCIAL = 'Activité commerciale',
-  TRACKING = 'Suivi des prestations',
-  PROVIDERS = 'Suivi des prestataires',
-  FINANCIAL = 'Financier'
+    COMMERCIAL = 'Activité commerciale',
+    TRACKING = 'Suivi des prestations',
+    PROVIDERS = 'Suivi des prestataires',
+    FINANCIAL = 'Financier'
 }
 
 export interface StatCardProps {
-  title: string;
-  value?: string | number;
-  subtext?: string;
-  bgColor?: string;
-  icon?: LucideIcon;
-  onClick?: () => void;
+    title: string;
+    value?: string | number;
+    subtext?: string;
+    bgColor?: string;
+    icon?: LucideIcon;
+    onClick?: () => void;
 }
 
 export interface Leave {
@@ -37,42 +37,42 @@ export interface Leave {
     providerId: string; // FK
     startDate: string;
     endDate: string;
-    startTime?: string; 
-    endTime?: string;   
+    startTime?: string;
+    endTime?: string;
     status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface Provider {
-  id: string;
-  firstName: string;
-  lastName: string;
-  status: 'Active' | 'Inactive' | 'Passive';
-  specialty: string;
-  leaves: Leave[]; // In a real DB, this would be a join, but kept here for UI convenience
-  hoursWorked: number;
-  rating: number;
-  phone: string;
-  email: string;
-  initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
+    id: string;
+    firstName: string;
+    lastName: string;
+    status: 'Active' | 'Inactive' | 'Passive';
+    specialty: string;
+    leaves: Leave[]; // In a real DB, this would be a join, but kept here for UI convenience
+    hoursWorked: number;
+    rating: number;
+    phone: string;
+    email: string;
+    initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
 }
 
 // DTO for creating a provider (no ID)
 export type CreateProviderDTO = Omit<Provider, 'id' | 'leaves' | 'hoursWorked' | 'rating'>;
 
 export interface Client {
-  id: string;
-  name: string;
-  address: string;
-  pack: string;
-  city: string;
-  email: string;
-  phone: string;
-  status: 'active' | 'new' | 'prospect';
-  since: string;
-  packsConsumed: number;
-  loyaltyHoursAvailable: number;
-  hasLeftReview?: boolean;
-  initialPassword?: string; // Stored specifically for admin viewing
+    id: string;
+    name: string;
+    address: string;
+    pack: string;
+    city: string;
+    email: string;
+    phone: string;
+    status: 'active' | 'new' | 'prospect';
+    since: string;
+    packsConsumed: number;
+    loyaltyHoursAvailable: number;
+    hasLeftReview?: boolean;
+    initialPassword?: string; // Stored specifically for admin viewing
 }
 
 // DTO for creating a client
@@ -88,7 +88,7 @@ export interface ScheduleOption {
 export interface Pack {
     id: string;
     name: string;
-    mainService: string; 
+    mainService: string;
     description: string;
     hours: number;
     frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle' | 'Régulier';
@@ -117,6 +117,11 @@ export interface Contract {
     companyStampUrl?: string;
     validatedAt?: string;
     signedAt?: string;
+    // Validation workflow fields
+    validationStatus?: 'draft' | 'pending_validation' | 'validated' | 'rejected';
+    validatedBy?: string; // User ID of super admin who validated
+    validationRequestedAt?: string;
+    validationRequestedBy?: string; // User ID who requested validation
 }
 
 export interface Mission {
@@ -126,25 +131,25 @@ export interface Mission {
     startTime: string; // HH:mm
     endTime: string; // HH:mm
     duration: number;
-    
+
     clientId?: string; // FK - Essential for DB
     clientName: string; // Denormalized for easier display, or joined
-    
+
     providerId: string | null; // FK
     providerName?: string; // Denormalized
-    
+
     service: string;
     status: 'planned' | 'in_progress' | 'completed' | 'cancelled';
     color: 'orange' | 'blue' | 'green' | 'gray';
     source?: 'devis' | 'reservation';
-    
+
     startPhotos?: string[]; // URLs to Storage
     endPhotos?: string[]; // URLs to Storage
     startVideo?: string;
     endVideo?: string;
     startRemark?: string;
     endRemark?: string;
-    
+
     cancellationReason?: string;
     lateCancellation?: boolean;
     reminder48hSent?: boolean;
@@ -169,28 +174,28 @@ export interface Document {
     ref: string; // Unique Reference
     clientId: string; // FK
     clientName: string;
-    
+
     date: string;
     type: 'Devis' | 'Facture';
     category: 'pack' | 'custom';
     description: string;
-    
+
     unitPrice: number;
     quantity: number;
     tvaRate: 0 | 2.1 | 8.5;
     totalHT: number;
     totalTTC: number;
     taxCreditEnabled: boolean;
-    
+
     status: 'signed' | 'sent' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected';
-    
+
     linkedInvoiceId?: string; // Self-referencing FK for converting Quote -> Invoice
-    
+
     // JSONB fields in Supabase
-    slotsData?: any[]; 
+    slotsData?: any[];
     frequency?: string;
     recurrenceEndDate?: string;
-    
+
     reviewRequestSent?: boolean;
     signatureData?: string; // URL or Base64
     signatureDate?: string;
@@ -208,10 +213,10 @@ export interface AppNotification {
     read?: boolean; // UI Alias
     link?: string;
     created_at?: string;
-    
+
     // Target columns added via SQL
-    targetUserType?: 'admin' | 'client' | 'provider';
-    targetUserId?: string; 
+    targetUserType?: 'admin' | 'super_admin' | 'client' | 'provider';
+    targetUserId?: string;
 }
 
 export interface Message {
