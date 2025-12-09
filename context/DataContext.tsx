@@ -499,9 +499,31 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         });
     };
 
-    const fetchUserProfile = async (authUser: any) => {
+    const performSilentLogin = async (): Promise<boolean> => {
+        const storedAuth = localStorage.getItem('presta_auth_recovery');
+        if (!storedAuth) return false;
+
         try {
-            if (!isSupabaseConfigured) return;
+            console.log("Attempting silent recovery...");
+            const { e, p } = JSON.parse(atob(storedAuth));
+            const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
+
+            if (!error && data.session) {
+                console.log("Silent recovery successful.");
+                // Update internal state immediately
+                await fetchUserProfile(data.session.user);
+                setIsOnline(true);
+                return true;
+            }
+        } catch (err) {
+            console.warn("Silent recovery exception:", err);
+        }
+        return false;
+    };
+
+    const fetchUserProfile = async (authUser: any): Promise<boolean> => {
+        try {
+            if (!isSupabaseConfigured) return false;
             const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
             let userObj: User | null = null;
             if (profile) {
@@ -535,9 +557,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     setSimulatedProviderId(userObj.relatedEntityId);
                 }
                 try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
+                return true;
             }
+            return false;
         } catch (e) {
             console.error("Error fetching user profile:", e);
+            return false;
         }
     };
 
@@ -577,12 +602,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const { data: { session }, error } = await supabase.auth.getSession();
 
                 if (session?.user && mounted) {
-                    await fetchUserProfile(session.user);
-                    // IMPORTANT: Fetch data immediately if authenticated to prevent "empty dashboard"
-                    await refreshData();
+                    // VERIFY SESSION IS ACTUALLY VALID by fetching profile
+                    const isValid = await fetchUserProfile(session.user);
+
+                    if (isValid) {
+                        try {
+                            await refreshData();
+                        } catch (refreshErr) {
+                            console.warn("Data refresh failed despite valid profile. Retrying silent login...", refreshErr);
+                            // Desperate measure: broken token?
+                            const recovered = await performSilentLogin();
+                            if (recovered) await refreshData();
+                        }
+                    } else {
+                        console.warn("Session exists but profile fetch failed (Zombie session). Attempting recovery...");
+                        const recovered = await performSilentLogin();
+                        if (recovered) await refreshData();
+                    }
                 } else {
-                    // Even if no session, try to refresh data once (maybe public data?) or just stop loading
-                    // In this app, data is protected, so if no session, we just stop loading to show Login.
+                    // No active session found.
+                    // Try immediate silent recovery (e.g. after a hard refresh where cookie might be lost/ignored)
+                    const recovered = await performSilentLogin();
+                    if (recovered) {
+                        await refreshData();
+                    }
                 }
 
             } catch (error) {
@@ -610,32 +653,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
                 // AUTO-RECONNECT CHECK
-                const storedAuth = localStorage.getItem('presta_auth_recovery');
+                console.warn("Supabase signaling SIGNED_OUT. Checking for recovery...");
 
-                if (storedAuth) {
-                    console.warn("Supabase signaling SIGNED_OUT. Recovery credentials found. Attempting immediate restoration...");
-
-                    try {
-                        const { e, p } = JSON.parse(atob(storedAuth));
-                        // Attempt swift recovery
-                        supabase.auth.signInWithPassword({ email: e, password: p }).then(({ data, error }) => {
-                            if (!error && data.session) {
-                                console.log("Immediate session recovery successful.");
-                                // We recovered, so we do NOT clear the user context.
-                                // We force a refresh of data to be sure.
-                                refreshData();
-                            } else {
-                                console.warn("Immediate recovery failed. Logging out.", error);
-                                setCurrentUser(null);
-                                setMissions([]);
-                                setClients([]);
-                                setProviders([]);
-                                setDocuments([]);
-                                localStorage.removeItem('presta_current_user');
-                                setLoading(false);
-                            }
-                        });
-                    } catch (err) {
+                // Use helper to attempt recovery
+                performSilentLogin().then(recovered => {
+                    if (recovered) {
+                        console.log("Immediate session recovery successful via helper.");
+                        // Force refresh
+                        refreshData();
+                    } else {
+                        // Normal Logout
                         setCurrentUser(null);
                         setMissions([]);
                         setClients([]);
@@ -644,16 +671,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         localStorage.removeItem('presta_current_user');
                         setLoading(false);
                     }
-                } else {
-                    // Normal Logout
-                    setCurrentUser(null);
-                    setMissions([]);
-                    setClients([]);
-                    setProviders([]);
-                    setDocuments([]);
-                    localStorage.removeItem('presta_current_user');
-                    setLoading(false);
-                }
+                });
             }
         });
 
@@ -710,23 +728,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.warn("Heartbeat: Session lost or expired. Attempting silent recovery...");
 
                     // AUTO-RECONNECT LOGIC
-                    try {
-                        const storedAuth = localStorage.getItem('presta_auth_recovery');
-                        if (storedAuth) {
-                            const { e, p } = JSON.parse(atob(storedAuth));
-                            const { data, error: loginError } = await supabase.auth.signInWithPassword({ email: e, password: p });
-
-                            if (!loginError && data.session) {
-                                console.log("Silent recovery: Re-authenticated successfully. Reloading for stability...");
-                                setIsOnline(true);
-                                // FORCE RELOAD to ensure clean state after recovery
-                                window.location.reload();
-                                return;
-                            }
+                    performSilentLogin().then(recovered => {
+                        if (recovered) {
+                            console.log("Heartbeat recovered session. Reloading...");
+                            window.location.reload();
                         }
-                    } catch (recError) {
-                        console.warn("Silent recovery failed:", recError);
-                    }
+                    });
 
                     setIsOnline(false);
                 } else {
