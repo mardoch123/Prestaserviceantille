@@ -504,7 +504,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!storedAuth) return false;
 
         try {
-            console.log("Attempting silent recovery...");
+            console.log("Attempting silent recovery. Forcing clean slate...");
+            // CRITICAL FIX: Ensure any stale/zombie session is cleared from browser storage
+            await supabase.auth.signOut();
+
             const { e, p } = JSON.parse(atob(storedAuth));
             const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
 
@@ -514,6 +517,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 await fetchUserProfile(data.session.user);
                 setIsOnline(true);
                 return true;
+            } else if (error) {
+                console.warn("Recovery failed:", error.message);
             }
         } catch (err) {
             console.warn("Silent recovery exception:", err);
@@ -584,15 +589,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const initializeAuth = async () => {
             try {
-                // Check LocalStorage first for instant UI response
-                const cached = localStorage.getItem('presta_current_user');
-                if (cached) {
-                    const parsed = JSON.parse(cached);
-                    setCurrentUser(parsed);
-                    if (parsed.role === 'client' && parsed.relatedEntityId) setSimulatedClientId(parsed.relatedEntityId);
-                    if (parsed.role === 'provider' && parsed.relatedEntityId) setSimulatedProviderId(parsed.relatedEntityId);
-                }
-
                 if (!isSupabaseConfigured) {
                     if (mounted) setLoading(false);
                     return;
