@@ -609,13 +609,51 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 await refreshData();
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
-                setCurrentUser(null);
-                setMissions([]);
-                setClients([]);
-                setProviders([]);
-                setDocuments([]);
-                localStorage.removeItem('presta_current_user');
-                setLoading(false);
+                // AUTO-RECONNECT CHECK
+                const storedAuth = localStorage.getItem('presta_auth_recovery');
+
+                if (storedAuth) {
+                    console.warn("Supabase signaling SIGNED_OUT. Recovery credentials found. Attempting immediate restoration...");
+
+                    try {
+                        const { e, p } = JSON.parse(atob(storedAuth));
+                        // Attempt swift recovery
+                        supabase.auth.signInWithPassword({ email: e, password: p }).then(({ data, error }) => {
+                            if (!error && data.session) {
+                                console.log("Immediate session recovery successful.");
+                                // We recovered, so we do NOT clear the user context.
+                                // We force a refresh of data to be sure.
+                                refreshData();
+                            } else {
+                                console.warn("Immediate recovery failed. Logging out.", error);
+                                setCurrentUser(null);
+                                setMissions([]);
+                                setClients([]);
+                                setProviders([]);
+                                setDocuments([]);
+                                localStorage.removeItem('presta_current_user');
+                                setLoading(false);
+                            }
+                        });
+                    } catch (err) {
+                        setCurrentUser(null);
+                        setMissions([]);
+                        setClients([]);
+                        setProviders([]);
+                        setDocuments([]);
+                        localStorage.removeItem('presta_current_user');
+                        setLoading(false);
+                    }
+                } else {
+                    // Normal Logout
+                    setCurrentUser(null);
+                    setMissions([]);
+                    setClients([]);
+                    setProviders([]);
+                    setDocuments([]);
+                    localStorage.removeItem('presta_current_user');
+                    setLoading(false);
+                }
             }
         });
 
@@ -679,11 +717,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             const { data, error: loginError } = await supabase.auth.signInWithPassword({ email: e, password: p });
 
                             if (!loginError && data.session) {
-                                console.log("Silent recovery: Re-authenticated successfully.");
+                                console.log("Silent recovery: Re-authenticated successfully. Reloading for stability...");
                                 setIsOnline(true);
-                                // Optional: Reload to reset full app state cleanly
-                                // window.location.reload(); 
-                                await refreshData();
+                                // FORCE RELOAD to ensure clean state after recovery
+                                window.location.reload();
                                 return;
                             }
                         }
