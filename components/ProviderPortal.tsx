@@ -22,7 +22,8 @@ import {
   Lock,
   Link as LinkIcon,
   FileVideo,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 
 const ProviderPortal: React.FC = () => {

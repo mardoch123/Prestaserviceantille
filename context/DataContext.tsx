@@ -842,38 +842,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- HEARTBEAT & CONNECTION KEEPALIVE ---
     useEffect(() => {
-        if (!isSupabaseConfigured) return;
+        if (!isSupabaseConfigured || !currentUser) return;
 
         const heartbeatInterval = setInterval(async () => {
             try {
-                if (document.visibilityState === 'hidden') return; // Don't ping if background to save battery/data
+                if (document.visibilityState === 'hidden') return; // Don't ping if background
 
                 const { data: { session }, error } = await supabase.auth.getSession();
-                if (error || !session) {
-                    console.warn("Heartbeat: Session lost or expired. Attempting silent recovery...");
-
-                    // AUTO-RECONNECT LOGIC
-                    performSilentLogin().then(recovered => {
+                if (error) {
+                    console.warn("[Heartbeat] Session check error:", error.message);
+                    return; // Don't disconnect on simple errors
+                }
+                
+                if (!session) {
+                    console.warn("[Heartbeat] Session lost, attempting recovery...");
+                    
+                    // Only attempt recovery if we had a user before
+                    if (currentUser) {
+                        const recovered = await performSilentLogin();
                         if (recovered) {
-                            console.log("Heartbeat recovered session. Reloading...");
-                            window.location.reload();
+                            console.log("[Heartbeat] Session recovered successfully");
+                        } else {
+                            console.warn("[Heartbeat] Recovery failed, user will need to login again");
+                            setIsOnline(false);
                         }
-                    });
-
-                    setIsOnline(false);
+                    }
                 } else {
                     // Session is good
                     if (!isOnline) setIsOnline(true);
-                    // Optional: Light ping to DB to verify network path
-                    // const { count } = await supabase.from('notifications').select('*', { count: 'exact', head: true });
                 }
             } catch (err) {
-                console.warn("Heartbeat failed:", err);
+                console.warn("[Heartbeat] Critical error:", err);
+                // Don't disconnect on heartbeat errors
             }
-        }, 120000); // Check every 2 minutes
+        }, 300000); // Check every 5 minutes (reduced frequency)
 
         return () => clearInterval(heartbeatInterval);
-    }, [isOnline]);
+    }, [currentUser, isOnline]);
 
     const sendEmail = async (to: string, subject: string, template: string, context: any) => {
         try {
@@ -994,43 +999,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
-        console.log('[StartMission] Starting mission:', id, { remark, photosCount: photos?.length, hasVideo: !!video });
+        const { error } = await supabase.from('missions').update({
+            status: 'in_progress',
+            start_remark: remark,
+            start_photos: photos,
+            start_video: video
+        }).eq('id', id);
 
-        try {
-            const { data, error } = await supabase.from('missions').update({
-                status: 'in_progress',
-                start_remark: remark,
-                start_photos: photos,
-                start_video: video
-            }).eq('id', id).select();
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
 
-            if (error) {
-                console.error('[StartMission] Database error:', error);
-                alert('Erreur lors du démarrage: ' + error.message);
-                return;
-            }
-
-            console.log('[StartMission] Mission updated successfully:', data);
-
-            // Mettre à jour l'état local
-            setMissions(prev => prev.map(m => m.id === id ? { 
-                ...m, 
-                status: 'in_progress', 
-                startRemark: remark, 
-                startPhotos: photos, 
-                startVideo: video 
-            } : m));
-
-            // Envoyer les notifications
             const m = missions.find(m => m.id === id);
             if (m) {
                 await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId);
                 await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`);
-                console.log('[StartMission] Notifications sent');
             }
-        } catch (err) {
-            console.error('[StartMission] Critical error:', err);
-            alert('Erreur critique lors du démarrage de mission.');
         }
     };
 
