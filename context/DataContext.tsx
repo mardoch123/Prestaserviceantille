@@ -254,7 +254,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const refreshData = async () => {
         try {
             console.log("[RefreshData] Starting data refresh...");
-            
+
             if (!isSupabaseConfigured) {
                 console.log("[RefreshData] Supabase not configured, skipping fetch");
                 // If not configured, we don't fetch but we MUST ensure loading stops
@@ -268,21 +268,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const fetchTable = async (table: string, query: any = '*', timeout: number = 5000) => {
                 try {
                     console.log(`[RefreshData] Fetching ${table}...`);
-                    
+
                     // Add timeout to prevent hanging
                     const timeoutPromise = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
                     });
-                    
+
                     const fetchPromise = supabase.from(table).select(query);
-                    
+
                     const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
-                    
+
                     if (result.error) {
                         console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
                         return null;
                     }
-                    
+
                     console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                     return result.data;
                 } catch (err) {
@@ -301,37 +301,38 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             ] = await Promise.all([
                 fetchTable('clients'),
                 fetchTable('providers'),
-                fetchTable('missions'),
+                fetchTable('missions'), // Core data, keep all for now
                 fetchTable('documents'),
                 fetchTable('packs'),
                 fetchTable('contracts'),
                 fetchTable('reminders'),
                 fetchTable('expenses'),
-                fetchTable('messages'), // Ordering happens in memory or add order to fetchTable if critical
-                fetchTable('notifications'),
+                // OPTIMIZATION: Limit to recent 200 items for potentially large tables
+                supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(200).then(r => r.data),
+                supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100).then(r => r.data),
                 fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
-                fetchTable('visit_scans'),
+                supabase.from('visit_scans').select('*').order('timestamp', { ascending: false }).limit(200).then(r => r.data),
                 fetchTable('leaves')
             ]);
-            
+
             console.log("[RefreshData] All fetches completed, processing data...");
 
             if (cData) {
                 // Enrichir les clients avec leurs packs associés via les contrats
                 const enrichedClients = cData.map((c: any) => {
                     // Chercher les contrats actifs du client
-                    const clientContracts = ctData?.filter((contract: any) => 
+                    const clientContracts = ctData?.filter((contract: any) =>
                         contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
                     ) || [];
-                    
+
                     // Chercher les packs associés via les contrats
-                    const associatedPacks = packData?.filter((pack: any) => 
+                    const associatedPacks = packData?.filter((pack: any) =>
                         clientContracts.some((contract: any) => contract.packId === pack.id)
                     ) || [];
-                    
+
                     // Utiliser le premier pack trouvé ou garder le pack existant
                     const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
-                    
+
                     return {
                         ...c,
                         packsConsumed: c.packs_consumed || 0,
@@ -340,7 +341,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         pack: packName && packName !== '-' ? packName : null
                     };
                 });
-                
+
                 setClients(enrichedClients);
             }
 
@@ -550,7 +551,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         try {
             console.log("Attempting silent recovery...");
-            
+
             // First check if we already have a valid session to avoid unnecessary signOut
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
@@ -589,14 +590,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const fetchUserProfile = async (authUser: any): Promise<boolean> => {
         try {
             console.log("[FetchProfile] Starting profile fetch for user:", authUser.id, authUser.email);
-            
+
             if (!isSupabaseConfigured) {
                 console.log("[FetchProfile] Supabase not configured");
                 return false;
             }
-            
+
             let userObj: User | null = null;
-            
+
             // Check for admin first to avoid unnecessary DB queries
             if (authUser.email === 'admin@presta.com') {
                 console.log("[FetchProfile] Admin user detected, using admin fallback");
@@ -611,7 +612,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Try to get profile from users table only for non-admin users
                 try {
                     const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
-                    
+
                     if (error) {
                         console.log("[FetchProfile] Profile query error:", error.message);
                     } else if (profile) {
@@ -629,7 +630,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } catch (profileErr) {
                     console.log("[FetchProfile] Profile query failed, using generic fallback:", profileErr);
                 }
-                
+
                 // Generic fallback for non-admin users if no profile found
                 if (!userObj) {
                     console.log("[FetchProfile] Using generic user fallback");
@@ -641,7 +642,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     } as User;
                 }
             }
-            
+
             if (userObj) {
                 console.log("[FetchProfile] Setting user:", userObj.name, userObj.role);
                 setCurrentUser(userObj);
@@ -650,14 +651,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
                     setSimulatedProviderId(userObj.relatedEntityId);
                 }
-                try { 
-                    localStorage.setItem('presta_current_user', JSON.stringify(userObj)); 
+                try {
+                    localStorage.setItem('presta_current_user', JSON.stringify(userObj));
                     console.log("[FetchProfile] User saved to localStorage");
                 } catch { }
                 console.log("[FetchProfile] Profile fetch completed successfully");
                 return true;
             }
-            
+
             console.log("[FetchProfile] No user object created");
             return false;
         } catch (e) {
@@ -690,7 +691,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 console.log("Starting auth initialization...");
-                
+
                 // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
 
@@ -759,7 +760,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.log("[AuthStateChange] Processing signed in session for user:", session.user.id);
                 // Clear the safety timer since we're processing a valid session
                 clearTimeout(safetyTimer);
-                
+
                 // Double check profile fetch if needed
                 if (!currentUser || currentUser.id !== session.user.id) {
                     console.log("[AuthStateChange] Fetching user profile...");
@@ -767,7 +768,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } else {
                     console.log("[AuthStateChange] User profile already loaded");
                 }
-                
+
                 // Ensure data is refreshed whenever auth state confirms a session
                 console.log("[AuthStateChange] Refreshing application data...");
                 await refreshData();
@@ -853,10 +854,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.warn("[Heartbeat] Session check error:", error.message);
                     return; // Don't disconnect on simple errors
                 }
-                
+
                 if (!session) {
                     console.warn("[Heartbeat] Session lost, attempting recovery...");
-                    
+
                     // Only attempt recovery if we had a user before
                     if (currentUser) {
                         const recovered = await performSilentLogin();
