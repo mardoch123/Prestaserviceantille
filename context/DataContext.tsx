@@ -253,22 +253,46 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
+            console.log("[RefreshData] Starting data refresh...");
+            
             if (!isSupabaseConfigured) {
+                console.log("[RefreshData] Supabase not configured, skipping fetch");
                 // If not configured, we don't fetch but we MUST ensure loading stops
                 return;
             }
 
             setIsOnline(true); // Assume online if we are attempting to refresh
-
+            console.log("[RefreshData] Setting online status, preparing fetches...");
 
             // Perform fetches in parallel but wrapped to not fail completely if one table is missing
-            const fetchTable = async (table: string, query: any = '*') => {
-                const { data, error } = await supabase.from(table).select(query);
-                if (error) {
-                    console.warn(`Failed to fetch ${table}:`, error.message);
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 5000) => {
+                try {
+                    console.log(`[RefreshData] Fetching ${table}...`);
+                    
+                    // Add timeout to prevent hanging
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
+                    });
+                    
+                    const fetchPromise = supabase.from(table).select(query);
+                    
+                    const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+                    
+                    if (result.error) {
+                        console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
+                        return null;
+                    }
+                    
+                    console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
+                    return result.data;
+                } catch (err) {
+                    if (err instanceof Error && err.message.includes('Timeout')) {
+                        console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
+                    } else {
+                        console.error(`[RefreshData] Exception fetching ${table}:`, err);
+                    }
                     return null;
                 }
-                return data;
             };
 
             const [
@@ -285,18 +309,39 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('expenses'),
                 fetchTable('messages'), // Ordering happens in memory or add order to fetchTable if critical
                 fetchTable('notifications'),
-                supabase.from('company_settings').select('*').maybeSingle().then(r => r.data),
+                fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
                 fetchTable('visit_scans'),
                 fetchTable('leaves')
             ]);
+            
+            console.log("[RefreshData] All fetches completed, processing data...");
 
             if (cData) {
-                setClients(cData.map((c: any) => ({
-                    ...c,
-                    packsConsumed: c.packs_consumed || 0,
-                    loyaltyHoursAvailable: c.loyalty_hours_available || 0,
-                    hasLeftReview: c.has_left_review,
-                })));
+                // Enrichir les clients avec leurs packs associés via les contrats
+                const enrichedClients = cData.map((c: any) => {
+                    // Chercher les contrats actifs du client
+                    const clientContracts = ctData?.filter((contract: any) => 
+                        contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
+                    ) || [];
+                    
+                    // Chercher les packs associés via les contrats
+                    const associatedPacks = packData?.filter((pack: any) => 
+                        clientContracts.some((contract: any) => contract.packId === pack.id)
+                    ) || [];
+                    
+                    // Utiliser le premier pack trouvé ou garder le pack existant
+                    const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
+                    
+                    return {
+                        ...c,
+                        packsConsumed: c.packs_consumed || 0,
+                        loyaltyHoursAvailable: c.loyalty_hours_available || 0,
+                        hasLeftReview: c.has_left_review,
+                        pack: packName && packName !== '-' ? packName : null
+                    };
+                });
+                
+                setClients(enrichedClients);
             }
 
             if (pData) {
@@ -504,8 +549,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!storedAuth) return false;
 
         try {
-            console.log("Attempting silent recovery. Forcing clean slate...");
-            // CRITICAL FIX: Ensure any stale/zombie session is cleared from browser storage
+            console.log("Attempting silent recovery...");
+            
+            // First check if we already have a valid session to avoid unnecessary signOut
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                console.log("Found existing session, validating...");
+                const isValid = await fetchUserProfile(session.user);
+                if (isValid) {
+                    setIsOnline(true);
+                    return true;
+                }
+            }
+
+            // Only clear if we need to re-authenticate
+            console.log("Clearing invalid session and re-authenticating...");
             await supabase.auth.signOut();
 
             const { e, p } = JSON.parse(atob(storedAuth));
@@ -513,33 +571,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (!error && data.session) {
                 console.log("Silent recovery successful.");
-                // Update internal state immediately
                 await fetchUserProfile(data.session.user);
                 setIsOnline(true);
                 return true;
             } else if (error) {
                 console.warn("Recovery failed:", error.message);
+                // Clear corrupted recovery data
+                localStorage.removeItem('presta_auth_recovery');
             }
         } catch (err) {
             console.warn("Silent recovery exception:", err);
+            localStorage.removeItem('presta_auth_recovery');
         }
         return false;
     };
 
     const fetchUserProfile = async (authUser: any): Promise<boolean> => {
         try {
-            if (!isSupabaseConfigured) return false;
-            const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+            console.log("[FetchProfile] Starting profile fetch for user:", authUser.id, authUser.email);
+            
+            if (!isSupabaseConfigured) {
+                console.log("[FetchProfile] Supabase not configured");
+                return false;
+            }
+            
             let userObj: User | null = null;
-            if (profile) {
-                userObj = {
-                    id: authUser.id,
-                    email: authUser.email || '',
-                    name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
-                    role: profile.role || 'client',
-                    relatedEntityId: profile.related_entity_id
-                } as User;
-            } else if (authUser.email === 'admin@presta.com') {
+            
+            // Check for admin first to avoid unnecessary DB queries
+            if (authUser.email === 'admin@presta.com') {
+                console.log("[FetchProfile] Admin user detected, using admin fallback");
                 userObj = {
                     id: authUser.id,
                     email: authUser.email,
@@ -547,26 +607,61 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     role: 'admin'
                 } as User;
             } else {
-                userObj = {
-                    id: authUser.id,
-                    email: authUser.email || '',
-                    name: 'Utilisateur',
-                    role: 'client'
-                } as User;
+                console.log("[FetchProfile] Non-admin user, checking users table...");
+                // Try to get profile from users table only for non-admin users
+                try {
+                    const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+                    
+                    if (error) {
+                        console.log("[FetchProfile] Profile query error:", error.message);
+                    } else if (profile) {
+                        console.log("[FetchProfile] Found profile in users table");
+                        userObj = {
+                            id: authUser.id,
+                            email: authUser.email || '',
+                            name: profile.name || authUser.email?.split('@')[0] || 'Utilisateur',
+                            role: profile.role || 'client',
+                            relatedEntityId: profile.related_entity_id
+                        } as User;
+                    } else {
+                        console.log("[FetchProfile] No profile found in users table, using generic fallback");
+                    }
+                } catch (profileErr) {
+                    console.log("[FetchProfile] Profile query failed, using generic fallback:", profileErr);
+                }
+                
+                // Generic fallback for non-admin users if no profile found
+                if (!userObj) {
+                    console.log("[FetchProfile] Using generic user fallback");
+                    userObj = {
+                        id: authUser.id,
+                        email: authUser.email || '',
+                        name: authUser.email?.split('@')[0] || 'Utilisateur',
+                        role: 'client'
+                    } as User;
+                }
             }
+            
             if (userObj) {
+                console.log("[FetchProfile] Setting user:", userObj.name, userObj.role);
                 setCurrentUser(userObj);
                 if (userObj.role === 'client' && userObj.relatedEntityId) {
                     setSimulatedClientId(userObj.relatedEntityId);
                 } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
                     setSimulatedProviderId(userObj.relatedEntityId);
                 }
-                try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
+                try { 
+                    localStorage.setItem('presta_current_user', JSON.stringify(userObj)); 
+                    console.log("[FetchProfile] User saved to localStorage");
+                } catch { }
+                console.log("[FetchProfile] Profile fetch completed successfully");
                 return true;
             }
+            
+            console.log("[FetchProfile] No user object created");
             return false;
         } catch (e) {
-            console.error("Error fetching user profile:", e);
+            console.error("[FetchProfile] Critical error:", e);
             return false;
         }
     };
@@ -575,17 +670,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     useEffect(() => {
         let mounted = true;
 
-        // SAFETY TIMEOUT: Force stop loading after 7 seconds
+        // SAFETY TIMEOUT: Force stop loading after 15 seconds (increased for Supabase)
         const safetyTimer = setTimeout(() => {
             if (mounted && loading) {
-                console.warn("Initialization timed out. Forcing app load.");
+                console.warn("Initialization timed out after 15 seconds. Forcing app load.");
                 setLoading(false);
                 // Only mark offline if browser actually reports offline
                 if (!navigator.onLine) {
                     setIsOnline(false);
                 }
             }
-        }, 7000);
+        }, 15000);
 
         const initializeAuth = async () => {
             try {
@@ -594,38 +689,55 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return;
                 }
 
+                console.log("Starting auth initialization...");
+                
                 // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
 
+                if (error) {
+                    console.warn("Session check error:", error);
+                }
+
                 if (session?.user && mounted) {
+                    console.log("Found Supabase session, validating profile...");
                     // VERIFY SESSION IS ACTUALLY VALID by fetching profile
                     const isValid = await fetchUserProfile(session.user);
 
                     if (isValid) {
+                        console.log("Profile validation successful, loading data...");
                         try {
                             await refreshData();
                         } catch (refreshErr) {
                             console.warn("Data refresh failed despite valid profile. Retrying silent login...", refreshErr);
-                            // Desperate measure: broken token?
                             const recovered = await performSilentLogin();
-                            if (recovered) await refreshData();
+                            if (recovered) {
+                                console.log("Recovery successful, refreshing data...");
+                                await refreshData();
+                            } else {
+                                console.warn("Recovery failed, will show login");
+                            }
                         }
                     } else {
                         console.warn("Session exists but profile fetch failed (Zombie session). Attempting recovery...");
                         const recovered = await performSilentLogin();
-                        if (recovered) await refreshData();
+                        if (recovered) {
+                            await refreshData();
+                        }
                     }
                 } else {
-                    // No active session found.
-                    // Try immediate silent recovery (e.g. after a hard refresh where cookie might be lost/ignored)
+                    console.log("No active Supabase session, trying silent recovery...");
+                    // No active session found - try silent recovery
                     const recovered = await performSilentLogin();
                     if (recovered) {
+                        console.log("Silent recovery successful, loading data...");
                         await refreshData();
+                    } else {
+                        console.log("No recovery possible, will show login screen");
                     }
                 }
 
             } catch (error) {
-                console.error("Auth check failed:", error);
+                console.error("Auth initialization failed:", error);
             } finally {
                 clearTimeout(safetyTimer);
                 if (mounted) setLoading(false);
@@ -637,17 +749,32 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!isSupabaseConfigured) return;
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (!mounted) return;
+            console.log("[AuthStateChange] Event:", event, "Session:", session ? "exists" : "null");
+            if (!mounted) {
+                console.log("[AuthStateChange] Component not mounted, ignoring");
+                return;
+            }
 
             if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
+                console.log("[AuthStateChange] Processing signed in session for user:", session.user.id);
+                // Clear the safety timer since we're processing a valid session
+                clearTimeout(safetyTimer);
+                
                 // Double check profile fetch if needed
                 if (!currentUser || currentUser.id !== session.user.id) {
+                    console.log("[AuthStateChange] Fetching user profile...");
                     await fetchUserProfile(session.user);
+                } else {
+                    console.log("[AuthStateChange] User profile already loaded");
                 }
+                
                 // Ensure data is refreshed whenever auth state confirms a session
+                console.log("[AuthStateChange] Refreshing application data...");
                 await refreshData();
+                console.log("[AuthStateChange] Setting loading to false - session ready");
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
+                console.log("[AuthStateChange] User signed out");
                 // AUTO-RECONNECT CHECK
                 console.warn("Supabase signaling SIGNED_OUT. Checking for recovery...");
 
@@ -668,6 +795,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         setLoading(false);
                     }
                 });
+            } else {
+                console.log("[AuthStateChange] Unhandled event:", event);
             }
         });
 
@@ -865,21 +994,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
-        const { error } = await supabase.from('missions').update({
-            status: 'in_progress',
-            start_remark: remark,
-            start_photos: photos,
-            start_video: video
-        }).eq('id', id);
+        console.log('[StartMission] Starting mission:', id, { remark, photosCount: photos?.length, hasVideo: !!video });
 
-        if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
+        try {
+            const { data, error } = await supabase.from('missions').update({
+                status: 'in_progress',
+                start_remark: remark,
+                start_photos: photos,
+                start_video: video
+            }).eq('id', id).select();
 
+            if (error) {
+                console.error('[StartMission] Database error:', error);
+                alert('Erreur lors du démarrage: ' + error.message);
+                return;
+            }
+
+            console.log('[StartMission] Mission updated successfully:', data);
+
+            // Mettre à jour l'état local
+            setMissions(prev => prev.map(m => m.id === id ? { 
+                ...m, 
+                status: 'in_progress', 
+                startRemark: remark, 
+                startPhotos: photos, 
+                startVideo: video 
+            } : m));
+
+            // Envoyer les notifications
             const m = missions.find(m => m.id === id);
             if (m) {
                 await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId);
                 await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`);
+                console.log('[StartMission] Notifications sent');
             }
+        } catch (err) {
+            console.error('[StartMission] Critical error:', err);
+            alert('Erreur critique lors du démarrage de mission.');
         }
     };
 

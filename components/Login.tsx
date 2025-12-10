@@ -26,19 +26,25 @@ const Login: React.FC = () => {
     // Check if running on specifically the production domain to hide dev tools
     const isProduction = window.location.origin === 'https://prestaserviceantille.vercel.app';
 
-    // EFFACE LES COOKIES/SESSION AU CHARGEMENT DE LA PAGE LOGIN
-    // Cela garantit que si l'utilisateur arrive ici, il est VRAIMENT déconnecté
+    // NETTOYAGE PLUS INTELLIGENT AU CHARGEMENT DE LA PAGE LOGIN
+    // On ne nettoie que si vraiment nécessaire pour préserver la récupération automatique
     React.useEffect(() => {
         const cleanState = async () => {
             try {
-                // 1. Clear Local Storage
-                localStorage.removeItem('presta_current_user');
-                // Don't clear recovery creds immediately? Actually yes, if they are on Login page, they likely want to sign in manually or different user.
-                // But wait, if they just refreshed? No, if they are on Login page, it means DataContext decided they are exhausted.
-                // Let's safe keep recovery? No, if user sees Login page, they expect manual login.
-                // localStorage.removeItem('presta_auth_recovery'); 
+                // 1. Vérifier d'abord s'il existe une session valide Supabase
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (!session?.user) {
+                    console.log("No valid Supabase session found, cleaning local state...");
+                    // Nettoyer seulement s'il n'y a pas de session valide
+                    localStorage.removeItem('presta_current_user');
+                } else {
+                    console.log("Valid Supabase session found, keeping recovery data");
+                    // Ne pas nettoyer pour permettre la récupération automatique
+                    return;
+                }
 
-                // 2. Force Supabase SignOut to clear cookies
+                // 2. Forcer Supabase SignOut uniquement si pas de session
                 const { error } = await supabase.auth.signOut();
                 if (error) console.warn("Background signout warning:", error.message);
             } catch (e) {

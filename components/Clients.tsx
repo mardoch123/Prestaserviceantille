@@ -289,7 +289,15 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 </td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{client.phone}</div></td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{client.city}</div></td>
-                                <td className="px-6 py-4">{client.pack !== '-' ? (<span className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-bold">{client.pack}</span>) : (<span className="text-slate-400 italic">Aucun</span>)}</td>
+                                <td className="px-6 py-4">
+                                    {client.pack && client.pack !== '-' ? (
+                                        <span className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-bold">
+                                            {client.pack}
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-400 italic">Aucun pack</span>
+                                    )}
+                                </td>
                                 <td className="px-6 py-4 text-center">
                                     {client.status === 'active' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold border border-green-200">Actif</span>}
                                     {client.status === 'new' && <span className="bg-brand-orange/20 text-brand-orange px-2 py-1 rounded-full text-xs font-bold border border-brand-orange/30 flex items-center justify-center gap-1"><Star className="w-3 h-3" fill="currentColor" /> Nouveau</span>}

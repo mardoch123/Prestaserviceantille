@@ -470,11 +470,12 @@ const Planning: React.FC = () => {
                 </div>
             </div>
             
-            <div className="hidden md:block w-64 bg-white border border-slate-200 flex flex-col">
+            {/* Actions & Missions - Responsive */}
+            <div className="w-full md:w-64 bg-white border border-slate-200 flex flex-col md:h-auto">
                 <div className="bg-slate-100 p-3 text-center font-bold text-slate-700 border-b border-slate-200">
                     Actions & Missions
                 </div>
-                <div className="p-2 space-y-2 overflow-y-auto flex-1">
+                <div className="p-2 space-y-2 overflow-y-auto max-h-64 md:max-h-96 md:flex-1">
                     <button 
                         onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true }); }}
                         className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
@@ -485,18 +486,25 @@ const Planning: React.FC = () => {
                     {unassignedMissions.length === 0 ? (
                         <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
                     ) : (
-                        unassignedMissions.map(m => (
-                            <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100">
-                                <p className="font-bold text-xs text-red-800">{m.clientName}</p>
-                                <p className="text-[10px] text-red-600">{m.date} | {m.service}</p>
-                                <button onClick={() => setSelectedMissionId(m.id)} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
+                        <>
+                            <div className="text-xs text-slate-500 font-bold mb-2">
+                                {unassignedMissions.length} mission{unassignedMissions.length > 1 ? 's' : ''} à assigner
                             </div>
-                        ))
+                            {unassignedMissions.map(m => (
+                                <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100 shrink-0">
+                                    <p className="font-bold text-xs text-red-800 truncate">{m.clientName}</p>
+                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.service}</p>
+                                    <button onClick={() => setSelectedMissionId(m.id)} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
+                                </div>
+                            ))}
+                        </>
                     )}
                 </div>
-                <button onClick={() => { setIsModalOpen(true); setMissionForm(initialFormState); }} className="m-2 bg-brand-orange text-white py-2 rounded font-bold text-sm hover:bg-orange-600 flex items-center justify-center gap-2">
-                    <Plus className="w-4 h-4" /> Ajouter Mission
-                </button>
+                <div className="p-2 border-t border-slate-200">
+                    <button onClick={() => { setIsModalOpen(true); setMissionForm(initialFormState); }} className="w-full bg-brand-orange text-white py-2 rounded font-bold text-sm hover:bg-orange-600 flex items-center justify-center gap-2">
+                        <Plus className="w-4 h-4" /> Ajouter Mission
+                    </button>
+                </div>
             </div>
        </div>
 
