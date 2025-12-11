@@ -266,16 +266,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setIsOnline(true);
             console.log("[RefreshData] Setting online status, preparing fetches...");
 
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 10000) => {
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 30000) => {
                 try {
-                    console.log(`[RefreshData] Fetching ${table}...`);
+                    console.log(`[RefreshData] 🔍 Fetching ${table}...`);
+                    console.log(`[RefreshData] 🔑 Auth token exists:`, !!supabase.auth.getSession());
                     
-                    const fetchPromise = supabase.from(table).select(query);
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout)
-                    );
-
-                    const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+                    const startTime = Date.now();
+                    const result = await supabase.from(table).select(query);
+                    const endTime = Date.now();
+                    
+                    console.log(`[RefreshData] ⏱️ ${table} query took ${endTime - startTime}ms`);
 
                     if (result.error) {
                         console.error(`[RefreshData] ❌ Failed to fetch ${table}:`, result.error);
@@ -285,21 +285,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             hint: result.error.hint,
                             details: result.error.details
                         });
-                        
-                        if (result.error.message?.includes('policy') || result.error.code === '42501') {
-                            console.error(`[RefreshData] 🔒 RLS POLICY ERROR on ${table} - Les données sont bloquées par les policies Supabase`);
-                            alert(`ERREUR CRITIQUE: Les tables Supabase sont protégées par RLS.\n\nTable: ${table}\n\nSolution: Exécutez le fichier supabase_rls_policies.sql dans votre console Supabase SQL.`);
-                        }
                         return null;
                     }
 
                     console.log(`[RefreshData] ✅ Successfully fetched ${table}:`, result.data?.length || 0, 'items');
+                    if (result.data && result.data.length > 0) {
+                        console.log(`[RefreshData] 📦 First item sample:`, result.data[0]);
+                    }
                     return result.data;
                 } catch (err: any) {
                     console.error(`[RefreshData] ⚠️ Exception fetching ${table}:`, err);
-                    if (err.message?.includes('Timeout')) {
-                        console.error(`[RefreshData] ⏱️ TIMEOUT sur ${table} - Vérifiez vos RLS policies`);
-                    }
+                    console.error(`[RefreshData] 💥 Full error:`, {
+                        name: err.name,
+                        message: err.message,
+                        stack: err.stack
+                    });
                     return null;
                 }
             };
