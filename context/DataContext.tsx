@@ -307,20 +307,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log("[RefreshData] All fetches completed, processing data...");
 
             if (cData) {
-                // Enrichir les clients avec leurs packs associés via les contrats
                 const enrichedClients = cData.map((c: any) => {
-                    // Chercher les contrats actifs du client
                     const clientContracts = ctData?.filter((contract: any) =>
                         contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
                     ) || [];
 
-                    // Chercher les packs associés via les contrats
                     const associatedPacks = packData?.filter((pack: any) =>
                         clientContracts.some((contract: any) => contract.packId === pack.id)
                     ) || [];
 
-                    // Utiliser le premier pack trouvé ou garder le pack existant
-                    const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
+                    const packName = associatedPacks.length > 0 && associatedPacks[0] && typeof associatedPacks[0] === 'object' && 'name' in associatedPacks[0] 
+                        ? (associatedPacks[0] as any).name 
+                        : c.pack;
 
                     return {
                         ...c,
@@ -479,17 +477,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 })));
             }
 
-            if (settingsData) {
+            if (settingsData && typeof settingsData === 'object' && 'name' in settingsData) {
                 setCompanySettings({
-                    name: settingsData.name,
-                    address: settingsData.address,
-                    siret: settingsData.siret,
-                    email: settingsData.email,
-                    phone: settingsData.phone,
-                    tvaRateDefault: settingsData.tva_rate_default,
-                    emailNotifications: settingsData.email_notifications,
-                    loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url
+                    name: (settingsData as any).name,
+                    address: (settingsData as any).address,
+                    siret: (settingsData as any).siret,
+                    email: (settingsData as any).email,
+                    phone: (settingsData as any).phone,
+                    tvaRateDefault: (settingsData as any).tva_rate_default,
+                    emailNotifications: (settingsData as any).email_notifications,
+                    loyaltyRewardHours: (settingsData as any).loyalty_reward_hours,
+                    logoUrl: (settingsData as any).logo_url
                 });
             }
 
