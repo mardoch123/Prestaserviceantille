@@ -266,20 +266,40 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setIsOnline(true);
             console.log("[RefreshData] Setting online status, preparing fetches...");
 
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 30000) => {
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 10000) => {
                 try {
                     console.log(`[RefreshData] Fetching ${table}...`);
-                    const result = await supabase.from(table).select(query);
+                    
+                    const fetchPromise = supabase.from(table).select(query);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout)
+                    );
+
+                    const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
                     if (result.error) {
-                        console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error?.message || 'Unknown error');
+                        console.error(`[RefreshData] ❌ Failed to fetch ${table}:`, result.error);
+                        console.error(`[RefreshData] Error details:`, {
+                            message: result.error.message,
+                            code: result.error.code,
+                            hint: result.error.hint,
+                            details: result.error.details
+                        });
+                        
+                        if (result.error.message?.includes('policy') || result.error.code === '42501') {
+                            console.error(`[RefreshData] 🔒 RLS POLICY ERROR on ${table} - Les données sont bloquées par les policies Supabase`);
+                            alert(`ERREUR CRITIQUE: Les tables Supabase sont protégées par RLS.\n\nTable: ${table}\n\nSolution: Exécutez le fichier supabase_rls_policies.sql dans votre console Supabase SQL.`);
+                        }
                         return null;
                     }
 
-                    console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
+                    console.log(`[RefreshData] ✅ Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                     return result.data;
-                } catch (err) {
-                    console.error(`[RefreshData] Exception fetching ${table}:`, err);
+                } catch (err: any) {
+                    console.error(`[RefreshData] ⚠️ Exception fetching ${table}:`, err);
+                    if (err.message?.includes('Timeout')) {
+                        console.error(`[RefreshData] ⏱️ TIMEOUT sur ${table} - Vérifiez vos RLS policies`);
+                    }
                     return null;
                 }
             };
@@ -290,17 +310,31 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             ] = await Promise.all([
                 fetchTable('clients'),
                 fetchTable('providers'),
-                fetchTable('missions'), // Core data, keep all for now
+                fetchTable('missions'),
                 fetchTable('documents'),
                 fetchTable('packs'),
                 fetchTable('contracts'),
                 fetchTable('reminders'),
                 fetchTable('expenses'),
-                // OPTIMIZATION: Limit to recent 200 items for potentially large tables
-                supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(200).then(r => r.data),
-                supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100).then(r => r.data),
-                fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
-                supabase.from('visit_scans').select('*').order('timestamp', { ascending: false }).limit(200).then(r => r.data),
+                fetchTable('messages', '*').then(data => {
+                    if (!data) return null;
+                    return data.sort((a: any, b: any) => 
+                        new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
+                    ).slice(-200);
+                }),
+                fetchTable('notifications', '*').then(data => {
+                    if (!data) return null;
+                    return data.sort((a: any, b: any) => 
+                        new Date(b.date).getTime() - new Date(a.date).getTime()
+                    ).slice(0, 100);
+                }),
+                fetchTable('company_settings', '*').then(r => r?.[0] || null),
+                fetchTable('visit_scans', '*').then(data => {
+                    if (!data) return null;
+                    return data.sort((a: any, b: any) => 
+                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    ).slice(0, 200);
+                }),
                 fetchTable('leaves')
             ]);
 
@@ -438,11 +472,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 })));
             }
             if (msgData) {
-                // sort locally since we fetched crudely
-                const sorted = msgData.sort((a: any, b: any) =>
-                    new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
-                );
-                setMessages(sorted.map((m: any) => ({
+                setMessages(msgData.map((m: any) => ({
                     id: m.id,
                     sender: m.sender,
                     text: m.text,
@@ -452,22 +482,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 })));
             }
             if (notifData) {
-                const sorted = notifData.sort((a: any, b: any) =>
-                    new Date(b.date).getTime() - new Date(a.date).getTime()
-                );
-                setNotifications(sorted.map((n: any) => ({
+                setNotifications(notifData.map((n: any) => ({
                     ...n,
-                    read: n.is_read, // Map DB column to UI property
-                    targetUserType: n.target_user_role, // Use role instead of specific ID for general mapping if simple
+                    read: n.is_read,
+                    targetUserType: n.target_user_role,
                     targetUserId: n.target_user_id
                 })));
             }
 
             if (vsData) {
-                const sorted = vsData.sort((a: any, b: any) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                );
-                setVisitScans(sorted.map((s: any) => ({
+                setVisitScans(vsData.map((s: any) => ({
                     ...s,
                     clientId: s.client_id || s.clientId,
                     scannerId: s.scanner_id || s.scannerId,
