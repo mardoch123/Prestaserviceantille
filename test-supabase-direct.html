@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Direct Supabase</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Test Direct Supabase</h1>
+    <button onclick="testConnection()">Test Connection</button>
+    <pre id="result"></pre>
+
+    <script>
+        const supabase = window.supabase.createClient(
+            'https://myzbkbqkjykdsaymujvl.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15emJrYnFranlrZHNheW11anZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMzk1NjcsImV4cCI6MjA3OTYxNTU2N30.LFFKlGHjC6hfCQynUDCZp_2XdZLDrxAuK9D4NNFYbKI'
+        );
+
+        async function testConnection() {
+            const resultEl = document.getElementById('result');
+            resultEl.textContent = '⏳ Testing connection...\n';
+
+            try {
+                console.log('🔍 Starting test...');
+                const startTime = Date.now();
+
+                // Test 1: Simple select without auth
+                resultEl.textContent += '\n📡 Test 1: Fetching clients (no auth)...\n';
+                const { data, error, status } = await supabase
+                    .from('clients')
+                    .select('*')
+                    .limit(5);
+
+                const endTime = Date.now();
+                resultEl.textContent += `⏱️ Time: ${endTime - startTime}ms\n`;
+                resultEl.textContent += `📊 Status: ${status}\n`;
+
+                if (error) {
+                    resultEl.textContent += `❌ Error: ${JSON.stringify(error, null, 2)}\n`;
+                    console.error('Error:', error);
+                } else {
+                    resultEl.textContent += `✅ Success! Received ${data?.length || 0} clients\n`;
+                    resultEl.textContent += `📦 Data: ${JSON.stringify(data, null, 2)}\n`;
+                    console.log('Data:', data);
+                }
+
+                // Test 2: Check RLS status
+                resultEl.textContent += '\n📡 Test 2: Checking RLS...\n';
+                const { data: rlsData, error: rlsError } = await supabase
+                    .rpc('version'); // Simple health check
+
+                if (rlsError) {
+                    resultEl.textContent += `⚠️ RPC Error: ${JSON.stringify(rlsError, null, 2)}\n`;
+                } else {
+                    resultEl.textContent += `✅ RPC works\n`;
+                }
+
+            } catch (err) {
+                resultEl.textContent += `💥 Exception: ${err.message}\n`;
+                resultEl.textContent += `Stack: ${err.stack}\n`;
+                console.error('Exception:', err);
+            }
+        }
+
+        // Auto-test on load
+        setTimeout(testConnection, 1000);
+    </script>
+</body>
+</html>
