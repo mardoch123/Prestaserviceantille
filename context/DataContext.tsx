@@ -140,6 +140,7 @@ interface DataContextType {
     isOnline: boolean;
     pendingSyncCount: number;
     loading: boolean;
+    dataLoading: boolean;
     missionLoading: boolean;
 
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
@@ -182,6 +183,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
+    const [dataLoading, setDataLoading] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [missionLoading, setMissionLoading] = useState(false);
 
@@ -254,14 +256,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
+        setDataLoading(true);
         try {
             console.log("[RefreshData] Starting data refresh...");
 
             if (!isSupabaseConfigured) {
                 console.log("[RefreshData] Supabase not configured, skipping fetch");
                 setLoading(false);
+                setDataLoading(false);
                 return;
             }
+
+            const { data: sessionData } = await supabase.auth.getSession();
+            const hasToken = !!sessionData?.session?.access_token;
 
             setIsOnline(true);
             console.log("[RefreshData] Setting online status, preparing fetches...");
@@ -269,7 +276,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const fetchTable = async (table: string, query: any = '*', timeout: number = 30000) => {
                 try {
                     console.log(`[RefreshData] 🔍 Fetching ${table}...`);
-                    console.log(`[RefreshData] 🔑 Auth token exists:`, !!supabase.auth.getSession());
+                    console.log(`[RefreshData] 🔑 Auth token exists:`, hasToken);
                     
                     const startTime = Date.now();
                     const result = await supabase.from(table).select(query);
@@ -525,6 +532,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 setIsOnline(false);
             }
             setLoading(false);
+        } finally {
+            setDataLoading(false);
         }
     };
 
@@ -707,40 +716,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.log("Starting auth initialization...");
                 authInitialized = true;
 
-                const { data: { session }, error } = await supabase.auth.getSession();
-
+                const { data, error } = await supabase.auth.getSession();
                 if (error) {
-                    console.warn("Session check error:", error);
+                    console.warn("[Init] Erreur de récupération de session:", error);
                 }
 
-                if (session?.user && mounted) {
-                    console.log("Found Supabase session, validating profile...");
-                    const isValid = await fetchUserProfile(session.user);
+                const activeSession = data?.session;
 
-                    if (isValid) {
-                        console.log("Profile validation successful, loading data...");
+                if (activeSession?.user) {
+                    console.log("[Init] Session existante trouvée, initialisation des données...");
+                    const profileOk = await fetchUserProfile(activeSession.user);
+                    if (profileOk) {
                         await refreshData();
-                    } else {
-                        console.warn("Session exists but profile fetch failed. Attempting recovery...");
-                        const recovered = await performSilentLogin();
-                        if (recovered) {
-                            await refreshData();
-                        } else {
-                            console.warn("Recovery failed, will show login");
-                            if (mounted) setLoading(false);
-                        }
+                        return;
                     }
-                } else {
-                    console.log("No active Supabase session, trying silent recovery...");
-                    const recovered = await performSilentLogin();
-                    if (recovered) {
-                        console.log("Silent recovery successful, loading data...");
-                        await refreshData();
-                    } else {
-                        console.log("No recovery possible, will show login screen");
-                        if (mounted) setLoading(false);
-                    }
+                    console.warn("[Init] Session existante mais profil introuvable, tentative de récupération silencieuse...");
                 }
+
+                const recovered = await performSilentLogin();
+                if (recovered) {
+                    console.log("[Init] ✅ Session restaurée via login silencieux");
+                    await refreshData();
+                    return;
+                }
+
+                try {
+                    const cachedUser = localStorage.getItem('presta_current_user');
+                    if (cachedUser) {
+                        const parsed = JSON.parse(cachedUser);
+                        setCurrentUser(parsed);
+                        console.log("[Init] Utilisateur local restauré (mode dégradé)");
+                    }
+                } catch (e) {
+                    console.warn("[Init] Impossible de lire l'utilisateur local:", e);
+                }
+
+                console.log("[Init] ❌ Aucune session active, affichage de la page de connexion");
+                if (mounted) setLoading(false);
 
             } catch (error) {
                 console.error("Auth initialization failed:", error);
@@ -2393,7 +2405,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             simulatedClientId, setSimulatedClientId,
             simulatedProviderId, setSimulatedProviderId,
             activeStream, startLiveStream, stopLiveStream,
-            isOnline, pendingSyncCount, loading, missionLoading,
+            isOnline, pendingSyncCount, loading, dataLoading, missionLoading,
             getAvailableSlots, refreshData, sendEmail
         }}>
             {children}

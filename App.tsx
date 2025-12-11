@@ -141,6 +141,19 @@ const LoadingScreen = () => {
     );
 }
 
+const GlobalDataLoader = () => {
+    const { dataLoading } = useData();
+    if (!dataLoading) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm text-slate-700">
+            <Loader2 className="w-10 h-10 text-brand-blue animate-spin mb-3" />
+            <p className="font-semibold">Chargement des données...</p>
+            <p className="text-xs text-slate-500">Merci de patienter, les données sont en cours de synchronisation.</p>
+        </div>
+    );
+};
+
 const AppLayout: React.FC = () => {
     const { currentUser, loading } = useData();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -165,6 +178,7 @@ const AppLayout: React.FC = () => {
     if (currentUser.role === 'client') {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
+                <GlobalDataLoader />
                 <OfflineBanner />
                 <ClientPortal />
             </div>
@@ -174,6 +188,7 @@ const AppLayout: React.FC = () => {
     if (currentUser.role === 'provider') {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
+                <GlobalDataLoader />
                 <OfflineBanner />
                 <ProviderPortal />
             </div>
@@ -186,6 +201,7 @@ const AppLayout: React.FC = () => {
 
             <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
 
+                <GlobalDataLoader />
                 <OfflineBanner />
 
                 <Header onMenuClick={() => setIsSidebarOpen(true)} />
