@@ -145,6 +145,15 @@ const AppLayout: React.FC = () => {
     const { currentUser, loading } = useData();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            console.log("[AppLayout] Page unload detected");
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
+
     if (loading) {
         return <LoadingScreen />;
     }
@@ -171,27 +180,22 @@ const AppLayout: React.FC = () => {
         );
     }
 
-    // Admin and Super Admin Layout (both use same admin interface)
     return (
         <div className="flex h-screen bg-cream-50 font-sans overflow-hidden">
             <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-            {/* Main Content Wrapper */}
             <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
 
-                {/* Offline Banner */}
                 <OfflineBanner />
 
-                {/* Header at the top */}
                 <Header onMenuClick={() => setIsSidebarOpen(true)} />
 
-                {/* Content Area */}
                 <main className="flex-1 overflow-hidden relative bg-cream-50/50">
-                    {/* Decorative background elements inside the scrollable area's container */}
                     <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl -z-10 transform translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
                     <div className="absolute bottom-0 left-0 w-96 h-96 bg-brand-blue/5 rounded-full blur-3xl -z-10 transform -translate-x-1/2 translate-y-1/2 pointer-events-none"></div>
 
                     <Routes>
+                        <Route path="/login" element={<Login />} />
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/qrcode" element={<QRCodeManager />} />
                         <Route path="/statistics" element={<Statistics />} />

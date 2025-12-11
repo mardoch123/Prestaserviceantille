@@ -40,7 +40,8 @@ const ProviderPortal: React.FC = () => {
     cancelMissionByProvider,
     startLiveStream,
     stopLiveStream,
-    activeStream
+    activeStream,
+    missionLoading
   } = useData();
 
   const provider = providers.find(p => p.id === simulatedProviderId);
@@ -91,16 +92,15 @@ const ProviderPortal: React.FC = () => {
               stopLiveStream();
           }
       };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeStream, stopLiveStream]);
 
   if (!provider) {
     return (
       <div className="h-full flex items-center justify-center flex-col bg-slate-100 p-8">
          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md text-center">
-            <Briefcase className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">Espace Prestataire</h2>
-            <p className="text-slate-500 mb-6">Veuillez sélectionner un prestataire depuis l'interface Admin pour simuler sa vue.</p>
-            <button onClick={() => setSimulatedProviderId(null)} className="bg-brand-orange text-white px-6 py-2 rounded-lg font-bold">Retour Admin</button>
+            <Loader2 className="w-16 h-16 mx-auto text-brand-blue animate-spin mb-4" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Chargement...</h2>
+            <p className="text-slate-500 mb-6">Veuillez patienter pendant que nous chargeons vos informations.</p>
          </div>
       </div>
     );
@@ -210,7 +210,7 @@ const ProviderPortal: React.FC = () => {
       setVideo(undefined);
   };
 
-  const handleSubmitExecution = () => {
+  const handleSubmitExecution = async () => {
       if(!selectedMissionId) return;
 
       if (executionStep === 'start') {
@@ -218,14 +218,14 @@ const ProviderPortal: React.FC = () => {
               alert('Il faut obligatoirement 5 photos minimum avant chantier.');
               return;
           }
-          startMission(selectedMissionId, remark, photos, video);
+          await startMission(selectedMissionId, remark, photos, video);
           showToast('Mission démarrée. Client notifié.');
       } else if (executionStep === 'end') {
           if (photos.length < 5) {
               alert('Il faut obligatoirement 5 photos minimum fin de chantier.');
               return;
           }
-          endMission(selectedMissionId, remark, photos, video);
+          await endMission(selectedMissionId, remark, photos, video);
           showToast('Mission terminée. Rapport envoyé.');
       } else if (executionStep === 'cancel') {
           if (!cancelReason.trim()) {
@@ -805,11 +805,21 @@ const ProviderPortal: React.FC = () => {
                    <div className="p-4 border-t bg-slate-50 md:rounded-b-2xl shrink-0">
                        <button 
                             onClick={handleSubmitExecution}
-                            className={`w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 ${executionStep === 'cancel' ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-blue hover:bg-blue-700'}`}
+                            disabled={missionLoading}
+                            className={`w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 ${executionStep === 'cancel' ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-blue hover:bg-blue-700'} ${missionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                        >
-                           {executionStep === 'start' && 'Démarrer la mission'}
-                           {executionStep === 'end' && 'Terminer et Envoyer'}
-                           {executionStep === 'cancel' && 'Confirmer Annulation'}
+                           {missionLoading ? (
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Envoi en cours...
+                                </>
+                           ) : (
+                                <>
+                                   {executionStep === 'start' && 'Démarrer la mission'}
+                                   {executionStep === 'end' && 'Terminer et Envoyer'}
+                                   {executionStep === 'cancel' && 'Confirmer Annulation'}
+                                </>
+                           )}
                        </button>
                    </div>
                </div>

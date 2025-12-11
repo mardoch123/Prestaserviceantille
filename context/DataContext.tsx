@@ -140,6 +140,7 @@ interface DataContextType {
     isOnline: boolean;
     pendingSyncCount: number;
     loading: boolean;
+    missionLoading: boolean;
 
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
     refreshData: () => Promise<void>;
@@ -182,6 +183,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
+    const [missionLoading, setMissionLoading] = useState(false);
 
     // EXACT TEMPLATE FROM PDF OCR
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
@@ -257,40 +259,27 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (!isSupabaseConfigured) {
                 console.log("[RefreshData] Supabase not configured, skipping fetch");
-                // If not configured, we don't fetch but we MUST ensure loading stops
+                setLoading(false);
                 return;
             }
 
-            setIsOnline(true); // Assume online if we are attempting to refresh
+            setIsOnline(true);
             console.log("[RefreshData] Setting online status, preparing fetches...");
 
-            // Perform fetches in parallel but wrapped to not fail completely if one table is missing
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 5000) => {
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 30000) => {
                 try {
                     console.log(`[RefreshData] Fetching ${table}...`);
-
-                    // Add timeout to prevent hanging
-                    const timeoutPromise = new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
-                    });
-
-                    const fetchPromise = supabase.from(table).select(query);
-
-                    const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+                    const result = await supabase.from(table).select(query);
 
                     if (result.error) {
-                        console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
+                        console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error?.message || 'Unknown error');
                         return null;
                     }
 
                     console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                     return result.data;
                 } catch (err) {
-                    if (err instanceof Error && err.message.includes('Timeout')) {
-                        console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
-                    } else {
-                        console.error(`[RefreshData] Exception fetching ${table}:`, err);
-                    }
+                    console.error(`[RefreshData] Exception fetching ${table}:`, err);
                     return null;
                 }
             };
@@ -505,12 +494,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             setIsOnline(true);
+            console.log("[RefreshData] Data refresh completed successfully");
+            setLoading(false);
 
         } catch (error: any) {
             console.error("Erreur critique lors du chargement des données:", error);
-            if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
+            if (error instanceof Error && (error.message === 'Failed to fetch' || error.message.includes('NetworkError'))) {
                 setIsOnline(false);
             }
+            setLoading(false);
         }
     };
 
@@ -547,41 +539,42 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const performSilentLogin = async (): Promise<boolean> => {
         const storedAuth = localStorage.getItem('presta_auth_recovery');
-        if (!storedAuth) return false;
+        if (!storedAuth) {
+            console.log("[SilentLogin] No recovery data found");
+            return false;
+        }
 
         try {
-            console.log("Attempting silent recovery...");
+            console.log("[SilentLogin] Attempting silent recovery...");
 
-            // First check if we already have a valid session to avoid unnecessary signOut
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
-                console.log("Found existing session, validating...");
+                console.log("[SilentLogin] Found existing session, validating...");
                 const isValid = await fetchUserProfile(session.user);
                 if (isValid) {
+                    console.log("[SilentLogin] Session valid, recovery successful");
                     setIsOnline(true);
                     return true;
                 }
             }
 
-            // Only clear if we need to re-authenticate
-            console.log("Clearing invalid session and re-authenticating...");
+            console.log("[SilentLogin] Clearing invalid session and re-authenticating...");
             await supabase.auth.signOut();
 
             const { e, p } = JSON.parse(atob(storedAuth));
             const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
 
             if (!error && data.session) {
-                console.log("Silent recovery successful.");
+                console.log("[SilentLogin] Silent recovery successful.");
                 await fetchUserProfile(data.session.user);
                 setIsOnline(true);
                 return true;
             } else if (error) {
-                console.warn("Recovery failed:", error.message);
-                // Clear corrupted recovery data
+                console.warn("[SilentLogin] Recovery failed:", error instanceof Error ? error.message : 'Unknown error');
                 localStorage.removeItem('presta_auth_recovery');
             }
         } catch (err) {
-            console.warn("Silent recovery exception:", err);
+            console.warn("[SilentLogin] Silent recovery exception:", err);
             localStorage.removeItem('presta_auth_recovery');
         }
         return false;
@@ -614,7 +607,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
 
                     if (error) {
-                        console.log("[FetchProfile] Profile query error:", error.message);
+                        console.log("[FetchProfile] Profile query error:", error instanceof Error ? error.message : 'Unknown error');
                     } else if (profile) {
                         console.log("[FetchProfile] Found profile in users table");
                         userObj = {
@@ -670,13 +663,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // --- AUTHENTICATION & INITIALIZATION ---
     useEffect(() => {
         let mounted = true;
+        let authInitialized = false;
 
-        // SAFETY TIMEOUT: Force stop loading after 15 seconds (increased for Supabase)
         const safetyTimer = setTimeout(() => {
             if (mounted && loading) {
                 console.warn("Initialization timed out after 15 seconds. Forcing app load.");
                 setLoading(false);
-                // Only mark offline if browser actually reports offline
                 if (!navigator.onLine) {
                     setIsOnline(false);
                 }
@@ -691,8 +683,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 console.log("Starting auth initialization...");
+                authInitialized = true;
 
-                // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
 
                 if (error) {
@@ -701,47 +693,38 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 if (session?.user && mounted) {
                     console.log("Found Supabase session, validating profile...");
-                    // VERIFY SESSION IS ACTUALLY VALID by fetching profile
                     const isValid = await fetchUserProfile(session.user);
 
                     if (isValid) {
                         console.log("Profile validation successful, loading data...");
-                        try {
-                            await refreshData();
-                        } catch (refreshErr) {
-                            console.warn("Data refresh failed despite valid profile. Retrying silent login...", refreshErr);
-                            const recovered = await performSilentLogin();
-                            if (recovered) {
-                                console.log("Recovery successful, refreshing data...");
-                                await refreshData();
-                            } else {
-                                console.warn("Recovery failed, will show login");
-                            }
-                        }
+                        await refreshData();
                     } else {
-                        console.warn("Session exists but profile fetch failed (Zombie session). Attempting recovery...");
+                        console.warn("Session exists but profile fetch failed. Attempting recovery...");
                         const recovered = await performSilentLogin();
                         if (recovered) {
                             await refreshData();
+                        } else {
+                            console.warn("Recovery failed, will show login");
+                            if (mounted) setLoading(false);
                         }
                     }
                 } else {
                     console.log("No active Supabase session, trying silent recovery...");
-                    // No active session found - try silent recovery
                     const recovered = await performSilentLogin();
                     if (recovered) {
                         console.log("Silent recovery successful, loading data...");
                         await refreshData();
                     } else {
                         console.log("No recovery possible, will show login screen");
+                        if (mounted) setLoading(false);
                     }
                 }
 
             } catch (error) {
                 console.error("Auth initialization failed:", error);
+                if (mounted) setLoading(false);
             } finally {
                 clearTimeout(safetyTimer);
-                if (mounted) setLoading(false);
             }
         };
 
@@ -751,17 +734,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log("[AuthStateChange] Event:", event, "Session:", session ? "exists" : "null");
-            if (!mounted) {
-                console.log("[AuthStateChange] Component not mounted, ignoring");
+            
+            if (!mounted || !authInitialized) {
+                console.log("[AuthStateChange] Ignoring - component unmounted or init not complete");
                 return;
             }
 
-            if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
+            if (event === 'INITIAL_SESSION') {
+                console.log("[AuthStateChange] INITIAL_SESSION - already handled by initializeAuth, skipping");
+                return;
+            }
+
+            if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
                 console.log("[AuthStateChange] Processing signed in session for user:", session.user.id);
-                // Clear the safety timer since we're processing a valid session
                 clearTimeout(safetyTimer);
 
-                // Double check profile fetch if needed
                 if (!currentUser || currentUser.id !== session.user.id) {
                     console.log("[AuthStateChange] Fetching user profile...");
                     await fetchUserProfile(session.user);
@@ -769,35 +756,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.log("[AuthStateChange] User profile already loaded");
                 }
 
-                // Ensure data is refreshed whenever auth state confirms a session
                 console.log("[AuthStateChange] Refreshing application data...");
                 await refreshData();
-                console.log("[AuthStateChange] Setting loading to false - session ready");
-                setLoading(false);
             } else if (event === 'SIGNED_OUT') {
                 console.log("[AuthStateChange] User signed out");
-                // AUTO-RECONNECT CHECK
                 console.warn("Supabase signaling SIGNED_OUT. Checking for recovery...");
 
-                // Use helper to attempt recovery
-                performSilentLogin().then(recovered => {
-                    if (recovered) {
-                        console.log("Immediate session recovery successful via helper.");
-                        // Force refresh
-                        refreshData();
-                    } else {
-                        // Normal Logout
-                        setCurrentUser(null);
-                        setMissions([]);
-                        setClients([]);
-                        setProviders([]);
-                        setDocuments([]);
-                        localStorage.removeItem('presta_current_user');
-                        setLoading(false);
-                    }
-                });
-            } else {
-                console.log("[AuthStateChange] Unhandled event:", event);
+                const recovered = await performSilentLogin();
+                if (recovered) {
+                    console.log("Immediate session recovery successful via helper.");
+                    await refreshData();
+                } else {
+                    setCurrentUser(null);
+                    setMissions([]);
+                    setClients([]);
+                    setProviders([]);
+                    setDocuments([]);
+                    localStorage.removeItem('presta_current_user');
+                    setLoading(false);
+                }
             }
         });
 
@@ -851,7 +828,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (error) {
-                    console.warn("[Heartbeat] Session check error:", error.message);
+                    console.warn("[Heartbeat] Session check error:", error instanceof Error ? error.message : 'Unknown error');
                     return; // Don't disconnect on simple errors
                 }
 
@@ -1231,7 +1208,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 email,
                 password
             });
-            if (data.user) {
+            
+            if (error) {
+                console.warn("Auth login error:", error.message);
+            }
+            
+            if (data?.user && data?.session) {
+                console.log("[Login] Supabase auth successful, saving recovery data");
+                try {
+                    localStorage.setItem('presta_auth_recovery', btoa(JSON.stringify({ e: email, p: password })));
+                } catch (e) {
+                    console.warn("[Login] Failed to save recovery data:", e);
+                }
+                
                 await fetchUserProfile(data.user);
                 await refreshData();
                 return true;
@@ -1240,7 +1229,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.warn("Auth login failed, attempting fallback...");
         }
 
-        // Fallbacks for simulated environment
         const { data: clientData } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
         if (clientData) {
             const userObj: User = {
@@ -1254,9 +1242,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setSimulatedClientId(clientData.id);
             try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
 
-            // CRITICAL FIX: Refresh data and stop loading
             await refreshData();
-            setLoading(false);
             return true;
         }
 
@@ -1273,12 +1259,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setSimulatedProviderId(providerData.id);
             try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
 
-            // CRITICAL FIX: Refresh data and stop loading
             await refreshData();
-            setLoading(false);
             return true;
         }
 
+        setLoading(false);
         return false;
     };
 
@@ -1921,7 +1906,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             validated_at: contract.validatedAt
         };
         const { data, error } = await supabase.from('contracts').insert(dbData).select();
-        if (error) throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
+        if (error) throw new Error("Erreur lors de la sauvegarde du contrat: " + (error instanceof Error ? error.message : 'Unknown error'));
         if (data) {
             setContracts(prev => [...prev, {
                 ...data[0],
@@ -1963,7 +1948,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             const { error } = await supabase.from('contracts').update(dbUpdates).eq('id', contractId);
             if (error) {
-                alert("Erreur lors de la demande de validation: " + error.message);
+                alert("Erreur lors de la demande de validation: " + (error instanceof Error ? error.message : 'Unknown error'));
                 return;
             }
 
@@ -1998,7 +1983,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             alert("Demande de validation envoyée au super administrateur !");
         } catch (error: any) {
             console.error("Erreur demande validation:", error);
-            alert("Erreur: " + error.message);
+            alert("Erreur: " + (error instanceof Error ? error.message : 'Unknown error'));
         }
     };
 
@@ -2064,7 +2049,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             alert(approved ? "Contrat validé avec succès !" : "Contrat rejeté");
         } catch (error: any) {
             console.error("Erreur validation:", error);
-            alert("Erreur: " + error.message);
+            alert("Erreur: " + (error instanceof Error ? error.message : 'Unknown error'));
         }
     };
 
@@ -2124,7 +2109,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             proof_url: eData.proofUrl
         };
         const { data, error } = await supabase.from('expenses').insert(dbData).select();
-        if (error) { alert("Erreur sauvegarde dépense: " + error.message); return; }
+        if (error) { alert("Erreur sauvegarde dépense: " + (error instanceof Error ? error.message : 'Unknown error')); return; }
         if (data) {
             setExpenses(prev => [...prev, { ...data[0], proofUrl: data[0].proof_url }]);
         }
@@ -2142,7 +2127,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) {
             setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
         } else {
-            alert("Erreur mise à jour dépense: " + error.message);
+            alert("Erreur mise à jour dépense: " + (error instanceof Error ? error.message : 'Unknown error'));
         }
     };
 
@@ -2270,7 +2255,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return { success: false, message: "Erreur inconnue lors du scan" };
         } catch (error: any) {
             console.error("Scan error:", error);
-            return { success: false, message: String(error.message || "Erreur scan") };
+            return { success: false, message: String(error instanceof Error ? error.message : 'Unknown error') };
         }
     };
 
@@ -2282,9 +2267,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const logout = async (skipReload?: boolean) => {
+        console.log("[Logout] Cleaning up session...");
+        
         localStorage.removeItem('presta_current_user');
-        localStorage.clear();
-
+        localStorage.removeItem('presta_auth_recovery');
+        
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
@@ -2293,6 +2280,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setProviders([]);
         setDocuments([]);
         setVisitScans([]);
+        setLoading(false);
 
         try {
             if (isSupabaseConfigured) {
@@ -2383,7 +2371,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             simulatedClientId, setSimulatedClientId,
             simulatedProviderId, setSimulatedProviderId,
             activeStream, startLiveStream, stopLiveStream,
-            isOnline, pendingSyncCount, loading,
+            isOnline, pendingSyncCount, loading, missionLoading,
             getAvailableSlots, refreshData, sendEmail
         }}>
             {children}
