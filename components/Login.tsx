@@ -24,7 +24,7 @@ const Login: React.FC = () => {
     const [credentialModal, setCredentialModal] = useState<{ open: boolean, type: string, email: string, pass: string } | null>(null);
 
     // Check if running on specifically the production domain to hide dev tools
-    const isProduction = window.location.origin === 'https://prestaserviceantille.vercel.app';
+    const isProduction = window.location.origin === 'https://outremerfermetures.com/';
 
     // NETTOYAGE PLUS INTELLIGENT AU CHARGEMENT DE LA PAGE LOGIN
     // On ne nettoie que si vraiment nécessaire pour préserver la récupération automatique
