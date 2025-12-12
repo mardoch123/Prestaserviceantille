@@ -256,51 +256,111 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
+        // Éviter les appels multiples
+        if (dataLoading) {
+            console.log("[RefreshData] Already loading, skipping...");
+            return;
+        }
+        
         setDataLoading(true);
+        
+        // Timeout global pour éviter le blocage infini (augmenté à 60 secondes)
+        const globalTimeout = setTimeout(() => {
+            console.warn("[RefreshData] Global timeout reached, forcing completion");
+            setDataLoading(false);
+            setLoading(false);
+        }, 60000); // 60 secondes max
+        
         try {
             console.log("[RefreshData] Starting data refresh...");
+            console.log("[RefreshData] Step 1: Checking Supabase configuration...");
 
             if (!isSupabaseConfigured) {
                 console.log("[RefreshData] Supabase not configured, skipping fetch");
                 setLoading(false);
                 setDataLoading(false);
+                clearTimeout(globalTimeout);
                 return;
             }
 
-            const { data: sessionData } = await supabase.auth.getSession();
-            const hasToken = !!sessionData?.session?.access_token;
+            console.log("[RefreshData] Step 2: Getting session...");
+            // Vérification rapide de la session avec timeout
+            const sessionPromise = supabase.auth.getSession();
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Session timeout')), 10000); // 10 secondes max
+            });
+            
+            let sessionData;
+            try {
+                sessionData = await Promise.race([sessionPromise, timeoutPromise]) as any;
+                console.log("[RefreshData] Step 2.5: Session retrieved successfully");
+                console.log("[RefreshData] Session data:", sessionData);
+                console.log("[RefreshData] Session object:", sessionData?.session);
+                console.log("[RefreshData] Access token exists:", !!sessionData?.data?.session?.access_token);
+            } catch (err) {
+                console.error("[RefreshData] Session retrieval failed:", err);
+                sessionData = { session: null };
+            }
+            
+            const hasToken = !!sessionData?.data?.session?.access_token;
+            
+            console.log("[RefreshData] Step 3: Checking token existence...");
+            if (!hasToken) {
+                console.log("[RefreshData] No auth token, skipping fetch");
+                setLoading(false);
+                setDataLoading(false);
+                clearTimeout(globalTimeout);
+                return;
+            }
 
+            console.log("[RefreshData] Step 4: Setting online status...");
             setIsOnline(true);
             console.log("[RefreshData] Setting online status, preparing fetches...");
+            console.log("[RefreshData] About to start Promise.all with 13 tables...");
 
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 30000) => {
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
+                const controller = new AbortController();
+                const timer = setTimeout(() => {
+                    console.warn(`[RefreshData] ⏳ Timeout fetching ${table}, aborting request`);
+                    controller.abort();
+                }, timeout);
+
                 try {
                     console.log(`[RefreshData] 🔍 Fetching ${table}...`);
                     console.log(`[RefreshData] 🔑 Auth token exists:`, hasToken);
                     
                     const startTime = Date.now();
-                    const result = await supabase.from(table).select(query);
+                    const { data, error } = await supabase.from(table).select(query).abortSignal(controller.signal);
                     const endTime = Date.now();
                     
                     console.log(`[RefreshData] ⏱️ ${table} query took ${endTime - startTime}ms`);
 
-                    if (result.error) {
-                        console.error(`[RefreshData] ❌ Failed to fetch ${table}:`, result.error);
+                    if (error) {
+                        console.error(`[RefreshData] ❌ Failed to fetch ${table}:`, error);
                         console.error(`[RefreshData] Error details:`, {
-                            message: result.error.message,
-                            code: result.error.code,
-                            hint: result.error.hint,
-                            details: result.error.details
+                            message: error.message,
+                            code: error.code,
+                            hint: error.hint,
+                            details: error.details
                         });
                         return null;
                     }
 
-                    console.log(`[RefreshData] ✅ Successfully fetched ${table}:`, result.data?.length || 0, 'items');
-                    if (result.data && result.data.length > 0) {
-                        console.log(`[RefreshData] 📦 First item sample:`, result.data[0]);
+                    if (!data) {
+                        console.warn(`[RefreshData] ⚠️ No data returned for ${table}`);
+                        return null;
                     }
-                    return result.data;
+
+                    console.log(`[RefreshData] ✅ Successfully fetched ${table}:`, data.length || 0, 'items');
+                    if (data.length > 0) {
+                        console.log(`[RefreshData] 📦 First item sample:`, data[0]);
+                    }
+                    return data;
                 } catch (err: any) {
+                    if (err?.name === 'AbortError') {
+                        console.warn(`[RefreshData] 🚫 Aborted fetch for ${table} (timeout)`);
+                        return null;
+                    }
                     console.error(`[RefreshData] ⚠️ Exception fetching ${table}:`, err);
                     console.error(`[RefreshData] 💥 Full error:`, {
                         name: err.name,
@@ -308,9 +368,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         stack: err.stack
                     });
                     return null;
+                } finally {
+                    clearTimeout(timer);
                 }
             };
 
+            console.log("[RefreshData] Starting Promise.all fetches...");
             const [
                 cData, pData, mData, dData, packData, ctData,
                 rData, eData, msgData, notifData, settingsData, vsData, leavesData
@@ -534,6 +597,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setLoading(false);
         } finally {
             setDataLoading(false);
+            clearTimeout(globalTimeout);
         }
     };
 
@@ -1093,206 +1157,146 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const addClient = async (clientData: CreateClientDTO) => {
-        const password = Math.random().toString(36).slice(-8);
+    const addClient = async (clientData: CreateClientDTO): Promise<string | null> => {
+        if (!isSupabaseConfigured) return null;
 
-        try {
-            const dbClientData = {
-                name: clientData.name,
-                city: clientData.city,
-                address: clientData.address,
-                phone: clientData.phone,
+        const password = Math.random().toString(36).slice(-8);
+        const { data: { session } } = await supabase.auth.getSession();
+
+        // SCENARIO 1: Not Logged In (From Login Screen "Create Test Client")
+        if (!session) {
+            // 1. Create Auth User
+            const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: clientData.email,
-                pack: clientData.pack,
+                password: password,
+            });
+            if (authError) throw authError;
+            if (!authData.user) throw new Error("Erreur: Utilisateur Auth non créé.");
+
+            // 2. Insert Client Row (Data) - Map camelCase to snake_case for DB
+            const clientPayload = {
+                id: generateUUID(),
+                name: clientData.name,
+                address: clientData.address,
+                city: clientData.city,
+                email: clientData.email,
+                phone: clientData.phone,
                 status: clientData.status,
+                pack: clientData.pack,
                 since: clientData.since,
                 packs_consumed: clientData.packsConsumed || 0,
                 loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
-                has_left_review: false
+                has_left_review: clientData.hasLeftReview || false
             };
 
-            // First create the client entity
-            const { data, error } = await supabase.from('clients').insert(dbClientData).select();
+            const { data: newClient, error: clientError } = await supabase.from('clients').insert([clientPayload]).select().single();
+            if (clientError) throw clientError;
 
-            if (error) throw error;
+            // 3. Link Auth User to Client Profile
+            const { error: userError } = await supabase.from('users').insert({ 
+                id: authData.user.id, // Links to auth.users.id
+                email: clientData.email, 
+                name: clientData.name,
+                role: 'client', 
+                related_entity_id: newClient.id 
+            });
+            if (userError) throw userError;
 
-            if (data && data.length > 0) {
-                const newClient = data[0];
-
-                // Then try to create the Auth User via Edge Function
-                try {
-                    const { error: fnError } = await supabase.functions.invoke('create-user', {
-                        body: {
-                            email: clientData.email,
-                            password: password,
-                            name: clientData.name,
-                            role: 'client',
-                            relatedEntityId: newClient.id
-                        }
-                    });
-
-                    if (fnError) {
-                        console.warn("Error creating auth user via function:", fnError);
-                        // Continue anyway, the client record is created
-                    }
-
-                    // Send Email only if auth created successfully or generic welcome
-                    await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
-                        name: clientData.name,
-                        login: clientData.email,
-                        password: password,
-                        link: 'https://outremerfermetures.com/login'
-                    });
-
-                } catch (e) {
-                    console.warn("Auth edge function failed/unavailable or restricted.", e);
-                }
-
-                setClients(prev => [...prev, {
-                    ...newClient,
-                    packsConsumed: newClient.packs_consumed,
-                    loyaltyHoursAvailable: newClient.loyalty_hours_available,
-                    hasLeftReview: newClient.has_left_review,
-                }]);
-
-                return password;
-            }
-        } catch (err) {
-            console.error("Critical error in addClient:", err);
-            return null;
+            // Return password so it can be shown to user
+            return password;
+        } else {
+            // SCENARIO 2: Logged In as Admin
+            // Admin cannot create "Auth" user client-side without logging out.
+            // We just insert the Data row. The user won't be able to login until an Admin 
+            // creates the Auth account via backend/invite.
+            const clientPayload = {
+                id: generateUUID(),
+                name: clientData.name,
+                address: clientData.address,
+                city: clientData.city,
+                email: clientData.email,
+                phone: clientData.phone,
+                status: clientData.status,
+                pack: clientData.pack,
+                since: clientData.since,
+                packs_consumed: clientData.packsConsumed || 0,
+                loyalty_hours_available: clientData.loyaltyHoursAvailable || 0,
+                has_left_review: clientData.hasLeftReview || false
+            };
+            await supabase.from('clients').insert([clientPayload]);
+            return null; 
         }
-        return null;
     };
 
-    const addProvider = async (providerData: CreateProviderDTO) => {
+    const addProvider = async (providerData: CreateProviderDTO): Promise<string | null> => {
+        if (!isSupabaseConfigured) return null;
+
         const password = Math.random().toString(36).slice(-8);
+        const { data: { session } } = await supabase.auth.getSession();
 
-        try {
-            const dbProviderData = {
-                first_name: providerData.firstName,
-                last_name: providerData.lastName,
-                specialty: providerData.specialty,
-                phone: providerData.phone,
+        // Prepare Payload with correct column names (snake_case)
+        const providerPayload = { 
+            id: generateUUID(),
+            first_name: providerData.firstName,
+            last_name: providerData.lastName,
+            email: providerData.email,
+            phone: providerData.phone,
+            specialty: providerData.specialty,
+            status: providerData.status,
+            hours_worked: 0,
+            rating: 5
+        };
+
+        if (!session) {
+            // 1. Create Auth User
+            const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: providerData.email,
-                status: providerData.status,
-                hours_worked: 0,
-                rating: 5
-            };
+                password: password,
+            });
+            if (authError) throw authError;
+            if (!authData.user) throw new Error("Erreur: Utilisateur Auth non créé.");
 
-            // Create Provider Entity
-            const { data, error } = await supabase.from('providers').insert(dbProviderData).select();
+            // 2. Insert Provider Row
+            const { data: newProvider, error: provError } = await supabase.from('providers').insert([providerPayload]).select().single();
+            if (provError) throw provError;
 
-            if (error) {
-                console.error("Error inserting provider:", error);
-                throw error;
-            }
+            // 3. Link User Profile
+            const fullName = `${providerData.firstName} ${providerData.lastName}`;
+            const { error: userError } = await supabase.from('users').insert({ 
+                id: authData.user.id, 
+                email: providerData.email,
+                name: fullName, 
+                role: 'provider', 
+                related_entity_id: newProvider.id 
+            });
+            if (userError) throw userError;
 
-            if (data && data.length > 0) {
-                const newProvider = data[0];
-
-                try {
-                    const { error: fnError } = await supabase.functions.invoke('create-user', {
-                        body: {
-                            email: providerData.email,
-                            password: password,
-                            name: `${providerData.firstName} ${providerData.lastName}`,
-                            role: 'provider',
-                            relatedEntityId: newProvider.id
-                        }
-                    });
-                    if (fnError) {
-                        console.warn("Error creating provider auth:", fnError);
-                    }
-
-                    await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
-                        name: providerData.firstName,
-                        login: providerData.email,
-                        password: password,
-                        link: 'https://outremerfermetures.com/login'
-                    });
-
-                } catch (e) {
-                    console.warn("Auth edge function failed/unavailable.", e);
-                }
-
-                setProviders(prev => [...prev, {
-                    ...newProvider,
-                    firstName: newProvider.first_name,
-                    lastName: newProvider.last_name,
-                    hoursWorked: newProvider.hours_worked,
-                    leaves: []
-                }]);
-
-                await addNotification('admin', 'success', 'Prestataire Créé', `Email envoyé à ${providerData.email}`);
-
-                return password;
-            }
-        } catch (err) {
-            console.error("Critical error in addProvider:", err);
+            return password;
+        } else {
+            // Admin Mode: Just insert data row
+            await supabase.from('providers').insert([providerPayload]);
             return null;
         }
-        return null;
     };
 
     const login = async (email: string, password?: string): Promise<boolean> => {
-        if (!password) return false;
-
-        try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password
-            });
-            
-            if (error) {
-                console.warn("Auth login error:", error.message);
+        if (!password) throw new Error("Mot de passe requis");
+        
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        
+        if (error) {
+            // Throw meaningful errors for the UI
+            if (error.message === 'Invalid login credentials') {
+                throw new Error("Identifiants incorrects. Vérifiez votre email et mot de passe.");
             }
-            
-            if (data?.user && data?.session) {
-                console.log("[Login] Supabase auth successful, saving recovery data");
-                try {
-                    localStorage.setItem('presta_auth_recovery', btoa(JSON.stringify({ e: email, p: password })));
-                } catch (e) {
-                    console.warn("[Login] Failed to save recovery data:", e);
-                }
-                
-                await fetchUserProfile(data.user);
-                await refreshData();
-                return true;
+            if (error.message.includes("Email not confirmed")) {
+                throw new Error("Votre email n'a pas été confirmé. Vérifiez votre boîte mail.");
             }
-        } catch (e) {
-            console.warn("Auth login failed, attempting fallback...");
+            throw error;
         }
 
-        const { data: clientData } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
-        if (clientData) {
-            const userObj: User = {
-                id: clientData.id,
-                email: clientData.email,
-                name: clientData.name,
-                role: 'client',
-                relatedEntityId: clientData.id
-            };
-            setCurrentUser(userObj);
-            setSimulatedClientId(clientData.id);
-            try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
-
-            await refreshData();
-            return true;
-        }
-
-        const { data: providerData } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
-        if (providerData) {
-            const userObj: User = {
-                id: providerData.id,
-                email: providerData.email,
-                name: `${providerData.first_name} ${providerData.last_name}`,
-                role: 'provider',
-                relatedEntityId: providerData.id
-            };
-            setCurrentUser(userObj);
-            setSimulatedProviderId(providerData.id);
-            try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
-
+        if (data.session) {
+            await fetchUserProfile(data.session.user);
             await refreshData();
             return true;
         }

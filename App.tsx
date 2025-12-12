@@ -108,8 +108,8 @@ const LoadingScreen = () => {
     const [showBypass, setShowBypass] = useState(false);
 
     useEffect(() => {
-        // If loading takes more than 4 seconds, show the bypass option
-        const timer = setTimeout(() => setShowBypass(true), 4000);
+        // If loading takes more than 1 minute, show the bypass option
+        const timer = setTimeout(() => setShowBypass(true), 60000);
         return () => clearTimeout(timer);
     }, []);
 
@@ -142,14 +142,19 @@ const LoadingScreen = () => {
 }
 
 const GlobalDataLoader = () => {
-    const { dataLoading } = useData();
-    if (!dataLoading) return null;
+    const { dataLoading, currentUser } = useData();
+    
+    // Si l'utilisateur est connecté et que les données sont en cours de chargement,
+    // on affiche un indicateur moins intrusif après la première connexion
+    if (!dataLoading || !currentUser) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm text-slate-700">
-            <Loader2 className="w-10 h-10 text-brand-blue animate-spin mb-3" />
-            <p className="font-semibold">Chargement des données...</p>
-            <p className="text-xs text-slate-500">Merci de patienter, les données sont en cours de synchronisation.</p>
+        <div className="fixed top-4 right-4 z-40 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg p-3 flex items-center gap-2 min-w-48">
+            <Loader2 className="w-4 h-4 text-brand-blue animate-spin" />
+            <div className="text-sm">
+                <p className="font-medium text-gray-700">Synchronisation...</p>
+                <p className="text-xs text-gray-500">Mise à jour en arrière-plan</p>
+            </div>
         </div>
     );
 };
