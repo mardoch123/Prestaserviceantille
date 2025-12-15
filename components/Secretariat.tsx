@@ -79,28 +79,18 @@ const CONTRACT_TYPES = [
 
 const Secretariat: React.FC = () => {
     const {
-        packs,
-        addPack,
-        deletePacks,
-        providers,
-        reminders,
-        addReminder,
-        toggleReminder,
-        contracts,
-        updateContract,
-        addContract,
-        messages,
-        clients,
-        replyToClient,
-        expenses,
-        addExpense,
-        companySettings,
-        missions,
-        legalTemplate,
-        updateLeaveStatus,
-        updateExpense,
-        requestContractValidation,
-        validateContract,
+        packs, addPack, deletePacks, addLoyaltyHours, submitClientReview,
+        providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
+        documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder,
+        clients, addClient, updateClient, deleteClients,
+        missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, deleteMissions,
+        contracts, addContract, updateContract, requestContractValidation, validateContract, legalTemplate,
+        reminders, addReminder, toggleReminder,
+        expenses, addExpense, updateExpense,
+        messages, replyToClient, sendClientMessage,
+        notifications, markNotificationRead,
+        visitScans, registerScan,
+        companySettings, updateCompanySettings,
         currentUser
     } = useData();
 
@@ -124,6 +114,12 @@ const Secretariat: React.FC = () => {
 
     // Custom Confirmation Modal
     const [confirmationModal, setConfirmationModal] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void; }>({ open: false, title: '', message: '', onConfirm: () => { } });
+
+    // Devis Selection Modal State
+    const [devisSelectionModal, setDevisSelectionModal] = useState<{ open: boolean; clientId: string; devis: any[]; onDevisSelected: (devis: any) => void; }>({ open: false, clientId: '', devis: [], onDevisSelected: () => { } });
+
+    // Contract Highlight Modal State
+    const [contractHighlightModal, setContractHighlightModal] = useState<{ open: boolean; content: string; }>({ open: false, content: '' });
 
     // Selection State for Packs
     const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
@@ -239,10 +235,10 @@ const Secretariat: React.FC = () => {
     const handlePrevPackStep = () => setPackStep(prev => prev - 1);
 
     const handleSavePack = async () => {
-        const priceHT = packForm.priceHT || 0;
+        const priceTTC = packForm.priceHT || 0; // Le champ contient maintenant le prix TTC
         const tva = 0.021; // 2.1% from PDF
-        const priceTTC = priceHT * (1 + tva);
-        const taxCredit = priceTTC * 0.5;
+        const priceHT = priceTTC / (1 + tva); // Calcul du prix HT à partir du TTC
+        const taxCredit = priceTTC * 0.5; // 50% du prix TTC
 
         let finalDescription = packForm.description || '';
         if (packForm.frequency === 'Régulier' || packForm.type === 'regulier') {
@@ -259,7 +255,7 @@ const Secretariat: React.FC = () => {
             type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
             quantity: packForm.quantity,
             location: packForm.location,
-            priceHT: priceHT,
+            priceHT: priceHT, // Stocké en HT pour la comptabilité
             priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
             suppliesIncluded: packForm.suppliesIncluded || false,
             suppliesDetails: packForm.suppliesDetails,
@@ -358,10 +354,51 @@ const Secretariat: React.FC = () => {
     const handleGenerateContractContent = () => {
         // VALIDATION: Must select Client and Pack
         if (!selectedClientIdForContract || !selectedPackIdForContract) {
-            showToast("Veuillez sélectionner un client et un pack avant de générer le contrat.", 'error');
+            setConfirmationModal({
+                open: true,
+                title: "Informations manquantes",
+                message: "Veuillez sélectionner un client et un pack avant de générer le contrat.",
+                onConfirm: () => setConfirmationModal({ ...confirmationModal, open: false })
+            });
             return;
         }
 
+        // VÉRIFICATION: Le client doit avoir un devis signé avant de générer un contrat
+        const clientDevis = documents.filter(doc => 
+            doc.clientId === selectedClientIdForContract && 
+            doc.type === 'Devis' && 
+            (doc.status === 'signed' || doc.status === 'sent')
+        );
+
+        if (clientDevis.length === 0) {
+            setConfirmationModal({
+                open: true,
+                title: "Aucun devis trouvé",
+                message: "Ce client n'a pas encore de devis signé. Veuillez d'abord créer et faire signer un devis avant de générer un contrat.",
+                onConfirm: () => setConfirmationModal({ ...confirmationModal, open: false })
+            });
+            return;
+        }
+
+        // Si un seul devis, l'utiliser directement
+        if (clientDevis.length === 1) {
+            generateContractWithDevis(clientDevis[0]);
+            return;
+        }
+
+        // Si plusieurs devis, ouvrir la modale de sélection
+        setDevisSelectionModal({
+            open: true,
+            clientId: selectedClientIdForContract,
+            devis: clientDevis,
+            onDevisSelected: (selectedDevis) => {
+                setDevisSelectionModal({ ...devisSelectionModal, open: false });
+                generateContractWithDevis(selectedDevis);
+            }
+        });
+    };
+
+    const generateContractWithDevis = (selectedDevis: any) => {
         let content = legalTemplate;
 
         // Inject Client Info
@@ -374,7 +411,26 @@ const Secretariat: React.FC = () => {
         // Inject Pack Info
         const pack = packs.find(p => p.id === selectedPackIdForContract);
         if (pack) {
-            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}`;
+            let packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif TTC : ${(pack.priceHT * 1.021).toFixed(2)} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}`;
+            
+            // Ajouter les interventions du devis après les informations du pack
+            if (selectedDevis.slotsData && selectedDevis.slotsData.length > 0) {
+                const interventionsInfo = selectedDevis.slotsData.map((slot: any, index: number) => {
+                    const date = new Date(slot.date).toLocaleDateString('fr-FR', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                    });
+                    return `Jour ${index + 1}: ${date} de ${slot.startTime} à ${slot.endTime} (${slot.duration}h)`;
+                }).join('\n');
+                
+                const totalHours = selectedDevis.slotsData.reduce((acc: number, slot: any) => acc + slot.duration, 0);
+                const interventionsSection = `\n\n--- PLAN D'INTERVENTIONS (Devis ${selectedDevis.ref}) ---\n${interventionsInfo}\n\nTotal: ${selectedDevis.slotsData.length} interventions, ${totalHours} heures`;
+                
+                packInfo += interventionsSection;
+            }
+            
             content = content.replace('[INFO_PACK]', packInfo);
         }
 
@@ -382,7 +438,10 @@ const Secretariat: React.FC = () => {
         content = content.replace('[DATE]', new Date().toLocaleDateString());
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
-        showToast("Contrat généré avec les informations sélectionnées.");
+        showToast(`Contrat généré avec le devis ${selectedDevis.ref}.`);
+        
+        // Afficher la pop-up de mise en évidence du contrat généré
+        setContractHighlightModal({ open: true, content });
     };
 
     const handleSaveContract = async () => {
@@ -684,7 +743,7 @@ const Secretariat: React.FC = () => {
 
                                     <div className="flex justify-between text-sm font-bold text-slate-700 border-t border-slate-100 pt-2">
                                         <span>{pack.hours}h</span>
-                                        <span>{pack.priceHT}€ HT</span>
+                                        <span>{(pack.priceHT * 1.021).toFixed(2)}€ TTC</span>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between">
                                         <span className="text-xs text-green-600 font-medium">
@@ -1216,18 +1275,18 @@ const Secretariat: React.FC = () => {
                                             </div>
 
                                             <div>
-                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif Standard HT (€)</label>
-                                                <input type="number" placeholder="Ex: 99" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceHT || ''} onChange={e => setPackForm({ ...packForm, priceHT: Number(e.target.value) })} />
+                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif Standard TTC (€)</label>
+                                                <input type="number" placeholder="Ex: 198" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceHT || ''} onChange={e => setPackForm({ ...packForm, priceHT: Number(e.target.value) })} />
 
-                                                {/* Simulation TTC & Reste à charge */}
+                                                {/* Simulation HT & Reste à charge */}
                                                 <div className="mt-2 text-sm space-y-2">
                                                     <div className="bg-slate-100 p-2 rounded flex justify-between">
-                                                        <span>Montant sans avance (Total TTC) :</span>
-                                                        <strong>{((packForm.priceHT || 0) * 1.021).toFixed(2)} €</strong>
+                                                        <span>Montant HT (comptabilité) :</span>
+                                                        <strong>{((packForm.priceHT || 0) / 1.021).toFixed(2)} €</strong>
                                                     </div>
                                                     <div className="bg-green-50 p-2 rounded border border-green-200 flex justify-between text-green-800">
                                                         <span>Montant avec avance immédiate (-50%) :</span>
-                                                        <strong>{((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</strong>
+                                                        <strong>{((packForm.priceHT || 0) * 0.5).toFixed(2)} €</strong>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1247,7 +1306,7 @@ const Secretariat: React.FC = () => {
                                                 <p><strong>Service :</strong> {packForm.mainService}</p>
                                                 <p><strong>Contrat :</strong> {packForm.contractType}</p>
                                                 <p><strong>Détails :</strong> {packForm.hours}h, {packForm.frequency} {packForm.type === 'regulier' ? `(${regularDaysCount} jours)` : ''}</p>
-                                                <p><strong>Prix Client (Avance) :</strong> {((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</p>
+                                                <p><strong>Prix Client (Avance) :</strong> {((packForm.priceHT || 0) * 0.5).toFixed(2)} €</p>
                                             </div>
 
                                             <div className="flex flex-col items-center gap-2 text-green-600 bg-green-50 p-3 rounded">
@@ -1451,6 +1510,179 @@ const Secretariat: React.FC = () => {
                             <div className="flex gap-3 w-full">
                                 <button onClick={closeConfirmation} className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition">Annuler</button>
                                 <button onClick={() => { confirmationModal.onConfirm(); closeConfirmation(); }} className="flex-1 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md">Confirmer</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Devis Selection Modal */}
+            {devisSelectionModal.open && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+                        <div className="flex flex-col">
+                            <div className="flex items-center justify-center mb-6">
+                                <div className="w-12 h-12 bg-blue-100 text-brand-blue rounded-full flex items-center justify-center">
+                                    <FileText className="w-6 h-6" />
+                                </div>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 text-center mb-2">Sélectionner un devis</h3>
+                            <p className="text-sm text-slate-500 text-center mb-6">
+                                Ce client a {devisSelectionModal.devis.length} devis. Veuillez choisir celui à utiliser pour générer le contrat.
+                            </p>
+
+                            <div className="space-y-3 mb-6">
+                                {devisSelectionModal.devis.map((devis) => (
+                                    <div
+                                        key={devis.id}
+                                        onClick={() => devisSelectionModal.onDevisSelected(devis)}
+                                        className="border border-slate-200 rounded-lg p-4 hover:border-brand-blue hover:bg-blue-50 cursor-pointer transition-all"
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="font-bold text-slate-800">{devis.ref}</span>
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                        devis.status === 'signed' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                                                    }`}>
+                                                        {devis.status === 'signed' ? 'Signé' : 'Envoyé'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm text-slate-600 mb-2">{devis.description}</p>
+                                                <div className="flex items-center gap-4 text-xs text-slate-500">
+                                                    <span>Date: {devis.date}</span>
+                                                    <span>Total: {devis.totalTTC.toFixed(2)} €</span>
+                                                    {devis.slotsData && (
+                                                        <span className="text-brand-blue font-bold">
+                                                            {devis.slotsData.length} interventions
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {devis.slotsData && devis.slotsData.length > 0 && (
+                                                    <div className="mt-2 p-2 bg-slate-50 rounded text-xs">
+                                                        <p className="font-bold text-slate-700 mb-1">Plan d'interventions:</p>
+                                                        {devis.slotsData.slice(0, 3).map((slot: any, index: number) => (
+                                                            <div key={index} className="text-slate-600">
+                                                                Jour {index + 1}: {new Date(slot.date).toLocaleDateString('fr-FR')} de {slot.startTime} à {slot.endTime}
+                                                            </div>
+                                                        ))}
+                                                        {devis.slotsData.length > 3 && (
+                                                            <div className="text-slate-500 italic">
+                                                                ... et {devis.slotsData.length - 3} autres interventions
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="ml-4">
+                                                <ArrowRight className="w-5 h-5 text-slate-400" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={() => setDevisSelectionModal({ ...devisSelectionModal, open: false })}
+                                    className="px-6 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                >
+                                    Annuler
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Contract Highlight Modal */}
+            {contractHighlightModal.open && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] animate-in fade-in zoom-in duration-200 flex flex-col">
+                        <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-brand-blue text-white rounded-full flex items-center justify-center">
+                                    <FileText className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-slate-800">Contrat généré avec succès</h3>
+                                    <p className="text-sm text-slate-600">Vérifiez et modifiez si nécessaire avant enregistrement</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setContractHighlightModal({ ...contractHighlightModal, open: false })}
+                                className="p-2 hover:bg-slate-100 rounded-lg transition"
+                            >
+                                <X className="w-5 h-5 text-slate-500" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 p-6 overflow-y-auto">
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                                    <div>
+                                        <h4 className="font-bold text-yellow-800 mb-1">Zone d'interventions mise en évidence</h4>
+                                        <p className="text-sm text-yellow-700">
+                                            Les jours et heures d'intervention du devis ont été intégrés dans le contrat. 
+                                            Vous pouvez les consulter dans la section "PLAN D'INTERVENTIONS" ci-dessous.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-slate-200 rounded-lg p-6">
+                                <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <FileText className="w-5 h-5 text-brand-blue" />
+                                    Contenu du contrat (modifiable)
+                                </h4>
+                                <textarea
+                                    value={contractHighlightModal.content}
+                                    onChange={(e) => setContractHighlightModal({ ...contractHighlightModal, content: e.target.value })}
+                                    className="w-full h-96 p-4 bg-slate-50 border border-slate-200 rounded-lg font-mono text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                    placeholder="Contenu du contrat..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center p-6 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        // Télécharger le contenu modifié
+                                        const blob = new Blob([contractHighlightModal.content], { type: 'text/plain;charset=utf-8' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `contrat_${new Date().toISOString().split('T')[0]}.txt`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                        showToast('Contrat téléchargé avec succès');
+                                    }}
+                                    className="px-4 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center gap-2"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    Télécharger
+                                </button>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setContractHighlightModal({ ...contractHighlightModal, open: false })}
+                                    className="px-6 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        // Mettre à jour le contenu du formulaire de contrat
+                                        setContractForm(prev => ({ ...prev, content: contractHighlightModal.content }));
+                                        setContractHighlightModal({ ...contractHighlightModal, open: false });
+                                        showToast('Contrat mis à jour avec succès');
+                                    }}
+                                    className="px-6 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md"
+                                >
+                                    Appliquer les modifications
+                                </button>
                             </div>
                         </div>
                     </div>

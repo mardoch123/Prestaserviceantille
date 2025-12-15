@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2 } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Download } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext'; 
 import { Mission, Document } from '../types';
@@ -249,8 +249,20 @@ const DevisFactures: React.FC = () => {
         // Determine description suffix based on slots if custom
         let finalDescription = customDescription;
         const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
-        if(serviceType === 'pack' && packs.find(p=>p.id === selectedPackId)?.name.includes("personnalisé")) {
-            finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
+        
+        // Ajouter les détails des interventions planifiées pour tous les types de packs
+        if (serviceType === 'pack' && interventionSlots.length > 0) {
+            const interventionsDetails = interventionSlots.map((slot, index) => {
+                const date = new Date(slot.date).toLocaleDateString('fr-FR', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                });
+                return `Jour ${index + 1}: ${date} de ${slot.startTime} à ${slot.endTime} (${slot.duration}h)`;
+            }).join('\n');
+            
+            finalDescription += `\n\n--- PLAN D'INTERVENTIONS ---\n${interventionsDetails}\n\nTotal: ${interventionSlots.length} interventions, ${totalHours} heures`;
         }
 
         const newDoc: Document = {
@@ -599,6 +611,53 @@ const DevisFactures: React.FC = () => {
                                         <Copy className="w-4 h-4 pointer-events-none"/>
                                     </button>
                                     
+                                    {/* DOWNLOAD PDF BUTTON */}
+                                    <button 
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            // Créer le contenu PDF
+                                            const pdfContent = `
+DOCUMENT: ${doc.type}
+Référence: ${doc.ref}
+Date: ${doc.date}
+Client: ${doc.clientName}
+
+Description:
+${doc.description}
+
+Prix unitaire: ${doc.unitPrice.toFixed(2)} €
+Quantité: ${doc.quantity}
+Taux TVA: ${doc.tvaRate}%
+Total HT: ${doc.totalHT.toFixed(2)} €
+Total TTC: ${doc.totalTTC.toFixed(2)} €
+Statut: ${doc.status}
+
+${doc.slotsData ? `
+PLAN D'INTERVENTIONS:
+${doc.slotsData.map((slot: any, index: number) => 
+    `Jour ${index + 1}: ${new Date(slot.date).toLocaleDateString('fr-FR')} de ${slot.startTime} à ${slot.endTime} (${slot.duration}h)`
+).join('\n')}
+` : ''}
+                                            `.trim();
+                                            
+                                            // Télécharger en format texte (pour l'instant)
+                                            const blob = new Blob([pdfContent], { type: 'text/plain;charset=utf-8' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = `${doc.type}_${doc.ref.replace('/', '_')}.txt`;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                            
+                                            showToast(`${doc.type} téléchargé avec succès`);
+                                        }}
+                                        className="text-slate-400 hover:text-green-600 p-1 hover:bg-green-50 rounded transition" 
+                                        title="Télécharger"
+                                    >
+                                        <Download className="w-4 h-4 pointer-events-none"/>
+                                    </button>
+                                    
                                     {/* DELETE BUTTON */}
                                     <button 
                                         onClick={(e) => confirmDelete(doc.id, doc.ref, e)} 
@@ -658,7 +717,7 @@ const DevisFactures: React.FC = () => {
                             <div className="space-y-4">
                                 <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedPackId} onChange={(e) => setSelectedPackId(e.target.value)}>
                                     <option value="">Sélectionner un pack...</option>
-                                    {packs.map(p => <option key={p.id} value={p.id}>{p.name} - {p.priceHT}€ HT</option>)}
+                                    {packs.map(p => <option key={p.id} value={p.id}>{p.name} - {(p.priceHT * 1.021).toFixed(2)}€ TTC</option>)}
                                 </select>
                                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><span className="text-sm font-bold text-slate-600">Prix Unitaire HT</span><span className="font-mono font-bold text-slate-800">{unitPrice} €</span></div>
                             </div>
@@ -771,6 +830,39 @@ const DevisFactures: React.FC = () => {
                                  {interventionSlots.length > 0 && (
                                      <div className="p-3 bg-slate-50 text-right text-xs font-bold text-slate-600 border-t border-slate-200">
                                          Total : <span className="text-brand-blue text-sm">{interventionSlots.reduce((acc, s) => acc + s.duration, 0)} heures</span>
+                                     </div>
+                                 )}
+                                 
+                                 {/* Prévisualisation du devis */}
+                                 {interventionSlots.length > 0 && (
+                                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mt-3">
+                                         <h5 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">
+                                             <FileText className="w-4 h-4" />
+                                             Prévisualisation du devis
+                                         </h5>
+                                         <div className="bg-white p-3 rounded border border-blue-100 text-xs">
+                                             <p className="font-bold text-slate-700 mb-2">Plan d'interventions prévu :</p>
+                                             {interventionSlots.map((slot, index) => {
+                                                 const date = new Date(slot.date).toLocaleDateString('fr-FR', { 
+                                                     weekday: 'long', 
+                                                     year: 'numeric', 
+                                                     month: 'long', 
+                                                     day: 'numeric' 
+                                                 });
+                                                 return (
+                                                     <div key={slot.id} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                                                         <span className="font-medium">Jour {index + 1}</span>
+                                                         <span className="text-slate-600">{date}</span>
+                                                         <span className="text-brand-blue font-bold">{slot.startTime} - {slot.endTime}</span>
+                                                         <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{slot.duration}h</span>
+                                                     </div>
+                                                 );
+                                             })}
+                                             <div className="mt-2 pt-2 border-t border-slate-200 flex justify-between items-center">
+                                                 <span className="font-bold">Total interventions :</span>
+                                                 <span className="text-brand-blue font-bold">{interventionSlots.length} interventions, {interventionSlots.reduce((acc, s) => acc + s.duration, 0)} heures</span>
+                                             </div>
+                                         </div>
                                      </div>
                                  )}
                              </div>
