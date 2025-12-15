@@ -261,16 +261,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log("[RefreshData] Already loading, skipping...");
             return;
         }
-        
+
         setDataLoading(true);
-        
+
         // Timeout global pour éviter le blocage infini (augmenté à 60 secondes)
         const globalTimeout = setTimeout(() => {
             console.warn("[RefreshData] Global timeout reached, forcing completion");
             setDataLoading(false);
             setLoading(false);
         }, 60000); // 60 secondes max
-        
+
         try {
             console.log("[RefreshData] Starting data refresh...");
             console.log("[RefreshData] Step 1: Checking Supabase configuration...");
@@ -289,7 +289,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('Session timeout')), 10000); // 10 secondes max
             });
-            
+
             let sessionData;
             try {
                 sessionData = await Promise.race([sessionPromise, timeoutPromise]) as any;
@@ -301,9 +301,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.error("[RefreshData] Session retrieval failed:", err);
                 sessionData = { session: null };
             }
-            
+
             const hasToken = !!sessionData?.data?.session?.access_token;
-            
+
             console.log("[RefreshData] Step 3: Checking token existence...");
             if (!hasToken) {
                 console.log("[RefreshData] No auth token, skipping fetch");
@@ -328,11 +328,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 try {
                     console.log(`[RefreshData] 🔍 Fetching ${table}...`);
                     console.log(`[RefreshData] 🔑 Auth token exists:`, hasToken);
-                    
+
                     const startTime = Date.now();
                     const { data, error } = await supabase.from(table).select(query).abortSignal(controller.signal);
                     const endTime = Date.now();
-                    
+
                     console.log(`[RefreshData] ⏱️ ${table} query took ${endTime - startTime}ms`);
 
                     if (error) {
@@ -388,20 +388,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('expenses'),
                 fetchTable('messages', '*').then(data => {
                     if (!data) return null;
-                    return data.sort((a: any, b: any) => 
+                    return data.sort((a: any, b: any) =>
                         new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
                     ).slice(-200);
                 }),
                 fetchTable('notifications', '*').then(data => {
                     if (!data) return null;
-                    return data.sort((a: any, b: any) => 
+                    return data.sort((a: any, b: any) =>
                         new Date(b.date).getTime() - new Date(a.date).getTime()
                     ).slice(0, 100);
                 }),
                 fetchTable('company_settings', '*').then(r => r?.[0] || null),
                 fetchTable('visit_scans', '*').then(data => {
                     if (!data) return null;
-                    return data.sort((a: any, b: any) => 
+                    return data.sort((a: any, b: any) =>
                         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                     ).slice(0, 200);
                 }),
@@ -420,8 +420,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientContracts.some((contract: any) => contract.packId === pack.id)
                     ) || [];
 
-                    const packName = associatedPacks.length > 0 && associatedPacks[0] && typeof associatedPacks[0] === 'object' && 'name' in associatedPacks[0] 
-                        ? (associatedPacks[0] as any).name 
+                    const packName = associatedPacks.length > 0 && associatedPacks[0] && typeof associatedPacks[0] === 'object' && 'name' in associatedPacks[0]
+                        ? (associatedPacks[0] as any).name
                         : c.pack;
 
                     return {
@@ -832,7 +832,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log("[AuthStateChange] Event:", event, "Session:", session ? "exists" : "null");
-            
+
             if (!mounted || !authInitialized) {
                 console.log("[AuthStateChange] Ignoring - component unmounted or init not complete");
                 return;
@@ -975,30 +975,41 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
-        const id = generateUUID();
-        const now = new Date().toISOString();
+        try {
+            const id = generateUUID();
+            const now = new Date().toISOString();
 
-        const { data, error } = await supabase.from('notifications').insert({
-            id,
-            title,
-            message,
-            type, // Added to Supabase even if not in standard SQL definition, assuming it maps if column exists or ignored
-            date: now,
-            is_read: false,
-            link,
-            created_at: now,
-            target_user_role: targetUserType,
-            target_user_id: targetUserId
-        }).select();
+            const { data, error } = await supabase.from('notifications').insert({
+                id,
+                title,
+                message,
+                type,
+                date: now,
+                is_read: false,
+                link,
+                created_at: now,
+                target_user_type: targetUserType,
+                target_user_id: targetUserId,
+                target_user_role: targetUserType
+            }).select();
 
-        if (data) {
-            const mappedNotif: AppNotification = {
-                ...data[0],
-                read: false,
-                targetUserType,
-                targetUserId
-            };
-            setNotifications(prev => [mappedNotif, ...prev]);
+            if (error) {
+                console.error('[addNotification] Error inserting notification:', error);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                const mappedNotif: AppNotification = {
+                    ...data[0],
+                    read: false,
+                    targetUserType,
+                    targetUserId
+                };
+                setNotifications(prev => [mappedNotif, ...prev]);
+                console.log('[addNotification] ✓ Notification created:', title);
+            }
+        } catch (e) {
+            console.error('[addNotification] Exception:', e);
         }
     };
 
@@ -1193,12 +1204,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (clientError) throw clientError;
 
             // 3. Link Auth User to Client Profile
-            const { error: userError } = await supabase.from('users').insert({ 
+            const { error: userError } = await supabase.from('users').insert({
                 id: authData.user.id, // Links to auth.users.id
-                email: clientData.email, 
+                email: clientData.email,
                 name: clientData.name,
-                role: 'client', 
-                related_entity_id: newClient.id 
+                role: 'client',
+                related_entity_id: newClient.id
             });
             if (userError) throw userError;
 
@@ -1224,7 +1235,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 has_left_review: clientData.hasLeftReview || false
             };
             await supabase.from('clients').insert([clientPayload]);
-            return null; 
+            return null;
         }
     };
 
@@ -1235,7 +1246,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data: { session } } = await supabase.auth.getSession();
 
         // Prepare Payload with correct column names (snake_case)
-        const providerPayload = { 
+        const providerPayload = {
             id: generateUUID(),
             first_name: providerData.firstName,
             last_name: providerData.lastName,
@@ -1262,12 +1273,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             // 3. Link User Profile
             const fullName = `${providerData.firstName} ${providerData.lastName}`;
-            const { error: userError } = await supabase.from('users').insert({ 
-                id: authData.user.id, 
+            const { error: userError } = await supabase.from('users').insert({
+                id: authData.user.id,
                 email: providerData.email,
-                name: fullName, 
-                role: 'provider', 
-                related_entity_id: newProvider.id 
+                name: fullName,
+                role: 'provider',
+                related_entity_id: newProvider.id
             });
             if (userError) throw userError;
 
@@ -1281,9 +1292,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const login = async (email: string, password?: string): Promise<boolean> => {
         if (!password) throw new Error("Mot de passe requis");
-        
+
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        
+
         if (error) {
             // Throw meaningful errors for the UI
             if (error.message === 'Invalid login credentials') {
@@ -1553,6 +1564,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (provider) {
             const newPass = Math.random().toString(36).slice(-8);
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
+
+            // NOTIFICATION PROVIDER
+            await addNotification('provider', 'info', 'Mot de passe réinitialisé', `Votre nouveau mot de passe a été envoyé par email.`, id);
+
+            // EMAIL PROVIDER
             await sendEmail(provider.email, 'Réinitialisation de mot de passe', 'reset_password', {
                 newPassword: newPass
             });
@@ -1604,12 +1620,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 reminderSent: newDoc.reminder_sent
             }]);
             const client = clients.find(c => c.id === doc.clientId);
-            if (client && client.email) {
-                await sendEmail(client.email, `Nouveau Document : ${doc.type} ${doc.ref}`, 'new_document', {
-                    type: doc.type,
-                    ref: doc.ref,
-                    total: doc.totalTTC
-                });
+            if (client) {
+                // NOTIFICATION CLIENT
+                await addNotification('client', 'info', `Nouveau ${doc.type}`, `${doc.type} ${doc.ref} disponible - Montant: ${doc.totalTTC}€`, doc.clientId, `document:${newDoc.id}`);
+
+                // EMAIL CLIENT
+                if (client.email) {
+                    await sendEmail(client.email, `Nouveau Document : ${doc.type} ${doc.ref}`, 'new_document', {
+                        type: doc.type,
+                        ref: doc.ref,
+                        total: doc.totalTTC
+                    });
+                }
             }
         }
     };
@@ -1698,11 +1720,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
             const client = clients.find(c => c.id === oldDoc?.clientId);
-            if (client && client.email && status !== oldDoc?.status) {
-                await sendEmail(client.email, `Mise à jour Document : ${oldDoc?.ref}`, 'document_status_update', {
-                    ref: oldDoc?.ref,
-                    status: status
-                });
+            if (client && status !== oldDoc?.status) {
+                // NOTIFICATION CLIENT
+                await addNotification('client', 'info', 'Document mis à jour', `Le statut du document ${oldDoc?.ref} a changé: ${status}`, oldDoc?.clientId, `document:${id}`);
+
+                // EMAIL CLIENT
+                if (client.email) {
+                    await sendEmail(client.email, `Mise à jour Document : ${oldDoc?.ref}`, 'document_status_update', {
+                        ref: oldDoc?.ref,
+                        status: status
+                    });
+                }
             }
         }
     };
@@ -2006,6 +2034,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const clientName = contract.name || 'Client';
             const secretaryName = currentUser?.name || 'Secrétaire';
 
+            // NOTIFICATION ADMIN
+            await addNotification('admin', 'info', 'Demande Validation Contrat', `${secretaryName} demande la validation du contrat pour ${clientName}`, undefined, `contract:${contractId}`);
+
+            // EMAIL SUPER ADMIN
             await sendEmail(
                 'prestaservicesantilles.rh@gmail.com',
                 `Demande de validation - Contrat ${contract.id}`,
@@ -2068,9 +2100,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     : c
             ));
 
-            // Send confirmation email (optional)
+            // Send confirmation email and notification
             if (approved) {
                 const clientName = contract.name || 'Client';
+
+                // NOTIFICATION ADMIN
+                await addNotification('admin', 'success', 'Contrat Validé', `Le contrat pour ${clientName} a été validé par ${currentUser.name}`, undefined, `contract:${contractId}`);
+
+                // EMAIL CONFIRMATION
                 await sendEmail(
                     'prestaservicesantilles.rh@gmail.com',
                     `Contrat ${contract.id} validé`,
@@ -2119,6 +2156,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             // Email Notification Logic
             if (newReminder.notifyEmail) {
+                // NOTIFICATION ADMIN
+                await addNotification('admin', 'info', 'Rappel Agenda', newReminder.text, undefined, `reminder:${newReminder.id}`);
+
+                // EMAIL ADMIN
                 await sendEmail(companySettings.email, 'Rappel Agenda', 'agenda_reminder', {
                     text: newReminder.text,
                     date: newReminder.date
@@ -2306,10 +2347,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const logout = async (skipReload?: boolean) => {
         console.log("[Logout] Cleaning up session...");
-        
+
         localStorage.removeItem('presta_current_user');
         localStorage.removeItem('presta_auth_recovery');
-        
+
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
