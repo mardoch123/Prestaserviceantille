@@ -148,7 +148,7 @@ const Clients: React.FC = () => {
             if (newPass) {
                 setNewCredential({ email: formData.email, pass: newPass });
             } else {
-                showToast(`Client créé avec succès ! (Pas d'email envoyé)`);
+                showToast(`Client créé avec succès ! Email de bienvenue envoyé.`);
             }
         }
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });

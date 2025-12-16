@@ -168,7 +168,7 @@ const Providers: React.FC = () => {
                   // Open the credential modal
                   setNewCredential({ email: formData.email, pass: newPass });
               } else {
-                  showToast(`Prestataire créé avec succès ! (Pas d'email envoyé)`);
+                  showToast(`Prestataire créé avec succès ! Email de bienvenue envoyé.`);
               }
           }
           // Reset form

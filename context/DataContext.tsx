@@ -1235,6 +1235,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 has_left_review: clientData.hasLeftReview || false
             };
             await supabase.from('clients').insert([clientPayload]);
+            
+            // Send welcome email to client
+            try {
+                await sendEmail(clientData.email, 'Bienvenue chez PRESTA SERVICES ANTILLES', 'welcome_client_panel', {
+                    name: clientData.name,
+                    email: clientData.email,
+                    login: clientData.email,
+                    password: 'Vos identifiants vous seront communiqués par email séparément',
+                    link: 'https://outremerfermetures.com/login'
+                });
+            } catch (emailError) {
+                console.warn('[Client] Email could not be sent:', emailError);
+            }
+            
+            // Refresh data to show new client immediately
+            await refreshData();
             return null;
         }
     };
@@ -1286,6 +1302,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         } else {
             // Admin Mode: Just insert data row
             await supabase.from('providers').insert([providerPayload]);
+            
+            // Send welcome email to provider
+            try {
+                await sendEmail(providerData.email, 'Bienvenue dans l\'équipe PRESTA SERVICES ANTILLES', 'welcome_provider', {
+                    name: `${providerData.firstName} ${providerData.lastName}`,
+                    email: providerData.email,
+                    login: providerData.email,
+                    password: 'Vos identifiants vous seront communiqués par email séparément',
+                    link: 'https://outremerfermetures.com/login'
+                });
+            } catch (emailError) {
+                console.warn('[Provider] Email could not be sent:', emailError);
+            }
+            
+            // Refresh data to show new provider immediately
+            await refreshData();
             return null;
         }
     };

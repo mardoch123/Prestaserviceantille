@@ -252,7 +252,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Nombre d'heures cumulées" 
-              value={`${providers.reduce((acc, p) => acc + p.hoursWorked, 0)}h`} 
+              value={`${providers.reduce((acc, p) => acc + (Number(p.hoursWorked) || 0), 0)}h`} 
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToProviders('all')}

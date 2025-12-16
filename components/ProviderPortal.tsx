@@ -94,13 +94,37 @@ const ProviderPortal: React.FC = () => {
       };
   }, [activeStream, stopLiveStream]);
 
+  const [showRetry, setShowRetry] = useState(false);
+  const [loadingStartTime] = useState(Date.now());
+
+  // Afficher le bouton de retry après 30 secondes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowRetry(true);
+    }, 30000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   if (!provider) {
+    const loadingTime = Date.now() - loadingStartTime;
     return (
       <div className="h-full flex items-center justify-center flex-col bg-slate-100 p-8">
          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md text-center">
             <Loader2 className="w-16 h-16 mx-auto text-brand-blue animate-spin mb-4" />
             <h2 className="text-2xl font-bold text-slate-800 mb-2">Chargement...</h2>
-            <p className="text-slate-500 mb-6">Veuillez patienter pendant que nous chargeons vos informations.</p>
+            <p className="text-slate-500 mb-6">
+              Veuillez patienter pendant que nous chargez vos informations.
+              {loadingTime > 5000 && ` (${Math.floor(loadingTime / 1000)}s)`}
+            </p>
+            {showRetry && (
+              <button 
+                onClick={() => window.location.reload()} 
+                className="bg-brand-orange text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-600"
+              >
+                Recharger la page
+              </button>
+            )}
          </div>
       </div>
     );
