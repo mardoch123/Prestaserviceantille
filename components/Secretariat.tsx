@@ -42,11 +42,23 @@ import {
     SlidersHorizontal,
     XCircle
 } from 'lucide-react';
-import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL } from '../context/DataContext';
-import { Pack, Reminder, Message, Client, Expense, Contract, Mission } from '../types';
+import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
+import { Pack, Reminder, Message, Client, Expense, Contract, Mission, ScheduleOption } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses';
+
+// Type for intervention schedules (compatible with existing ScheduleOption)
+type InterventionSchedule = {
+    day: string;
+    startTime: string;
+    endTime: string;
+};
+
+// Extended Pack type to include intervention schedules (different from existing schedules)
+type PackWithSchedules = Pack & { 
+    interventionSchedules?: InterventionSchedule[] 
+};
 
 // EXACT LIST FROM PDF OCR
 const SAP_SERVICES = [
@@ -101,7 +113,8 @@ const Secretariat: React.FC = () => {
         updateExpense,
         requestContractValidation,
         validateContract,
-        currentUser
+        currentUser,
+        documents
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -165,7 +178,7 @@ const Secretariat: React.FC = () => {
 
     // --- PACK FORM STATE (UPDATED TO MATCH PDF PROCESS) ---
     const [packStep, setPackStep] = useState(1);
-    const [packForm, setPackForm] = useState<Partial<Pack>>({
+    const [packForm, setPackForm] = useState<Partial<PackWithSchedules>>({
         type: 'ponctuel',
         hours: 3,
         frequency: 'Ponctuelle', // Default per PDF
@@ -175,7 +188,7 @@ const Secretariat: React.FC = () => {
         quantity: '',
         location: 'Domicile Client',
         contractType: 'Contrat Prestataire Standard',
-        schedules: []
+        interventionSchedules: []
     });
 
     // Extra state for "Régulier" days count
@@ -305,7 +318,7 @@ const Secretariat: React.FC = () => {
             location: 'Domicile Client',
             contractType: 'Contrat Prestataire Standard',
             schedules: []
-        });
+        } as Partial<PackWithSchedules>);
         setRegularDaysCount(1);
     };
 
@@ -355,6 +368,10 @@ const Secretariat: React.FC = () => {
         setIsModalOpen(true);
     };
 
+    // State for quote selection modal
+    const [showQuoteSelectionModal, setShowQuoteSelectionModal] = useState(false);
+    const [selectedQuoteForContract, setSelectedQuoteForContract] = useState<any[]>([]);
+
     const handleGenerateContractContent = () => {
         // VALIDATION: Must select Client and Pack
         if (!selectedClientIdForContract || !selectedPackIdForContract) {
@@ -362,6 +379,30 @@ const Secretariat: React.FC = () => {
             return;
         }
 
+        // Check if client has existing quotes (devis)
+        const clientQuotes = documents.filter((doc: any) => 
+            doc.clientId === selectedClientIdForContract && 
+            doc.type === 'Devis' && 
+            (doc.status === 'sent' || doc.status === 'signed')
+        );
+
+        if (clientQuotes.length === 0) {
+            showToast("Ce client n'a aucun devis. Veuillez créer un devis d'abord.", 'error');
+            return;
+        }
+
+        if (clientQuotes.length > 1) {
+            // Show modal to select which quote to use
+            setSelectedQuoteForContract(clientQuotes);
+            setShowQuoteSelectionModal(true);
+            return;
+        }
+
+        // Use the single quote found
+        proceedWithContractGeneration(clientQuotes[0]);
+    };
+
+    const proceedWithContractGeneration = (selectedQuote: any) => {
         let content = legalTemplate;
 
         // Inject Client Info
@@ -372,9 +413,36 @@ const Secretariat: React.FC = () => {
         }
 
         // Inject Pack Info
-        const pack = packs.find(p => p.id === selectedPackIdForContract);
+        const pack = packs.find(p => p.id === selectedPackIdForContract) as any;
         if (pack) {
-            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}`;
+            // Get intervention schedules from quote slots_data
+            let scheduleInfo = '';
+            if (selectedQuote.slots_data && selectedQuote.slots_data.length > 0) {
+                // Parse slots_data from quote (JSON format)
+                try {
+                    const slotsData = typeof selectedQuote.slots_data === 'string' 
+                        ? JSON.parse(selectedQuote.slots_data) 
+                        : selectedQuote.slots_data;
+                    
+                    if (Array.isArray(slotsData) && slotsData.length > 0) {
+                        scheduleInfo = `\nHoraires d'intervention : ${slotsData.map((slot: any) => {
+                            const day = slot.day || slot.date || '';
+                            const startTime = slot.startTime || slot.start_time || slot.start || '';
+                            const endTime = slot.endTime || slot.end_time || slot.end || '';
+                            return `${day} de ${startTime} à ${endTime}`;
+                        }).join(', ')}`;
+                    }
+                } catch (error) {
+                    console.warn('Error parsing slots_data:', error);
+                }
+            }
+            
+            // Fallback to pack intervention schedules if no slots_data found
+            if (!scheduleInfo && pack.interventionSchedules && pack.interventionSchedules.length > 0) {
+                scheduleInfo = `\nHoraires d'intervention : ${pack.interventionSchedules.map((s: InterventionSchedule) => `${s.day} de ${s.startTime} à ${s.endTime}`).join(', ')}`;
+            }
+            
+            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
             content = content.replace('[INFO_PACK]', packInfo);
         }
 
@@ -382,6 +450,7 @@ const Secretariat: React.FC = () => {
         content = content.replace('[DATE]', new Date().toLocaleDateString());
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
+        setShowQuoteSelectionModal(false);
         showToast("Contrat généré avec les informations sélectionnées.");
     };
 
@@ -398,7 +467,7 @@ const Secretariat: React.FC = () => {
                     await updateContract(existing.id, {
                         name: contractForm.name,
                         content: contractForm.content,
-                        packId: selectedPackIdForContract || existing.packId, // Preserve or update
+                        packId: selectedPackIdForContract || existing.packId,
                         isSap: contractLogoType === 'SAP'
                     });
                     showToast('Contrat modifié.');
@@ -486,6 +555,9 @@ const Secretariat: React.FC = () => {
         // Simulated PDF Download via Print Window
         const printWindow = window.open('', '', 'width=800,height=600');
         if (printWindow) {
+            // Use SAP logo if contract is SAP, otherwise use normal logo
+            const logoToUse = contract.isSap ? LOGO_SAP : LOGO_NORMAL;
+            
             printWindow.document.write(`
             <html>
               <head>
@@ -503,7 +575,7 @@ const Secretariat: React.FC = () => {
               </head>
               <body>
                 <div class="header">
-                   <img src="${LOGO_NORMAL}" class="logo" />
+                   <img src="${logoToUse}" class="logo" />
                    <h2>${companySettings.name}</h2>
                    <p>${companySettings.address} | N° SAP: ${companySettings.siret}</p>
                 </div>
@@ -1177,6 +1249,91 @@ const Secretariat: React.FC = () => {
                                                 </div>
                                             </div>
 
+                                            {/* Intervention Schedules - Mobile Friendly */}
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <label className="font-bold text-slate-700 text-xs uppercase">Horaires d'intervention</label>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const currentSchedules = packForm.interventionSchedules || [];
+                                                            const newSchedule: InterventionSchedule = { 
+                                                                day: 'Lundi', 
+                                                                startTime: '09:00', 
+                                                                endTime: '12:00' 
+                                                            };
+                                                            setPackForm({ 
+                                                                ...packForm, 
+                                                                interventionSchedules: [...currentSchedules, newSchedule] 
+                                                            });
+                                                        }}
+                                                        className="bg-brand-blue text-white px-3 py-1 rounded text-xs font-bold hover:bg-teal-700"
+                                                    >
+                                                        + Ajouter un créneau
+                                                    </button>
+                                                </div>
+                                                
+                                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                                    {(packForm.interventionSchedules || []).map((schedule: any, index: number) => (
+                                                        <div key={index} className="flex gap-2 items-center bg-slate-50 p-2 rounded">
+                                                            <select 
+                                                                value={schedule.day} 
+                                                                onChange={(e) => {
+                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    newSchedules[index] = { ...schedule, day: e.target.value };
+                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                }}
+                                                                className="flex-1 p-1 border rounded text-xs"
+                                                            >
+                                                                <option value="Lundi">Lundi</option>
+                                                                <option value="Mardi">Mardi</option>
+                                                                <option value="Mercredi">Mercredi</option>
+                                                                <option value="Jeudi">Jeudi</option>
+                                                                <option value="Vendredi">Vendredi</option>
+                                                                <option value="Samedi">Samedi</option>
+                                                                <option value="Dimanche">Dimanche</option>
+                                                            </select>
+                                                            <input 
+                                                                type="time" 
+                                                                value={schedule.startTime} 
+                                                                onChange={(e) => {
+                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    newSchedules[index] = { ...schedule, startTime: e.target.value };
+                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                }}
+                                                                className="p-1 border rounded text-xs"
+                                                            />
+                                                            <span className="text-xs">à</span>
+                                                            <input 
+                                                                type="time" 
+                                                                value={schedule.endTime} 
+                                                                onChange={(e) => {
+                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    newSchedules[index] = { ...schedule, endTime: e.target.value };
+                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                }}
+                                                                className="p-1 border rounded text-xs"
+                                                            />
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    newSchedules.splice(index, 1);
+                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                }}
+                                                                className="text-red-500 hover:text-red-700 p-1"
+                                                            >
+                                                                <X className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                
+                                                {(packForm.interventionSchedules || []).length === 0 && (
+                                                    <p className="text-xs text-slate-500 italic">Aucun créneau défini. Cliquez sur "+ Ajouter un créneau" pour définir les horaires.</p>
+                                                )}
+                                            </div>
+
                                             {(packForm.frequency === 'Régulier' || packForm.type === 'regulier') && (
                                                 <div className="bg-blue-50 p-3 rounded border border-blue-200">
                                                     <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Nombre de jours d'intervention</label>
@@ -1452,6 +1609,40 @@ const Secretariat: React.FC = () => {
                                 <button onClick={closeConfirmation} className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition">Annuler</button>
                                 <button onClick={() => { confirmationModal.onConfirm(); closeConfirmation(); }} className="flex-1 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md">Confirmer</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Quote Selection Modal */}
+            {showQuoteSelectionModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold text-slate-800">Sélectionner un devis</h3>
+                            <button onClick={() => setShowQuoteSelectionModal(false)} className="text-slate-400 hover:text-slate-600">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-4">
+                            Plusieurs devis ont été trouvés pour ce client. Veuillez en sélectionner un pour générer le contrat.
+                        </p>
+                        <div className="space-y-3">
+                            {selectedQuoteForContract.map((quote: any) => (
+                                <div key={quote.id} className="border border-slate-200 rounded-lg p-4 hover:border-brand-blue hover:bg-blue-50 cursor-pointer transition-all" onClick={() => proceedWithContractGeneration(quote)}>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h4 className="font-bold text-slate-800">{quote.ref}</h4>
+                                            <p className="text-sm text-slate-600">Date: {quote.date}</p>
+                                            <p className="text-sm text-slate-600">Montant: {quote.totalTTC} €</p>
+                                            <p className="text-sm text-slate-600">Statut: {quote.status === 'sent' ? 'Envoyé' : 'Signé'}</p>
+                                        </div>
+                                        <div className="text-brand-blue">
+                                            <CheckCircle className="w-5 h-5" />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>

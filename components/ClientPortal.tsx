@@ -210,23 +210,136 @@ const ClientPortal: React.FC = () => {
       }
 
       showToast('Téléchargement de la facture en cours...');
-      setTimeout(() => {
-          // Simulation of PDF download
-          const element = document.createElement('a');
-          element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(`FACTURE ${doc.ref}\n\nMontant: ${doc.totalTTC}€\n\nCeci est une simulation PDF.`));
-          element.setAttribute('download', `${doc.ref}.pdf`);
-          element.style.display = 'none';
-          document.body.appendChild(element);
-          element.click();
-          document.body.removeChild(element);
-      }, 1000);
+      
+      // Generate proper PDF using print window
+      const printWindow = window.open('', '', 'width=800,height=600');
+      if (printWindow) {
+          printWindow.document.write(`
+          <html>
+            <head>
+              <title>FACTURE - ${doc.ref}</title>
+              <style>
+                body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; padding: 40px; }
+                .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+                .company-info { margin-bottom: 20px; }
+                .invoice-info { margin-bottom: 20px; }
+                .client-info { margin-bottom: 20px; }
+                .amount-info { margin: 20px 0; }
+                .total { font-weight: bold; font-size: 14pt; margin-top: 10px; }
+                .footer { margin-top: 50px; font-size: 10pt; color: #666; }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <h2>FACTURE</h2>
+                <p><strong>N° ${doc.ref}</strong></p>
+                <p>Date: ${doc.date}</p>
+              </div>
+              
+              <div class="company-info">
+                <h3>PRESTA SERVICES ANTILLES</h3>
+                <p>31 Résidence L'Autre Bord – 97220 La Trinité</p>
+                <p>N° SAP : SAP944789700</p>
+                <p>Email: prestaservicesantilles.rh@gmail.com</p>
+                <p>Téléphone: 0590 12 34 56</p>
+              </div>
+              
+              <div class="client-info">
+                <h4>Client:</h4>
+                <p><strong>${client.name}</strong></p>
+                <p>${client.address || ''}</p>
+                <p>${client.city || ''}</p>
+                <p>Email: ${client.email}</p>
+                <p>Téléphone: ${client.phone}</p>
+              </div>
+              
+              <div class="invoice-info">
+                <h4>Détails de la facture:</h4>
+                <p>${doc.description || 'Service standard'}</p>
+              </div>
+              
+              <div class="amount-info">
+                <p>Montant HT: ${doc.totalHT.toFixed(2)} €</p>
+                <p>TVA: ${((doc.totalTTC - doc.totalHT)).toFixed(2)} €</p>
+                <p class="total">Montant TTC: ${doc.totalTTC.toFixed(2)} €</p>
+              </div>
+              
+              <div class="footer">
+                <p><strong>Conditions de paiement:</strong></p>
+                <p>- Paiement à réception</p>
+                <p>- Délai de paiement: 30 jours</p>
+                <p>Statut: ${doc.status}</p>
+                <br>
+                <p>Contact pour toute question: prestaservicesantilles.rh@gmail.com - 0590 12 34 56</p>
+              </div>
+            </body>
+          </html>
+          `);
+          printWindow.document.close();
+          printWindow.print();
+      }
+      
+      showToast('Facture téléchargée avec succès.');
   };
   
   const handleDownloadContract = () => {
       showToast('Téléchargement du contrat signé...');
-      setTimeout(() => {
-          alert("Simulation: Le contrat PDF signé a été téléchargé.");
-      }, 500);
+      
+      // Find the signed contract for this client
+      const clientContract = contracts.find(c => 
+          c.name && c.name.toLowerCase().includes(client.name.toLowerCase()) && 
+          c.status === 'active'
+      );
+      
+      if (!clientContract) {
+          showToast('Aucun contrat signé trouvé pour votre compte.');
+          return;
+      }
+      
+      // Create proper contract PDF content
+      const contractContent = `
+CONTRAT DE SERVICES - ${clientContract.name}
+Date de signature: ${clientContract.validationDate || new Date().toLocaleDateString()}
+
+CLIENT:
+${client.name}
+${client.address}
+${client.city}
+${client.phone}
+${client.email}
+
+PRESTATAIRE:
+PRESTA SERVICES ANTILLES
+31 Résidence L'Autre Bord – 97220 La Trinité
+N° SAP : SAP944789700
+Email: prestaservicesantilles.rh@gmail.com
+Téléphone: 0590 12 34 56
+
+${clientContract.content || 'Contenu du contrat à charger depuis la base de données'}
+
+Ce contrat est valide et signé par les deux parties.
+
+Pour toute question concernant ce contrat:
+prestaservicesantilles.rh@gmail.com
+0590 12 34 56
+
+PRESTA SERVICES ANTILLES
+31 Résidence L'Autre Bord – 97220 La Trinité
+      `;
+      
+      // Create and download PDF file
+      const blob = new Blob([contractContent], { type: 'text/plain;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const element = document.createElement('a');
+      element.setAttribute('href', url);
+      element.setAttribute('download', `Contrat_Signé_${client.name.replace(/\s+/g, '_')}.pdf`);
+      element.style.display = 'none';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+      window.URL.revokeObjectURL(url);
+      
+      showToast('Contrat téléchargé avec succès.');
   };
 
   const handleRequestInvoice = (docId: string) => {
