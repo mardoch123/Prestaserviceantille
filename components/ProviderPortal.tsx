@@ -57,6 +57,8 @@ const ProviderPortal: React.FC = () => {
   const [streamMissionId, setStreamMissionId] = useState<string>('');
   const [micMuted, setMicMuted] = useState(false);
   const [streamError, setStreamError] = useState('');
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
 
   // Execution Modals
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -249,6 +251,27 @@ const ProviderPortal: React.FC = () => {
       }
   };
   
+  // Détecter les caméras disponibles
+  const detectAvailableCameras = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setAvailableCameras(videoDevices);
+      
+      // Sélectionner la première caméra par défaut si aucune n'est sélectionnée
+      if (videoDevices.length > 0 && !selectedCameraId) {
+        setSelectedCameraId(videoDevices[0].deviceId);
+      }
+    } catch (error) {
+      console.error('Erreur lors de la détection des caméras:', error);
+    }
+  };
+
+  // Détecter les caméras au chargement du composant
+  useEffect(() => {
+    detectAvailableCameras();
+  }, []);
+
   const startCamera = async () => {
       try {
           setStreamError('');
@@ -263,7 +286,15 @@ const ProviderPortal: React.FC = () => {
             throw new Error("Votre navigateur ne supporte pas l'accès caméra.");
           }
 
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          // Configuration de la caméra sélectionnée
+          const videoConstraints: MediaStreamConstraints = {
+            video: selectedCameraId ? 
+              { deviceId: { exact: selectedCameraId } } : 
+              { facingMode: 'user' },
+            audio: true
+          };
+
+          const stream = await navigator.mediaDevices.getUserMedia(videoConstraints);
           if (videoRef.current) {
               videoRef.current.srcObject = stream;
           }
@@ -274,9 +305,11 @@ const ProviderPortal: React.FC = () => {
       } catch (err: any) {
           console.error("Camera Error:", err);
           if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-              setStreamError('Aucune caméra trouvée sur cet appareil.');
+              setStreamError('Aucune caméra trouvée sur cet appareil. Veuillez vérifier que votre caméra est bien connectée.');
           } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-              setStreamError('Permission caméra refusée.');
+              setStreamError('Permission caméra refusée. Veuillez autoriser l\'accès à la caméra dans votre navigateur.');
+          } else if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
+              setStreamError('La caméra sélectionnée ne supporte pas les paramètres requis. Essayez une autre caméra.');
           } else {
               setStreamError(err.message || 'Erreur accès caméra.');
           }
@@ -496,8 +529,9 @@ const ProviderPortal: React.FC = () => {
                                         <p className="text-xs mb-4 text-slate-400">Le flux vidéo sera crypté et visible uniquement par le client sélectionné.</p>
                                         
                                         <div className="w-full max-w-xs">
+                                            {/* Sélection de la mission */}
                                             <select 
-                                                className="w-full bg-slate-800 text-white border border-slate-700 rounded-lg p-3 mb-4 text-sm outline-none focus:border-brand-blue"
+                                                className="w-full bg-slate-800 text-white border border-slate-700 rounded-lg p-3 mb-3 text-sm outline-none focus:border-brand-blue"
                                                 value={streamMissionId}
                                                 onChange={(e) => setStreamMissionId(e.target.value)}
                                             >
@@ -506,6 +540,31 @@ const ProviderPortal: React.FC = () => {
                                                     <option key={m.id} value={m.id}>Client: {m.clientName} - {m.date}</option>
                                                 ))}
                                             </select>
+                                            
+                                            {/* Sélection de la caméra */}
+                                            {availableCameras.length > 1 && (
+                                                <select 
+                                                    className="w-full bg-slate-800 text-white border border-slate-700 rounded-lg p-3 mb-3 text-sm outline-none focus:border-brand-blue"
+                                                    value={selectedCameraId}
+                                                    onChange={(e) => setSelectedCameraId(e.target.value)}
+                                                >
+                                                    <option value="">Sélectionner une caméra...</option>
+                                                    {availableCameras.map((camera, index) => (
+                                                        <option key={camera.deviceId} value={camera.deviceId}>
+                                                            {camera.label || `Caméra ${index + 1}`}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                            
+                                            {/* Bouton pour rafraîchir les caméras */}
+                                            <button 
+                                                onClick={detectAvailableCameras}
+                                                className="w-full bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs mb-3 flex items-center justify-center gap-2 transition-colors"
+                                            >
+                                                <Camera className="w-4 h-4" />
+                                                Détecter les caméras ({availableCameras.length})
+                                            </button>
                                             
                                             {streamError && <p className="text-red-500 text-xs mb-4 font-bold bg-red-100/10 p-2 rounded">{streamError}</p>}
 

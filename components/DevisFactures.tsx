@@ -14,7 +14,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder } = useData();
+  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -240,6 +240,15 @@ const DevisFactures: React.FC = () => {
   const handleSuccess = async () => {
     setIsSubmitting(true);
     try {
+        // Validation pour les devis : vérifier que la planification prévisionnelle est générée
+        if (modalMode === 'devis') {
+            if (interventionSlots.length === 0) {
+                showToast("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.");
+                setIsSubmitting(false);
+                return;
+            }
+        }
+
         const client = clients.find(c => c.id === selectedClientId);
         const clientName = client?.name || 'Client Inconnu';
         const totalHT = unitPrice * packQuantity;
@@ -273,6 +282,18 @@ const DevisFactures: React.FC = () => {
         };
 
         await addDocument(newDoc);
+
+        // NOTIFICATION POUR LE CLIENT: Envoyer une notification lors de la création du devis
+        if (modalMode === 'devis') {
+            await addNotification(
+                'client', 
+                'info', 
+                'Nouveau devis reçu', 
+                `Vous avez reçu un nouveau devis ${newDoc.ref} d'un montant de ${newDoc.totalTTC}€. Consultez-le dans votre espace client.`, 
+                selectedClientId,
+                'documents'
+            );
+        }
 
         if (modalMode === 'facture' && interventionSlots.length > 0) {
             for (const slot of interventionSlots) {
@@ -495,11 +516,11 @@ const DevisFactures: React.FC = () => {
                                     {selectedIds.has(doc.id) ? <CheckSquare className="w-4 h-4 text-brand-blue" /> : <Square className="w-4 h-4" />}
                                 </button>
                             </td>
-                            <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer">{doc.ref}</td>
-                            <td className="px-6 py-4 cursor-pointer"><div className="font-bold text-slate-700">{doc.clientName}</div></td>
-                            <td className="px-6 py-4 cursor-pointer">{doc.date}</td>
-                            <td className="px-6 py-4 cursor-pointer"><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
-                            <td className="px-6 py-4 text-right font-bold cursor-pointer">{doc.totalTTC.toFixed(2)} €</td>
+                            <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.ref}</td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.date}</td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
+                            <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.totalTTC.toFixed(2)} €</td>
                             <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                                     <select 

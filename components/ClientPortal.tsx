@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useData, LOGO_NORMAL } from '../context/DataContext';
+import { Contract } from '../types';
 import { 
   FileText, 
   Calendar, 
@@ -25,7 +26,10 @@ import {
   AlertCircle,
   Bell,
   ArrowRight,
-  Camera
+  Camera,
+  Video,
+  Play,
+  Loader
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -47,13 +51,21 @@ const ClientPortal: React.FC = () => {
     submitClientReview,
     contracts,
     packs,
+    providers,
     logout,
-    currentUser
+    currentUser,
+    extendReadingSession,
+    endReadingSession,
+    videoRecordings,
+    getVideoRecordings
   } = useData();
 
   // Determine client ID either from simulation or real login
   const activeClientId = simulatedClientId || (currentUser?.role === 'client' ? currentUser.relatedEntityId : null);
   const client = clients.find(c => c.id === activeClientId);
+
+  // Get client's video recordings for replay
+  const clientVideoRecordings = client ? getVideoRecordings(client.id) : [];
 
   const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile'>('planning');
   const [messageInput, setMessageInput] = useState('');
@@ -140,6 +152,7 @@ const ClientPortal: React.FC = () => {
       setSelectedQuoteId(docId);
       setTermsAccepted(false);
       setQuoteModalOpen(true);
+      extendReadingSession(); // Prolonger la session pendant lecture
       setTimeout(() => clearCanvas(), 100);
   };
 
@@ -185,10 +198,19 @@ const ClientPortal: React.FC = () => {
           alert("Veuillez accepter les conditions du contrat avant de signer.");
           return;
       }
+      
+      // Vérifier si une prestation est en cours
+      const ongoingMissions = clientMissions.filter(m => m.status === 'in_progress');
+      if (ongoingMissions.length > 0) {
+          alert("Une prestation est actuellement en cours. Vous ne pouvez signer le devis que lorsque la prestation est terminée.");
+          return;
+      }
+      
       if(selectedQuoteId && canvasRef.current) {
           const dataUrl = canvasRef.current.toDataURL();
           signQuoteWithData(selectedQuoteId, dataUrl);
           setQuoteModalOpen(false);
+          endReadingSession(); // Terminer la session de lecture
           showToast('Devis signé ! Vos créneaux sont réservés.');
       }
   };
@@ -197,15 +219,23 @@ const ClientPortal: React.FC = () => {
     if(window.confirm("Êtes-vous sûr de refuser ce devis ? Cela annulera la proposition.")) {
       refuseQuote(docId);
       setQuoteModalOpen(false);
+      endReadingSession(); // Terminer la session de lecture
       showToast('Devis refusé. Le secrétariat a été notifié.');
     }
   };
 
   const handleDownloadInvoice = (doc: any) => {
-      // Check if review needed
-      if (!client.hasLeftReview) {
+      // Vérifier si la prestation est terminée avant de demander un avis
+      const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
+      const hasCompletedPrestation = clientCompletedMissions.length > 0;
+      
+      // Check if review needed - seulement après fin de prestation
+      if (!client.hasLeftReview && hasCompletedPrestation) {
           setPendingInvoiceDocId(doc.id);
           setReviewModalOpen(true);
+          return;
+      } else if (!client.hasLeftReview && !hasCompletedPrestation) {
+          showToast('La demande d\'avis sera disponible après la fin de votre première prestation.');
           return;
       }
 
@@ -241,7 +271,7 @@ const ClientPortal: React.FC = () => {
                 <p>31 Résidence L'Autre Bord – 97220 La Trinité</p>
                 <p>N° SAP : SAP944789700</p>
                 <p>Email: prestaservicesantilles.rh@gmail.com</p>
-                <p>Téléphone: 0590 12 34 56</p>
+                <p>Téléphone: 0696 06 15 94</p>
               </div>
               
               <div class="client-info">
@@ -270,7 +300,7 @@ const ClientPortal: React.FC = () => {
                 <p>- Délai de paiement: 30 jours</p>
                 <p>Statut: ${doc.status}</p>
                 <br>
-                <p>Contact pour toute question: prestaservicesantilles.rh@gmail.com - 0590 12 34 56</p>
+                <p>Contact pour toute question: prestaservicesantilles.rh@gmail.com - 0696 06 15 94</p>
               </div>
             </body>
           </html>
@@ -313,7 +343,7 @@ PRESTA SERVICES ANTILLES
 31 Résidence L'Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
 Email: prestaservicesantilles.rh@gmail.com
-Téléphone: 0590 12 34 56
+Téléphone: 0696 06 15 94
 
 ${clientContract.content || 'Contenu du contrat à charger depuis la base de données'}
 
@@ -321,7 +351,7 @@ Ce contrat est valide et signé par les deux parties.
 
 Pour toute question concernant ce contrat:
 prestaservicesantilles.rh@gmail.com
-0590 12 34 56
+0696 06 15 94
 
 PRESTA SERVICES ANTILLES
 31 Résidence L'Autre Bord – 97220 La Trinité
@@ -343,9 +373,15 @@ PRESTA SERVICES ANTILLES
   };
 
   const handleRequestInvoice = (docId: string) => {
-     if (!client.hasLeftReview) {
+     // Vérifier si la prestation est terminée avant de demander un avis
+     const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
+     const hasCompletedPrestation = clientCompletedMissions.length > 0;
+     
+     if (!client.hasLeftReview && hasCompletedPrestation) {
          setPendingInvoiceDocId(docId);
          setReviewModalOpen(true);
+     } else if (!client.hasLeftReview && !hasCompletedPrestation) {
+         showToast('La demande d\'avis sera disponible après la fin de votre première prestation.');
      } else {
          requestInvoice(docId);
          showToast('Demande de facture envoyée au secrétariat.');
@@ -378,13 +414,11 @@ PRESTA SERVICES ANTILLES
 
   const selectedQuote = documents.find(d => d.id === selectedQuoteId);
   
-  const getQuoteContract = () => {
+  const getQuoteContract = (): (Contract | null) => {
       if (!selectedQuote) return null;
-      const pack = packs.find(p => p.name === selectedQuote.description || selectedQuote.description.includes(p.name));
-      if (pack) {
-          return contracts.find(c => c.packId === pack.id) || contracts[0];
-      }
-      return contracts[0];
+      // Afficher le devis en priorité, pas le contrat
+      // Le contrat ne doit être accessible qu'après consultation du devis
+      return null; // Forcer l'affichage du devis uniquement
   };
   
   const selectedContract = getQuoteContract();
@@ -667,10 +701,10 @@ PRESTA SERVICES ANTILLES
                                                  <button onClick={() => handleDownloadInvoice(doc)} className="p-1 text-slate-400 hover:text-brand-blue" title="Télécharger PDF"><Download className="w-4 h-4"/></button>
                                                  
                                                  {doc.type === 'Devis' && doc.status === 'sent' && (
-                                                     <button onClick={() => openQuoteModal(doc.id)} className="bg-brand-orange text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-orange-600 flex items-center gap-1">
-                                                         <PenTool className="w-3 h-3" /> Signer
-                                                     </button>
-                                                 )}
+                                                    <button onClick={() => openQuoteModal(doc.id)} className="bg-brand-orange text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-orange-600 flex items-center gap-1">
+                                                        <PenTool className="w-3 h-3" /> Consulter
+                                                    </button>
+                                                )}
                                                  
                                                  {doc.type === 'Devis' && doc.status === 'signed' && (
                                                      <button onClick={handleDownloadContract} className="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-green-700 flex items-center gap-1">
@@ -734,33 +768,136 @@ PRESTA SERVICES ANTILLES
              )}
 
              {activeTab === 'live' && (
-                 <div className="h-full flex flex-col items-center justify-center bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
-                     {isLive ? (
-                         <div className="w-full h-full flex flex-col">
-                             <div className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center gap-2">
-                                 <span className="w-2 h-2 bg-white rounded-full"></span> DIRECT
-                             </div>
-                             <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
-                                 <Lock className="w-3 h-3 text-green-400" /> Flux Sécurisé
-                             </div>
-                             <div className="flex-1 flex items-center justify-center bg-black">
-                                 {/* Simulated Video Stream Receiver */}
-                                 <div className="text-white text-center">
-                                     <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
-                                     <h3 className="text-xl font-bold">Intervention en cours</h3>
-                                     <p className="text-sm text-slate-400">Connexion établie avec l'intervenant.</p>
-                                 </div>
-                             </div>
-                         </div>
-                     ) : (
-                         <div className="text-center text-slate-500">
-                             <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                             <h3 className="text-xl font-bold text-slate-400">Hors Ligne</h3>
-                             <p className="text-sm">Aucun flux vidéo actif pour le moment.</p>
-                         </div>
-                     )}
-                 </div>
-             )}
+                <div className="space-y-6">
+                    {/* Section Appel en Direct */}
+                    <div className="h-96 flex flex-col items-center justify-center bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
+                        {isLive ? (
+                            <div className="w-full h-full flex flex-col">
+                                <div className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-white rounded-full"></span> DIRECT
+                                </div>
+                                <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                                    <Lock className="w-3 h-3 text-green-400" /> Flux Sécurisé
+                                </div>
+                                
+                                {/* Informations sur l'appel */}
+                                <div className="absolute bottom-4 left-4 right-4 z-10 bg-black/70 text-white p-4 rounded-lg">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <h4 className="font-bold text-lg">Appel Vidéo en Cours</h4>
+                                            <p className="text-sm text-slate-300">
+                                                {activeStream && (() => {
+                                                    const provider = providers.find(p => p.id === activeStream.providerId);
+                                                    return provider ? `${provider.firstName} ${provider.lastName}` : 'Intervenant';
+                                                })()}
+                                            </p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xs text-slate-400">Débuté à</p>
+                                            <p className="text-sm font-mono">
+                                                {activeStream && new Date(activeStream.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                        <Video className="w-5 h-5" />
+                                        Rejoindre l'Appel
+                                    </button>
+                                </div>
+                                
+                                <div className="flex-1 flex items-center justify-center bg-black">
+                                    <div className="text-white text-center">
+                                        <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
+                                        <h3 className="text-xl font-bold">Intervention en cours</h3>
+                                        <p className="text-sm text-slate-400">Connexion établie avec l'intervenant.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center text-slate-500 p-8">
+                                <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                                <h3 className="text-xl font-bold text-slate-400">Hors Ligne</h3>
+                                <p className="text-sm mb-4">Aucun flux vidéo actif pour le moment.</p>
+                                <p className="text-xs text-slate-500">Vous recevrez une notification lorsqu'un intervenant lancera un appel vidéo.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Section Vidéos en Replay */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-200">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Video className="w-5 h-5 text-brand-blue" />
+                                Vidéos Précédentes
+                            </h3>
+                            <p className="text-sm text-slate-600 mt-1">Consultez les enregistrements de vos précédentes interventions.</p>
+                        </div>
+                        
+                        <div className="divide-y divide-slate-100">
+                            {clientVideoRecordings.length === 0 ? (
+                                <div className="p-8 text-center text-slate-400">
+                                    <Video className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                    <p>Aucune vidéo enregistrée pour le moment.</p>
+                                    <p className="text-xs mt-1">Les vidéos apparaîtront ici après chaque appel vidéo.</p>
+                                </div>
+                            ) : (
+                                clientVideoRecordings.map((recording) => (
+                                    <div key={recording.id} className="p-4 hover:bg-slate-50 transition-colors">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className={`w-2 h-2 rounded-full ${
+                                                        recording.status === 'ready' ? 'bg-green-500' :
+                                                        recording.status === 'processing' ? 'bg-yellow-500 animate-pulse' :
+                                                        recording.status === 'failed' ? 'bg-red-500' : 'bg-slate-400'
+                                                    }`}></div>
+                                                    <span className="text-xs font-medium text-slate-600 uppercase">
+                                                        {recording.status === 'ready' ? 'Disponible' :
+                                                         recording.status === 'processing' ? 'En traitement' :
+                                                         recording.status === 'failed' ? 'Erreur' : 'Enregistrement'}
+                                                    </span>
+                                                </div>
+                                                <h4 className="font-medium text-slate-800 mb-1">
+                                                    Intervention du {new Date(recording.startTime).toLocaleDateString('fr-FR')}
+                                                </h4>
+                                                <p className="text-sm text-slate-600 mb-2">
+                                                    {recording.providerId && (() => {
+                                                        const provider = providers.find(p => p.id === recording.providerId);
+                                                        return provider ? `avec ${provider.firstName} ${provider.lastName}` : 'Intervenant';
+                                                    })()}
+                                                </p>
+                                                <div className="flex items-center gap-4 text-xs text-slate-500">
+                                                    <span>Duration: {Math.floor(recording.duration / 60)}min {recording.duration % 60}s</span>
+                                                    {recording.fileSize > 0 && (
+                                                        <span>Taille: {(recording.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="ml-4">
+                                                {recording.status === 'ready' && recording.replayUrl ? (
+                                                    <button className="bg-brand-blue text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors flex items-center gap-2">
+                                                        <Play className="w-4 h-4" />
+                                                        Voir
+                                                    </button>
+                                                ) : recording.status === 'processing' ? (
+                                                    <button disabled className="bg-slate-200 text-slate-500 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+                                                        <Loader className="w-4 h-4 animate-spin" />
+                                                        En cours
+                                                    </button>
+                                                ) : (
+                                                    <button disabled className="bg-slate-100 text-slate-400 px-3 py-2 rounded-lg text-sm font-medium">
+                                                        Indisponible
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
          </main>
       </div>
 
@@ -785,26 +922,44 @@ PRESTA SERVICES ANTILLES
       </div>
 
       {/* QUOTE SIGNATURE MODAL */}
-      {quoteModalOpen && selectedQuote && selectedContract && (
+      {quoteModalOpen && selectedQuote && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
                   <div className="p-4 border-b bg-cream-50 flex justify-between items-center">
-                      <h3 className="font-serif font-bold text-xl text-slate-800">Signature du Devis {selectedQuote.ref}</h3>
+                      <h3 className="font-serif font-bold text-xl text-slate-800">Consultation du Devis {selectedQuote.ref}</h3>
                       <button onClick={() => setQuoteModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
                   </div>
                   
                   <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-                      {/* Document Viewer */}
+                      {/* Document Viewer - Affiche le devis en priorité */}
                       <div className="flex-1 bg-slate-100 p-6 overflow-y-auto border-r border-slate-200">
-                          <div className="bg-white shadow-sm p-8 min-h-full text-xs md:text-sm font-serif text-slate-800 leading-relaxed">
+                          <div className="bg-white shadow-sm p-8 min-h-full text-xs md:text-sm text-slate-800 leading-relaxed" style={{ fontFamily: 'Times New Roman, serif' }}>
                               <div className="flex justify-between mb-8 border-b pb-4">
                                   <div className="w-20">
                                       <img src={LOGO_NORMAL} alt="Logo" className="w-full" />
                                   </div>
                                   <div className="text-right">
-                                      <h1 className="font-bold text-xl uppercase text-brand-blue">{selectedContract.name}</h1>
+                                      <h1 className="font-bold text-xl uppercase text-brand-blue" style={{ fontFamily: 'Times New Roman, serif' }}>DEVIS</h1>
                                       <p>Réf: {selectedQuote.ref}</p>
+                                      <p>Date: {selectedQuote.date}</p>
+                                      <p>Type: {selectedQuote.type}</p>
                                   </div>
+                              </div>
+                              
+                              {/* Date de prestation */}
+                              <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
+                                  <h5 className="font-bold text-orange-800 mb-2">Date de Prestation :</h5>
+                                  {selectedQuote.slotsData && selectedQuote.slotsData.length > 0 ? (
+                                      <div className="text-sm">
+                                          {selectedQuote.slotsData.map((slot: any, index: number) => (
+                                              <p key={index} className="mb-1">
+                                                  <strong>Créneau {index + 1} :</strong> {slot.date || 'Date à définir'} à {slot.startTime || 'Heure à définir'}
+                                              </p>
+                                          ))}
+                                      </div>
+                                  ) : (
+                                      <p className="text-sm"><strong>Date à définir</strong> - Le secrétariat vous contactera pour fixer les dates.</p>
+                                  )}
                               </div>
                               
                               <div className="mb-6">
@@ -812,27 +967,55 @@ PRESTA SERVICES ANTILLES
                                   <p><strong>PRESTA SERVICES ANTILLES</strong> (Le Prestataire)</p>
                                   <p>Et</p>
                                   <p><strong>{client.name}</strong> (Le Client)</p>
+                                  
+                                  {/* Informations complètes du client */}
+                                  <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                      <h5 className="font-bold text-blue-800 mb-2">Coordonnées Client :</h5>
+                                      <p className="text-sm"><strong>Nom :</strong> {client.name}</p>
+                                      <p className="text-sm"><strong>Adresse :</strong> {client.address || 'Non renseignée'}</p>
+                                      <p className="text-sm"><strong>Ville :</strong> {client.city || 'Non renseignée'}</p>
+                                      <p className="text-sm"><strong>Téléphone :</strong> {client.phone || 'Non renseigné'}</p>
+                                      <p className="text-sm"><strong>Email :</strong> {client.email || 'Non renseigné'}</p>
+                                  </div>
+                              </div>
+
+                              <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                                  <h5 className="font-bold text-green-800 mb-2">Détails du Devis :</h5>
+                                  <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
+                                  <p className="text-sm"><strong>Quantité :</strong> {selectedQuote.quantity}</p>
+                                  <p className="text-sm"><strong>Prix unitaire HT :</strong> {selectedQuote.unitPrice.toFixed(2)} €</p>
+                                  <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate}%</p>
+                                  <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC.toFixed(2)} €</p>
+                              </div>
+
+                              <div className="mt-8 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                                  <h5 className="font-bold text-yellow-800 mb-2">Contrat de Service :</h5>
+                                  <p className="text-sm mb-4">Le contrat complet sera disponible après validation de ce devis.</p>
+                                  <p className="text-xs text-slate-600">En signant ce devis, vous acceptez les conditions générales de service qui vous seront présentées dans le contrat détaillé.</p>
                               </div>
 
                               <div className="mb-6 whitespace-pre-wrap">
-                                  {selectedContract.content}
+                                  {selectedContract?.content || 'Le contrat sera disponible après validation du devis.'}
                               </div>
 
                               {/* Signatures on Contract */}
                               <div className="mt-8 flex justify-between border-t pt-4">
                                   <div className="w-1/2 pr-4 border-r">
                                       <p className="font-bold mb-2">Pour l'Entreprise :</p>
-                                      {selectedContract.status === 'active' && (
+                                      {selectedContract?.status === 'active' ? (
                                           <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
                                               Validé & Signé
+                                          </div>
+                                      ) : (
+                                          <div className="text-slate-400 font-bold text-xs uppercase border-2 border-slate-300 p-2 inline-block rounded">
+                                              En attente de validation
                                           </div>
                                       )}
                                   </div>
                                   <div className="w-1/2 pl-4">
-                                      <p className="font-bold mb-2">Pour le Client (Lu et approuvé) :</p>
-                                      {/* This area will be filled after signature */}
-                                      <div className="h-20 border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400 italic">
-                                          (Signature apposée électroniquement)
+                                      <p className="font-bold mb-2">Pour le Client :</p>
+                                      <div className="border-2 border-slate-300 h-12 rounded flex items-center justify-center text-xs text-slate-400">
+                                          En attente de signature
                                       </div>
                                   </div>
                               </div>

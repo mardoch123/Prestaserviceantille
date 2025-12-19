@@ -94,6 +94,7 @@ export interface Pack {
     frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle' | 'Régulier';
     quantity?: string; // New field from PDF (nb pièces, m2...)
     location?: string; // New field from PDF (Lieu de réalisation)
+    date?: string; // Date pour les packs ponctuels
     suppliesIncluded: boolean;
     suppliesDetails?: string;
     type: 'ponctuel' | 'regulier';
@@ -122,6 +123,7 @@ export interface Contract {
     validatedBy?: string; // User ID of super admin who validated
     validationRequestedAt?: string;
     validationRequestedBy?: string; // User ID who requested validation
+    isModifiable?: boolean; // Champ pour permettre la modification après création
 }
 
 export interface Mission {
@@ -205,7 +207,7 @@ export interface Document {
 // Updated based on DB schema provided in prompt
 export interface AppNotification {
     id: string;
-    type: 'info' | 'alert' | 'success' | 'message';
+    type?: 'info' | 'alert' | 'success' | 'message'; // Optionnel car non utilisé dans l'insertion
     title: string;
     message: string;
     date: string;
@@ -242,6 +244,33 @@ export interface StreamSession {
     clientId: string; // FK
     status: 'active' | 'ended';
     startTime: string;
+}
+
+export interface VideoRecording {
+    id: string;
+    sessionId: string;
+    providerId: string;
+    clientId: string;
+    status: 'recording' | 'processing' | 'ready' | 'failed';
+    startTime: string;
+    endTime?: string;
+    recordingUrl?: string;
+    replayUrl?: string;
+    duration: number; // en secondes
+    fileSize: number; // en octets
+    thumbnailUrl?: string;
+    accessToken?: string; // Token d'accès temporaire
+    expiresAt?: string; // Date d'expiration du token
+}
+
+export interface VideoAccessToken {
+    id: string;
+    recordingId: string;
+    userId: string; // Client ou Provider
+    token: string;
+    expiresAt: string;
+    createdAt: string;
+    permissions: 'view' | 'download'; // Permissions accordés
 }
 
 export interface Expense {

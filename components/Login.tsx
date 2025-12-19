@@ -281,8 +281,8 @@ const Login: React.FC = () => {
                     </button>
                 </form>
 
-                {/* Development Tools Section - Only shown if not in production */}
-                {!isProduction && (
+                {/* Development Tools Section - Hidden in production */}
+                {!isProduction && false && (
                     <div className="mt-8 pt-6 border-t border-slate-200">
                         <p className="text-center text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Outils de Développement</p>
 

@@ -25,7 +25,7 @@ export const generateEmailTemplate = (
 ): EmailTemplateData => {
     const companyName = 'PRESTA SERVICES ANTILLES';
     const companyEmail = 'prestaservicesantilles.rh@gmail.com';
-    const companyPhone = '0590 12 34 56';
+    const companyPhone = '0696 06 15 94';
     const companyAddress = '31 Résidence L\'Autre Bord – 97220 La Trinité';
 
     // Helper function to create Text email (Fallback for when HTML is not supported/configured)

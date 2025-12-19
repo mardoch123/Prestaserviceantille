@@ -138,6 +138,11 @@ const Secretariat: React.FC = () => {
     // Custom Confirmation Modal
     const [confirmationModal, setConfirmationModal] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void; }>({ open: false, title: '', message: '', onConfirm: () => { } });
 
+    // Contract Edit Modal State
+    const [contractEditModalOpen, setContractEditModalOpen] = useState(false);
+    const [editingContractContent, setEditingContractContent] = useState('');
+    const [editingContractId, setEditingContractId] = useState<string | null>(null);
+
     // Selection State for Packs
     const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
@@ -252,6 +257,12 @@ const Secretariat: React.FC = () => {
     const handlePrevPackStep = () => setPackStep(prev => prev - 1);
 
     const handleSavePack = async () => {
+        // Vérifier si une date est obligatoire et sélectionnée
+        if (packForm.frequency === 'Ponctuelle' && !packForm.date) {
+            showToast("La date est obligatoire pour les packs ponctuels. Veuillez sélectionner une date.", 'error');
+            return;
+        }
+        
         const priceHT = packForm.priceHT || 0;
         const tva = 0.021; // 2.1% from PDF
         const priceTTC = priceHT * (1 + tva);
@@ -490,6 +501,35 @@ const Secretariat: React.FC = () => {
     const handleRequestValidation = (contractId: string) => {
         requestContractValidation(contractId);
         showToast('Demande de validation envoyée au super administrateur avec succès.');
+    };
+
+    const openContractEditModal = (contractId: string, content: string) => {
+        setEditingContractId(contractId);
+        setEditingContractContent(content);
+        setContractEditModalOpen(true);
+    };
+
+    const closeContractEditModal = () => {
+        setContractEditModalOpen(false);
+        setEditingContractContent('');
+        setEditingContractId(null);
+    };
+
+    const saveContractEdit = async () => {
+        if (editingContractId && editingContractContent.trim()) {
+            try {
+                await updateContract(editingContractId, {
+                    content: editingContractContent,
+                    isModifiable: true
+                });
+                showToast('Contrat modifié avec succès.');
+                closeContractEditModal();
+            } catch (error: any) {
+                showToast('Erreur lors de la modification: ' + error.message, 'error');
+            }
+        } else {
+            showToast('Le contenu du contrat ne peut pas être vide.', 'error');
+        }
     };
 
     const handleSaveReminder = () => {
@@ -1498,9 +1538,38 @@ const Secretariat: React.FC = () => {
                                         </button>
                                     </div>
 
+                                    <div className="flex flex-col md:flex-row gap-4 mb-4">
+                                        <div className="flex-1">
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Nom du Contrat</label>
+                                            <input
+                                                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                                value={contractForm.name}
+                                                onChange={e => setContractForm({ ...contractForm, name: e.target.value })}
+                                                placeholder="Nom du contrat..."
+                                            />
+                                        </div>
+                                        <div className="flex items-end gap-2">
+                                            <button
+                                                onClick={handleGenerateContractContent}
+                                                className="w-full md:w-auto bg-brand-blue text-white px-4 py-2 rounded font-bold text-sm hover:bg-teal-700 mt-2 md:mt-0"
+                                            >
+                                                Générer Contrat
+                                            </button>
+                                            {contractForm.content && (
+                                                <button
+                                                    onClick={() => openContractEditModal(contractForm.id || 'new', contractForm.content || '')}
+                                                    className="w-full md:w-auto bg-green-600 text-white px-4 py-2 rounded font-bold text-sm hover:bg-green-700 mt-2 md:mt-0 flex items-center gap-2"
+                                                >
+                                                    <Edit className="w-4 h-4" />
+                                                    Modifier Texte
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div className="flex-1 relative border rounded overflow-hidden">
                                         <textarea
-                                            className="w-full h-full p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none"
+                                            className="w-full h-96 p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none"
                                             value={contractForm.content}
                                             onChange={e => setContractForm({ ...contractForm, content: e.target.value })}
                                         />
@@ -1643,6 +1712,66 @@ const Secretariat: React.FC = () => {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Contract Edit Modal */}
+            {contractEditModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                    <Edit className="w-5 h-5 text-green-600" />
+                                    Modifier le texte du contrat
+                                </h3>
+                                <p className="text-sm text-slate-600 mt-1">
+                                    Modifiez facilement le contenu du contrat avec l'éditeur ci-dessous
+                                </p>
+                            </div>
+                            <button onClick={closeContractEditModal} className="text-slate-400 hover:text-slate-600">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 flex flex-col min-h-0">
+                            <div className="flex-1 relative border-2 border-green-200 rounded-lg overflow-hidden bg-green-50">
+                                <div className="absolute top-2 left-2 bg-green-600 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+                                    <Edit className="w-3 h-3" />
+                                    Mode Édition
+                                </div>
+                                <textarea
+                                    className="w-full h-96 p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none border-0"
+                                    value={editingContractContent}
+                                    onChange={e => setEditingContractContent(e.target.value)}
+                                    placeholder="Contenu du contrat..."
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-200">
+                            <div className="text-sm text-slate-500">
+                                <p>• Le contrat sera marqué comme modifiable</p>
+                                <p>• Les modifications seront sauvegardées automatiquement</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={closeContractEditModal}
+                                    className="px-6 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                >
+                                    Annuler
+                                </button>
+                                <button 
+                                    onClick={saveContractEdit}
+                                    className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition shadow-md flex items-center gap-2"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    Sauvegarder les modifications
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
