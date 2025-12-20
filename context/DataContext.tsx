@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
@@ -94,6 +94,7 @@ interface DataContextType {
     refuseQuote: (id: string) => Promise<void>;
     requestInvoice: (docId: string) => Promise<void>;
     refundTransaction: (ref: string, amount: number) => Promise<void>;
+    generateMissionsFromDocument: (doc: Document) => Promise<void>;
 
     packs: Pack[];
     addPack: (pack: Pack) => Promise<string | null>; // Returns ID if success
@@ -125,6 +126,9 @@ interface DataContextType {
     visitScans: VisitScan[];
     registerScan: (clientId: string) => Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }>;
 
+    alertPopup: { show: boolean; message: string };
+    setAlertPopup: (popup: { show: boolean; message: string }) => void;
+
     currentUser: User | null;
     login: (email: string, password?: string) => Promise<boolean>;
     logout: (skipReload?: boolean) => Promise<void>;
@@ -154,10 +158,13 @@ interface DataContextType {
     // Session management functions
     extendReadingSession: () => void;
     endReadingSession: () => void;
+    isReadingDocument: boolean;
 
     // Connection management functions
     connectionStatus: 'connected' | 'disconnected' | 'reconnecting';
     reconnectAttempts: number;
+    maxReconnectAttempts: number;
+    reconnectDelay: number;
     attemptReconnection: () => Promise<void>;
     resetConnectionState: () => void;
 
@@ -193,6 +200,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [messages, setMessages] = useState<Message[]>([]);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [visitScans, setVisitScans] = useState<VisitScan[]>([]);
+
+    // Alert popup state
+    const [alertPopup, setAlertPopup] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [simulatedClientId, setSimulatedClientId] = useState<string | null>(null);
@@ -1815,30 +1825,32 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 totalTTC: newDoc.total_ttc,
                 taxCreditEnabled: newDoc.tax_credit_enabled,
                 slotsData: newDoc.slots_data,
-                reminderSent: newDoc.reminder_sent
+                reminderSent: newDoc.reminder_sent,
+                recurrenceEndDate: newDoc.recurrence_end_date
             }]);
             
             // Envoyer une notification au client lors de la création du devis
-            await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${doc.type} ${doc.ref}) de ${doc.totalTTC.toFixed(2)} € est disponible pour consultation.`, doc.clientId, 'tab:docs');
+            await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${doc.type} ${doc.ref}) de ${doc.totalTTC.toFixed(2)} € est disponible pour consultation.`, doc.clientId, `document:${newDoc.id}`);
             
             // Envoyer une notification à l'admin
-            await addNotification('admin', 'success', 'Devis Créé', `Devis ${doc.ref} créé pour ${doc.clientName} - Montant: ${doc.totalTTC.toFixed(2)} €`);
+            await addNotification('admin', 'success', 'Devis Créé', `Devis ${doc.ref} créé pour ${doc.clientName} - Montant: ${doc.totalTTC.toFixed(2)} €`, undefined, `document:${newDoc.id}`);
             
             const client = clients.find(c => c.id === doc.clientId);
             if (client && client.email) {
-                await sendEmail(client.email, `Nouveau Document : ${doc.type} ${doc.ref}`, 'new_document', {
-                    type: doc.type,
-                    ref: doc.ref,
-                    total: doc.totalTTC
+                await sendEmail(client.email, 'Nouveau devis disponible', 'quote_created', {
+                    clientName: client.name,
+                    quoteRef: doc.ref,
+                    amount: doc.totalTTC.toFixed(2)
                 });
                 
                 // Notification supplémentaire lors de l'envoi par email
-                await addNotification('client', 'info', 'Devis Envoyé par Email', `Le devis ${doc.ref} a été envoyé à votre adresse email ${client.email}.`, doc.clientId, 'tab:docs');
+                await addNotification('client', 'info', 'Devis Envoyé par Email', `Le devis ${doc.ref} a été envoyé à votre adresse email ${client.email}.`, doc.clientId, `document:${newDoc.id}`);
             }
         }
     };
 
     const generateMissionsFromDocument = async (doc: Document) => {
+        // ... rest of the code remains the same ...
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
         const missionsToCreate: any[] = [];
         const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
@@ -2007,7 +2019,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             });
 
             if (hasConflict) {
-                alert("Impossible de signer ce devis : Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat.");
+                setAlertPopup({ 
+                    show: true, 
+                    message: "Impossible de signer ce devis : Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat." 
+                });
                 return; // Stop execution
             }
         }
@@ -2830,7 +2845,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, deleteMissions,
             clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
-            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction,
+            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
             packs, addPack, deletePacks,
             contracts, addContract, updateContract, requestContractValidation, validateContract, legalTemplate,
             reminders, addReminder, toggleReminder,
@@ -2838,6 +2853,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             messages, replyToClient, sendClientMessage,
             notifications, markNotificationRead, addNotification,
             visitScans, registerScan,
+            alertPopup, setAlertPopup,
             currentUser, login, logout,
             simulatedClientId, setSimulatedClientId,
             simulatedProviderId, setSimulatedProviderId,
@@ -2845,8 +2861,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
             generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
             isOnline, pendingSyncCount, loading,
-            extendReadingSession, endReadingSession,
-            connectionStatus, reconnectAttempts, attemptReconnection, resetConnectionState,
+            extendReadingSession, endReadingSession, isReadingDocument,
+            connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
             getAvailableSlots, refreshData, sendEmail
         }}>
             {children}

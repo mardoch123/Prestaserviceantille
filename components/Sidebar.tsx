@@ -37,7 +37,20 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings } = useData();
+  const { companySettings, currentUser } = useData();
+
+  // Filter navigation items based on user role
+  const getFilteredNavItems = () => {
+    if (currentUser?.role === 'client') {
+      // Clients can only see specific items
+      return navItems.filter(item => 
+        ['/qrcode', '/'].includes(item.path) // Only dashboard and QR code
+      );
+    }
+    return navItems; // Admin and providers see all items
+  };
+
+  const filteredNavItems = getFilteredNavItems();
 
   return (
     <>
@@ -74,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto pb-4">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <Link

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData, LOGO_NORMAL } from '../context/DataContext';
 import { Contract } from '../types';
+import QRCodeManager from './QRCodeManager';
 import { 
   FileText, 
   Calendar, 
@@ -29,7 +30,9 @@ import {
   Camera,
   Video,
   Play,
-  Loader
+  Loader,
+  QrCode,
+  History
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -39,6 +42,7 @@ const ClientPortal: React.FC = () => {
     missions, 
     simulatedClientId, 
     signQuoteWithData,
+    alertPopup, setAlertPopup,
     refuseQuote,
     requestInvoice,
     sendClientMessage,
@@ -67,7 +71,7 @@ const ClientPortal: React.FC = () => {
   // Get client's video recordings for replay
   const clientVideoRecordings = client ? getVideoRecordings(client.id) : [];
 
-  const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans'>('planning');
   const [messageInput, setMessageInput] = useState('');
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   
@@ -143,6 +147,12 @@ const ClientPortal: React.FC = () => {
           setActiveTab('planning');
       } else if (notif.link === 'tab:messages') {
           setActiveTab('messages');
+      } else if (notif.type === 'message' && (notif.title.includes('devis') || notif.title.includes('Devis') || notif.message.includes('devis') || notif.message.includes('Devis'))) {
+          // Si c'est une notification concernant un devis, ouvrir la page des documents
+          setActiveTab('docs');
+      } else if (notif.link && notif.link.startsWith('document:')) {
+          // Si le lien pointe vers un document spécifique, ouvrir la page des documents
+          setActiveTab('docs');
       }
       setShowNotifDropdown(false);
       setShowAllNotifsModal(false);
@@ -515,12 +525,16 @@ PRESTA SERVICES ANTILLES
             <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'planning' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Calendar className="w-4 h-4" /> Mon Planning</button>
             <button onClick={() => setActiveTab('docs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'docs' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><FileText className="w-4 h-4" /> Devis & Factures</button>
             <button onClick={() => setActiveTab('messages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><MessageSquare className="w-4 h-4" /> Messages</button>
+            <button onClick={() => setActiveTab('qr-scans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><QrCode className="w-4 h-4" /> QR Code & Pointage</button>
             <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><User className="w-4 h-4" /> Mon Profil</button>
             <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
          </nav>
 
          <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-             {activeTab === 'profile' && (
+             {activeTab === 'qr-scans' && (
+                <QRCodeManager />
+            )}
+            {activeTab === 'profile' && (
                  <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                          <div className="h-32 bg-gradient-to-r from-brand-blue to-teal-600"></div>
@@ -982,7 +996,6 @@ PRESTA SERVICES ANTILLES
                               <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
                                   <h5 className="font-bold text-green-800 mb-2">Détails du Devis :</h5>
                                   <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
-                                  <p className="text-sm"><strong>Quantité :</strong> {selectedQuote.quantity}</p>
                                   <p className="text-sm"><strong>Prix unitaire HT :</strong> {selectedQuote.unitPrice.toFixed(2)} €</p>
                                   <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate}%</p>
                                   <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC.toFixed(2)} €</p>
@@ -1194,6 +1207,31 @@ PRESTA SERVICES ANTILLES
                   className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-200"
                   onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
               />
+          </div>
+      )}
+
+      {/* Alert Popup */}
+      {alertPopup.show && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+                  <div className="flex flex-col items-center text-center">
+                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                          <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-800 mb-2">Impossible de signer ce devis</h3>
+                      <p className="text-sm text-slate-500 mb-6">
+                          {alertPopup.message}
+                      </p>
+                      <div className="flex gap-3 w-full">
+                          <button 
+                              onClick={() => setAlertPopup({ show: false, message: '' })}
+                              className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md"
+                          >
+                              OK
+                          </button>
+                      </div>
+                  </div>
+              </div>
           </div>
       )}
     </div>

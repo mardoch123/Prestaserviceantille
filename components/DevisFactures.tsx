@@ -14,7 +14,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification } = useData();
+  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification, missions, providers } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -108,7 +108,7 @@ const DevisFactures: React.FC = () => {
           const pack = packs.find(p => p.id === selectedPackId);
           if (pack) {
               setUnitPrice(pack.priceHT);
-              setCustomDescription(`${pack.name} - ${pack.description}`);
+              setCustomDescription(pack.description);
               
               // RESET CONFIG ON PACK CHANGE
               setPackSpecificConfig({});
@@ -194,13 +194,33 @@ const DevisFactures: React.FC = () => {
       const currentSlot = newSlots[index];
       
       if (field === 'startTime') {
-          // Keep duration constant if possible, shift end time
+          // Garder la durée constante si possible, décaler l'heure de fin
           const end = addHoursToTime(value, currentSlot.duration);
           newSlots[index] = { ...currentSlot, startTime: value, endTime: end };
       } else if (field === 'endTime') {
-          // Recalculate duration
+          // Recalculer la durée
           const dur = calculateDuration(currentSlot.startTime, value);
           newSlots[index] = { ...currentSlot, endTime: value, duration: dur };
+          
+          // Vérifier si cette modification respecte les contraintes du pack
+          if (serviceType === 'pack' && selectedPackId) {
+              const pack = packs.find(p => p.id === selectedPackId);
+              if (pack) {
+                  // Validation stricte pour les packs spécifiques
+                  if (pack.name.includes("Ultime 6") && Math.abs(dur - 6) > 0.01) {
+                      showToast("Le pack 'Ultime 6' requiert exactement 6h par séance.");
+                      return; // Annuler la modification
+                  }
+                  
+                  if (pack.name.includes("Tranquility")) {
+                      const expectedHours = packSpecificConfig.frequencyChoice === "4j_3h" ? 3 : 4;
+                      if (Math.abs(dur - expectedHours) > 0.01) {
+                          showToast(`Le pack 'Tranquility' requiert ${expectedHours}h par séance.`);
+                          return; // Annuler la modification
+                      }
+                  }
+              }
+          }
       } else {
           newSlots[index] = { ...currentSlot, [field]: value };
       }
@@ -208,6 +228,24 @@ const DevisFactures: React.FC = () => {
   };
 
   const addNewSlot = () => {
+      // Vérifier les contraintes du pack avant d'ajouter une séance
+      if (serviceType === 'pack' && selectedPackId) {
+          const pack = packs.find(p => p.id === selectedPackId);
+          if (pack) {
+              if (pack.name.includes("Ultime 6") && interventionSlots.length >= 1) {
+                  showToast("Le pack 'Ultime 6' ne permet qu'une seule séance de 6h.");
+                  return;
+              }
+              
+              if (pack.name.includes("Tranquility")) {
+                  if (interventionSlots.length >= 4) {
+                      showToast("Le pack 'Tranquility' ne permet que 4 séances maximum (3x4h ou 4x3h).");
+                      return;
+                  }
+              }
+          }
+      }
+
       const lastSlot = interventionSlots[interventionSlots.length - 1];
       let newDate = new Date().toISOString().split('T')[0];
       if (lastSlot) {
@@ -216,12 +254,25 @@ const DevisFactures: React.FC = () => {
           newDate = d.toISOString().split('T')[0];
       }
       
+      // Définir la durée par défaut selon le pack
+      let defaultDuration = 2;
+      if (serviceType === 'pack' && selectedPackId) {
+          const pack = packs.find(p => p.id === selectedPackId);
+          if (pack) {
+              if (pack.name.includes("Ultime 6")) {
+                  defaultDuration = 6;
+              } else if (pack.name.includes("Tranquility")) {
+                  defaultDuration = packSpecificConfig.frequencyChoice === "4j_3h" ? 3 : 4;
+              }
+          }
+      }
+      
       setInterventionSlots([...interventionSlots, {
           id: `manual-${Date.now()}`,
           date: newDate,
           startTime: '09:00',
-          endTime: '11:00',
-          duration: 2
+          endTime: addHoursToTime('09:00', defaultDuration),
+          duration: defaultDuration
       }]);
   };
 
@@ -229,6 +280,138 @@ const DevisFactures: React.FC = () => {
       const newSlots = [...interventionSlots];
       newSlots.splice(index, 1);
       setInterventionSlots(newSlots);
+  };
+
+  // Validation stricte des heures et séances selon le pack
+  const validatePackConstraints = (): { isValid: boolean; message: string } => {
+      if (serviceType !== 'pack' || !selectedPackId) {
+          return { isValid: true, message: '' };
+      }
+
+      const pack = packs.find(p => p.id === selectedPackId);
+      if (!pack) {
+          return { isValid: false, message: 'Pack non trouvé' };
+      }
+
+      const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+      const sessionCount = interventionSlots.length;
+
+      // Validation stricte : les heures doivent être exactement égales
+      if (Math.abs(totalHours - pack.hours) > 0.01) {
+          return { 
+              isValid: false, 
+              message: `Le pack "${pack.name}" requiert exactement ${pack.hours}h. Vous avez planifié ${totalHours.toFixed(1)}h (${sessionCount} séance(s)).` 
+          };
+      }
+
+      // Validation du nombre de séances selon le pack
+      if (pack.name.includes("Ultime 6") && sessionCount !== 1) {
+          return { 
+              isValid: false, 
+              message: `Le pack "Ultime 6" ne permet qu'une seule séance de 6h. Vous avez planifié ${sessionCount} séance(s).` 
+          };
+      }
+
+      if (pack.name.includes("Tranquility")) {
+          // Pack Tranquility : 12h total, peut être 4x3h ou 3x4h
+          if (sessionCount !== 3 && sessionCount !== 4) {
+              return { 
+                  isValid: false, 
+                  message: `Le pack "Tranquility" ne permet que 3 séances de 4h ou 4 séances de 3h. Vous avez planifié ${sessionCount} séance(s).` 
+              };
+          }
+          
+          // Vérifier que chaque séance a la bonne durée
+          const expectedHoursPerSession = sessionCount === 4 ? 3 : 4;
+          const hasInvalidSession = interventionSlots.some(s => Math.abs(s.duration - expectedHoursPerSession) > 0.01);
+          
+          if (hasInvalidSession) {
+              return { 
+                  isValid: false, 
+                  message: `Le pack "Tranquility" avec ${sessionCount} séances requiert ${expectedHoursPerSession}h par séance.` 
+              };
+          }
+      }
+
+      return { isValid: true, message: '' };
+  };
+
+  // Vérification des disponibilités des prestataires
+  const checkProviderAvailability = (): { isValid: boolean; message: string } => {
+      if (interventionSlots.length === 0) {
+          return { isValid: true, message: '' };
+      }
+
+      for (const slot of interventionSlots) {
+          if (!slot.date) continue;
+
+          const slotStart = new Date(`${slot.date}T${slot.startTime}`);
+          const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+          
+          // Vérifier les missions existantes pour ce créneau
+          const conflictingMissions = missions.filter(m => {
+              if (m.status === 'cancelled' || !m.date) return false;
+              const mStart = new Date(`${m.date}T${m.startTime}`);
+              const mEnd = new Date(`${m.date}T${m.endTime}`);
+              return (slotStart < mEnd && slotEnd > mStart);
+          });
+
+          // Vérifier les devis de moins de 24h pour ce créneau
+          const now = new Date();
+          const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          
+          const recentQuotes = documents.filter(doc => {
+              if (doc.type !== 'Devis' || !doc.slotsData) return false;
+              const docDate = new Date(doc.date);
+              return docDate >= twentyFourHoursAgo;
+          });
+
+          // Vérifier si un devis récent utilise ce créneau
+          const hasRecentQuoteConflict = recentQuotes.some(doc => {
+              if (!doc.slotsData) return false;
+              return doc.slotsData.some(docSlot => {
+                  if (!docSlot.date) return false;
+                  const docSlotStart = new Date(`${docSlot.date}T${docSlot.startTime}`);
+                  const docSlotEnd = new Date(`${docSlot.date}T${docSlot.endTime}`);
+                  return (slotStart < docSlotEnd && slotEnd > docSlotStart);
+              });
+          });
+
+          // Compter les prestataires disponibles pour ce créneau
+          const availableProviders = providers.filter(provider => {
+              // Vérifier si le prestataire a des congés à cette date
+              const hasLeave = provider.leaves.some(leave => {
+                  const leaveStart = new Date(leave.startDate);
+                  const leaveEnd = new Date(leave.endDate);
+                  const slotDate = new Date(slot.date);
+                  return slotDate >= leaveStart && slotDate <= leaveEnd;
+              });
+
+              if (hasLeave) return false;
+
+              // Vérifier si le prestataire a déjà des missions à ce créneau
+              const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
+              return !hasConflict;
+          });
+
+          // S'il y a des prestataires disponibles mais qu'il y a des devis récents conflictuels
+          if (availableProviders.length > 0 && hasRecentQuoteConflict) {
+              return { 
+                  isValid: false, 
+                  message: `Ce créneau (${slot.date} de ${slot.startTime} à ${slot.endTime}) est déjà réservé par un devis de moins de 24h. Veuillez choisir d'autres dates.` 
+              };
+          }
+
+          // S'il n'y a aucun prestataire disponible
+          if (availableProviders.length === 0) {
+              return { 
+                  isValid: false, 
+                  message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. Veuillez choisir d'autres dates.` 
+              };
+          }
+      }
+
+      return { isValid: true, message: '' };
   };
 
   const showToast = (message: string) => {
@@ -244,6 +427,22 @@ const DevisFactures: React.FC = () => {
         if (modalMode === 'devis') {
             if (interventionSlots.length === 0) {
                 showToast("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.");
+                setIsSubmitting(false);
+                return;
+            }
+
+            // Validation stricte des contraintes du pack
+            const validation = validatePackConstraints();
+            if (!validation.isValid) {
+                showToast(validation.message);
+                setIsSubmitting(false);
+                return;
+            }
+
+            // Vérification des disponibilités des prestataires
+            const availabilityCheck = checkProviderAvailability();
+            if (!availabilityCheck.isValid) {
+                showToast(availabilityCheck.message);
                 setIsSubmitting(false);
                 return;
             }
@@ -836,12 +1035,11 @@ const DevisFactures: React.FC = () => {
                      )}
                      
                      <div className="bg-white p-4 rounded-lg border border-slate-200 mb-4 shadow-sm text-sm">
-                         <table className="w-full mb-4">
-                             <thead>
-                                 <tr className="text-xs text-slate-400 border-b border-slate-100">
+                         <table className="w-full text-sm">
+                             <thead className="border-b border-slate-200">
+                                 <tr>
                                      <th className="text-left py-2 font-bold uppercase">Description</th>
                                      <th className="text-center py-2 font-bold uppercase">Prix U.</th>
-                                     <th className="text-center py-2 font-bold uppercase">Qté</th>
                                      <th className="text-right py-2 font-bold uppercase">Total HT</th>
                                  </tr>
                              </thead>
@@ -849,16 +1047,15 @@ const DevisFactures: React.FC = () => {
                                  <tr>
                                      <td className="py-3 text-slate-700 font-medium">{customDescription || "Pack..."}</td>
                                      <td className="py-3 text-center text-slate-500">{unitPrice.toFixed(2)}€</td>
-                                     <td className="py-3 text-center text-slate-700">{packQuantity}</td>
                                      <td className="py-3 text-right text-slate-800 font-bold">{totalHT.toFixed(2)} €</td>
                                  </tr>
                              </tbody>
                          </table>
                          
                          <div className="space-y-2 pt-2 border-t border-slate-100 text-slate-600">
-                             <div className="flex justify-between"><span>Total HT</span><span>{totalHT.toFixed(2)} €</span></div>
+                             <div className="flex justify-between"><span>Total HT : </span><span>{totalHT.toFixed(2)} €</span></div>
                              <div className="flex justify-between items-center">
-                                 <span>TVA</span>
+                                 <span>TVA : </span>
                                  <select 
                                      className="bg-slate-50 border rounded p-1 text-xs font-bold text-slate-700 outline-none focus:border-brand-blue" 
                                      value={tvaRate} 
@@ -869,9 +1066,9 @@ const DevisFactures: React.FC = () => {
                                      <option value={8.5}>8.5% (Professionnel)</option>
                                  </select>
                              </div>
-                             <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA</span><span>{tvaAmount.toFixed(2)} €</span></div>
+                             <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA : </span><span>{tvaAmount.toFixed(2)} €</span></div>
                          </div>
-                         <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total TTC</span><span>{totalTTC.toFixed(2)} €</span></div>
+                         <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total TTC : </span><span>{totalTTC.toFixed(2)} €</span></div>
                      </div>
 
                      {/* TAX CREDIT SECTION */}
@@ -893,15 +1090,15 @@ const DevisFactures: React.FC = () => {
                          {taxCreditActive ? (
                              <div className="text-xs text-slate-600 space-y-3 animate-in fade-in">
                                  <p className="italic border-l-2 border-green-300 pl-2 bg-green-50/50 p-1">
-                                     "Conformément à l’article 199 sexdecies du CGI, les prestations ouvrent droit à un crédit d’impôt de 50 %."
+                                     "Conformément à l'article 199 sexdecies du CGI, les prestations ouvrent droit à un crédit d'impôt de 50 %."
                                  </p>
                                  <div className="pt-2 border-t border-dashed border-slate-200 space-y-1">
                                      <div className="flex justify-between font-bold text-brand-blue text-sm pt-1">
-                                         <span>Reste à charge client</span>
+                                         <span>Reste à charge client : </span>
                                          <span>{clientToPay.toFixed(2)} €</span>
                                      </div>
                                      <div className="flex justify-between text-green-600 text-xs">
-                                         <span>Montant URSSAF (Avance immédiate)</span>
+                                         <span>Montant URSSAF (Avance immédiate) : </span>
                                          <span className="font-bold">{taxCreditAmount.toFixed(2)} €</span>
                                      </div>
                                  </div>

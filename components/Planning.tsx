@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -273,6 +273,18 @@ const Planning: React.FC = () => {
       else newSet.add(id);
       setSelectedMissionIds(newSet);
   };
+
+  // Mission Details Modal
+  const [selectedMissionDetails, setSelectedMissionDetails] = useState<Mission | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
+  const handleMissionClick = (mission: Mission, e: React.MouseEvent) => {
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          // Simple click = show details
+          setSelectedMissionDetails(mission);
+          setIsDetailsModalOpen(true);
+      }
+  };
   
   const confirmBulkDeleteMissions = () => {
        if (selectedMissionIds.size > 0) {
@@ -444,15 +456,21 @@ const Planning: React.FC = () => {
                                     <div 
                                         key={item.id} 
                                         className={`bg-${item.color === 'gray' ? 'slate-200' : item.color + '-100'} p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-${item.color === 'gray' ? 'slate-500' : 'brand-blue'} relative group`}
-                                        onClick={(e) => toggleMissionSelection(item.id, e)}
+                                        onClick={(e) => handleMissionClick(item, e)}
                                     >
                                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                             {selectedMissionIds.has(item.id) ? (
-                                                 <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
-                                             ) : (
-                                                 <Square className="w-4 h-4 text-slate-400" />
-                                             )}
-                                        </div>
+                                             <button 
+                                                 onClick={(e) => toggleMissionSelection(item.id, e)}
+                                                 className="p-1 hover:bg-white/50 rounded"
+                                                 title="Sélectionner pour suppression"
+                                             >
+                                                 {selectedMissionIds.has(item.id) ? (
+                                                     <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
+                                                 ) : (
+                                                     <Square className="w-4 h-4 text-slate-400" />
+                                                 )}
+                                             </button>
+                                         </div>
                                         {selectedMissionIds.has(item.id) && (
                                             <div className="absolute inset-0 bg-blue-500/10 border-2 border-brand-blue rounded pointer-events-none"></div>
                                         )}
@@ -848,6 +866,135 @@ const Planning: React.FC = () => {
                             Supprimer
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Mission Details Modal */}
+      {isDetailsModalOpen && selectedMissionDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">Détails de la Mission</h3>
+                        <p className="text-xs text-slate-500 mt-1">Informations complètes sur la prestation</p>
+                    </div>
+                    <button onClick={() => { setIsDetailsModalOpen(false); setSelectedMissionDetails(null); }} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+                
+                <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+                    {/* Client Information */}
+                    <div className="bg-slate-50 p-4 rounded-lg">
+                        <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <User className="w-4 h-4" /> Client
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span className="text-slate-500">Nom:</span>
+                                <p className="font-semibold">{selectedMissionDetails.clientName}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Date:</span>
+                                <p className="font-semibold">{new Date(selectedMissionDetails.date).toLocaleDateString('fr-FR')}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Prestataire Information */}
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                        <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <Briefcase className="w-4 h-4" /> Prestataire
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span className="text-slate-500">Nom:</span>
+                                <p className="font-semibold">{selectedMissionDetails.providerName}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Statut:</span>
+                                <p className="font-semibold">
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                        selectedMissionDetails.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                        selectedMissionDetails.status === 'planned' ? 'bg-orange-100 text-orange-700' :
+                                        selectedMissionDetails.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                        'bg-gray-100 text-gray-700'
+                                    }`}>
+                                        {selectedMissionDetails.status === 'completed' ? 'Terminée' :
+                                         selectedMissionDetails.status === 'planned' ? 'Planifiée' :
+                                         selectedMissionDetails.status === 'in_progress' ? 'En cours' :
+                                         selectedMissionDetails.status}
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Mission Details */}
+                    <div className="bg-green-50 p-4 rounded-lg">
+                        <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <Calendar className="w-4 h-4" /> Mission
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span className="text-slate-500">Service:</span>
+                                <p className="font-semibold">{selectedMissionDetails.service}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Horaires:</span>
+                                <p className="font-semibold">{selectedMissionDetails.startTime} - {selectedMissionDetails.endTime}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Durée:</span>
+                                <p className="font-semibold">{selectedMissionDetails.duration}h</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">ID Mission:</span>
+                                <p className="font-semibold text-xs">{selectedMissionDetails.id}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Additional Information */}
+                    {selectedMissionDetails.source && (
+                        <div className="bg-purple-50 p-4 rounded-lg">
+                            <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                                <FileText className="w-4 h-4" /> Source
+                            </h4>
+                            <p className="text-sm">
+                                <span className="text-slate-500">Origine:</span>
+                                <span className="font-semibold ml-2">
+                                    {selectedMissionDetails.source === 'devis' ? 'Devis signé' : 'Création manuelle'}
+                                </span>
+                                {selectedMissionDetails.sourceDocumentId && (
+                                    <span className="text-xs text-slate-400 ml-2">
+                                        (ID: {selectedMissionDetails.sourceDocumentId})
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+                    <button 
+                        onClick={() => { setIsDetailsModalOpen(false); setSelectedMissionDetails(null); }}
+                        className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                    >
+                        Fermer
+                    </button>
+                    <button 
+                        onClick={() => { 
+                            toggleMissionSelection(selectedMissionDetails.id, { stopPropagation: () => {} } as any);
+                            setIsDetailsModalOpen(false);
+                            setSelectedMissionDetails(null);
+                        }}
+                        className="px-6 py-2 bg-red-100 text-red-600 font-bold rounded-lg hover:bg-red-200 transition"
+                    >
+                        Sélectionner pour suppression
+                    </button>
                 </div>
             </div>
         </div>

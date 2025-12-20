@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import {
     QrCode,
@@ -8,32 +8,47 @@ import {
     MapPin,
     Clock,
     UserCheck,
-    CheckCircle,
-    XCircle,
     ScanLine,
     ArrowRight
 } from 'lucide-react';
 
 const QRCodeManager: React.FC = () => {
-    const { clients, visitScans, registerScan, currentUser } = useData();
+    const { clients, visitScans, registerScan, currentUser, simulatedClientId } = useData();
     const [activeTab, setActiveTab] = useState<'generate' | 'scan' | 'history'>('generate');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedClientForScan, setSelectedClientForScan] = useState<string>('');
     const [scanResult, setScanResult] = useState<{ type?: string, message: string } | null>(null);
+    const [scanFilters, setScanFilters] = useState({
+        startDate: '',
+        endDate: '',
+        clientId: '',
+        type: ''
+    });
+
+    // Determine if current user can access QR codes
+    const canAccessQRCodes = currentUser?.role === 'admin' || 
+                            (currentUser?.role === 'client' && simulatedClientId);
+
+    // Filter clients based on user role
+    const accessibleClients = useMemo(() => {
+        if (currentUser?.role === 'client' && simulatedClientId) {
+            // Client can only see their own QR code
+            const ownClient = clients.find(c => c.id === simulatedClientId);
+            return ownClient ? [ownClient] : [];
+        }
+        return clients; // Admin can see all clients
+    }, [clients, currentUser?.role, simulatedClientId]);
 
     // --- Generate Logic ---
     const filteredClients = useMemo(() => {
-        if (!searchQuery) return clients;
-        return clients.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
-    }, [clients, searchQuery]);
+        if (!searchQuery) return accessibleClients;
+        return accessibleClients.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }, [accessibleClients, searchQuery]);
 
     const handlePrint = (clientId: string) => {
         const client = clients.find(c => c.id === clientId);
         if (!client) return;
 
-        // Construct a URL that represents the scan action
-        // Ideally this URL opens the app at the scanning page with the client pre-selected
-        // We use window.location.origin to support both localhost and production
         const baseUrl = window.location.origin;
         const qrData = `${baseUrl}/#/scan?client=${clientId}`;
         const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
@@ -67,7 +82,8 @@ const QRCodeManager: React.FC = () => {
                         <div class="instructions">
                             1. Ouvrez l'application Presta Services<br/>
                             2. Scannez ce code à votre arrivée (Entrée)<br/>
-                            3. Scannez ce code à votre départ (Sortie)
+                            3. Scannez ce code à votre départ (Sortie)<br/>
+                            4. Le pointage sera automatiquement enregistré
                         </div>
                     </div>
                     <br/><br/>
@@ -83,9 +99,7 @@ const QRCodeManager: React.FC = () => {
     const handleSimulateScan = async () => {
         if (!selectedClientForScan) return;
 
-        setScanResult(null); // Reset UI
-
-        // Add artificial delay for realism
+        setScanResult(null);
         await new Promise(r => setTimeout(r, 800));
 
         const result = await registerScan(selectedClientForScan);
@@ -96,259 +110,275 @@ const QRCodeManager: React.FC = () => {
     };
 
     // --- History Logic ---
-    const [scanFilters, setScanFilters] = useState({
-        startDate: '',
-        endDate: '',
-        clientId: '',
-        type: ''
-    });
-
     const scansHistory = useMemo(() => {
         let filtered = visitScans;
 
+        // Filter by client if user is client
+        if (currentUser?.role === 'client' && simulatedClientId) {
+            filtered = filtered.filter(s => s.clientId === simulatedClientId);
+        }
+
+        // Apply date filters
         if (scanFilters.startDate) {
             filtered = filtered.filter(s => new Date(s.timestamp) >= new Date(scanFilters.startDate));
         }
         if (scanFilters.endDate) {
-            // End of day
             const end = new Date(scanFilters.endDate);
             end.setHours(23, 59, 59, 999);
             filtered = filtered.filter(s => new Date(s.timestamp) <= end);
         }
-        if (scanFilters.clientId) {
+
+        // Apply client filter (admin only)
+        if (scanFilters.clientId && currentUser?.role === 'admin') {
             filtered = filtered.filter(s => s.clientId === scanFilters.clientId);
         }
+
+        // Apply type filter
         if (scanFilters.type) {
             filtered = filtered.filter(s => s.scanType === scanFilters.type);
         }
 
-        return filtered.map(scan => {
-            const client = clients.find(c => c.id === scan.clientId);
-            return {
-                ...scan,
-                clientName: client ? client.name : 'Client Inconnu'
-            };
-        }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    }, [visitScans, clients, scanFilters]);
+        return filtered
+            .map(scan => {
+                const client = clients.find(c => c.id === scan.clientId);
+                return {
+                    ...scan,
+                    clientName: client ? client.name : 'Client Inconnu',
+                    scannerName: currentUser?.name || 'Système'
+                };
+            })
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }, [visitScans, clients, scanFilters, currentUser, simulatedClientId]);
 
     return (
         <div className="p-8 h-full overflow-y-auto bg-white/40">
             <div className="mb-8">
                 <h2 className="text-3xl font-serif font-bold text-slate-800">Gestion des QR Codes</h2>
-                <p className="text-sm text-slate-500">Génération de codes clients et suivi des pointages</p>
+                <p className="text-sm text-slate-500">
+                    {currentUser?.role === 'client' 
+                        ? 'Votre QR Code personnel et historique de pointage' 
+                        : 'Génération de codes clients et suivi des pointages'
+                    }
+                </p>
             </div>
 
-            {/* Navigation Tabs */}
-            <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit mb-8">
-                <button
-                    onClick={() => setActiveTab('generate')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'generate' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
-                >
-                    <QrCode className="w-4 h-4" /> Générateur
-                </button>
-                <button
-                    onClick={() => setActiveTab('scan')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'scan' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
-                >
-                    <ScanLine className="w-4 h-4" /> Scanner (Simulateur)
-                </button>
-                <button
-                    onClick={() => setActiveTab('history')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'history' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
-                >
-                    <History className="w-4 h-4" /> Historique
-                </button>
-            </div>
-
-            {/* --- GENERATOR TAB --- */}
-            {activeTab === 'generate' && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-bold text-lg text-slate-700">Liste des clients</h3>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                placeholder="Rechercher un client..."
-                                className="pl-10 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-brand-blue"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {filteredClients.map(client => (
-                            <div key={client.id} className="border border-slate-200 rounded-xl p-4 flex items-center justify-between hover:shadow-md transition">
-                                <div>
-                                    <p className="font-bold text-slate-800">{client.name}</p>
-                                    <p className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {client.city}</p>
-                                </div>
-                                <button
-                                    onClick={() => handlePrint(client.id)}
-                                    className="bg-slate-100 p-2 rounded-full hover:bg-brand-blue hover:text-white transition text-slate-600"
-                                    title="Imprimer QR Code"
-                                >
-                                    <Printer className="w-5 h-5" />
-                                </button>
-                            </div>
-                        ))}
-                        {filteredClients.length === 0 && (
-                            <p className="col-span-full text-center text-slate-400 py-8">Aucun client trouvé.</p>
-                        )}
-                    </div>
+            {!canAccessQRCodes && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                    <p className="text-yellow-800 text-sm">
+                        Vous n'avez pas les permissions nécessaires pour accéder aux QR Codes.
+                    </p>
                 </div>
             )}
 
-            {/* --- SCANNER TAB --- */}
-            {activeTab === 'scan' && (
-                <div className="flex flex-col items-center justify-center h-[500px] bg-slate-900 rounded-xl shadow-inner relative overflow-hidden animate-in fade-in">
-                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-
-                    <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center z-10">
-                        <div className="w-16 h-16 bg-brand-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <ScanLine className="w-8 h-8 text-brand-blue animate-pulse" />
-                        </div>
-                        <h3 className="text-2xl font-bold text-slate-800 mb-2">Scanner QR Code</h3>
-                        <p className="text-slate-500 text-sm mb-6">
-                            Simulez le scan d'un code client avec votre compte actuel ({currentUser?.name || 'Inconnu'}).
-                        </p>
-
-                        <select
-                            className="w-full p-3 border border-slate-300 rounded-lg mb-4 text-sm font-bold bg-slate-50 outline-none focus:border-brand-blue"
-                            value={selectedClientForScan}
-                            onChange={(e) => setSelectedClientForScan(e.target.value)}
-                        >
-                            <option value="">-- Choisir un QR Code (Client) --</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-
+            {canAccessQRCodes && (
+                <>
+                    {/* Tab Navigation */}
+                    <div className="flex gap-2 mb-8 bg-slate-100 p-1 rounded-lg">
                         <button
-                            onClick={handleSimulateScan}
-                            disabled={!selectedClientForScan}
-                            className="w-full bg-brand-blue text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform active:scale-95"
+                            onClick={() => setActiveTab('generate')}
+                            className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'generate' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
                         >
-                            SIMULER LE SCAN
+                            <QrCode className="w-4 h-4" /> {currentUser?.role === 'client' ? 'Mon QR Code' : 'Générateur'}
                         </button>
+                        {(currentUser?.role === 'admin' || (currentUser?.role === 'client' && simulatedClientId)) && (
+                            <button
+                                onClick={() => setActiveTab('history')}
+                                className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'history' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                            >
+                                <History className="w-4 h-4" /> Historique
+                            </button>
+                        )}
+                        {currentUser?.role === 'admin' && (
+                            <button
+                                onClick={() => setActiveTab('scan')}
+                                className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'scan' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                            >
+                                <ScanLine className="w-4 h-4" /> Scanner
+                            </button>
+                        )}
+                    </div>
 
-                        {scanResult && (
-                            <div className={`mt-6 p-4 rounded-xl border flex items-center gap-3 animate-in slide-in-from-bottom-4 ${scanResult.type ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                                {scanResult.type ? <CheckCircle className="w-6 h-6" /> : <XCircle className="w-6 h-6" />}
-                                <div className="text-left">
-                                    <p className="font-bold text-sm">{scanResult.message}</p>
-                                    {scanResult.type && <p className="text-xs opacity-80">{new Date().toLocaleTimeString()}</p>}
+                    {activeTab === 'generate' && (
+                        <div>
+                            {currentUser?.role === 'admin' && (
+                                <div className="relative mb-6">
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher un client..."
+                                        className="pl-10 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-brand-blue w-full"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                    />
+                                    <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                                 </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filteredClients.map(client => (
+                                    <div key={client.id} className="border border-slate-200 rounded-xl p-4 flex items-center justify-between hover:shadow-md transition">
+                                        <div>
+                                            <p className="font-bold text-slate-800">{client.name}</p>
+                                            <p className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {client.city}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handlePrint(client.id)}
+                                            className="bg-slate-100 p-2 rounded-full hover:bg-brand-blue hover:text-white transition text-slate-600"
+                                            title="Imprimer QR Code"
+                                        >
+                                            <Printer className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                ))}
+                                {filteredClients.length === 0 && (
+                                    <p className="col-span-full text-center text-slate-400 py-8">Aucun client trouvé.</p>
+                                )}
                             </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* --- HISTORY TAB --- */}
-            {activeTab === 'history' && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-in fade-in">
-                    <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                        <h3 className="font-bold text-slate-700">Derniers pointages</h3>
-                    </div>
-
-                    {/* FILTERS */}
-                    <div className="p-4 bg-white border-b border-slate-100 flex flex-wrap gap-4 items-center text-sm">
-                        <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            <input type="date" className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.startDate} onChange={e => setScanFilters({ ...scanFilters, startDate: e.target.value })} title="Date Début" />
-                            <span className="text-slate-300">-</span>
-                            <input type="date" className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.endDate} onChange={e => setScanFilters({ ...scanFilters, endDate: e.target.value })} title="Date Fin" />
                         </div>
-                        <div className="flex items-center gap-2 border-l pl-4">
-                            <MapPin className="w-4 h-4 text-slate-400" />
-                            <select className="border rounded px-2 py-1 bg-slate-50 max-w-[150px]" value={scanFilters.clientId} onChange={e => setScanFilters({ ...scanFilters, clientId: e.target.value })}>
-                                <option value="">Tous les clients</option>
-                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="flex items-center gap-2 border-l pl-4">
-                            <ArrowRight className="w-4 h-4 text-slate-400" />
-                            <select className="border rounded px-2 py-1 bg-slate-50" value={scanFilters.type} onChange={e => setScanFilters({ ...scanFilters, type: e.target.value })}>
-                                <option value="">Type (Tous)</option>
-                                <option value="entry">Entrées</option>
-                                <option value="exit">Sorties</option>
-                            </select>
-                        </div>
+                    )}
 
-                        {(scanFilters.startDate || scanFilters.endDate || scanFilters.clientId || scanFilters.type) && (
-                            <button onClick={() => setScanFilters({ startDate: '', endDate: '', clientId: '', type: '' })} className="ml-auto text-red-500 text-xs hover:underline">Effacer filtres</button>
-                        )}
-                    </div>
+                    {/* --- HISTORY TAB --- */}
+                    {activeTab === 'history' && (
+                        <div className="space-y-6">
+                            {/* Filters */}
+                            {currentUser?.role === 'admin' && (
+                                <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow-sm">
+                                    <select
+                                        value={scanFilters.clientId}
+                                        onChange={(e) => setScanFilters(prev => ({ ...prev, clientId: e.target.value }))}
+                                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                                    >
+                                        <option value="">Tous les clients</option>
+                                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                    <select
+                                        value={scanFilters.type}
+                                        onChange={(e) => setScanFilters(prev => ({ ...prev, type: e.target.value as any }))}
+                                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                                    >
+                                        <option value="">Tous les types</option>
+                                        <option value="entry">Entrées</option>
+                                        <option value="exit">Sorties</option>
+                                    </select>
+                                </div>
+                            )}
 
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
-                                <tr>
-                                    <th className="px-6 py-4">Date & Heure</th>
-                                    <th className="px-6 py-4">Client</th>
-                                    <th className="px-6 py-4">Scanner (Prestataire)</th>
-                                    <th className="px-6 py-4 text-center">Type</th>
-                                    <th className="px-6 py-4 text-right">Statut</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            {/* Date filters for all users */}
+                            <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow-sm">
+                                <div className="flex items-center gap-2">
+                                    <Clock className="w-4 h-4 text-slate-400" />
+                                    <input 
+                                        type="date" 
+                                        className="border rounded px-2 py-1 bg-slate-50" 
+                                        value={scanFilters.startDate} 
+                                        onChange={e => setScanFilters({ ...scanFilters, startDate: e.target.value })} 
+                                        title="Date Début" 
+                                    />
+                                    <span className="text-slate-300">-</span>
+                                    <input 
+                                        type="date" 
+                                        className="border rounded px-2 py-1 bg-slate-50" 
+                                        value={scanFilters.endDate} 
+                                        onChange={e => setScanFilters({ ...scanFilters, endDate: e.target.value })} 
+                                        title="Date Fin" 
+                                    />
+                                </div>
+                                {(scanFilters.startDate || scanFilters.endDate || scanFilters.clientId || scanFilters.type) && (
+                                    <button 
+                                        onClick={() => setScanFilters({ startDate: '', endDate: '', clientId: '', type: '' })} 
+                                        className="ml-auto text-red-500 text-xs hover:underline"
+                                    >
+                                        Effacer filtres
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Scans List */}
+                            <div className="space-y-2">
                                 {scansHistory.length === 0 ? (
-                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun historique de scan trouvé.</td></tr>
+                                    <div className="bg-white p-8 rounded-lg text-center text-slate-400">
+                                        <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                                        <p>Aucun pointage trouvé</p>
+                                    </div>
                                 ) : (
                                     scansHistory.map(scan => (
-                                        <tr key={scan.id} className="hover:bg-slate-50">
-                                            <td className="px-6 py-4 text-slate-600 font-mono text-xs">
-                                                {new Date(scan.timestamp).toLocaleString()}
-                                            </td>
-                                            <td className="px-6 py-4 font-bold text-slate-700">{scan.clientName}</td>
-                                            <td className="px-6 py-4 text-slate-600 flex items-center gap-2">
-                                                <UserCheck className="w-4 h-4 text-slate-400" /> {scan.scannerName}
-                                            </td>
-                                            <td className="px-6 py-4 text-center">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1 w-fit mx-auto ${scan.scanType === 'entry'
-                                                    ? 'bg-green-100 text-green-700 border-green-200'
-                                                    : 'bg-orange-100 text-orange-700 border-orange-200'
-                                                    }`}>
-                                                    {scan.scanType === 'entry' ? <ArrowRight className="w-3 h-3" /> : <LogOut className="w-3 h-3 transform rotate-180" />}
-                                                    {scan.scanType === 'entry' ? 'ENTRÉE' : 'SORTIE'}
+                                        <div key={scan.id} className="bg-white p-4 rounded-lg shadow-sm flex items-center justify-between">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                                    scan.scanType === 'entry' ? 'bg-green-100' : 'bg-red-100'
+                                                }`}>
+                                                    {scan.scanType === 'entry' ? 
+                                                        <ArrowRight className="w-5 h-5 text-green-600" /> :
+                                                        <ArrowRight className="w-5 h-5 text-red-600 rotate-180" />
+                                                    }
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold text-slate-800">{scan.clientName}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {new Date(scan.timestamp).toLocaleString('fr-FR')}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`text-xs font-bold px-2 py-1 rounded ${
+                                                    scan.scanType === 'entry' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                                }`}>
+                                                    {scan.scanType === 'entry' ? 'Entrée' : 'Sortie'}
                                                 </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <span className="text-xs text-slate-400 flex items-center justify-end gap-1">
-                                                    <MapPin className="w-3 h-3" /> Géolocalisé
-                                                </span>
-                                            </td>
-                                        </tr>
+                                            </div>
+                                        </div>
                                     ))
                                 )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- SCANNER TAB --- */}
+                    {activeTab === 'scan' && currentUser?.role === 'admin' && (
+                        <div className="flex flex-col items-center justify-center h-[500px] bg-slate-900 rounded-xl shadow-inner relative overflow-hidden animate-in fade-in">
+                            <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+
+                            <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center z-10">
+                                <div className="w-16 h-16 bg-brand-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <ScanLine className="w-8 h-8 text-brand-blue animate-pulse" />
+                                </div>
+                                <h3 className="text-2xl font-bold text-slate-800 mb-2">Scanner QR Code</h3>
+                                <p className="text-slate-500 text-sm mb-6">
+                                    Simulez le scan d'un code client avec votre compte actuel ({currentUser?.name || 'Inconnu'}).
+                                </p>
+
+                                <select
+                                    value={selectedClientForScan}
+                                    onChange={(e) => setSelectedClientForScan(e.target.value)}
+                                    className="w-full p-3 border border-slate-200 rounded-lg mb-4 text-sm"
+                                >
+                                    <option value="">-- Choisir un QR Code (Client) --</option>
+                                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+
+                                <button
+                                    onClick={handleSimulateScan}
+                                    disabled={!selectedClientForScan}
+                                    className="w-full bg-brand-blue text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Simuler Scan
+                                </button>
+
+                                {scanResult && (
+                                    <div className={`mt-4 p-3 rounded-lg text-sm ${
+                                        scanResult.type === 'success' ? 'bg-green-100 text-green-700' :
+                                        scanResult.type === 'error' ? 'bg-red-100 text-red-700' :
+                                        'bg-blue-100 text-blue-700'
+                                    }`}>
+                                        {scanResult.message}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
 };
 
 export default QRCodeManager;
-
-function LogOut(props: any) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" x2="9" y1="12" y2="12" />
-        </svg>
-    )
-}

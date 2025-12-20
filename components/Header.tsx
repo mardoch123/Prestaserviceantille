@@ -31,6 +31,13 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       } else if (notif.link === 'tab:messaging') {
           navigate('/secretariat', { state: { tab: 'messaging' } });
           setShowNotifications(false);
+      } else if (notif.link === 'tab:docs') {
+          navigate('/invoices', { state: { filter: 'devis' } });
+          setShowNotifications(false);
+      } else if (notif.link && notif.link.startsWith('document:')) {
+          const documentId = notif.link.split(':')[1];
+          navigate('/invoices', { state: { documentId, filter: 'devis' } });
+          setShowNotifications(false);
       }
   };
 

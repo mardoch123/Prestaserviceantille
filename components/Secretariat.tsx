@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
     PackagePlus,
@@ -28,25 +25,38 @@ import {
     Trash2,
     CheckSquare,
     Square,
-    X,
-    Save,
-    ChevronRight,
-    ChevronLeft,
+    Video,
+    Wifi,
+    Camera,
+    Monitor,
+    Play,
+    Pause,
+    Volume2,
+    VolumeX,
+    Maximize,
+    Minimize,
+    RefreshCw,
+    Users,
+    MapPin,
     Clock,
-    TrendingUp,
-    Briefcase,
-    Download,
-    HelpCircle,
-    Filter,
-    Calendar,
     SlidersHorizontal,
-    XCircle
+    XCircle,
+    Download,
+    X,
+    Calendar,
+    Filter,
+    TrendingUp,
+    ChevronLeft,
+    ChevronRight,
+    Save,
+    HelpCircle
 } from 'lucide-react';
 import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { Pack, Reminder, Message, Client, Expense, Contract, Mission, ScheduleOption } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
+import LiveVideoManager from './LiveVideoManager';
 
-type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses';
+type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'live-videos';
 
 // Type for intervention schedules (compatible with existing ScheduleOption)
 type InterventionSchedule = {
@@ -114,7 +124,12 @@ const Secretariat: React.FC = () => {
         requestContractValidation,
         validateContract,
         currentUser,
-        documents
+        documents,
+        activeStream,
+        startLiveStream,
+        stopLiveStream,
+        videoRecordings,
+        getVideoRecordings
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -750,12 +765,18 @@ const Secretariat: React.FC = () => {
                     onClick={() => setActiveTab('expenses')}
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'expenses' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
                 >
-                    <Euro className="w-4 h-4" /> Comptabilité
+                    <Euro className="w-4 h-4" /> Dépenses
+                </button>
+                <button
+                    onClick={() => setActiveTab('live-videos')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 relative ${activeTab === 'live-videos' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <Video className="w-4 h-4" /> Vidéos en Direct
+                    {activeStream && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                 </button>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[500px] p-6">
-
                 {/* --- TAB: PACKS & CONTRACTS --- */}
                 {activeTab === 'packs' && (
                     <div className="space-y-8">
@@ -1188,11 +1209,16 @@ const Secretariat: React.FC = () => {
                                                 ))}
                                             </div>
                                         </div>
-                                    );
+                                    )
                                 })}
                             </div>
                         )}
                     </div>
+                )}
+
+                {/* --- TAB: LIVE VIDEOS --- */}
+                {activeTab === 'live-videos' && (
+                    <LiveVideoManager />
                 )}
             </div>
 
