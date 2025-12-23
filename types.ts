@@ -91,13 +91,14 @@ export interface Pack {
     mainService: string;
     description: string;
     hours: number;
-    frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle' | 'Régulier';
+    frequency: 'Ponctuelle' | 'Hebdomadaire' | 'Bimensuelle' | 'Mensuelle' | 'regulier';
     quantity?: string; // New field from PDF (nb pièces, m2...)
     location?: string; // New field from PDF (Lieu de réalisation)
     date?: string; // Date pour les packs ponctuels
     suppliesIncluded: boolean;
     suppliesDetails?: string;
     type: 'ponctuel' | 'regulier';
+    priceTTC: number;
     priceHT: number;
     priceTaxCredit: number;
     contractType: string;

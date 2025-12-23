@@ -100,7 +100,7 @@ const CONTRACT_TYPES = [
 ];
 
 const Secretariat: React.FC = () => {
-    const {
+    const { 
         packs,
         addPack,
         deletePacks,
@@ -141,6 +141,81 @@ const Secretariat: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
+    // Fonction pour calculer la durée totale d'un pack
+    const calculatePackDuration = (pack: any) => {
+        // Extraire le nombre de jours de la fréquence si disponible
+        const frequency = pack.frequency || '';
+        let days = 1; // Par défaut, 1 jour
+        
+        // D'abord, vérifier si la description contient un nombre de jours explicite
+        if (pack.description && pack.description.includes('(')) {
+            console.log('Description found:', pack.description);
+            const daysMatch = pack.description.match(/\((\d+)\s*jours?\)/i);
+            console.log('First regex match:', daysMatch);
+            if (daysMatch) {
+                days = parseInt(daysMatch[1]);
+                console.log('Days from first regex:', days);
+            } else {
+                // Essayer une autre regex sans la parenthèse fermante
+                const altDaysMatch = pack.description.match(/\((\d+)\s*jours?/i);
+                console.log('Second regex match:', altDaysMatch);
+                if (altDaysMatch) {
+                    days = parseInt(altDaysMatch[1]);
+                    console.log('Days from second regex:', days);
+                } else {
+                    // Essayer une regex encore plus simple
+                    const simpleDaysMatch = pack.description.match(/(\d+)\s*jours?/i);
+                    console.log('Simple regex match:', simpleDaysMatch);
+                    if (simpleDaysMatch) {
+                        days = parseInt(simpleDaysMatch[1]);
+                        console.log('Days from simple regex:', days);
+                    }
+                }
+            }
+        }
+        
+        // Si aucun nombre trouvé dans la description, utiliser les valeurs par défaut selon la fréquence
+        if (days === 1) {
+            // Gérer les différents types de fréquence
+            if (frequency.includes('Ultime 6')) {
+                days = 1; // Pack Ultime 6 = 1 jour
+            } else if (frequency.includes('Tranquility')) {
+                days = frequency.includes('4j') ? 4 : 3; // Tranquility = 3 ou 4 jours
+            } else if (frequency.toLowerCase() === 'regulier') {
+                // Pour les packs réguliers, essayer d'extraire le nombre de jours de plusieurs sources
+                // 1. D'abord vérifier le champ quantity
+                if (pack.quantity) {
+                    const quantityDays = parseInt(pack.quantity);
+                    if (!isNaN(quantityDays) && quantityDays > 0) {
+                        days = quantityDays;
+                    }
+                } else {
+                    days = regularDaysCount || 1;
+                }
+            } else if (frequency === 'Hebdomadaire') {
+                days = 1; // Hebdomadaire = 1 jour par semaine
+            } else if (frequency === 'Bimensuelle') {
+                days = 2; // Bimensuelle = 2 jours par mois
+            } else if (frequency === 'Mensuelle') {
+                days = 4; // Mensuelle = environ 4 jours par mois (moyenne)
+            } else if (frequency === 'Ponctuelle') {
+                days = 1; // Ponctuelle = 1 jour
+            } else {
+                // Chercher des motifs comme "3 jours", "4 jours", etc.
+                const daysMatch = frequency.match(/(\d+)\s*jours?/i);
+                if (daysMatch) {
+                    days = parseInt(daysMatch[1]);
+                }
+            }
+        }
+        
+        // Calculer la durée totale
+        const totalHours = pack.hours * days;
+        
+        // Afficher toujours le total d'heures avec le détail
+        return `${totalHours}h total (${pack.hours}h × ${days}j)`;
+    };
+
     // --- EXPENSE FILTERS STATE ---
     const [expenseFilters, setExpenseFilters] = useState({
         startDate: '',
@@ -155,6 +230,9 @@ const Secretariat: React.FC = () => {
 
     // Custom Confirmation Modal
     const [confirmationModal, setConfirmationModal] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void; }>({ open: false, title: '', message: '', onConfirm: () => { } });
+
+    // Pack Details Modal State
+    const [packDetailsModal, setPackDetailsModal] = useState<{ open: boolean; pack: Pack | null }>({ open: false, pack: null });
 
     // Contract Edit Modal State
     const [contractEditModalOpen, setContractEditModalOpen] = useState(false);
@@ -318,13 +396,13 @@ const Secretariat: React.FC = () => {
             return;
         }
         
-        const priceHT = packForm.priceHT || 0;
+        const priceTTC = packForm.priceTTC || 0;
         const tva = 0.021; // 2.1% from PDF
-        const priceTTC = priceHT * (1 + tva);
+        const priceHT = priceTTC / (1 + tva);
         const taxCredit = priceTTC * 0.5;
 
         let finalDescription = packForm.description || '';
-        if (packForm.frequency === 'Régulier' || packForm.type === 'regulier') {
+        if (packForm.frequency === 'regulier' || packForm.type === 'regulier') {
             finalDescription += ` (${regularDaysCount} jours)`;
         }
 
@@ -338,7 +416,8 @@ const Secretariat: React.FC = () => {
             type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
             quantity: packForm.quantity,
             location: packForm.location,
-            priceHT: priceHT,
+            priceTTC: priceTTC,
+            priceHT: parseFloat(priceHT.toFixed(2)),
             priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
             suppliesIncluded: packForm.suppliesIncluded || false,
             suppliesDetails: packForm.suppliesDetails,
@@ -377,7 +456,7 @@ const Secretariat: React.FC = () => {
             type: 'ponctuel',
             hours: 3,
             frequency: 'Ponctuelle',
-            priceHT: 0,
+            priceTTC: 0,
             suppliesIncluded: false,
             isSap: true,
             quantity: '',
@@ -547,7 +626,7 @@ const Secretariat: React.FC = () => {
                 scheduleInfo = `\nHoraires d'intervention : ${(pack as any).interventionSchedules.map((s: InterventionSchedule) => `${s.day} de ${s.startTime} à ${s.endTime}`).join(', ')}`;
             }
             
-            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
+            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nLieu : ${pack.location || 'Domicile Client'}\nTarif TTC : ${pack.priceTTC} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
             content = content.replace('[INFO_PACK]', packInfo);
         }
 
@@ -934,14 +1013,26 @@ const Secretariat: React.FC = () => {
                                     </div>
 
                                     <div className="flex justify-between text-sm font-bold text-slate-700 border-t border-slate-100 pt-2">
-                                        <span>{pack.hours}h</span>
-                                        <span>{pack.priceHT}€ HT</span>
+                                        <span>{calculatePackDuration(pack)}</span>
+                                        <span>{pack.priceTTC}€ TTC</span>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between">
                                         <span className="text-xs text-green-600 font-medium">
                                             Crédit Impôt: {pack.priceTaxCredit}€
                                         </span>
-                                        {pack.isSap && <span className="text-[10px] bg-brand-blue text-white px-1 rounded">SAP</span>}
+                                        <div className="flex items-center gap-2">
+                                            {pack.isSap && <span className="text-[10px] bg-brand-blue text-white px-1 rounded">SAP</span>}
+                                            <button 
+                                                onClick={() => {
+                                                    setPackDetailsModal({ open: true, pack });
+                                                }}
+                                                className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                                                title="Voir les détails du pack"
+                                            >
+                                                <FileText className="w-3 h-3" />
+                                                Détails
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -1497,7 +1588,7 @@ const Secretariat: React.FC = () => {
                                                         <option value="Hebdomadaire">Hebdomadaire (Chaque semaine)</option>
                                                         <option value="Bimensuelle">Bimensuelle (2 fois/mois)</option>
                                                         <option value="Mensuelle">Mensuelle</option>
-                                                        <option value="Régulier">Régulier (Personnalisé)</option>
+                                                        <option value="regulier">Régulier (Personnalisé)</option>
                                                     </select>
                                                 </div>
                                             </div>
@@ -1587,7 +1678,7 @@ const Secretariat: React.FC = () => {
                                                 )}
                                             </div>
 
-                                            {(packForm.frequency === 'Régulier' || packForm.type === 'regulier') && (
+                                            {(packForm.frequency === 'regulier' || packForm.type === 'regulier') && (
                                                 <div className="bg-blue-50 p-3 rounded border border-blue-200">
                                                     <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Nombre de jours d'intervention</label>
                                                     <div className="flex items-center gap-2">
@@ -1626,18 +1717,18 @@ const Secretariat: React.FC = () => {
                                             </div>
 
                                             <div>
-                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif Standard HT (€)</label>
-                                                <input type="number" placeholder="Ex: 99" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceHT || ''} onChange={e => setPackForm({ ...packForm, priceHT: Number(e.target.value) })} />
+                                                <label className="font-bold text-slate-700 block mb-1 text-xs uppercase">Tarif TTC (€)</label>
+                                                <input type="number" placeholder="Ex: 99" className="w-full p-2 border rounded font-bold text-lg" value={packForm.priceTTC || ''} onChange={e => setPackForm({ ...packForm, priceTTC: Number(e.target.value) })} />
 
-                                                {/* Simulation TTC & Reste à charge */}
+                                                {/* Simulation HT & Reste à charge */}
                                                 <div className="mt-2 text-sm space-y-2">
                                                     <div className="bg-slate-100 p-2 rounded flex justify-between">
-                                                        <span>Montant sans avance (Total TTC) :</span>
-                                                        <strong>{((packForm.priceHT || 0) * 1.021).toFixed(2)} €</strong>
+                                                        <span>Tarif HT (calculé) :</span>
+                                                        <strong>{((packForm.priceTTC || 0) / 1.021).toFixed(2)} €</strong>
                                                     </div>
                                                     <div className="bg-green-50 p-2 rounded border border-green-200 flex justify-between text-green-800">
                                                         <span>Montant avec avance immédiate (-50%) :</span>
-                                                        <strong>{((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</strong>
+                                                        <strong>{((packForm.priceTTC || 0) * 0.5).toFixed(2)} €</strong>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1657,7 +1748,7 @@ const Secretariat: React.FC = () => {
                                                 <p><strong>Service :</strong> {packForm.mainService}</p>
                                                 <p><strong>Contrat :</strong> {packForm.contractType}</p>
                                                 <p><strong>Détails :</strong> {packForm.hours}h, {packForm.frequency} {packForm.type === 'regulier' ? `(${regularDaysCount} jours)` : ''}</p>
-                                                <p><strong>Prix Client (Avance) :</strong> {((packForm.priceHT || 0) * 1.021 * 0.5).toFixed(2)} €</p>
+                                                <p><strong>Prix Client (Avance) :</strong> {((packForm.priceTTC || 0) * 0.5).toFixed(2)} €</p>
                                             </div>
 
                                             <div className="flex flex-col items-center gap-2 text-green-600 bg-green-50 p-3 rounded">
@@ -1987,6 +2078,122 @@ const Secretariat: React.FC = () => {
                                 >
                                     <Save className="w-4 h-4" />
                                     Sauvegarder les modifications
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Pack Details Modal */}
+            {packDetailsModal.open && packDetailsModal.pack && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <div className="flex justify-between items-start mb-4">
+                                <h3 className="text-xl font-bold text-slate-800">Détails du Pack</h3>
+                                <button 
+                                    onClick={() => setPackDetailsModal({ open: false, pack: null })}
+                                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-slate-50 p-3 rounded">
+                                        <p className="text-xs text-slate-500 uppercase font-bold">Nom du pack</p>
+                                        <p className="font-bold text-slate-800">{packDetailsModal.pack.name}</p>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded">
+                                        <p className="text-xs text-slate-500 uppercase font-bold">Service principal</p>
+                                        <p className="font-bold text-slate-800">{packDetailsModal.pack.mainService}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-blue-50 p-3 rounded">
+                                    <p className="text-xs text-blue-500 uppercase font-bold mb-2">Description</p>
+                                    <p className="text-slate-700">{packDetailsModal.pack.description}</p>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="bg-green-50 p-3 rounded">
+                                        <p className="text-xs text-green-500 uppercase font-bold">Durée</p>
+                                        <p className="font-bold text-green-800">{packDetailsModal.pack.hours}h</p>
+                                    </div>
+                                    <div className="bg-purple-50 p-3 rounded">
+                                        <p className="text-xs text-purple-500 uppercase font-bold">Fréquence</p>
+                                        <p className="font-bold text-purple-800">{packDetailsModal.pack.frequency}</p>
+                                    </div>
+                                    <div className="bg-orange-50 p-3 rounded">
+                                        <p className="text-xs text-orange-500 uppercase font-bold">Lieu</p>
+                                        <p className="font-bold text-orange-800">{packDetailsModal.pack.location || 'Domicile Client'}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div className="bg-yellow-50 p-3 rounded">
+                                        <p className="text-xs text-yellow-500 uppercase font-bold">Prix TTC</p>
+                                        <p className="font-bold text-yellow-800">{packDetailsModal.pack.priceTTC}€</p>
+                                    </div>
+                                </div>
+                                {/* Prix HT masqué */}
+                                {/* <div className="bg-slate-50 p-3 rounded">
+                                    <p className="text-xs text-slate-500 uppercase font-bold">Prix HT</p>
+                                    <p className="font-bold text-slate-800">{packDetailsModal.pack.priceHT}€</p>
+                                </div> */}
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-green-50 p-3 rounded">
+                                        <p className="text-xs text-green-500 uppercase font-bold">Crédit Impôt</p>
+                                        <p className="font-bold text-green-800">{packDetailsModal.pack.priceTaxCredit}€</p>
+                                    </div>
+                                    <div className="bg-blue-50 p-3 rounded">
+                                        <p className="text-xs text-blue-500 uppercase font-bold">Type de contrat</p>
+                                        <p className="font-bold text-blue-800">{packDetailsModal.pack.contractType}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-purple-50 p-3 rounded">
+                                    <p className="text-xs text-purple-500 uppercase font-bold">Matériel inclus</p>
+                                    <p className="font-bold text-purple-800">{packDetailsModal.pack.suppliesIncluded ? 'Oui' : 'Non'}</p>
+                                </div>
+                                
+                                                                
+                                {packDetailsModal.pack.suppliesDetails && (
+                                    <div className="bg-amber-50 p-3 rounded">
+                                        <p className="text-xs text-amber-500 uppercase font-bold mb-2">Détails du matériel</p>
+                                        <p className="text-slate-700">{packDetailsModal.pack.suppliesDetails}</p>
+                                    </div>
+                                )}
+                                
+                                {packDetailsModal.pack.quantity && (
+                                    <div className="bg-slate-50 p-3 rounded">
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-2">Quantité/Spécificités</p>
+                                        <p className="text-slate-700">{packDetailsModal.pack.quantity}</p>
+                                    </div>
+                                )}
+                                
+                                {/* Debug information - Masqué */}
+                                {/* <div className="bg-red-50 p-3 rounded border border-red-200">
+                                    <p className="text-xs text-red-500 uppercase font-bold mb-2">Débogage - Données brutes</p>
+                                    <p className="text-xs text-slate-600 font-mono">
+                                        Frequency: {packDetailsModal.pack.frequency}<br/>
+                                        Quantity: {packDetailsModal.pack.quantity || 'non défini'}<br/>
+                                        Hours: {packDetailsModal.pack.hours}<br/>
+                                        Description: {packDetailsModal.pack.description}<br/>
+                                        Calculé: {calculatePackDuration(packDetailsModal.pack)}
+                                    </p>
+                                </div> */}
+                            </div>
+                            
+                            <div className="flex justify-end mt-6 pt-4 border-t border-slate-200">
+                                <button 
+                                    onClick={() => setPackDetailsModal({ open: false, pack: null })}
+                                    className="px-6 py-2 bg-slate-600 text-white rounded-lg font-bold hover:bg-slate-700 transition"
+                                >
+                                    Fermer
                                 </button>
                             </div>
                         </div>

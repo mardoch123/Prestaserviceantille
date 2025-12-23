@@ -21,27 +21,61 @@ import {
   AlertTriangle,
   Loader2,
   Edit,
-  KeyRound,
   Copy
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, addClient, updateClient, deleteClients, addLoyaltyHours, contracts, documents, packs } = useData();
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const { clients, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<any | null>(null);
+  
+  // Liste des départements/communes de la Martinique
+  const martiniqueDepartments = [
+    "Fort-de-France",
+    "Le Lamentin", 
+    "Schoelcher",
+    "Le Robert",
+    "Trinité",
+    "Le François",
+    "Ducos",
+    "Sainte-Marie",
+    "Le Carbet",
+    "Case-Pilote",
+    "Bassin-Pointe",
+    "Le Morne-Rouge",
+    "Ajoupa-Bouillon",
+    "Les Anses d'Arlet",
+    "Belle-Fontaine",
+    "Le Diamant",
+    "Désirade",
+    "Fonds-Saint-Denis",
+    "Grand'Rivière",
+    "Gros-Morne",
+    "Le Lorrain",
+    "Macouba",
+    "Marigot",
+    "Le Marin",
+    "Montsinéry-Tonnegrande",
+    "Le Morne-Vert",
+    "Petite-Anse",
+    "Prêcheur",
+    "Rivière-Pilote",
+    "Rivière-Salée",
+    "Saint-Esprit",
+    "Saint-Joseph",
+    "Saint-Pierre",
+    "Le Vauclin",
+    "Vauclin",
+    "Les Trois-Îlets"
+  ];
+
   const location = useLocation();
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Modal & Toast State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
-  
   // Loyalty Modal
   const [loyaltyModalOpen, setLoyaltyModalOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -54,6 +88,10 @@ const Clients: React.FC = () => {
   // Credential Modal State
   const [newCredential, setNewCredential] = useState<{ email: string, pass: string } | null>(null);
 
+  // Modal & Toast State
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+
   // Form State
   const [formData, setFormData] = useState({
     lastName: '',
@@ -65,6 +103,14 @@ const Clients: React.FC = () => {
     type: 'particulier'
   });
 
+  // États manquants
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+
+  // État pour le filtre par ville
+  const [cityFilter, setCityFilter] = useState('');
+
   useEffect(() => {
     if (location.state) {
         const state = location.state as { filter?: string };
@@ -75,12 +121,13 @@ const Clients: React.FC = () => {
   const filteredClients = useMemo(() => {
     let result = clients;
     if (filterStatus !== 'all') result = result.filter(c => c.status === filterStatus);
+    if (cityFilter !== '') result = result.filter(c => c.city === cityFilter);
     if (searchQuery) {
         const query = searchQuery.toLowerCase();
         result = result.filter(c => c.name.toLowerCase().includes(query) || c.city.toLowerCase().includes(query) || c.phone.includes(query));
     }
     return result;
-  }, [clients, filterStatus, searchQuery]);
+  }, [clients, filterStatus, cityFilter, searchQuery]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -311,13 +358,24 @@ Lien de connexion : https://presta-antilles.app/login`);
                    <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
                </button>
            )}
-           <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-            <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
-                <option value="all">Tous les clients</option><option value="active">Clients Actifs</option><option value="new">Nouveaux Clients</option><option value="prospect">Prospects</option>
-            </select>
-          </div>
-          <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
+           <div className="flex items-center gap-3">
+               <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
+                <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
+                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
+                    <option value="all">Tous les clients</option><option value="active">Clients Actifs</option><option value="new">Nouveaux Clients</option><option value="prospect">Prospects</option>
+                </select>
+              </div>
+              <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
+                <MapPin className="w-4 h-4 text-slate-400 ml-2 mr-2" />
+                <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
+                    <option value="">Toutes les villes</option>
+                    {martiniqueDepartments.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                </select>
+              </div>
+              <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
+            </div>
         </div>
       </div>
 
@@ -426,7 +484,12 @@ Lien de connexion : https://presta-antilles.app/login`);
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Adresse</label>
                              <input type="text" name="address" value={formData.address} onChange={handleInputChange} placeholder="Numéro et voie" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg mb-2"/>
-                             <input required type="text" name="city" value={formData.city} onChange={handleInputChange} placeholder="Ville" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"/>
+                             <select required name="city" value={formData.city} onChange={handleInputChange} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                            <option value="">Sélectionner une ville...</option>
+                            {martiniqueDepartments.map(dept => (
+                                <option key={dept} value={dept}>{dept}</option>
+                            ))}
+                        </select>
                         </div>
                     </div>
                     <div className="pt-4 flex justify-end gap-3">

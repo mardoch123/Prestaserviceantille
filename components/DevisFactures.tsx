@@ -121,7 +121,7 @@ const DevisFactures: React.FC = () => {
       if (serviceType === 'pack' && selectedPackId) {
           const pack = packs.find(p => p.id === selectedPackId);
           if (pack) {
-              setUnitPrice(pack.priceHT);
+              setUnitPrice(pack.priceTTC);
               setCustomDescription(pack.description);
               
               // RESET CONFIG ON PACK CHANGE
@@ -1191,15 +1191,15 @@ const DevisFactures: React.FC = () => {
                             <div className="space-y-4">
                                 <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={selectedPackId} onChange={(e) => setSelectedPackId(e.target.value)}>
                                     <option value="">Sélectionner un pack...</option>
-                                    {packs.map(p => <option key={p.id} value={p.id}>{p.name} - {p.priceHT}€ HT</option>)}
+                                    {packs.map(p => <option key={p.id} value={p.id}>{p.name} - {p.priceTTC}€ TTC</option>)}
                                 </select>
-                                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><span className="text-sm font-bold text-slate-600">Prix Unitaire HT</span><span className="font-mono font-bold text-slate-800">{unitPrice} €</span></div>
+                                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><span className="text-sm font-bold text-slate-600">Prix Unitaire TTC</span><span className="font-mono font-bold text-slate-800">{unitPrice} €</span></div>
                             </div>
                         ) : (
                             <div className="space-y-4">
                                 <input type="text" placeholder="Description de la prestation" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={customDescription} onChange={(e) => setCustomDescription(e.target.value)} />
                                 <div className="grid grid-cols-1 gap-4">
-                                    <input type="number" placeholder="Prix Unitaire HT" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={unitPrice} onChange={(e) => setUnitPrice(Number(e.target.value))} />
+                                    <input type="number" placeholder="Prix Unitaire TTC" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={unitPrice} onChange={(e) => setUnitPrice(Number(e.target.value))} />
                                 </div>
                             </div>
                         )}

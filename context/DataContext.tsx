@@ -554,6 +554,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return {
                         ...p,
                         mainService: p.main_service || p.mainService,
+                        priceTTC: p.price_ttc || p.priceTTC,
                         priceHT: p.price_ht || p.priceHT,
                         priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
                         suppliesIncluded: p.supplies_included || p.suppliesIncluded,
@@ -2216,6 +2217,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             supplies_included: pack.suppliesIncluded,
             supplies_details: pack.suppliesDetails,
             type: pack.type,
+            price_ttc: pack.priceTTC,
             price_ht: pack.priceHT,
             price_tax_credit: pack.priceTaxCredit,
             contract_type: pack.contractType,
@@ -2229,6 +2231,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setPacks(prev => [...prev, {
                 ...newPack,
                 mainService: newPack.main_service,
+                priceTTC: newPack.price_ttc,
                 priceHT: newPack.price_ht,
                 priceTaxCredit: newPack.price_tax_credit,
                 suppliesIncluded: newPack.supplies_included,
