@@ -45,7 +45,7 @@ const ProviderPortal: React.FC = () => {
 
   const provider = providers.find(p => p.id === simulatedProviderId);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live'>('dashboard');
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -95,22 +95,15 @@ const ProviderPortal: React.FC = () => {
       };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!provider) {
-    return (
-      <div className="h-full flex items-center justify-center flex-col bg-slate-100 p-8">
-         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md text-center">
-            <Briefcase className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">Espace Prestataire</h2>
-            <p className="text-slate-500 mb-6">Veuillez sélectionner un prestataire depuis l'interface Admin pour simuler sa vue.</p>
-            <button onClick={() => setSimulatedProviderId(null)} className="bg-brand-orange text-white px-6 py-2 rounded-lg font-bold">Retour Admin</button>
-         </div>
-      </div>
-    );
-  }
+  // Détecter les caméras au chargement du composant
+  useEffect(() => {
+    detectAvailableCameras();
+  }, []);
 
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  // Fonctions utilitaires (doivent être définies avant les hooks qui les utilisent)
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
   const handleNotificationClick = (notif: any) => {
@@ -121,6 +114,31 @@ const ProviderPortal: React.FC = () => {
       setShowNotifDropdown(false);
       setShowAllNotifsModal(false);
   };
+
+  const detectAvailableCameras = async () => {
+      try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cameras = devices.filter(device => device.kind === 'videoinput');
+          setAvailableCameras(cameras);
+          if (cameras.length > 0 && !selectedCameraId) {
+              setSelectedCameraId(cameras[0].deviceId);
+          }
+      } catch (error) {
+          console.error('Erreur lors de la détection des caméras:', error);
+      }
+  };
+
+  // Early return après tous les hooks
+  if (!provider) {
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-100">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-brand-blue border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-500">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
 
   const openExecutionModal = (missionId: string, step: 'start' | 'end' | 'cancel') => {
       setSelectedMissionId(missionId);
@@ -250,27 +268,6 @@ const ProviderPortal: React.FC = () => {
           setLeaveForm({ start: '', end: '', startTime: '08:00', endTime: '18:00' });
       }
   };
-  
-  // Détecter les caméras disponibles
-  const detectAvailableCameras = async () => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      setAvailableCameras(videoDevices);
-      
-      // Sélectionner la première caméra par défaut si aucune n'est sélectionnée
-      if (videoDevices.length > 0 && !selectedCameraId) {
-        setSelectedCameraId(videoDevices[0].deviceId);
-      }
-    } catch (error) {
-      console.error('Erreur lors de la détection des caméras:', error);
-    }
-  };
-
-  // Détecter les caméras au chargement du composant
-  useEffect(() => {
-    detectAvailableCameras();
-  }, []);
 
   const startCamera = async () => {
       try {
@@ -383,7 +380,7 @@ const ProviderPortal: React.FC = () => {
                    </button>
                    
                    {showNotifDropdown && (
-                       <div className="absolute top-full right-0 mt-2 w-80 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
+                       <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
                            <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
                                <span>Notifications</span>
                                <span className="text-brand-blue">{unreadProviderNotifs.length}</span>
@@ -392,8 +389,8 @@ const ProviderPortal: React.FC = () => {
                                 {allProviderNotifs.length === 0 && <div className="p-4 text-center text-slate-400 italic">Rien à signaler</div>}
                                 {allProviderNotifs.slice(0, 5).map(n => (
                                     <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 border-b hover:bg-blue-50 cursor-pointer transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
-                                        <span className="font-bold block text-brand-blue mb-1">{n.title}</span>
-                                        <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
+                                        <span className="font-bold block text-brand-blue mb-1 truncate">{n.title}</span>
+                                        <p className="text-xs text-slate-600 line-clamp-2 break-words">{n.message}</p>
                                     </div>
                                 ))}
                            </div>
@@ -457,9 +454,9 @@ const ProviderPortal: React.FC = () => {
                                    <p className="text-slate-400 font-bold">Aucune mission assignée pour le moment.</p>
                                </div>
                            ) : (
-                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                                    {providerMissions.map(m => (
-                                       <div key={m.id} className={`bg-white p-5 rounded-2xl shadow-sm border transition-all hover:shadow-md flex flex-col ${m.status === 'completed' ? 'border-green-200 bg-green-50/30' : m.status === 'cancelled' ? 'border-red-200 bg-red-50/30 opacity-75' : 'border-slate-200'}`}>
+                                       <div key={m.id} className={`bg-white p-4 sm:p-5 rounded-2xl shadow-sm border transition-all hover:shadow-md flex flex-col ${m.status === 'completed' ? 'border-green-200 bg-green-50/30' : m.status === 'cancelled' ? 'border-red-200 bg-red-50/30 opacity-75' : 'border-slate-200'}`}>
                                            <div className="flex justify-between items-start mb-4">
                                                 <div className="bg-brand-blue/10 text-brand-blue p-2 rounded-lg">
                                                     <Briefcase className="w-5 h-5" />
@@ -877,8 +874,15 @@ const ProviderPortal: React.FC = () => {
        
        {/* Toast */}
        {toast.show && (
-           <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full text-sm font-bold shadow-2xl z-[70] flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
-               <CheckCircle className="w-4 h-4 text-green-400" /> {toast.message}
+           <div className={`fixed bottom-20 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full text-sm font-bold shadow-2xl z-[70] flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 ${
+               toast.type === 'error' ? 'bg-red-800 text-white' :
+               toast.type === 'warning' ? 'bg-orange-800 text-white' :
+               'bg-green-800 text-white'
+           }`}>
+               {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                <CheckCircle className="w-4 h-4" />}
+               {toast.message}
            </div>
        )}
 

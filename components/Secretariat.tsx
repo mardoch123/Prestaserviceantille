@@ -129,7 +129,10 @@ const Secretariat: React.FC = () => {
         startLiveStream,
         stopLiveStream,
         videoRecordings,
-        getVideoRecordings
+        getVideoRecordings,
+        deleteContracts,
+        genericContracts,
+        generateContractFromTemplate
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -161,10 +164,13 @@ const Secretariat: React.FC = () => {
     // Selection State for Packs
     const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
-    // Toast
-    const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
+    // Selection State for Contracts
+    const [selectedContractIds, setSelectedContractIds] = useState<Set<string>>(new Set());
 
-    const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    // Toast
+    const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+
+    const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setToast({ show: true, message, type });
         setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
     };
@@ -217,6 +223,13 @@ const Secretariat: React.FC = () => {
     // --- CONTRACT EDIT STATE ---
     const [contractForm, setContractForm] = useState<Partial<Contract>>({ name: '', content: '' });
 
+    // --- CONTRACT FILTERS STATE ---
+    const [contractFilters, setContractFilters] = useState({
+        status: 'all',
+        isSap: 'all',
+        search: ''
+    });
+
     // Contract specific selectors for PDF Logic
     const [selectedClientIdForContract, setSelectedClientIdForContract] = useState<string>('');
     const [selectedPackIdForContract, setSelectedPackIdForContract] = useState<string>('');
@@ -254,6 +267,33 @@ const Secretariat: React.FC = () => {
             return true;
         });
     }, [expenses, expenseFilters]);
+
+    // Contract filtering logic
+    const filteredContracts = useMemo(() => {
+        return contracts.filter(contract => {
+            // Filter by status
+            if (contractFilters.status !== 'all' && contract.status !== contractFilters.status) {
+                return false;
+            }
+            
+            // Filter by SAP
+            if (contractFilters.isSap !== 'all') {
+                const isSap = contract.isSap === true;
+                if (contractFilters.isSap === 'sap' && !isSap) return false;
+                if (contractFilters.isSap === 'non-sap' && isSap) return false;
+            }
+            
+            // Filter by search term
+            if (contractFilters.search) {
+                const searchLower = contractFilters.search.toLowerCase();
+                const nameMatch = contract.name.toLowerCase().includes(searchLower);
+                const contentMatch = contract.content.toLowerCase().includes(searchLower);
+                if (!nameMatch && !contentMatch) return false;
+            }
+            
+            return true;
+        });
+    }, [contracts, contractFilters]);
 
     const openConfirmation = (title: string, message: string, onConfirm: () => void) => {
         setConfirmationModal({ open: true, title, message, onConfirm });
@@ -343,7 +383,7 @@ const Secretariat: React.FC = () => {
             quantity: '',
             location: 'Domicile Client',
             contractType: 'Contrat Prestataire Standard',
-            schedules: []
+            interventionSchedules: []
         } as Partial<PackWithSchedules>);
         setRegularDaysCount(1);
     };
@@ -372,13 +412,32 @@ const Secretariat: React.FC = () => {
         showToast('Packs supprimés avec succès.');
     };
 
+    const confirmDeleteContracts = () => {
+        if (selectedContractIds.size > 0) {
+            openConfirmation(
+                "Confirmer la suppression", 
+                `Supprimer ${selectedContractIds.size} contrat(s) sélectionné(s) ? Cette action est irréversible.`,
+                async () => {
+                    await deleteContracts(Array.from(selectedContractIds));
+                    setSelectedContractIds(new Set());
+                    showToast('Contrats supprimés avec succès.');
+                }
+            );
+        }
+    };
+
     const openContractModal = (contract?: Contract) => {
         if (contract) {
-            setContractForm(contract);
             // If editing existing contract, ensure we have IDs if present
             setSelectedClientIdForContract(''); // Reset selectors on edit generally unless linked
             setSelectedPackIdForContract(contract.packId || '');
             setContractLogoType(contract.isSap ? 'SAP' : 'Standard');
+            setContractForm({
+                id: contract.id,
+                name: contract.name,
+                content: contract.content,
+                status: contract.status
+            });
         } else {
             setContractForm({
                 id: '', // Will be generated
@@ -429,17 +488,37 @@ const Secretariat: React.FC = () => {
     };
 
     const proceedWithContractGeneration = (selectedQuote: any) => {
+        // Utiliser les contrats génériques si disponibles
+        const client = clients.find(c => c.id === selectedClientIdForContract);
+        const pack = packs.find(p => p.id === selectedPackIdForContract);
+        
+        if (client && pack && genericContracts.length > 0) {
+            // Utiliser la fonction generateContractFromTemplate du DataContext
+            const contract = generateContractFromTemplate(selectedQuote, client, pack);
+            
+            if (contract) {
+                setContractForm(prev => ({ 
+                    ...prev, 
+                    content: contract.content, 
+                    packId: selectedPackIdForContract,
+                    name: contract.name
+                }));
+                setShowQuoteSelectionModal(false);
+                showToast("Contrat généré avec succès en utilisant le modèle générique.");
+                return;
+            }
+        }
+        
+        // Fallback à l'ancienne méthode si aucun contrat générique n'est disponible
         let content = legalTemplate;
 
         // Inject Client Info
-        const client = clients.find(c => c.id === selectedClientIdForContract);
         if (client) {
             const clientInfo = `Nom : ${client.name}\nAdresse : ${client.address}, ${client.city}\nTéléphone : ${client.phone}\nEmail : ${client.email}`;
             content = content.replace('[INFO_CLIENT]', clientInfo);
         }
 
         // Inject Pack Info
-        const pack = packs.find(p => p.id === selectedPackIdForContract) as any;
         if (pack) {
             // Get intervention schedules from quote slots_data
             let scheduleInfo = '';
@@ -464,11 +543,11 @@ const Secretariat: React.FC = () => {
             }
             
             // Fallback to pack intervention schedules if no slots_data found
-            if (!scheduleInfo && pack.interventionSchedules && pack.interventionSchedules.length > 0) {
-                scheduleInfo = `\nHoraires d'intervention : ${pack.interventionSchedules.map((s: InterventionSchedule) => `${s.day} de ${s.startTime} à ${s.endTime}`).join(', ')}`;
+            if (!scheduleInfo && (pack as any).interventionSchedules && (pack as any).interventionSchedules.length > 0) {
+                scheduleInfo = `\nHoraires d'intervention : ${(pack as any).interventionSchedules.map((s: InterventionSchedule) => `${s.day} de ${s.startTime} à ${s.endTime}`).join(', ')}`;
             }
             
-            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nQuantité : ${pack.quantity || 'Standard'}\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
+            const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nLieu : ${pack.location || 'Domicile Client'}\nTarif HT : ${pack.priceHT} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
             content = content.replace('[INFO_PACK]', packInfo);
         }
 
@@ -477,13 +556,14 @@ const Secretariat: React.FC = () => {
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
         setShowQuoteSelectionModal(false);
-        showToast("Contrat généré avec les informations sélectionnées.");
+        showToast("Contrat généré avec les informations sélectionnées (ancien modèle).");
     };
 
     const handleSaveContract = async () => {
         const contractPayload = {
             ...contractForm,
-            isSap: contractLogoType === 'SAP'
+            isSap: contractLogoType === 'SAP',
+            clientId: selectedClientIdForContract || undefined
         } as Contract;
 
         try {
@@ -494,7 +574,8 @@ const Secretariat: React.FC = () => {
                         name: contractForm.name,
                         content: contractForm.content,
                         packId: selectedPackIdForContract || existing.packId,
-                        isSap: contractLogoType === 'SAP'
+                        isSap: contractLogoType === 'SAP',
+                        clientId: selectedClientIdForContract || existing.clientId
                     });
                     showToast('Contrat modifié.');
                 } else {
@@ -513,21 +594,100 @@ const Secretariat: React.FC = () => {
         }
     };
 
-    const handleRequestValidation = (contractId: string) => {
-        requestContractValidation(contractId);
-        showToast('Demande de validation envoyée au super administrateur avec succès.');
-    };
-
-    const openContractEditModal = (contractId: string, content: string) => {
-        setEditingContractId(contractId);
-        setEditingContractContent(content);
-        setContractEditModalOpen(true);
-    };
-
     const closeContractEditModal = () => {
         setContractEditModalOpen(false);
         setEditingContractContent('');
         setEditingContractId(null);
+    };
+
+    const handleDownloadPDF = (contract: Contract) => {
+        // Simulated PDF Download via Print Window
+        const printWindow = window.open('', '', 'width=800,height=600');
+        if (printWindow) {
+            // Use SAP logo if contract is SAP, otherwise use normal logo
+            const logoToUse = contract.isSap ? LOGO_SAP : LOGO_NORMAL;
+            
+            // Récupérer la signature du client depuis les documents
+            let clientSignature = '';
+            let clientSignatureDate = '';
+            
+            if (contract.clientId) {
+                const clientDocuments = documents.filter(doc => 
+                    doc.clientId === contract.clientId && 
+                    doc.type === 'Devis' && 
+                    doc.status === 'signed' && 
+                    doc.signatureData
+                );
+                
+                if (clientDocuments.length > 0) {
+                    // Prendre le document signé le plus récent
+                    const latestSignedDoc = clientDocuments.sort((a, b) => 
+                        new Date(b.signatureDate || '').getTime() - new Date(a.signatureDate || '').getTime()
+                    )[0];
+                    
+                    clientSignature = latestSignedDoc.signatureData || '';
+                    clientSignatureDate = latestSignedDoc.signatureDate || '';
+                }
+            }
+            
+            printWindow.document.write(`
+            <html>
+              <head>
+                <title>CONTRAT - ${contract.name}</title>
+                <style>
+                  body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; padding: 40px; }
+                  .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+                  .logo { max-width: 150px; margin-bottom: 10px; }
+                  .section-title { font-weight: bold; text-transform: uppercase; margin-top: 20px; text-decoration: underline; }
+                  .content { white-space: pre-wrap; }
+                  .signatures { margin-top: 50px; display: flex; justify-content: space-between; }
+                  .sig-box { width: 45%; border: 1px solid #ccc; height: 150px; padding: 10px; position: relative; }
+                  .stamp { position: absolute; bottom: 10px; right: 10px; max-width: 80px; opacity: 0.8; }
+                  .client-sig { max-width: 120px; max-height: 60px; margin-top: 10px; }
+                  .sig-date { font-size: 10pt; color: #666; margin-top: 5px; }
+                </style>
+              </head>
+              <body>
+                <div class="header">
+                   <img src="${logoToUse}" class="logo" />
+                   <h2>${companySettings.name}</h2>
+                   <p>${companySettings.address} | N° SAP: ${companySettings.siret}</p>
+                </div>
+                <div class="content">
+                  ${contract.content}
+                </div>
+                <div class="signatures">
+                   <div class="sig-box">
+                      <strong>Pour le Client :</strong>
+                      <br/>(Lu et approuvé)
+                      ${clientSignature ? `<br/><img src="${clientSignature}" class="client-sig" />` : ''}
+                      ${clientSignatureDate ? `<div class="sig-date">Signé le ${new Date(clientSignatureDate).toLocaleDateString('fr-FR')}</div>` : ''}
+                   </div>
+                   <div class="sig-box">
+                      <strong>Pour l'Entreprise :</strong>
+                      ${contract.status === 'active' ? `<br/><img src="${COMPANY_STAMP_URL}" class="stamp" /><br/><img src="${COMPANY_SIGNATURE_URL}" style="max-width:100px;" />` : ''}
+                   </div>
+                </div>
+              </body>
+            </html>
+          `);
+            printWindow.document.close();
+            printWindow.print();
+        }
+    };
+
+    const handleSendAdminMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (selectedChatClientId && adminMessageInput.trim()) {
+            await replyToClient(adminMessageInput, selectedChatClientId);
+            setAdminMessageInput('');
+            // Re-scroll handled by useEffect
+        }
+    };
+
+    const handleLeaveStatusUpdate = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
+        await updateLeaveStatus(leaveId, providerId, status);
+        showToast(status === 'approved' ? 'Absence validée. Planning mis à jour.' : 'Absence refusée.');
     };
 
     const saveContractEdit = async () => {
@@ -606,67 +766,12 @@ const Secretariat: React.FC = () => {
         showToast('Contrat validé et cacheté définitivement.');
     };
 
-    const handleDownloadPDF = (contract: Contract) => {
-        // Simulated PDF Download via Print Window
-        const printWindow = window.open('', '', 'width=800,height=600');
-        if (printWindow) {
-            // Use SAP logo if contract is SAP, otherwise use normal logo
-            const logoToUse = contract.isSap ? LOGO_SAP : LOGO_NORMAL;
-            
-            printWindow.document.write(`
-            <html>
-              <head>
-                <title>CONTRAT - ${contract.name}</title>
-                <style>
-                  body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; padding: 40px; }
-                  .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-                  .logo { max-width: 150px; margin-bottom: 10px; }
-                  .section-title { font-weight: bold; text-transform: uppercase; margin-top: 20px; text-decoration: underline; }
-                  .content { white-space: pre-wrap; }
-                  .signatures { margin-top: 50px; display: flex; justify-content: space-between; }
-                  .sig-box { width: 45%; border: 1px solid #ccc; height: 150px; padding: 10px; position: relative; }
-                  .stamp { position: absolute; bottom: 10px; right: 10px; max-width: 80px; opacity: 0.8; }
-                </style>
-              </head>
-              <body>
-                <div class="header">
-                   <img src="${logoToUse}" class="logo" />
-                   <h2>${companySettings.name}</h2>
-                   <p>${companySettings.address} | N° SAP: ${companySettings.siret}</p>
-                </div>
-                <div class="content">
-                  ${contract.content}
-                </div>
-                <div class="signatures">
-                   <div class="sig-box">
-                      <strong>Pour le Client :</strong>
-                      <br/>(Lu et approuvé)
-                   </div>
-                   <div class="sig-box">
-                      <strong>Pour l'Entreprise :</strong>
-                      ${contract.status === 'active' ? `<br/><img src="${COMPANY_STAMP_URL}" class="stamp" /><br/><img src="${COMPANY_SIGNATURE_URL}" style="max-width:100px;" />` : ''}
-                   </div>
-                </div>
-              </body>
-            </html>
-          `);
-            printWindow.document.close();
-            printWindow.print();
-        }
-    };
-
-    const handleSendAdminMessage = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (selectedChatClientId && adminMessageInput.trim()) {
-            await replyToClient(adminMessageInput, selectedChatClientId);
-            setAdminMessageInput('');
-            // Re-scroll handled by useEffect
-        }
-    };
-
-    const handleLeaveStatusUpdate = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
-        await updateLeaveStatus(leaveId, providerId, status);
-        showToast(status === 'approved' ? 'Absence validée. Planning mis à jour.' : 'Absence refusée.');
+    const handleRequestValidation = async (contractId: string) => {
+        // Function to request validation for a contract
+        await updateContract(contractId, {
+            status: 'pending_validation'
+        });
+        showToast('Demande de validation envoyée.');
     };
 
     // --- ABSENCE CONFLICT LOGIC ---
@@ -680,7 +785,7 @@ const Secretariat: React.FC = () => {
 
                 // Find missions during this leave
                 const providerMissions = missions.filter(m => m.providerId === provider.id && m.status === 'planned');
-                providerMissions.forEach(mission => {
+                providerMissions.forEach((mission: Mission) => {
                     if (mission.date) {
                         const missionDate = new Date(mission.date);
                         if (missionDate >= start && missionDate <= end) {
@@ -722,13 +827,27 @@ const Secretariat: React.FC = () => {
         <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
             {/* Toast */}
             <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-                <div className={`bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700 ${toast.type === 'error' ? 'bg-red-800 border-red-700' : ''}`}>
-                    <div className={`p-1 rounded-full text-white ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
-                        {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+                    toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+                    toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+                    'bg-green-800 text-white border-green-700'
+                }`}>
+                    <div className={`p-1 rounded-full text-white ${
+                        toast.type === 'error' ? 'bg-red-500' :
+                        toast.type === 'warning' ? 'bg-orange-500' :
+                        'bg-green-500'
+                    }`}>
+                        {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                         toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                         <CheckCircle className="w-4 h-4" />}
                     </div>
                     <div>
-                        <h4 className="font-bold text-sm">{toast.type === 'error' ? 'Erreur' : 'Succès'}</h4>
-                        <p className="text-xs text-slate-300">{toast.message}</p>
+                        <h4 className="font-bold text-sm">
+                            {toast.type === 'error' ? 'Erreur' :
+                             toast.type === 'warning' ? 'Attention' :
+                             'Succès'}
+                        </h4>
+                        <p className="text-xs opacity-90">{toast.message}</p>
                     </div>
                 </div>
             </div>
@@ -795,7 +914,7 @@ const Secretariat: React.FC = () => {
                         </div>
                         {/* Packs List */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {packs.map(pack => (
+                            {packs.map((pack: Pack) => (
                                 <div key={pack.id} className={`border rounded-lg p-4 hover:shadow-md transition bg-cream-50/30 relative ${selectedPackIds.has(pack.id) ? 'border-brand-blue ring-1 ring-brand-blue' : 'border-slate-200'}`}>
                                     <button
                                         onClick={() => togglePackSelection(pack.id)}
@@ -811,7 +930,6 @@ const Secretariat: React.FC = () => {
                                     <p className="text-xs text-slate-500 mb-3 line-clamp-2 font-bold">{pack.mainService}</p>
 
                                     <div className="text-xs text-slate-500 mb-2">
-                                        {pack.quantity && <span className="block">Quantité: {pack.quantity}</span>}
                                         {pack.location && <span className="block">Lieu: {pack.location}</span>}
                                     </div>
 
@@ -830,15 +948,84 @@ const Secretariat: React.FC = () => {
                         </div>
                         <div className="border-t border-slate-100 my-6"></div>
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-slate-700">Contrats Associés</h3>
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-lg font-bold text-slate-700">Contrats Associés</h3>
+                                {selectedContractIds.size > 0 && (
+                                    <button onClick={confirmDeleteContracts} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-1 hover:bg-red-600 animate-in fade-in">
+                                        <Trash2 className="w-3 h-3" /> Supprimer ({selectedContractIds.size})
+                                    </button>
+                                )}
+                            </div>
                             <button onClick={() => openContractModal()} className="text-brand-blue text-sm font-bold hover:underline flex items-center gap-1">
                                 <Plus className="w-3 h-3" /> Nouveau Contrat
                             </button>
                         </div>
-                        <div className="space-y-3">
-                            {contracts.map(contract => (
+                        
+                        {/* Contract Filters */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-4">
+                            <div className="flex flex-wrap gap-4 items-center">
+                                <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded">
+                                    <Filter className="w-4 h-4" /> Filtres
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                    <label className="text-sm text-slate-600">Statut:</label>
+                                    <select
+                                        value={contractFilters.status}
+                                        onChange={e => setContractFilters({ ...contractFilters, status: e.target.value })}
+                                        className="border rounded px-3 py-1 text-sm"
+                                    >
+                                        <option value="all">Tous</option>
+                                        <option value="draft">Brouillon</option>
+                                        <option value="pending_validation">En attente validation</option>
+                                        <option value="active">Actif</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                    <label className="text-sm text-slate-600">Type:</label>
+                                    <select
+                                        value={contractFilters.isSap}
+                                        onChange={e => setContractFilters({ ...contractFilters, isSap: e.target.value })}
+                                        className="border rounded px-3 py-1 text-sm"
+                                    >
+                                        <option value="all">Tous</option>
+                                        <option value="sap">SAP</option>
+                                        <option value="non-sap">Non SAP</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                    <Search className="w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher..."
+                                        value={contractFilters.search}
+                                        onChange={e => setContractFilters({ ...contractFilters, search: e.target.value })}
+                                        className="border rounded px-3 py-1 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                            {filteredContracts.map(contract => (
                                 <div key={contract.id} className={`flex items-center justify-between p-4 border rounded-lg ${contract.status === 'pending_validation' ? 'border-orange-200 bg-orange-50' : 'border-slate-200'}`}>
                                     <div className="flex items-center gap-3">
+                                        {/* Checkbox for selection */}
+                                        <button 
+                                            onClick={() => {
+                                                const newSelection = new Set(selectedContractIds);
+                                                if (newSelection.has(contract.id)) {
+                                                    newSelection.delete(contract.id);
+                                                } else {
+                                                    newSelection.add(contract.id);
+                                                }
+                                                setSelectedContractIds(newSelection);
+                                            }}
+                                            className="text-slate-400 hover:text-brand-blue"
+                                        >
+                                            {selectedContractIds.has(contract.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                        </button>
                                         <div className="p-2 bg-slate-100 rounded">
                                             <FileSignature className="w-5 h-5 text-slate-500" />
                                         </div>
@@ -1583,7 +1770,11 @@ const Secretariat: React.FC = () => {
                                             </button>
                                             {contractForm.content && (
                                                 <button
-                                                    onClick={() => openContractEditModal(contractForm.id || 'new', contractForm.content || '')}
+                                                    onClick={() => {
+                                                        setEditingContractContent(contractForm.content || '');
+                                                        setEditingContractId(contractForm.id || 'new');
+                                                        setContractEditModalOpen(true);
+                                                    }}
                                                     className="w-full md:w-auto bg-green-600 text-white px-4 py-2 rounded font-bold text-sm hover:bg-green-700 mt-2 md:mt-0 flex items-center gap-2"
                                                 >
                                                     <Edit className="w-4 h-4" />
@@ -1807,3 +1998,5 @@ const Secretariat: React.FC = () => {
 };
 
 export default Secretariat;
+
+

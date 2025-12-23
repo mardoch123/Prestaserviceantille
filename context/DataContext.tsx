@@ -2,10 +2,12 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { 
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 // ... rest of the code remains the same ...
 // --- Assets & Constantes ---
@@ -103,9 +105,14 @@ interface DataContextType {
     contracts: Contract[];
     addContract: (contract: Contract) => Promise<void>;
     updateContract: (id: string, updates: Partial<Contract>) => Promise<void>;
+    deleteContract: (id: string) => Promise<void>;
+    deleteContracts: (ids: string[]) => Promise<void>;
     requestContractValidation: (contractId: string) => Promise<void>;
     validateContract: (contractId: string, approved: boolean) => Promise<void>;
     legalTemplate: string;
+    genericContracts: GenericContract[];
+    generateContractFromTemplate: (quote: Document, client: Client, pack?: Pack) => Contract | null;
+    downloadContract: (contract: Contract) => void;
 
     reminders: Reminder[];
     addReminder: (reminder: Reminder) => Promise<void>;
@@ -195,6 +202,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [documents, setDocuments] = useState<Document[]>([]);
     const [packs, setPacks] = useState<Pack[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
+    const [genericContracts, setGenericContracts] = useState<GenericContract[]>([]);
     const [reminders, setReminders] = useState<Reminder[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -428,7 +436,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             const [
                 cData, pData, mData, dData, packData, ctData,
-                rData, eData, msgData, notifData, settingsData, vsData, leavesData
+                rData, eData, msgData, notifData, settingsData, vsData, leavesData, gcData
             ] = await Promise.all([
                 fetchTable('clients'),
                 fetchTable('providers'),
@@ -442,7 +450,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('notifications'),
                 fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
                 fetchTable('visit_scans'),
-                fetchTable('leaves')
+                fetchTable('leaves'),
+                fetchTable('generic_contracts')
             ]);
             
             console.log("[RefreshData] All fetches completed, processing data...");
@@ -539,7 +548,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (packData) {
                 setPacks(packData.map((p: any) => {
                     const desc = p.description || '';
-                    const quantityMatch = desc.match(/Quantité: (.*?)(\||$)/);
                     const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
                     const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
 
@@ -552,20 +560,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         suppliesDetails: p.supplies_details || p.suppliesDetails,
                         isSap: p.is_sap || p.isSap,
                         contractType: p.contract_type || p.contractType,
-                        quantity: quantityMatch ? quantityMatch[1].trim() : (p.quantity || ''),
+                        quantity: p.quantity || '',
                         location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
                         frequency: freq
                     };
                 }));
             }
             if (ctData) {
+                console.log('Loading contracts from DB:', ctData.map((c: any) => ({ id: c.id, client_id: c.client_id, pack_id: c.pack_id })));
                 setContracts(ctData.map((c: any) => ({
                     ...c,
                     packId: c.pack_id || c.packId,
+                    clientId: c.client_id || c.clientId,
                     isSap: c.is_sap || c.isSap,
                     validationDate: c.validation_date || c.validationDate,
                     clientSignatureUrl: c.client_signature_url,
                     signedAt: c.signed_at
+                })));
+            }
+            if (gcData) {
+                setGenericContracts(gcData.map((gc: any) => ({
+                    ...gc,
+                    isActive: gc.is_active || gc.isActive || true
                 })));
             }
             if (rData) {
@@ -1784,6 +1800,40 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addDocument = async (doc: Document) => {
+        // Validation for Pack Ultime 6 - must have 6 hours in one day
+        if (doc.type === 'Devis' && doc.packId) {
+            const pack = packs.find(p => p.id === doc.packId);
+            if (pack && pack.name.includes('Ultime 6')) {
+                let totalHours = 0;
+                let hasMultipleDays = false;
+                const firstDate = doc.slotsData && doc.slotsData.length > 0 ? doc.slotsData[0].date : null;
+                
+                if (doc.slotsData && Array.isArray(doc.slotsData)) {
+                    doc.slotsData.forEach((slot: any) => {
+                        if (slot.startTime && slot.endTime) {
+                            const start = new Date(`2000-01-01T${slot.startTime}`);
+                            const end = new Date(`2000-01-01T${slot.endTime}`);
+                            const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                            totalHours += hours;
+                            
+                            if (firstDate && slot.date !== firstDate) {
+                                hasMultipleDays = true;
+                            }
+                        }
+                    });
+                }
+                
+                if (totalHours < 6 || hasMultipleDays) {
+                    const sessionsCount = doc.slotsData ? doc.slotsData.length : 0;
+                    const warningMessage = hasMultipleDays 
+                        ? "Le Pack Ultime 6 doit être effectué sur une seule journée. Veuillez regrouper les créneaux sur le même jour."
+                        : `Le pack "Pack ULTIME 6" requiert exactement 6h. Vous avez planifié ${totalHours.toFixed(1)}h (${sessionsCount} séance(s)).`;
+                    
+                    throw new Error(warningMessage);
+                }
+            }
+        }
+
         const finalId = generateUUID();
         const dbDocData = {
             id: finalId,
@@ -2028,14 +2078,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         const now = new Date().toISOString();
+        console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);
         const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: now }).eq('id', id);
 
         if (!error) {
             setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: now } : d));
+            console.log('Quote signature saved successfully');
 
             // FIND ASSOCIATED CONTRACT (by pack name match usually)
             const quote = documents.find(d => d.id === id);
             if (quote) {
+                console.log('Found quote:', quote.id, 'client:', quote.clientId);
                 // Heuristic: Find contract where pack name is inside quote description or just update all contracts for this client?
                 // Ideally, link via packId if we had it stored on Document.
                 // Fallback: If we can't link precisely, we'll try to find the contract linked to the pack used in the quote.
@@ -2046,6 +2099,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 if (pack) {
                     const relatedContract = contracts.find(c => c.packId === pack.id);
                     if (relatedContract) {
+                        console.log('Found existing contract:', relatedContract.id, 'updating signature');
+                        console.log('Contract current signature:', relatedContract.clientSignatureUrl ? 'exists' : 'none');
+                        console.log('New signature data length:', signatureData?.length);
                         // Update Contract Signature
                         await supabase.from('contracts').update({
                             client_signature_url: signatureData,
@@ -2053,6 +2109,34 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         }).eq('id', relatedContract.id);
 
                         setContracts(prev => prev.map(c => c.id === relatedContract.id ? { ...c, clientSignatureUrl: signatureData, signedAt: now } : c));
+                        console.log('Contract signature updated successfully');
+                    } else {
+                        // Create contract automatically when quote is signed
+                        const client = clients.find(c => c.id === quote.clientId);
+                        console.log('Creating contract for client:', client?.id, 'from quote:', quote.id);
+                        if (client) {
+                            const newContract = generateContractFromTemplate(quote, client, pack);
+                            if (newContract) {
+                                // Add clientId to the contract
+                                newContract.clientId = quote.clientId;
+                                newContract.clientSignatureUrl = signatureData;
+                                newContract.signedAt = now;
+                                newContract.status = 'active';
+                                
+                                console.log('About to add contract:', { 
+                                    id: newContract.id, 
+                                    clientId: newContract.clientId,
+                                    clientSignatureUrl: newContract.clientSignatureUrl ? 'exists' : 'none', 
+                                    signatureDataLength: signatureData?.length 
+                                });
+                                await addContract(newContract);
+                                console.log('Contract created automatically from signed quote:', newContract.id);
+                            } else {
+                                console.log('Failed to generate contract from template');
+                            }
+                        } else {
+                            console.log('Client not found for quote:', quote.clientId);
+                        }
                     }
                 }
             }
@@ -2120,7 +2204,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const addPack = async (pack: Pack) => {
         const finalId = generateUUID();
-        const mergedDescription = `${pack.description}\n| Quantité: ${pack.quantity || 'Standard'} | Lieu: ${pack.location || 'Domicile Client'}`;
+        const mergedDescription = pack.description ? `${pack.description}\n| Lieu: ${pack.location || 'Domicile Client'}` : `| Lieu: ${pack.location || 'Domicile Client'}`;
         const dbFrequency = pack.frequency ? pack.frequency.toLowerCase() : 'ponctuelle';
         const dbPackData = {
             id: finalId,
@@ -2170,11 +2254,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const addContract = async (contract: Contract) => {
         const finalId = generateUUID();
         const packId = (!contract.packId || contract.packId === "") ? null : contract.packId;
+        const clientId = (!contract.clientId || contract.clientId === "") ? null : contract.clientId;
+        console.log('Adding contract with clientId:', clientId);
         const dbData = {
             id: finalId,
             name: contract.name,
             content: contract.content,
             pack_id: packId,
+            client_id: clientId,
             status: contract.status,
             is_sap: contract.isSap,
             validation_date: contract.validationDate,
@@ -2183,7 +2270,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             validated_at: contract.validatedAt
         };
         const { data, error } = await supabase.from('contracts').insert(dbData).select();
-        if (error) throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
+        if (error) {
+            console.error('Error adding contract to DB:', error);
+            // If the error is about client_id column not existing, try without it
+            if (error.message.includes('client_id') || error.code === 'PGRST204') {
+                console.log('client_id column might not exist, trying without it');
+                const dbDataWithoutClientId: any = { ...dbData };
+                delete (dbDataWithoutClientId as any).client_id;
+                const { data: data2, error: error2 } = await supabase.from('contracts').insert(dbDataWithoutClientId).select();
+                if (error2) {
+                    throw new Error("Erreur lors de la sauvegarde du contrat: " + error2.message);
+                }
+                if (data2) {
+                    setContracts(prev => [...prev, {
+                        ...data2[0],
+                        packId: data2[0].pack_id,
+                        isSap: data2[0].is_sap,
+                        validationDate: data2[0].validation_date,
+                        clientId: contract.clientId // Keep clientId in local state even if not in DB
+                    }]);
+                }
+            } else {
+                throw new Error("Erreur lors de la sauvegarde du contrat: " + error.message);
+            }
+        }
         if (data) {
             setContracts(prev => [...prev, {
                 ...data[0],
@@ -2197,6 +2307,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const updateContract = async (id: string, updates: Partial<Contract>) => {
         const dbUpdates: any = { ...updates };
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
+        if (updates.clientId) { dbUpdates.client_id = updates.clientId; delete dbUpdates.clientId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
         if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
         if (updates.adminSignatureUrl) { dbUpdates.admin_signature_url = updates.adminSignatureUrl; delete dbUpdates.adminSignatureUrl; }
@@ -2326,6 +2437,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             alert(approved ? "Contrat validé avec succès !" : "Contrat rejeté");
         } catch (error: any) {
             console.error("Erreur validation:", error);
+            alert("Erreur: " + error.message);
+        }
+    };
+
+    const deleteContract = async (id: string) => {
+        try {
+            const { error } = await supabase.from('contracts').delete().eq('id', id);
+            if (error) {
+                alert("Erreur lors de la suppression du contrat: " + error.message);
+                return;
+            }
+            
+            setContracts(prev => prev.filter(c => c.id !== id));
+        } catch (error: any) {
+            console.error("Erreur suppression contrat:", error);
+            alert("Erreur: " + error.message);
+        }
+    };
+
+    const deleteContracts = async (ids: string[]) => {
+        try {
+            const { error } = await supabase.from('contracts').delete().in('id', ids);
+            if (error) {
+                alert("Erreur lors de la suppression des contrats: " + error.message);
+                return;
+            }
+            
+            setContracts(prev => prev.filter(c => !ids.includes(c.id)));
+        } catch (error: any) {
+            console.error("Erreur suppression contrats:", error);
             alert("Erreur: " + error.message);
         }
     };
@@ -2839,6 +2980,314 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         return available.sort((a, b) => b.score - a.score).slice(0, 5);
     };
 
+    // Fonctions pour les contrats génériques
+    const generateContractFromTemplate = (quote: Document, client: Client, pack?: Pack) => {
+        const genericContract = genericContracts.find(gc => gc.isActive);
+        if (!genericContract) return null;
+
+        const replacements = {
+            '{{CLIENT_NAME}}': client.name,
+            '{{CLIENT_ADDRESS}}': client.address || 'Non spécifiée',
+            '{{CLIENT_PHONE}}': client.phone || 'Non spécifié',
+            '{{CLIENT_EMAIL}}': client.email,
+            '{{QUOTE_DETAILS}}': `${quote.type} - ${pack?.name || 'Prestation personnalisée'}`,
+            '{{TOTAL_AMOUNT}}': `${quote.totalTTC.toFixed(2)} € TTC`,
+            '{{SERVICE_TYPE}}': pack?.isSap ? 'SAP' : 'Non-SAP',
+            '{{CONTRACT_LOCATION}}': 'La Trinité, Martinique',
+            '{{CONTRACT_DATE}}': new Date().toLocaleDateString('fr-FR'),
+            '{{CLIENT_SIGNATURE}}': quote.signatureData ? `<img src="${quote.signatureData}" style="max-width: 200px; max-height: 100px;" />` : '',
+            '{{CLIENT_SIGNATURE_DATE}}': quote.signatureDate ? new Date(quote.signatureDate).toLocaleDateString('fr-FR') : '',
+            '{{ADMIN_SIGNATURE}}': COMPANY_SIGNATURE_URL ? `<img src="${COMPANY_SIGNATURE_URL}" style="max-width: 200px; max-height: 100px;" />` : '',
+            '{{ADMIN_SIGNATURE_DATE}}': new Date().toLocaleDateString('fr-FR')
+        };
+
+        let contractContent = genericContract.content;
+        Object.entries(replacements).forEach(([placeholder, value]) => {
+            contractContent = contractContent.replace(new RegExp(placeholder, 'g'), value);
+        });
+
+        return {
+            id: generateUUID(),
+            name: `Contrat - ${quote.ref}`,
+            content: contractContent,
+            clientId: client.id,
+            quoteId: quote.id,
+            isGeneric: false,
+            generatedAt: new Date().toISOString(),
+            status: 'active' as const,
+            adminSignatureUrl: COMPANY_SIGNATURE_URL,
+            clientSignatureUrl: quote.signatureData,
+            validatedAt: new Date().toISOString(),
+            signedAt: quote.signatureDate
+        };
+    };
+
+    const downloadContract = async (contract: Contract) => {
+        try {
+            console.log('Downloading contract:', contract.id);
+            console.log('Contract client signature:', contract.clientSignatureUrl ? 'exists' : 'none');
+            console.log('Contract signed at:', contract.signedAt);
+            
+            // Récupérer la signature depuis la table documents si elle n'existe pas dans le contrat
+            let clientSignatureData = contract.clientSignatureUrl;
+            
+            console.log('Recherche signature - contract.clientSignatureUrl:', contract.clientSignatureUrl ? 'exists' : 'none');
+            console.log('Recherche signature - contract.quoteId:', contract.quoteId);
+            console.log('Recherche signature - contract.clientId:', contract.clientId);
+            
+            if (!clientSignatureData && contract.quoteId) {
+                console.log('Recherche de la signature dans les documents pour quoteId:', contract.quoteId);
+                const { data: documentData, error: documentError } = await supabase
+                    .from('documents')
+                    .select('signature_data, signature_date')
+                    .eq('id', contract.quoteId)
+                    .single();
+                
+                console.log('Document query result:', { documentError, documentData });
+                
+                if (!documentError && documentData) {
+                    clientSignatureData = documentData.signature_data;
+                    console.log('Signature trouvée dans les documents:', clientSignatureData ? 'exists' : 'none');
+                    console.log('Signature data type:', typeof clientSignatureData);
+                    console.log('Signature data length:', clientSignatureData?.length);
+                    console.log('Signature data starts with data:image:', clientSignatureData?.startsWith('data:image/'));
+                    if (!contract.signedAt && documentData.signature_date) {
+                        contract.signedAt = documentData.signature_date;
+                    }
+                } else {
+                    console.log('Erreur ou document non trouvé:', documentError);
+                }
+            }
+            
+            // Si toujours pas de signature, chercher par clientId
+            if (!clientSignatureData && contract.clientId) {
+                console.log('Recherche de la signature par clientId:', contract.clientId);
+                const { data: clientDocuments, error: clientDocsError } = await supabase
+                    .from('documents')
+                    .select('signature_data, signature_date, id')
+                    .eq('client_id', contract.clientId)
+                    .eq('status', 'signed')
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+                
+                console.log('Client documents query result:', { clientDocsError, clientDocuments });
+                
+                if (!clientDocsError && clientDocuments && clientDocuments.length > 0) {
+                    clientSignatureData = clientDocuments[0].signature_data;
+                    console.log('Signature trouvée via clientId:', clientSignatureData ? 'exists' : 'none');
+                    console.log('Signature data type:', typeof clientSignatureData);
+                    console.log('Signature data length:', clientSignatureData?.length);
+                    console.log('Signature data starts with data:image:', clientSignatureData?.startsWith('data:image/'));
+                    if (!contract.signedAt && clientDocuments[0].signature_date) {
+                        contract.signedAt = clientDocuments[0].signature_date;
+                    }
+                } else {
+                    console.log('Erreur ou aucun document signé trouvé:', clientDocsError);
+                }
+            }
+            
+            console.log('Signature finale utilisée:', clientSignatureData ? 'exists' : 'none');
+            console.log('Type de signature finale:', typeof clientSignatureData);
+            console.log('Longueur signature finale:', clientSignatureData?.length);
+            console.log('Commence par data:image:', clientSignatureData?.startsWith('data:image/'));
+            
+            // Create HTML content for printing
+            const htmlContent = `
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${contract.name}</title>
+    <style>
+        @page {
+            margin: 15mm;
+            size: A4;
+        }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 15px;
+            line-height: 1.4; 
+            color: #333;
+            font-size: 12px;
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 20px; 
+            background: #2980b9; 
+            color: white; 
+            padding: 15px; 
+            border-radius: 8px;
+            page-break-inside: avoid;
+        }
+        .content { 
+            margin-bottom: 20px; 
+            white-space: pre-wrap; 
+            page-break-inside: avoid;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .signature { 
+            margin-top: 30px; 
+            border-top: 1px solid #ccc; 
+            padding-top: 15px; 
+            display: flex; 
+            justify-content: space-between; 
+            page-break-inside: avoid;
+        }
+        .signature-box { 
+            width: 45%; 
+            text-align: center; 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            min-height: 100px;
+            background: white;
+            page-break-inside: avoid;
+        }
+        .signature img { 
+            max-height: 60px; 
+            max-width: 100%; 
+            margin: 5px 0;
+            border: 1px solid #eee;
+            background: white;
+        }
+        .signature-placeholder {
+            min-height: 50px;
+            border: 2px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-style: italic;
+            margin: 5px 0;
+            background: #f9f9f9;
+            font-size: 11px;
+        }
+        .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            color: #666; 
+            font-size: 10px; 
+            page-break-inside: avoid;
+        }
+        @media print { 
+            body { margin: 0; padding: 10px; font-size: 11px; } 
+            .no-print { display: none; }
+            .header { background: #2980b9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .content { font-size: 11px; line-height: 1.3; }
+            .signature-box { min-height: 80px; padding: 10px; }
+            .signature img { max-height: 50px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>${contract.name}</h1>
+        <p>PRESTA SERVICES ANTILLES - SASU</p>
+        <p>31 Résidence L'Autre Bord – 97220 La Trinité</p>
+        <p>N° SAP : SAP944789700</p>
+    </div>
+    <div class="content">
+        ${contract.content}
+    </div>
+    <div class="signature">
+        <div class="signature-box">
+            <h3>Signature Client</h3>
+            ${(() => {
+                if (clientSignatureData && clientSignatureData !== 'auto-signed') {
+                    // Vérifier si c'est une URL Base64
+                    if (clientSignatureData.startsWith('data:image/')) {
+                        return `<img src="${clientSignatureData}" alt="Signature Client" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" />`;
+                    } else {
+                        return `<img src="${clientSignatureData}" alt="Signature Client" onload="console.log('Client signature loaded')" onerror="console.error('Failed to load client signature:', this.src); this.style.display='none'; this.nextElementSibling.style.display='block';" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" /><div style="display: none; min-height: 60px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; color: #999; font-style: italic; margin: 10px 0; background: #f9f9f9;">Signature non disponible</div>`;
+                    }
+                } else if (clientSignatureData === 'auto-signed') {
+                    return `<div class="signature-placeholder">Signature automatique (Devis signé)</div>`;
+                } else {
+                    return `<div class="signature-placeholder">En attente de signature</div>`;
+                }
+            })()}
+            ${contract.signedAt ? `<p><small>Signé le: ${new Date(contract.signedAt).toLocaleDateString('fr-FR')}</small></p>` : '<p><small><em>Non signé</em></small></p>'}
+        </div>
+        <div class="signature-box">
+            <h3>Signature Prestataire</h3>
+            <img src="${COMPANY_SIGNATURE_URL || 'https://via.placeholder.com/150x60'}" alt="Signature Prestataire">
+            <p><small>Fait à La Trinité, Martinique</small></p>
+            <p><small>Le ${new Date().toLocaleDateString('fr-FR')}</small></p>
+        </div>
+    </div>
+    <div class="footer">
+        <p>Contrat N°: ${contract.id}</p>
+        <p>Document généré automatiquement - Valeur légale</p>
+    </div>
+</body>
+</html>`;
+            
+            // Create a new window for printing
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (printWindow) {
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                
+                // Wait for all content to load including images before printing
+                printWindow.onload = () => {
+                    // Check if all images are loaded
+                    const images = printWindow.document.querySelectorAll('img');
+                    let loadedImages = 0;
+                    const totalImages = images.length;
+                    
+                    if (totalImages === 0) {
+                        // No images to wait for, print immediately
+                        setTimeout(() => {
+                            printWindow.print();
+                            printWindow.close();
+                        }, 500);
+                    } else {
+                        // Wait for all images to load
+                        images.forEach((img, index) => {
+                            img.onload = () => {
+                                loadedImages++;
+                                console.log(`Image ${index + 1}/${totalImages} loaded`);
+                                if (loadedImages === totalImages) {
+                                    setTimeout(() => {
+                                        printWindow.print();
+                                        printWindow.close();
+                                    }, 1000);
+                                }
+                            };
+                            img.onerror = () => {
+                                loadedImages++;
+                                console.error(`Image ${index + 1}/${totalImages} failed to load`);
+                                if (loadedImages === totalImages) {
+                                    setTimeout(() => {
+                                        printWindow.print();
+                                        printWindow.close();
+                                    }, 1000);
+                                }
+                            };
+                        });
+                        
+                        // Fallback timeout in case images don't load
+                        setTimeout(() => {
+                            if (!printWindow.closed) {
+                                console.log('Printing due to timeout');
+                                printWindow.print();
+                                printWindow.close();
+                            }
+                        }, 3000);
+                    }
+                };
+            } else {
+                throw new Error('Impossible d\'ouvrir la fenêtre d\'impression');
+            }
+            
+        } catch (error: any) {
+            console.error('Error generating contract document:', error);
+            throw new Error('Erreur lors de la génération du document: ' + error.message);
+        }
+    };
+
     return (
         <DataContext.Provider value={{
             companySettings, updateCompanySettings,
@@ -2847,7 +3296,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
             documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
             packs, addPack, deletePacks,
-            contracts, addContract, updateContract, requestContractValidation, validateContract, legalTemplate,
+            contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate,
+            genericContracts,
+            generateContractFromTemplate, downloadContract,
             reminders, addReminder, toggleReminder,
             expenses, addExpense, updateExpense,
             messages, replyToClient, sendClientMessage,

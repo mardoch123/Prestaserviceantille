@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, addClient, updateClient, deleteClients, addLoyaltyHours } = useData();
+  const { clients, addClient, updateClient, deleteClients, addLoyaltyHours, contracts, documents, packs } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -40,7 +40,7 @@ const Clients: React.FC = () => {
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
   // Loyalty Modal
   const [loyaltyModalOpen, setLoyaltyModalOpen] = useState(false);
@@ -165,19 +165,19 @@ const Clients: React.FC = () => {
           try {
              await addLoyaltyHours(selectedClientId, hoursToOffer);
              setLoyaltyModalOpen(false);
-             showToast(`Heures offertes et enregistrées avec succès.`);
+             showToast(`Heures offertes et enregistrées avec succès.`, 'success');
              setHoursToOffer(1);
           } catch(e) {
-              alert("Erreur sauvegarde.");
+              showToast("Erreur sauvegarde.", 'error');
           } finally {
               setIsSaving(false);
           }
       }
   };
 
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
   const showCredentials = (client: any) => {
@@ -221,12 +221,85 @@ Lien de connexion : https://presta-antilles.app/login`);
       showToast('Clients supprimés avec succès.');
   };
 
+  // Fonction pour récupérer le pack actif du client
+  const getClientActivePack = (clientId: string) => {
+    // 1. Chercher dans les contrats actifs du client
+    const clientContracts = contracts.filter(c => 
+      c.clientId === clientId && 
+      (c.status === 'active' || c.status === 'pending_validation')
+    );
+    
+    if (clientContracts.length > 0) {
+      // Prendre le contrat le plus récent
+      const latestContract = clientContracts.sort((a, b) => 
+        new Date(b.validatedAt || b.generatedAt || 0).getTime() - 
+        new Date(a.validatedAt || a.generatedAt || 0).getTime()
+      )[0];
+      
+      if (latestContract.packId) {
+        const pack = packs.find(p => p.id === latestContract.packId);
+        if (pack) {
+          return pack.name;
+        }
+      }
+    }
+    
+    // 2. Chercher dans les documents signés du client
+    const clientDocuments = documents.filter(d => 
+      d.clientId === clientId && 
+      d.status === 'signed' && 
+      d.packId
+    );
+    
+    if (clientDocuments.length > 0) {
+      // Prendre le document le plus récent
+      const latestDocument = clientDocuments.sort((a, b) => 
+        new Date(b.signedAt || 0).getTime() - 
+        new Date(a.signedAt || 0).getTime()
+      )[0];
+      
+      if (latestDocument.packId) {
+        const pack = packs.find(p => p.id === latestDocument.packId);
+        if (pack) {
+          return pack.name;
+        }
+      }
+    }
+    
+    // 3. Fallback sur le champ pack du client (ancienne méthode)
+    const client = clients.find(c => c.id === clientId);
+    if (client && client.pack && client.pack !== '-' && client.pack !== '') {
+      return client.pack;
+    }
+    
+    return null;
+  };
+
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
-            <div className="bg-green-500 p-1 rounded-full text-white"><CheckCircle className="w-4 h-4" /></div>
-            <div><h4 className="font-bold text-sm">Succès</h4><p className="text-xs text-slate-300">{toast.message}</p></div>
+        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+            'bg-green-800 text-white border-green-700'
+        }`}>
+            <div className={`p-1 rounded-full text-white ${
+                toast.type === 'error' ? 'bg-red-500' :
+                toast.type === 'warning' ? 'bg-orange-500' :
+                'bg-green-500'
+            }`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                 <CheckCircle className="w-4 h-4" />}
+            </div>
+            <div>
+                <h4 className="font-bold text-sm">
+                    {toast.type === 'error' ? 'Erreur' :
+                     toast.type === 'warning' ? 'Attention' :
+                     'Succès'}
+                </h4>
+                <p className="text-xs opacity-90">{toast.message}</p>
+            </div>
         </div>
       </div>
 
@@ -269,7 +342,6 @@ Lien de connexion : https://presta-antilles.app/login`);
                         <th className="px-6 py-4 font-bold">Nom</th>
                         <th className="px-6 py-4 font-bold">Contact</th>
                         <th className="px-6 py-4 font-bold">Ville</th>
-                        <th className="px-6 py-4 font-bold">Abonnement</th>
                         <th className="px-6 py-4 font-bold text-center">Statut</th>
                         <th className="px-6 py-4 font-bold text-right">Actions</th>
                     </tr>
@@ -289,15 +361,6 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 </td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{client.phone}</div></td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{client.city}</div></td>
-                                <td className="px-6 py-4">
-                                    {client.pack && client.pack !== '-' ? (
-                                        <span className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-bold">
-                                            {client.pack}
-                                        </span>
-                                    ) : (
-                                        <span className="text-slate-400 italic">Aucun pack</span>
-                                    )}
-                                </td>
                                 <td className="px-6 py-4 text-center">
                                     {client.status === 'active' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold border border-green-200">Actif</span>}
                                     {client.status === 'new' && <span className="bg-brand-orange/20 text-brand-orange px-2 py-1 rounded-full text-xs font-bold border border-brand-orange/30 flex items-center justify-center gap-1"><Star className="w-3 h-3" fill="currentColor" /> Nouveau</span>}
@@ -331,7 +394,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             </tr>
                         ))
                     ) : (
-                        <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">Aucun client trouvé pour cette recherche.</td></tr>
+                        <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-400">Aucun client trouvé pour cette recherche.</td></tr>
                     )}
                 </tbody>
             </table>

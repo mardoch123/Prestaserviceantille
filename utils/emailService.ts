@@ -52,7 +52,8 @@ export const sendEmailViaEmailJS = async (
             || context.clientName
             || context.providerName
             || context.to_name
-            || 'Utilisateur';
+            || context.name
+            || 'Cher client';
 
         // Prepare simplified template parameters (ONLY 4 variables)
         const templateParams = {

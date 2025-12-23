@@ -1,5 +1,4 @@
-
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData, LOGO_NORMAL } from '../context/DataContext';
 import { Contract } from '../types';
 import QRCodeManager from './QRCodeManager';
@@ -15,9 +14,11 @@ import {
   Send,
   PenTool,
   X,
+  Menu,
   Wifi,
   Lock,
   FileSignature,
+  AlertTriangle,
   LogOut,
   MapPin,
   Phone,
@@ -32,7 +33,9 @@ import {
   Play,
   Loader,
   QrCode,
-  History
+  History,
+  Search,
+  RotateCcw
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -55,6 +58,8 @@ const ClientPortal: React.FC = () => {
     submitClientReview,
     contracts,
     packs,
+    generateContractFromTemplate,
+    downloadContract,
     providers,
     logout,
     currentUser,
@@ -71,13 +76,78 @@ const ClientPortal: React.FC = () => {
   // Get client's video recordings for replay
   const clientVideoRecordings = client ? getVideoRecordings(client.id) : [];
 
+  // Document Filters
+  const [documentFilter, setDocumentFilter] = useState<string>('all');
+  const [documentStatusFilter, setDocumentStatusFilter] = useState<string>('all');
+  const [documentSearch, setDocumentSearch] = useState<string>('');
+  
+  // Planning Filters
+  const [planningStatusFilter, setPlanningStatusFilter] = useState<string>('all');
+  const [planningSearch, setPlanningSearch] = useState<string>('');
+  const [planningDateFilter, setPlanningDateFilter] = useState<string>('all');
+
+  // Get client's documents
+  const clientDocs = client ? documents.filter(d => d.clientId === client.id) : [];
+  
+  // Get client missions
+  const clientMissions = client ? missions.filter(m => m.clientId === client.id || m.clientName === client.name) : [];
+  
+  // Filter documents
+  const filteredClientDocs = useMemo(() => {
+    return clientDocs.filter((doc: any) => {
+      const matchesType = documentFilter === 'all' || doc.type === documentFilter;
+      const matchesStatus = documentStatusFilter === 'all' || doc.status === documentStatusFilter;
+      const matchesSearch = documentSearch === '' || 
+        doc.ref.toLowerCase().includes(documentSearch.toLowerCase()) ||
+        doc.type.toLowerCase().includes(documentSearch.toLowerCase());
+      
+      return matchesType && matchesStatus && matchesSearch;
+    });
+  }, [clientDocs, documentFilter, documentStatusFilter, documentSearch]);
+  
+  // Filter planning missions
+  const filteredClientMissions = useMemo(() => {
+    return clientMissions.filter(m => {
+      const matchesStatus = planningStatusFilter === 'all' || m.status === planningStatusFilter;
+      const matchesSearch = planningSearch === '' || 
+        m.service.toLowerCase().includes(planningSearch.toLowerCase()) ||
+        (m.providerName && m.providerName.toLowerCase().includes(planningSearch.toLowerCase())) ||
+        m.date.includes(planningSearch);
+      
+      const today = new Date().toISOString().split('T')[0];
+      let matchesDate = true;
+      
+      if (planningDateFilter === 'upcoming') {
+        matchesDate = m.date >= today;
+      } else if (planningDateFilter === 'past') {
+        matchesDate = m.date < today;
+      }
+      // 'all' means no date filtering
+      
+      return matchesStatus && matchesSearch && matchesDate;
+    });
+  }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
+
   const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans'>('planning');
   const [messageInput, setMessageInput] = useState('');
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+  
+  // États pour la messagerie en temps réel
+  const [isTyping, setIsTyping] = useState(false);
+  const [adminTyping, setAdminTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  };
   
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
+
+  // Mobile Menu State
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Modals
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -96,6 +166,7 @@ const ClientPortal: React.FC = () => {
   // Signature Canvas Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
 
   // Chat Scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -124,18 +195,12 @@ const ClientPortal: React.FC = () => {
     );
   }
 
-  const clientDocs = documents.filter(d => d.clientId === client.id);
-  const clientMissions = missions.filter(m => m.clientId === client.id || m.clientName === client.name);
+  // Get client missions and other data
   // All notifications
   const allClientNotifs = notifications.filter(n => n.targetUserType === 'client' && (!n.targetUserId || n.targetUserId === client.id));
   const unreadClientNotifs = allClientNotifs.filter(n => !n.read);
   const clientMessages = messages.filter(m => m.clientId === client.id);
   const isLive = activeStream && activeStream.clientId === client.id;
-
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: '' }), 3000);
-  };
 
   const handleLogout = () => {
       logout();
@@ -173,6 +238,7 @@ const ClientPortal: React.FC = () => {
       if(!ctx) return;
       
       setIsDrawing(true);
+      setHasSignature(true); // Marquer qu'une signature a été apposée
       const rect = canvas.getBoundingClientRect();
       const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
       const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
@@ -200,12 +266,18 @@ const ClientPortal: React.FC = () => {
       if(canvas) {
           const ctx = canvas.getContext('2d');
           ctx?.clearRect(0, 0, canvas.width, canvas.height);
+          setHasSignature(false); // Réinitialiser l'état de signature
       }
   };
 
   const submitSignature = () => {
       if(!termsAccepted) {
           alert("Veuillez accepter les conditions du contrat avant de signer.");
+          return;
+      }
+      
+      if(!hasSignature) {
+          alert("Veuillez apposer votre signature dans la zone prévue à cet effet.");
           return;
       }
       
@@ -239,17 +311,20 @@ const ClientPortal: React.FC = () => {
       const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
       const hasCompletedPrestation = clientCompletedMissions.length > 0;
       
-      // Check if review needed - seulement après fin de prestation
-      if (!client.hasLeftReview && hasCompletedPrestation) {
-          setPendingInvoiceDocId(doc.id);
-          setReviewModalOpen(true);
-          return;
-      } else if (!client.hasLeftReview && !hasCompletedPrestation) {
-          showToast('La demande d\'avis sera disponible après la fin de votre première prestation.');
+      // Si la prestation n'est pas terminée, afficher un message d'avertissement
+      if (!hasCompletedPrestation) {
+          showToast('Le téléchargement de la facture sera disponible après la fin de votre prestation.', 'warning');
           return;
       }
 
-      showToast('Téléchargement de la facture en cours...');
+      // Si la prestation est terminée, permettre le téléchargement direct
+      // et proposer de laisser un avis si ce n'est pas déjà fait
+      if (!client.hasLeftReview && hasCompletedPrestation) {
+          // Proposer de laisser un avis mais ne pas bloquer le téléchargement
+          showToast('Téléchargement de la facture en cours... N\'oubliez pas de laisser un avis !');
+      } else {
+          showToast('Téléchargement de la facture en cours...');
+      }
       
       // Generate proper PDF using print window
       const printWindow = window.open('', '', 'width=800,height=600');
@@ -325,60 +400,47 @@ const ClientPortal: React.FC = () => {
   const handleDownloadContract = () => {
       showToast('Téléchargement du contrat signé...');
       
-      // Find the signed contract for this client
-      const clientContract = contracts.find(c => 
-          c.name && c.name.toLowerCase().includes(client.name.toLowerCase()) && 
-          c.status === 'active'
+      console.log('Searching contracts for client:', client.id);
+      console.log('Available contracts:', contracts.map(c => ({ id: c.id, clientId: c.clientId, status: c.status, name: c.name })));
+      
+      // First try to find contract by clientId (new approach)
+      let clientContract = contracts.find(c => 
+          c.clientId === client.id && 
+          (c.status === 'active' || c.status === 'pending_validation')
       );
       
+      // If not found, try fallback approach by matching client name in contract name
       if (!clientContract) {
-          showToast('Aucun contrat signé trouvé pour votre compte.');
+          console.log('Contract not found by clientId, trying name matching fallback');
+          clientContract = contracts.find(c => 
+              c.name && c.name.toLowerCase().includes(client.name.toLowerCase()) && 
+              (c.status === 'active' || c.status === 'pending_validation')
+          );
+      }
+      
+      // If still not found, try any contract for this client
+      if (!clientContract) {
+          console.log('Contract not found by name matching, trying any contract with client info');
+          clientContract = contracts.find(c => {
+              // Check if contract content contains client information
+              const contentLower = c.content.toLowerCase();
+              const clientNameLower = client.name.toLowerCase();
+              const clientEmailLower = client.email.toLowerCase();
+              
+              return (contentLower.includes(clientNameLower) || contentLower.includes(clientEmailLower)) &&
+                     (c.status === 'active' || c.status === 'pending_validation');
+          });
+      }
+      
+      console.log('Found contract:', clientContract);
+      
+      if (!clientContract) {
+          showToast('Aucun contrat trouvé pour votre compte. Les contrats sont créés automatiquement lors de la signature d\'un devis.', 'warning');
           return;
       }
       
-      // Create proper contract PDF content
-      const contractContent = `
-CONTRAT DE SERVICES - ${clientContract.name}
-Date de signature: ${clientContract.validationDate || new Date().toLocaleDateString()}
-
-CLIENT:
-${client.name}
-${client.address}
-${client.city}
-${client.phone}
-${client.email}
-
-PRESTATAIRE:
-PRESTA SERVICES ANTILLES
-31 Résidence L'Autre Bord – 97220 La Trinité
-N° SAP : SAP944789700
-Email: prestaservicesantilles.rh@gmail.com
-Téléphone: 0696 06 15 94
-
-${clientContract.content || 'Contenu du contrat à charger depuis la base de données'}
-
-Ce contrat est valide et signé par les deux parties.
-
-Pour toute question concernant ce contrat:
-prestaservicesantilles.rh@gmail.com
-0696 06 15 94
-
-PRESTA SERVICES ANTILLES
-31 Résidence L'Autre Bord – 97220 La Trinité
-      `;
-      
-      // Create and download PDF file
-      const blob = new Blob([contractContent], { type: 'text/plain;charset=utf-8' });
-      const url = window.URL.createObjectURL(blob);
-      const element = document.createElement('a');
-      element.setAttribute('href', url);
-      element.setAttribute('download', `Contrat_Signé_${client.name.replace(/\s+/g, '_')}.pdf`);
-      element.style.display = 'none';
-      document.body.appendChild(element);
-      element.click();
-      document.body.removeChild(element);
-      window.URL.revokeObjectURL(url);
-      
+      // Use the downloadContract function from DataContext
+      downloadContract(clientContract);
       showToast('Contrat téléchargé avec succès.');
   };
 
@@ -387,11 +449,18 @@ PRESTA SERVICES ANTILLES
      const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
      const hasCompletedPrestation = clientCompletedMissions.length > 0;
      
+     // Si la prestation n'est pas terminée, afficher un message d'avertissement
+     if (!hasCompletedPrestation) {
+         showToast('La demande de facture sera disponible après la fin de votre prestation.', 'warning');
+         return;
+     }
+
+     // Si la prestation est terminée, permettre la demande directe
+     // et proposer de laisser un avis si ce n'est pas déjà fait
      if (!client.hasLeftReview && hasCompletedPrestation) {
-         setPendingInvoiceDocId(docId);
-         setReviewModalOpen(true);
-     } else if (!client.hasLeftReview && !hasCompletedPrestation) {
-         showToast('La demande d\'avis sera disponible après la fin de votre première prestation.');
+         // Proposer de laisser un avis mais ne pas bloquer la demande
+         requestInvoice(docId);
+         showToast('Demande de facture envoyée au secrétariat. N\'oubliez pas de laisser un avis !');
      } else {
          requestInvoice(docId);
          showToast('Demande de facture envoyée au secrétariat.');
@@ -399,13 +468,20 @@ PRESTA SERVICES ANTILLES
   };
 
   const submitReview = () => {
+      submitClientReview(client.id, reviewRating, reviewComment);
+      
+      // Si une facture est en attente, la débloquer
       if (pendingInvoiceDocId) {
-        submitClientReview(client.id, reviewRating, reviewComment);
         requestInvoice(pendingInvoiceDocId);
-        setReviewModalOpen(false);
         setPendingInvoiceDocId(null);
         showToast('Merci pour votre avis ! Facture débloquée.');
+      } else {
+        showToast('Merci pour votre avis ! Votre retour est précieux pour nous.');
       }
+      
+      setReviewModalOpen(false);
+      setReviewRating(5);
+      setReviewComment('');
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -452,20 +528,47 @@ PRESTA SERVICES ANTILLES
   return (
     <div className="h-full bg-slate-50 flex flex-col overflow-hidden font-sans relative">
        <div className={`fixed top-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-brand-blue text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3">
-            <CheckCircle className="w-5 h-5" />
-            <p className="text-sm font-bold">{toast.message}</p>
+        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+            'bg-green-800 text-white border-green-700'
+        }`}>
+            <div className={`p-1 rounded-full text-white ${
+                toast.type === 'error' ? 'bg-red-500' :
+                toast.type === 'warning' ? 'bg-orange-500' :
+                'bg-green-500'
+            }`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                 <CheckCircle className="w-4 h-4" />}
+            </div>
+            <div>
+                <h4 className="font-bold text-sm">
+                    {toast.type === 'error' ? 'Erreur' :
+                     toast.type === 'warning' ? 'Attention' :
+                     'Succès'}
+                </h4>
+                <p className="text-xs opacity-90">{toast.message}</p>
+            </div>
         </div>
       </div>
 
       <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
         <div className="flex items-center gap-4">
+          {/* Mobile Menu Button */}
+          <button 
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            className="md:hidden p-2 rounded-lg hover:bg-slate-100 transition"
+          >
+            {showMobileMenu ? <X className="w-6 h-6 text-slate-600" /> : <Menu className="w-6 h-6 text-slate-600" />}
+          </button>
+          
            <div className="w-10 h-10 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-lg">
              {client.name.charAt(0)}
            </div>
            <div>
-             <h1 className="text-xl font-bold text-slate-800">Espace Client</h1>
-             <p className="text-xs text-slate-500 hidden md:block">Bienvenue, {client.name}</p>
+             <h1 className="text-xl font-bold text-slate-800">{client.name}</h1>
+             <p className="text-xs text-slate-500 hidden md:block">Bienvenue</p>
            </div>
         </div>
         <div className="flex items-center gap-4">
@@ -481,7 +584,7 @@ PRESTA SERVICES ANTILLES
                 </button>
                 
                 {showNotifDropdown && (
-                    <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden">
+                    <div className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden">
                         <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
                             <span className="font-bold text-sm text-slate-700">Notifications</span>
                             <span className="text-xs text-slate-500">{unreadClientNotifs.length} nouvelles</span>
@@ -519,6 +622,51 @@ PRESTA SERVICES ANTILLES
             </button>
         </div>
       </header>
+
+      {/* Mobile Menu */}
+      {showMobileMenu && (
+        <div className="md:hidden bg-white border-b border-slate-200 shadow-lg z-20">
+          <nav className="p-4 space-y-2">
+            <button 
+              onClick={() => { setActiveTab('planning'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'planning' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Calendar className="w-4 h-4" /> Mon Planning
+            </button>
+            <button 
+              onClick={() => { setActiveTab('docs'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'docs' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <FileText className="w-4 h-4" /> Devis & Factures
+            </button>
+            <button 
+              onClick={() => { setActiveTab('messages'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <MessageSquare className="w-4 h-4" /> Messages
+            </button>
+            <button 
+              onClick={() => { setActiveTab('qr-scans'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <QrCode className="w-4 h-4" /> QR Code & Pointage
+            </button>
+            <button 
+              onClick={() => { setActiveTab('profile'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <User className="w-4 h-4" /> Mon Profil
+            </button>
+            <button 
+              onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo 
+              {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}
+            </button>
+          </nav>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
          <nav className="w-64 bg-white border-r border-slate-200 p-4 space-y-2 hidden md:block shrink-0">
@@ -591,8 +739,8 @@ PRESTA SERVICES ANTILLES
                                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-center">
                                      <span className="text-xs font-bold text-blue-600 uppercase block mb-1">Abonnement</span>
                                      <span className="font-bold text-slate-800 flex items-center justify-center gap-1">
-                                         <Package className="w-4 h-4 text-brand-blue"/> {client.pack}
-                                     </span>
+                                        <Package className="w-4 h-4 text-brand-blue"/> {packs.find(p => p.name === client.pack)?.name || client.pack || 'Non défini'}
+                                    </span>
                                  </div>
                                  <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100 text-center">
                                      <span className="text-xs font-bold text-yellow-700 uppercase block mb-1">Heures Offertes</span>
@@ -612,10 +760,87 @@ PRESTA SERVICES ANTILLES
              )}
 
              {activeTab === 'planning' && (
-                 <div className="space-y-6">
-                     <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
-                     <div className="space-y-4">
-                         {clientMissions.map(m => {
+                <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
+                    
+                    {/* Filtres du planning */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            {/* Recherche */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Recherche</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                    <input
+                                        type="text"
+                                        placeholder="Service, intervenant..."
+                                        value={planningSearch}
+                                        onChange={(e) => setPlanningSearch(e.target.value)}
+                                        className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                    />
+                                </div>
+                            </div>
+                            
+                            {/* Filtre par statut */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Statut</label>
+                                <select
+                                    value={planningStatusFilter}
+                                    onChange={(e) => setPlanningStatusFilter(e.target.value)}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                >
+                                    <option value="all">Tous les statuts</option>
+                                    <option value="planned">Prévues</option>
+                                    <option value="in_progress">En cours</option>
+                                    <option value="completed">Terminées</option>
+                                    <option value="cancelled">Annulées</option>
+                                </select>
+                            </div>
+                            
+                            {/* Filtre par date */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Période</label>
+                                <select
+                                    value={planningDateFilter}
+                                    onChange={(e) => setPlanningDateFilter(e.target.value)}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                >
+                                    <option value="all">Toutes les dates</option>
+                                    <option value="upcoming">À venir</option>
+                                    <option value="past">Passées</option>
+                                </select>
+                            </div>
+                            
+                            {/* Bouton de réinitialisation */}
+                            <div className="flex items-end">
+                                <button
+                                    onClick={() => {
+                                        setPlanningStatusFilter('all');
+                                        setPlanningSearch('');
+                                        setPlanningDateFilter('all');
+                                    }}
+                                    className="w-full px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm font-medium flex items-center justify-center gap-2"
+                                >
+                                    <RotateCcw className="w-4 h-4" />
+                                    Réinitialiser
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Nombre de résultats */}
+                        <div className="mt-3 text-xs text-slate-500">
+                            {filteredClientMissions.length} mission{filteredClientMissions.length > 1 ? 's' : ''} trouvée{filteredClientMissions.length > 1 ? 's' : ''}
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        {filteredClientMissions.length === 0 ? (
+                            <div className="text-center py-10">
+                                <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                <p className="text-slate-400">Aucune mission trouvée.</p>
+                            </div>
+                        ) : (
+                            filteredClientMissions.map(m => {
                                  const cancelable = canCancelMission(m);
                                  return (
                                      <div key={m.id} className={`bg-white p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-brand-blue'}`}>
@@ -631,9 +856,14 @@ PRESTA SERVICES ANTILLES
                                                  <span className="flex items-center gap-2"><User className="w-4 h-4"/> Intervenant: <span className="font-bold text-slate-700">{m.providerName || 'À confirmer'}</span></span>
                                              </div>
                                              {/* Pack Info */}
-                                             <div className="text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded-lg border border-blue-100 w-fit">
-                                                 <span className="font-bold">Pack associé:</span> {client.pack}
-                                             </div>
+                                             {(() => {
+                                                 const associatedPack = packs.find(p => p.name === client.pack) || (client.pack && client.pack !== 'Non défini' ? { name: client.pack } : null);
+                                                 return associatedPack && (
+                                                     <div className="text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded-lg border border-blue-100 w-fit">
+                                                         <span className="font-bold">Pack associé:</span> {associatedPack.name}
+                                                     </div>
+                                                 );
+                                             })()}
                                              
                                              {/* Report Photos Preview */}
                                              {m.status === 'completed' && m.endPhotos && m.endPhotos.length > 0 && (
@@ -671,79 +901,203 @@ PRESTA SERVICES ANTILLES
                                          </div>
                                      </div>
                                  );
-                             })}
-                         {clientMissions.length === 0 && <p className="text-center text-slate-400 py-10">Aucun rendez-vous à venir.</p>}
+                            })
+                        )}
+                        {clientMissions.length === 0 && <p className="text-center text-slate-400 py-10">Aucun rendez-vous à venir.</p>}
                      </div>
                  </div>
              )}
 
              {activeTab === 'docs' && (
-                 <div className="space-y-6">
-                     <h2 className="text-2xl font-bold text-slate-800">Mes Documents</h2>
-                     
-                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                         <table className="w-full text-sm text-left">
-                             <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
-                                 <tr>
-                                     <th className="px-6 py-4">Date</th>
-                                     <th className="px-6 py-4">Référence</th>
-                                     <th className="px-6 py-4">Type</th>
-                                     <th className="px-6 py-4 text-right">Montant</th>
-                                     <th className="px-6 py-4 text-center">Statut</th>
-                                     <th className="px-6 py-4 text-right">Actions</th>
-                                 </tr>
-                             </thead>
-                             <tbody className="divide-y divide-slate-50">
-                                 {clientDocs.length === 0 ? (
-                                     <tr><td colSpan={6} className="p-8 text-center text-slate-400">Aucun document.</td></tr>
-                                 ) : (
-                                     clientDocs.map(doc => (
-                                         <tr key={doc.id} className="hover:bg-slate-50">
-                                             <td className="px-6 py-4 text-slate-500">{doc.date}</td>
-                                             <td className="px-6 py-4 font-bold text-slate-700">{doc.ref}</td>
-                                             <td className="px-6 py-4">{doc.type}</td>
-                                             <td className="px-6 py-4 text-right font-bold">{doc.totalTTC.toFixed(2)} €</td>
-                                             <td className="px-6 py-4 text-center">
-                                                 {doc.status === 'sent' && <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-bold">À signer</span>}
-                                                 {doc.status === 'signed' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold">Signé</span>}
-                                                 {doc.status === 'paid' && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-bold">Payé</span>}
-                                                 {doc.status === 'pending' && <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-bold">À régler</span>}
-                                                 {doc.status === 'converted' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs font-bold">Facturé</span>}
-                                                 {doc.status === 'rejected' && <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold">Refusé</span>}
-                                             </td>
-                                             <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                                 <button onClick={() => handleDownloadInvoice(doc)} className="p-1 text-slate-400 hover:text-brand-blue" title="Télécharger PDF"><Download className="w-4 h-4"/></button>
-                                                 
-                                                 {doc.type === 'Devis' && doc.status === 'sent' && (
-                                                    <button onClick={() => openQuoteModal(doc.id)} className="bg-brand-orange text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-orange-600 flex items-center gap-1">
-                                                        <PenTool className="w-3 h-3" /> Consulter
-                                                    </button>
-                                                )}
-                                                 
-                                                 {doc.type === 'Devis' && doc.status === 'signed' && (
-                                                     <button onClick={handleDownloadContract} className="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded shadow-sm hover:bg-green-700 flex items-center gap-1">
-                                                         <FileSignature className="w-3 h-3" /> Contrat
-                                                     </button>
-                                                 )}
+                <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-slate-800">Mes Documents</h2>
+                    
+                    {/* Section Avis */}
+                    {(() => {
+                        const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
+                        const hasCompletedPrestation = clientCompletedMissions.length > 0;
+                        
+                        return hasCompletedPrestation && !client.hasLeftReview && (
+                            <div className="bg-gradient-to-r from-teal-50 to-blue-50 rounded-xl shadow-sm border border-teal-200 p-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-800 mb-2">Partagez votre expérience</h3>
+                                        <p className="text-slate-600 text-sm">Votre prestation est terminée ! Votre avis nous aide à améliorer nos services.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setReviewModalOpen(true)}
+                                        className="bg-brand-blue text-white px-6 py-3 rounded-lg font-semibold hover:bg-teal-700 transition-colors shadow-md"
+                                    >
+                                        Laisser un avis
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    
+                    {/* Filtres */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            {/* Recherche */}
+                            <div className="md:col-span-1">
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Recherche</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                    <input
+                                        type="text"
+                                        placeholder="Référence, type..."
+                                        value={documentSearch}
+                                        onChange={(e) => setDocumentSearch(e.target.value)}
+                                        className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                    />
+                                </div>
+                            </div>
+                            
+                            {/* Filtre par type */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Type</label>
+                                <select
+                                    value={documentFilter}
+                                    onChange={(e) => setDocumentFilter(e.target.value)}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                >
+                                    <option value="all">Tous les types</option>
+                                    <option value="Devis">Devis</option>
+                                    <option value="Facture">Factures</option>
+                                </select>
+                            </div>
+                            
+                            {/* Filtre par statut */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Statut</label>
+                                <select
+                                    value={documentStatusFilter}
+                                    onChange={(e) => setDocumentStatusFilter(e.target.value)}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+                                >
+                                    <option value="all">Tous les statuts</option>
+                                    <option value="sent">À signer</option>
+                                    <option value="signed">Signé</option>
+                                    <option value="paid">Payé</option>
+                                    <option value="pending">À régler</option>
+                                    <option value="converted">Facturé</option>
+                                    <option value="rejected">Refusé</option>
+                                </select>
+                            </div>
+                            
+                            {/* Bouton de réinitialisation */}
+                            <div className="flex items-end">
+                                <button
+                                    onClick={() => {
+                                        setDocumentFilter('all');
+                                        setDocumentStatusFilter('all');
+                                        setDocumentSearch('');
+                                    }}
+                                    className="w-full px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm font-medium flex items-center justify-center gap-2"
+                                >
+                                    <RotateCcw className="w-4 h-4" />
+                                    Réinitialiser
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Nombre de résultats */}
+                        <div className="mt-3 text-xs text-slate-500">
+                            {filteredClientDocs.length} document{filteredClientDocs.length > 1 ? 's' : ''} trouvé{filteredClientDocs.length > 1 ? 's' : ''}
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredClientDocs.length === 0 ? (
+                            <div className="col-span-full text-center py-10">
+                                <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                <p className="text-slate-400">Aucun document trouvé.</p>
+                            </div>
+                        ) : (
+                            filteredClientDocs.map(doc => (
+                                <div key={doc.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow">
+                                    {/* Header du document */}
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                            <button 
+                                                onClick={() => openQuoteModal(doc.id)} 
+                                                className="text-brand-blue hover:underline cursor-pointer font-bold text-lg"
+                                                title="Voir les détails du devis"
+                                            >
+                                                {doc.ref}
+                                            </button>
+                                            <div className="text-xs text-slate-500 mt-1">{doc.date}</div>
+                                        </div>
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                            doc.type === 'Devis' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+                                        }`}>
+                                            {doc.type}
+                                        </span>
+                                    </div>
+                                    
+                                    {/* Statut et montant */}
+                                    <div className="flex justify-between items-center mb-4">
+                                        <div className="text-lg font-bold text-slate-800">
+                                            {doc.totalTTC.toFixed(2)} €
+                                        </div>
+                                        <div className="text-center">
+                                            {doc.status === 'sent' && <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-bold">À signer</span>}
+                                            {doc.status === 'signed' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold">Signé</span>}
+                                            {doc.status === 'paid' && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-bold">Payé</span>}
+                                            {doc.status === 'pending' && <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-bold">À régler</span>}
+                                            {doc.status === 'converted' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs font-bold">Facturé</span>}
+                                            {doc.status === 'rejected' && <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold">Refusé</span>}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Actions */}
+                                    <div className="flex flex-wrap gap-2">
+                                        <button 
+                                            onClick={() => handleDownloadInvoice(doc)} 
+                                            className="flex-1 bg-slate-100 text-slate-700 text-xs font-bold px-3 py-2 rounded hover:bg-slate-200 transition flex items-center justify-center gap-1"
+                                            title="Télécharger PDF"
+                                        >
+                                            <Download className="w-3 h-3" /> Télécharger
+                                        </button>
+                                        
+                                        {doc.type === 'Devis' && doc.status === 'sent' && (
+                                            <button 
+                                                onClick={() => openQuoteModal(doc.id)} 
+                                                className="flex-1 bg-brand-orange text-white text-xs font-bold px-3 py-2 rounded hover:bg-orange-600 transition flex items-center justify-center gap-1"
+                                            >
+                                                <PenTool className="w-3 h-3" /> Consulter
+                                            </button>
+                                        )}
+                                         
+                                        {doc.type === 'Devis' && doc.status === 'signed' && (
+                                            <button 
+                                                onClick={handleDownloadContract} 
+                                                className="flex-1 bg-green-600 text-white text-xs font-bold px-3 py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-1"
+                                            >
+                                                <FileSignature className="w-3 h-3" /> Contrat
+                                            </button>
+                                        )}
 
-                                                 {doc.type === 'Facture' && (
-                                                     <button 
-                                                        onClick={() => handleRequestInvoice(doc.id)} 
-                                                        disabled={doc.status === 'paid' || doc.status === 'pending' || doc.status === 'converted'}
-                                                        className={`text-xs font-bold ${doc.status === 'paid' ? 'text-slate-400 cursor-not-allowed' : 'text-brand-blue hover:underline'}`}
-                                                     >
-                                                         {doc.status === 'paid' ? 'Facture Dispo' : client.hasLeftReview ? 'Réclamer' : 'Avis & Facture'}
-                                                     </button>
-                                                 )}
-                                             </td>
-                                         </tr>
-                                     ))
-                                 )}
-                             </tbody>
-                         </table>
-                     </div>
-                 </div>
-             )}
+                                        {doc.type === 'Facture' && (
+                                            <button 
+                                                onClick={() => handleRequestInvoice(doc.id)} 
+                                                disabled={doc.status === 'paid' || doc.status === 'pending' || doc.status === 'converted'}
+                                                className={`flex-1 text-xs font-bold px-3 py-2 rounded transition flex items-center justify-center gap-1 ${
+                                                    doc.status === 'paid' 
+                                                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                                                        : 'bg-brand-blue text-white hover:bg-blue-600'
+                                                }`}
+                                            >
+                                                {doc.status === 'paid' ? 'Facture Dispo' : client.hasLeftReview ? 'Réclamer' : 'Avis & Facture'}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
 
              {activeTab === 'messages' && (
                  <div className="h-full flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1051,56 +1405,115 @@ PRESTA SERVICES ANTILLES
                           </div>
                       </div>
 
-                      {/* Signature Pad */}
-                      <div className="w-full md:w-1/3 bg-white flex flex-col p-6">
-                          <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                              <PenTool className="w-4 h-4" /> Zone de Signature
-                          </h4>
-                          <p className="text-xs text-slate-500 mb-2">Veuillez signer dans le cadre ci-dessous.</p>
-                          
-                          <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 relative touch-none mb-4">
-                              <canvas 
-                                  ref={canvasRef}
-                                  className="absolute inset-0 w-full h-full cursor-crosshair"
-                                  width={300}
-                                  height={400}
-                                  onMouseDown={startDrawing}
-                                  onMouseMove={draw}
-                                  onMouseUp={stopDrawing}
-                                  onMouseLeave={stopDrawing}
-                                  onTouchStart={startDrawing}
-                                  onTouchMove={draw}
-                                  onTouchEnd={stopDrawing}
-                              />
-                              {!isDrawing && (
-                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10">
-                                      <span className="text-4xl font-serif italic text-slate-400">Signer ici</span>
-                                  </div>
-                              )}
-                              <button 
-                                  onClick={clearCanvas} 
-                                  className="absolute top-2 right-2 text-xs bg-white border px-2 py-1 rounded shadow-sm hover:bg-slate-100"
-                              >
-                                  Effacer
-                              </button>
-                          </div>
+                      {/* Signature Pad - Only show for quotes that can be signed */}
+                      {selectedQuote.status === 'sent' && (
+                          <div className="w-full md:w-1/3 bg-white flex flex-col p-6 md:sticky md:top-6">
+                              <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                  <PenTool className="w-4 h-4" /> Zone de Signature
+                              </h4>
+                              <p className="text-xs text-slate-500 mb-2">Veuillez signer dans le cadre ci-dessous.</p>
+                              
+                              <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 relative touch-none mb-4 min-h-[300px] max-h-[400px]">
+                                  <canvas 
+                                      ref={canvasRef}
+                                      className="absolute inset-0 w-full h-full cursor-crosshair"
+                                      width={300}
+                                      height={400}
+                                      onMouseDown={startDrawing}
+                                      onMouseMove={draw}
+                                      onMouseUp={stopDrawing}
+                                      onMouseLeave={stopDrawing}
+                                      onTouchStart={startDrawing}
+                                      onTouchMove={draw}
+                                      onTouchEnd={stopDrawing}
+                                      style={{ touchAction: 'none' }}
+                                  />
+                                  {!isDrawing && (
+                                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10">
+                                          <span className="text-2xl md:text-4xl font-serif italic text-slate-400">Signer ici</span>
+                                      </div>
+                                  )}
+                                  <button 
+                                      onClick={clearCanvas} 
+                                      className="absolute top-2 right-2 text-xs bg-white border px-2 py-1 rounded shadow-sm hover:bg-slate-100"
+                                  >
+                                      Effacer
+                                  </button>
+                              </div>
 
-                          <div className="flex flex-col gap-3">
-                              <button 
-                                  onClick={submitSignature}
-                                  disabled={!termsAccepted}
-                                  className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              >
-                                  Signer et Valider
-                              </button>
-                              <button 
-                                  onClick={() => handleRefuse(selectedQuote.id)}
-                                  className="w-full py-2 text-red-500 font-bold hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition"
-                              >
-                                  Refuser le devis
-                              </button>
+                              <div className="flex flex-col gap-3">
+                                  <button 
+                                      onClick={submitSignature}
+                                      disabled={!termsAccepted || !hasSignature}
+                                      className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                  >
+                                      Signer et Valider
+                                  </button>
+                                  <button 
+                                      onClick={() => handleRefuse(selectedQuote.id)}
+                                      className="w-full py-2 text-red-500 font-bold hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition"
+                                  >
+                                      Refuser le devis
+                                  </button>
+                                  {/* Download Contract Button */}
+                                  <button 
+                                      onClick={() => {
+                                          const pack = packs.find(p => p.name === client.pack);
+                                          const contract = generateContractFromTemplate(selectedQuote, client, pack);
+                                          if (contract) {
+                                              downloadContract(contract);
+                                              showToast("Contrat téléchargé avec succès");
+                                          }
+                                      }}
+                                      className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                  >
+                                      <FileText className="w-4 h-4" />
+                                      Télécharger le contrat
+                                  </button>
+                              </div>
                           </div>
-                      </div>
+                      )}
+                      
+                      {/* Status message for already signed/processed quotes */}
+                      {selectedQuote.status !== 'sent' && (
+                          <div className="w-full md:w-1/3 bg-white flex flex-col p-6">
+                              <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                  <FileSignature className="w-4 h-4" /> Statut du Devis
+                              </h4>
+                              <div className="flex-1 flex items-center justify-center">
+                                  <div className="text-center">
+                                      {selectedQuote.status === 'signed' && (
+                                          <div>
+                                              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                                              <p className="text-green-600 font-bold">Devis déjà signé</p>
+                                              <p className="text-sm text-slate-500 mt-2">Ce devis a été validé et signé.</p>
+                                          </div>
+                                      )}
+                                      {selectedQuote.status === 'paid' && (
+                                          <div>
+                                              <CheckCircle className="w-12 h-12 text-blue-500 mx-auto mb-3" />
+                                              <p className="text-blue-600 font-bold">Devis payé</p>
+                                              <p className="text-sm text-slate-500 mt-2">Ce devis a été payé.</p>
+                                          </div>
+                                      )}
+                                      {selectedQuote.status === 'converted' && (
+                                          <div>
+                                              <CheckCircle className="w-12 h-12 text-purple-500 mx-auto mb-3" />
+                                              <p className="text-purple-600 font-bold">Devis facturé</p>
+                                              <p className="text-sm text-slate-500 mt-2">Ce devis a été converti en facture.</p>
+                                          </div>
+                                      )}
+                                      {selectedQuote.status === 'rejected' && (
+                                          <div>
+                                              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                                              <p className="text-red-600 font-bold">Devis refusé</p>
+                                              <p className="text-sm text-slate-500 mt-2">Ce devis a été refusé.</p>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+                          </div>
+                      )}
                   </div>
               </div>
           </div>

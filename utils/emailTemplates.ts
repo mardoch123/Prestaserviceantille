@@ -316,7 +316,7 @@ Vous pouvez contacter le client pour comprendre les raisons et proposer des alte
                 subject: `Réinitialisation de votre mot de passe`,
                 message: createTextEmail(
                     'Nouveau Mot de Passe',
-                    `Bonjour ${context.name || 'Utilisateur'},
+                    `Bonjour ${context.name || context.clientName || context.providerName || 'Cher client'},
 
 Votre mot de passe a été réinitialisé comme demandé.
 

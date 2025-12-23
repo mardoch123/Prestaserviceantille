@@ -3,7 +3,20 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext'; 
-import { Mission, Document } from '../types';
+import { Mission, Document, Contract } from '../types';
+
+// Hook pour détecter si l'écran est mobile
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  return isMobile;
+};
 
 interface InterventionSlot {
     id: string;
@@ -14,7 +27,8 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification, missions, providers } = useData();
+  const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser } = useData();
+  const isMobile = useIsMobile();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -28,10 +42,10 @@ const DevisFactures: React.FC = () => {
   const [documentToDelete, setDocumentToDelete] = useState<{ id: string, ref: string } | null>(null);
   const [isBulkDelete, setIsBulkDelete] = useState(false);
   
-  // Toast State & Ref for timeout clearing
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
-  const toastTimeoutRef = useRef<number | null>(null);
-
+  // Document Detail Modal State
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<any>(null);
+  
   const location = useLocation();
 
   // --- Form State ---
@@ -124,7 +138,7 @@ const DevisFactures: React.FC = () => {
                       id: 'slot-ultime', 
                       date: new Date().toISOString().split('T')[0], 
                       startTime: '09:00', 
-                      endTime: '15:00', 
+                      endTime: '17:00', 
                       duration: 6 
                   }]);
               } else if (pack.name.includes("personnalisé")) {
@@ -169,6 +183,15 @@ const DevisFactures: React.FC = () => {
                   duration: hours
               });
           }
+      } else if (pack.name.includes("Ultime 6")) {
+          // Pack ULTIME 6: 6h en une seule journée de 9h à 17h
+          newSlots.push({
+              id: `slot-ultime-6`,
+              date: baseDate.toISOString().split('T')[0],
+              startTime: '09:00',
+              endTime: '17:00',
+              duration: 6
+          });
       } else if (pack.name.includes("personnalisé")) {
           const days = packSpecificConfig.customDays || 1;
           const totalHours = packSpecificConfig.customTotalHours || 2;
@@ -208,7 +231,7 @@ const DevisFactures: React.FC = () => {
               if (pack) {
                   // Validation stricte pour les packs spécifiques
                   if (pack.name.includes("Ultime 6") && Math.abs(dur - 6) > 0.01) {
-                      showToast("Le pack 'Ultime 6' requiert exactement 6h par séance.");
+                      showToast("Le pack 'Ultime 6' requiert exactement 6h par séance.", 'error');
                       return; // Annuler la modification
                   }
                   
@@ -267,6 +290,14 @@ const DevisFactures: React.FC = () => {
           }
       }
       
+      // Force 6h pour Pack Ultime 6 si détecté dans le nom du pack sélectionné
+      if (serviceType === 'pack' && selectedPackId) {
+          const pack = packs.find(p => p.id === selectedPackId);
+          if (pack && pack.name.includes("Ultime 6")) {
+              defaultDuration = 6;
+          }
+      }
+      
       setInterventionSlots([...interventionSlots, {
           id: `manual-${Date.now()}`,
           date: newDate,
@@ -309,6 +340,14 @@ const DevisFactures: React.FC = () => {
           return { 
               isValid: false, 
               message: `Le pack "Ultime 6" ne permet qu'une seule séance de 6h. Vous avez planifié ${sessionCount} séance(s).` 
+          };
+      }
+
+      // Message de succès pour Pack Ultime 6 correctement configuré
+      if (pack.name.includes("Ultime 6") && sessionCount === 1 && Math.abs(totalHours - 6) <= 0.01) {
+          return { 
+              isValid: true, 
+              message: `Pack Ultime 6 correctement configuré : 6h sur une journée (9h-17h).` 
           };
       }
 
@@ -414,10 +453,50 @@ const DevisFactures: React.FC = () => {
       return { isValid: true, message: '' };
   };
 
-  const showToast = (message: string) => {
+  
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+  const toastTimeoutRef = useRef<number | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
       if (toastTimeoutRef.current) { clearTimeout(toastTimeoutRef.current); }
-      setToast({ show: true, message });
-      toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '' }); }, 3000);
+      setToast({ show: true, message, type });
+      toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '', type: 'success' }); }, 3000);
+  };
+
+  const handleDownloadContract = (doc: Document) => {
+      if (!selectedClient) {
+          showToast("Veuillez sélectionner un client", 'error');
+          return;
+      }
+
+      // Rechercher d'abord un contrat existant pour ce client
+      const existingContract = contracts.find(c => 
+          c.clientId === selectedClient.id && 
+          (c.packId === doc.packId || c.name.includes(doc.ref))
+      );
+
+      if (existingContract) {
+          console.log('Contrat existant trouvé:', existingContract.id);
+          downloadContract(existingContract);
+          showToast("Contrat téléchargé avec succès");
+      } else {
+          // Fallback: générer un nouveau contrat si aucun n'existe
+          console.log('Aucun contrat existant, génération depuis le devis');
+          const pack = packs.find(p => p.id === doc.packId);
+          const contract = generateContractFromTemplate(doc, selectedClient, pack);
+          
+          if (contract) {
+              downloadContract(contract);
+              showToast("Contrat téléchargé avec succès");
+          } else {
+              showToast("Erreur lors de la génération du contrat");
+          }
+      }
+  };
+
+  const openDetailModal = (doc: any) => {
+      setSelectedDocument(doc);
+      setIsDetailModalOpen(true);
   };
 
   const handleSuccess = async () => {
@@ -426,7 +505,7 @@ const DevisFactures: React.FC = () => {
         // Validation pour les devis : vérifier que la planification prévisionnelle est générée
         if (modalMode === 'devis') {
             if (interventionSlots.length === 0) {
-                showToast("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.");
+                showToast("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.", 'warning');
                 setIsSubmitting(false);
                 return;
             }
@@ -434,9 +513,14 @@ const DevisFactures: React.FC = () => {
             // Validation stricte des contraintes du pack
             const validation = validatePackConstraints();
             if (!validation.isValid) {
-                showToast(validation.message);
+                showToast(validation.message, 'error');
                 setIsSubmitting(false);
                 return;
+            }
+            
+            // Afficher un message de succès pour Pack Ultime 6 si applicable
+            if (validation.message && validation.message.includes('correctement configuré')) {
+                showToast(validation.message, 'success');
             }
 
             // Vérification des disponibilités des prestataires
@@ -482,6 +566,44 @@ const DevisFactures: React.FC = () => {
 
         await addDocument(newDoc);
 
+        // GÉNÉRATION AUTOMATIQUE DU CONTRAT LORS DE LA CRÉATION D'UN DEVIS
+        if (modalMode === 'devis') {
+            const client = clients.find(c => c.id === selectedClientId);
+            const pack = packs.find(p => p.id === selectedPackId);
+            
+            if (client) {
+                const contract = generateContractFromTemplate(newDoc, client, pack);
+                
+                if (contract) {
+                    // Rendre le contrat automatiquement validé et actif
+                    const validatedContract = {
+                        ...contract,
+                        status: 'active' as const,
+                        validationStatus: 'validated' as const,
+                        validatedAt: new Date().toISOString(),
+                        validatedBy: currentUser?.id || 'system',
+                        validationDate: new Date().toISOString().split('T')[0],
+                        clientSignatureUrl: newDoc.signedAt ? 'auto-signed' : undefined,
+                        signedAt: newDoc.signedAt || new Date().toISOString()
+                    };
+                    
+                    await addContract(validatedContract);
+                    
+                    // NOTIFICATION POUR LE CLIENT: Contrat généré et validé automatiquement
+                    await addNotification(
+                        'client', 
+                        'success', 
+                        'Contrat créé et validé', 
+                        `Votre contrat a été automatiquement généré et validé pour le devis ${newDoc.ref}. Vous pouvez le télécharger dans votre espace client.`, 
+                        selectedClientId,
+                        'documents'
+                    );
+                } else {
+                    showToast('Erreur lors de la génération du contrat.', 'error');
+                }
+            }
+        }
+
         // NOTIFICATION POUR LE CLIENT: Envoyer une notification lors de la création du devis
         if (modalMode === 'devis') {
             await addNotification(
@@ -519,7 +641,7 @@ const DevisFactures: React.FC = () => {
         setIsModalOpen(false);
         showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
     } catch (e: any) {
-        alert("Erreur création document: " + e.message);
+        showToast("Erreur création document: " + e.message, 'error');
     } finally {
         setIsSubmitting(false);
     }
@@ -566,6 +688,15 @@ const DevisFactures: React.FC = () => {
     setDocumentToDelete({ id, ref });
     setIsBulkDelete(false);
     setIsDeleteModalOpen(true);
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Lien copié dans le presse-papiers');
+    } catch (err) {
+      showToast('Erreur lors de la copie du lien');
+    }
   };
 
   const confirmBulkDelete = () => {
@@ -654,9 +785,28 @@ const DevisFactures: React.FC = () => {
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 relative">
       {/* Toast Container */}
       <div className={`fixed bottom-6 right-6 z-[9999] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
-            <div className="bg-green-500 p-1 rounded-full text-white"><CheckCircle className="w-4 h-4" /></div>
-            <div><h4 className="font-bold text-sm">Action effectuée</h4><p className="text-xs text-slate-300">{toast.message}</p></div>
+        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+            'bg-green-800 text-white border-green-700'
+        }`}>
+            <div className={`p-1 rounded-full text-white ${
+                toast.type === 'error' ? 'bg-red-500' :
+                toast.type === 'warning' ? 'bg-orange-500' :
+                'bg-green-500'
+            }`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                 <CheckCircle className="w-4 h-4" />}
+            </div>
+            <div>
+                <h4 className="font-bold text-sm">
+                    {toast.type === 'error' ? 'Erreur' :
+                     toast.type === 'warning' ? 'Attention' :
+                     'Succès'}
+                </h4>
+                <p className="text-xs opacity-90">{toast.message}</p>
+            </div>
         </div>
       </div>
 
@@ -689,7 +839,169 @@ const DevisFactures: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm min-h-[400px] overflow-hidden">
-          <table className="w-full text-sm text-left">
+          {isMobile ? (
+            // Affichage mobile en cartes
+            <div className="p-4 space-y-3">
+              {/* Header mobile avec sélection */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700 flex items-center gap-2">
+                  {selectedIds.size > 0 && selectedIds.size === filteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  <span className="text-xs">Tout sélectionner</span>
+                </button>
+                {selectedIds.size > 0 && (
+                  <span className="text-xs text-brand-blue font-bold">{selectedIds.size} sélectionné(s)</span>
+                )}
+              </div>
+              
+              {/* Cartes des documents */}
+              {filteredDocs.length > 0 ? (
+                filteredDocs.map(doc => (
+                  <div key={doc.id} className={`border rounded-lg p-4 space-y-3 transition-colors ${selectedIds.has(doc.id) ? 'bg-blue-50 border-brand-blue' : 'border-slate-200 hover:bg-cream-50'}`}>
+                    {/* Header de la carte avec sélection et référence */}
+                    <div className="flex items-start justify-between">
+                      <button 
+                        onClick={(e) => toggleSelection(doc.id, e)} 
+                        className="text-slate-400 hover:text-brand-blue mt-1"
+                      >
+                        {selectedIds.has(doc.id) ? <CheckSquare className="w-4 h-4 text-brand-blue" /> : <Square className="w-4 h-4" />}
+                      </button>
+                      <div className="flex-1 ml-3">
+                        <div className="flex items-center justify-between">
+                          <span 
+                            className="font-bold text-slate-900 cursor-pointer hover:text-brand-blue transition-colors" 
+                            onClick={() => openDetailModal(doc)}
+                          >
+                            {doc.ref}
+                          </span>
+                          <span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>
+                            {doc.type}
+                          </span>
+                        </div>
+                        <div className="text-slate-700 font-bold mt-1">{doc.clientName}</div>
+                        <div className="text-xs text-slate-500 mt-1">{doc.date}</div>
+                      </div>
+                    </div>
+                    
+                    {/* Montant et statut */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-lg font-bold text-slate-900">{doc.totalTTC.toFixed(2)} €</div>
+                      </div>
+                      <div className="text-center">
+                        <select 
+                          value={doc.status} 
+                          onChange={(e) => handleStatusChange(doc.id, e.target.value, e)}
+                          className={`appearance-none cursor-pointer text-xs font-bold px-3 py-1 pr-6 rounded-full outline-none border transition-all
+                            ${doc.status === 'signed' ? 'bg-green-100 text-green-800 border-green-200' : ''}
+                            ${doc.status === 'sent' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
+                            ${doc.status === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                            ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
+                            ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
+                            ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
+                          `}
+                        >
+                          {doc.type === 'Devis' && (
+                            <>
+                              <option value="sent">Envoyé</option>
+                              <option value="signed">Signé</option>
+                              <option value="rejected">Refusé</option>
+                              <option value="converted">Facturé</option>
+                              <option value="expired">Expiré</option>
+                            </>
+                          )}
+                          {doc.type === 'Facture' && (
+                            <>
+                              <option value="pending">En attente</option>
+                              <option value="paid">Payée</option>
+                              <option value="rejected">Annulée</option>
+                            </>
+                          )}
+                        </select>
+                        {doc.reminderSent && (
+                          <div className="mt-1">
+                            <span className="text-[10px] text-orange-600 font-bold flex items-center justify-center gap-1 bg-orange-50 px-1 rounded border border-orange-200 w-fit">
+                              <RotateCcw className="w-3 h-3" /> Relance auto
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                      {/* CONVERT BUTTON */}
+                      {doc.type === 'Devis' && doc.status === 'signed' && (
+                        <button 
+                          onClick={(e) => handleConversion(doc.id, e)} 
+                          className="bg-brand-orange text-white text-xs px-3 py-1 rounded-lg hover:bg-orange-600 transition shadow-sm flex items-center gap-1" 
+                          title="Convertir après paiement"
+                        >
+                          <RefreshCw className="w-3 h-3 pointer-events-none"/> Convertir
+                        </button>
+                      )}
+                      
+                      {/* CONTRACT DOWNLOAD BUTTON */}
+                      {doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') && (
+                        <button 
+                          onClick={(e) => handleDownloadContract(doc)} 
+                          className="text-slate-400 hover:text-green-600 p-1 hover:bg-green-50 rounded transition" 
+                          title="Télécharger le contrat"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* SEND EMAIL BUTTON */}
+                      {(doc.type === 'Facture' || doc.status === 'converted') && (
+                        <button 
+                          onClick={(e) => handleSendEmail(doc.ref, e)} 
+                          className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition" 
+                          title="Envoyer par email"
+                        >
+                          <Mail className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* DOWNLOAD BUTTON */}
+                      <button 
+                        onClick={() => window.open(`/documents/${doc.ref}`, '_blank')} 
+                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition" 
+                        title="Télécharger"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+                      
+                      {/* COPY BUTTON */}
+                      <button 
+                        onClick={() => copyToClipboard(doc.ref)} 
+                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition" 
+                        title="Copier le lien"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      
+                      {/* DELETE BUTTON */}
+                      <button 
+                        onClick={(e) => confirmDelete(doc.id, doc.ref, e)} 
+                        className="text-slate-400 hover:text-red-600 p-1 hover:bg-red-50 rounded transition" 
+                        title="Supprimer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-slate-500">
+                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  Aucun devis ou facture trouvé
+                </div>
+              )}
+            </div>
+          ) : (
+            // Affichage desktop en tableau
+            <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10">
                 <tr>
                     <th className="px-6 py-3 w-10">
@@ -715,11 +1027,11 @@ const DevisFactures: React.FC = () => {
                                     {selectedIds.has(doc.id) ? <CheckSquare className="w-4 h-4 text-brand-blue" /> : <Square className="w-4 h-4" />}
                                 </button>
                             </td>
-                            <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.ref}</td>
-                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
-                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.date}</td>
-                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
-                            <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => window.location.href = `/documents/${doc.id}`}>{doc.totalTTC.toFixed(2)} €</td>
+                            <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.ref}</td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.date}</td>
+                            <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
+                            <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC.toFixed(2)} €</td>
                             <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                                     <select 
@@ -836,6 +1148,7 @@ const DevisFactures: React.FC = () => {
                 )}
             </tbody>
           </table>
+          )}
       </div>
       
       {isModalOpen && (
@@ -885,9 +1198,8 @@ const DevisFactures: React.FC = () => {
                         ) : (
                             <div className="space-y-4">
                                 <input type="text" placeholder="Description de la prestation" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={customDescription} onChange={(e) => setCustomDescription(e.target.value)} />
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4">
                                     <input type="number" placeholder="Prix Unitaire HT" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={unitPrice} onChange={(e) => setUnitPrice(Number(e.target.value))} />
-                                    <input type="number" placeholder="Quantité" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg" value={packQuantity} onChange={(e) => setPackQuantity(Number(e.target.value))} />
                                 </div>
                             </div>
                         )}
@@ -926,7 +1238,7 @@ const DevisFactures: React.FC = () => {
                                      <div className="flex items-center gap-2 text-purple-800 font-bold text-sm">
                                          <Zap className="w-4 h-4"/> Pack Ultime 6 (Journée unique)
                                      </div>
-                                     <p className="text-xs text-purple-600">Le pack Ultime 6 compte 6 heures en 1 journée.</p>
+                                     <p className="text-xs text-purple-600">Le pack Ultime 6 compte 6 heures en 1 journée (9h-17h).</p>
                                      <div className="flex items-center gap-2 bg-white p-2 rounded border border-purple-200 text-xs">
                                          <AlertTriangle className="w-3 h-3 text-orange-500" /> Ces créneaux sont libres : aucun client n'a réservé à ces heures.
                                      </div>
@@ -1112,6 +1424,87 @@ const DevisFactures: React.FC = () => {
                      
                      {modalMode === 'devis' && (<div className="space-y-2"><div className="p-3 bg-slate-100 rounded-lg border border-slate-200 text-slate-600 text-xs flex items-center gap-2"><Paperclip className="w-4 h-4 text-slate-400"/><span>Le contrat de prestation sera automatiquement joint à l'email.</span></div></div>)}
                  </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Detail Modal */}
+      {isDetailModalOpen && selectedDocument && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50 rounded-t-2xl sticky top-0 z-10">
+              <div>
+                <h3 className="text-2xl font-serif font-bold text-slate-800">Détails du {selectedDocument.type}</h3>
+                <p className="text-xs text-slate-500 mt-1">Référence : {selectedDocument.ref}</p>
+              </div>
+              <button onClick={() => setIsDetailModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                <X className="w-6 h-6 text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Client Information */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-slate-800 mb-3">Informations Client</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><span className="text-slate-500">Nom : </span><span className="font-medium">{selectedDocument.clientName}</span></div>
+                  <div><span className="text-slate-500">Date : </span><span className="font-medium">{selectedDocument.date}</span></div>
+                  <div><span className="text-slate-500">Statut : </span><span className={`font-medium ${selectedDocument.status === 'signed' ? 'text-green-600' : selectedDocument.status === 'sent' ? 'text-orange-600' : 'text-red-600'}`}>{selectedDocument.status}</span></div>
+                  <div><span className="text-slate-500">Type : </span><span className="font-medium">{selectedDocument.type}</span></div>
+                </div>
+              </div>
+
+              {/* Service Details */}
+              <div className="bg-white p-4 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-slate-800 mb-3">Détails de la Prestation</h4>
+                <div className="space-y-2 text-sm">
+                  <div><span className="text-slate-500">Description : </span><span className="font-medium">{selectedDocument.description}</span></div>
+                  <div><span className="text-slate-500">Prix unitaire HT : </span><span className="font-medium">{selectedDocument.unitPrice.toFixed(2)} €</span></div>
+                  <div><span className="text-slate-500">Taux TVA : </span><span className="font-medium">{selectedDocument.tvaRate}%</span></div>
+                </div>
+              </div>
+
+              {/* Financial Summary */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-slate-800 mb-3">Récapitulatif Financier</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span>Total HT : </span><span className="font-medium">{selectedDocument.totalHT.toFixed(2)} €</span></div>
+                  <div className="flex justify-between"><span>Montant TVA : </span><span className="font-medium">{(selectedDocument.totalTTC - selectedDocument.totalHT).toFixed(2)} €</span></div>
+                  <div className="flex justify-between font-bold text-lg pt-2 border-t border-slate-200"><span>Total TTC : </span><span className="font-medium">{selectedDocument.totalTTC.toFixed(2)} €</span></div>
+                </div>
+              </div>
+
+              {/* Intervention Slots (if available) */}
+              {selectedDocument.slotsData && selectedDocument.slotsData.length > 0 && (
+                <div className="bg-white p-4 rounded-lg border border-slate-200">
+                  <h4 className="font-bold text-slate-800 mb-3">Créneaux d'Intervention Prévus</h4>
+                  <div className="space-y-2">
+                    {selectedDocument.slotsData.map((slot: any, index: number) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
+                          <div>
+                            <div className="font-medium text-slate-700">{slot.date}</div>
+                            <div className="text-sm text-slate-500">{slot.startTime} - {slot.endTime} ({slot.duration}h)</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Signature Information (if signed) */}
+              {selectedDocument.status === 'signed' && selectedDocument.signatureDate && (
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                  <h4 className="font-bold text-green-800 mb-3">Informations de Signature</h4>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-green-600">Date de signature : </span><span className="font-medium">{new Date(selectedDocument.signatureDate).toLocaleDateString()}</span></div>
+                    <div><span className="text-green-600">Heure de signature : </span><span className="font-medium">{new Date(selectedDocument.signatureDate).toLocaleTimeString()}</span></div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

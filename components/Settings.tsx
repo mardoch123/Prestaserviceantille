@@ -1,12 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import { Save, Building, Mail, Phone, FileText, Bell, Star, Upload, Loader2, CheckCircle } from 'lucide-react';
+import { Save, Building, Mail, Phone, FileText, Bell, Star, Upload, Loader2, CheckCircle, Edit3, Eye } from 'lucide-react';
+import { GenericContract } from '../types';
 
 const Settings: React.FC = () => {
   const { companySettings, updateCompanySettings } = useData();
   const [form, setForm] = useState(companySettings);
   const [loading, setLoading] = useState(false);
+  
+  // États pour le contrat générique
+  const [genericContract, setGenericContract] = useState<GenericContract | null>(null);
+  const [contractContent, setContractContent] = useState('');
+  const [isEditingContract, setIsEditingContract] = useState(false);
+  const [contractLoading, setContractLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Sync form with context if it changes (e.g. after initial load)
   useEffect(() => {

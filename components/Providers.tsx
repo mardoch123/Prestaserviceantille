@@ -67,7 +67,7 @@ const Providers: React.FC = () => {
   
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
 
   // Credential Modal State
   const [newCredential, setNewCredential] = useState<{ email: string, pass: string } | null>(null);
@@ -194,13 +194,13 @@ const Providers: React.FC = () => {
   const handleResetPassword = (id: string) => {
       if(window.confirm("Êtes-vous sûr de vouloir réinitialiser le mot de passe de ce prestataire ?")) {
           resetProviderPassword(id);
-          showToast('Mot de passe réinitialisé et envoyé par email.');
+          showToast('Mot de passe réinitialisé et envoyé par email.', 'success');
       }
   };
 
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
   const openLeaveModal = (id: string) => {
@@ -253,13 +253,27 @@ Lien de connexion : https://presta-antilles.app/login`);
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
       
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
-            <div className="bg-green-500 p-1 rounded-full text-white">
-                <CheckCircle className="w-4 h-4" />
+        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+            'bg-green-800 text-white border-green-700'
+        }`}>
+            <div className={`p-1 rounded-full text-white ${
+                toast.type === 'error' ? 'bg-red-500' :
+                toast.type === 'warning' ? 'bg-orange-500' :
+                'bg-green-500'
+            }`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                 <CheckCircle className="w-4 h-4" />}
             </div>
             <div>
-                <h4 className="font-bold text-sm">Succès</h4>
-                <p className="text-xs text-slate-300">{toast.message}</p>
+                <h4 className="font-bold text-sm">
+                    {toast.type === 'error' ? 'Erreur' :
+                     toast.type === 'warning' ? 'Attention' :
+                     'Succès'}
+                </h4>
+                <p className="text-xs opacity-90">{toast.message}</p>
             </div>
         </div>
       </div>

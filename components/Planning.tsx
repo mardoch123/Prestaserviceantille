@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -11,14 +11,24 @@ const Planning: React.FC = () => {
 
   // Filter State
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
+  const [selectedClient, setSelectedClient] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [customDateRange, setCustomDateRange] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+      setToast({ show: true, message, type });
+      setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  };
 
   // Selection State for Unassigned Missions
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -68,28 +78,50 @@ const Planning: React.FC = () => {
 
   // Filter Logic (Missions & Reminders)
   const { filteredMissions, filteredReminders } = useMemo(() => {
-      const startStr = weekStart.toISOString().split('T')[0];
-      const endStr = weekEnd.toISOString().split('T')[0];
+      let startStr, endStr;
+      
+      if (customDateRange && startDate && endDate) {
+          startStr = startDate;
+          endStr = endDate;
+      } else {
+          startStr = weekStart.toISOString().split('T')[0];
+          endStr = weekEnd.toISOString().split('T')[0];
+      }
       
       // Missions
       let fMissions = missions.filter(m => m.date >= startStr && m.date <= endStr);
+      
+      // Filter by provider
       if (selectedProvider !== 'all') {
           fMissions = fMissions.filter(item => item.providerName === selectedProvider);
       }
+      
+      // Filter by client
+      if (selectedClient !== 'all') {
+          fMissions = fMissions.filter(item => item.clientName === selectedClient);
+      }
+      
+      // Filter by status
+      if (selectedStatus !== 'all') {
+          fMissions = fMissions.filter(item => item.status === selectedStatus);
+      }
+      
+      // Search query
       if (searchQuery) {
           const query = searchQuery.toLowerCase();
           fMissions = fMissions.filter(item => 
               item.clientName.toLowerCase().includes(query) ||
               (item.providerName && item.providerName.toLowerCase().includes(query)) ||
-              item.service.toLowerCase().includes(query)
+              item.service.toLowerCase().includes(query) ||
+              item.date.includes(query)
           );
       }
 
-      // Reminders (Only for the week view, no provider filter usually, unless tagged)
+      // Reminders (Only for the date range, no provider filter usually, unless tagged)
       let fReminders = reminders.filter(r => r.date >= startStr && r.date <= endStr);
       
       return { filteredMissions: fMissions, filteredReminders: fReminders };
-  }, [missions, reminders, selectedProvider, currentWeekOffset, searchQuery, weekStart, weekEnd]);
+  }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
 
   // Stats Logic
   const today = new Date().toISOString().split('T')[0];
@@ -208,17 +240,13 @@ const Planning: React.FC = () => {
           setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true });
       } catch (err) {
           console.error(err);
-          alert("Erreur ajout rappel");
+          showToast('Erreur ajout rappel', 'error');
       } finally {
           setIsSubmitting(false);
       }
   };
 
-  const showToast = (message: string) => {
-      setToast({ show: true, message });
-      setTimeout(() => setToast({ show: false, message: '' }), 3000);
-  };
-
+  
   const isProviderAvailable = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59') => {
       const provider = providers.find(p => p.id === providerId);
       if (!provider) return false;
@@ -244,6 +272,35 @@ const Planning: React.FC = () => {
           }
       }
       return true;
+  };
+
+  const handleAssignMission = async () => {
+      if (!selectedMissionId || !assignProviderId) {
+          showToast('Veuillez sélectionner une mission et un prestataire.', 'warning');
+          return;
+      }
+
+      setIsSubmitting(true);
+      try {
+          const mission = missions.find(m => m.id === selectedMissionId);
+          const provider = providers.find(p => p.id === assignProviderId);
+          
+          if (mission && provider) {
+              // Ensure we are using valid IDs from refreshed data
+              await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
+              
+              showToast(`Prestataire assigné ! Email envoyé.`);
+              if (refreshData) await refreshData();
+              
+              // Reset states
+              setSelectedMissionId(null);
+              setAssignProviderId('');
+          }
+      } catch (error) {
+          showToast('Erreur lors de l\'assignation.', 'error');
+      } finally {
+          setIsSubmitting(false);
+      }
   };
 
   const handleConfirmAssignment = async () => {
@@ -319,13 +376,27 @@ const Planning: React.FC = () => {
        
        {/* Toast Notification */}
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border border-slate-700">
-            <div className="bg-green-500 p-1 rounded-full text-white">
-                <CheckCircle className="w-4 h-4" />
+        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
+            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
+            'bg-green-800 text-white border-green-700'
+        }`}>
+            <div className={`p-1 rounded-full text-white ${
+                toast.type === 'error' ? 'bg-red-500' :
+                toast.type === 'warning' ? 'bg-orange-500' :
+                'bg-green-500'
+            }`}>
+                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
+                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                 <CheckCircle className="w-4 h-4" />}
             </div>
             <div>
-                <h4 className="font-bold text-sm">Succès</h4>
-                <p className="text-xs text-slate-300">{toast.message}</p>
+                <h4 className="font-bold text-sm">
+                    {toast.type === 'error' ? 'Erreur' :
+                     toast.type === 'warning' ? 'Attention' :
+                     'Succès'}
+                </h4>
+                <p className="text-xs opacity-90">{toast.message}</p>
             </div>
         </div>
       </div>
@@ -421,7 +492,94 @@ const Planning: React.FC = () => {
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
                         <span className="text-xs">▼</span>
                     </div>
-                </div>
+               </div>
+               
+               <span className="text-brand-blue italic text-sm font-bold">Client :</span>
+               <div className="relative w-48">
+                    <select 
+                        value={selectedClient}
+                        onChange={(e) => setSelectedClient(e.target.value)}
+                        className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
+                    >
+                        <option value="all">Tous les clients</option>
+                        {clients.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                        <span className="text-xs">▼</span>
+                    </div>
+               </div>
+               
+               <span className="text-brand-blue italic text-sm font-bold">Statut :</span>
+               <div className="relative w-36">
+                    <select 
+                        value={selectedStatus}
+                        onChange={(e) => setSelectedStatus(e.target.value)}
+                        className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
+                    >
+                        <option value="all">Tous</option>
+                        <option value="planned">Prévues</option>
+                        <option value="in_progress">En cours</option>
+                        <option value="completed">Terminées</option>
+                        <option value="cancelled">Annulées</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                        <span className="text-xs">▼</span>
+                    </div>
+               </div>
+               
+               <button
+                   onClick={() => {
+                       setCustomDateRange(!customDateRange);
+                       if (!customDateRange) {
+                           setStartDate('');
+                           setEndDate('');
+                       }
+                   }}
+                   className={`px-3 py-1 rounded text-sm font-bold transition ${
+                       customDateRange 
+                           ? 'bg-brand-blue text-white' 
+                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                   }`}
+               >
+                   <Calendar className="w-3 h-3 inline mr-1" />
+                   Plage perso
+               </button>
+               
+               {customDateRange && (
+                   <div className="flex items-center gap-2 bg-slate-100 rounded px-3 py-1">
+                       <input
+                           type="date"
+                           value={startDate}
+                           onChange={(e) => setStartDate(e.target.value)}
+                           className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-brand-blue"
+                       />
+                       <span className="text-xs text-slate-500">au</span>
+                       <input
+                           type="date"
+                           value={endDate}
+                           onChange={(e) => setEndDate(e.target.value)}
+                           className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-brand-blue"
+                       />
+                   </div>
+               )}
+               
+               <button
+                   onClick={() => {
+                       setSelectedProvider('all');
+                       setSelectedClient('all');
+                       setSelectedStatus('all');
+                       setSearchQuery('');
+                       setCustomDateRange(false);
+                       setStartDate('');
+                       setEndDate('');
+                   }}
+                   className="px-3 py-1 bg-slate-100 text-slate-700 rounded text-sm font-bold hover:bg-slate-200 transition"
+               >
+                   <RotateCcw className="w-3 h-3 inline mr-1" />
+                   Reset
+               </button>
            </div>
        </div>
 
@@ -829,10 +987,19 @@ const Planning: React.FC = () => {
                             <button onClick={() => setSelectedMissionId(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-lg transition">Annuler</button>
                             <button 
                                 onClick={handleConfirmAssignment}
-                                disabled={!assignProviderId}
+                                disabled={!assignProviderId || isSubmitting}
                                 className="px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                             >
-                                <Mail className="w-4 h-4" /> Envoyer & Assigner
+                                {isSubmitting ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Assignation...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Mail className="w-4 h-4" /> Envoyer & Assigner
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>

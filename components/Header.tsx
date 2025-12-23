@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Bell, User, ChevronDown, Settings, LogOut, Eye, Briefcase, Camera, Video, X, Menu } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,24 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Fermer le menu notifications au clic externe
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
 
   const adminNotifs = notifications.filter(n => n.targetUserType === 'admin' && !n.read);
   const unreadCount = adminNotifs.length;
@@ -24,20 +42,29 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   const handleNotificationClick = (notif: any) => {
       markNotificationRead(notif.id);
+      setShowNotifications(false);
+      
+      // Redirections intelligentes selon le type de notification
       if (notif.link && notif.link.startsWith('mission:')) {
           const missionId = notif.link.split(':')[1];
           setSelectedMissionReportId(missionId);
-          setShowNotifications(false);
       } else if (notif.link === 'tab:messaging') {
           navigate('/secretariat', { state: { tab: 'messaging' } });
-          setShowNotifications(false);
       } else if (notif.link === 'tab:docs') {
           navigate('/invoices', { state: { filter: 'devis' } });
-          setShowNotifications(false);
       } else if (notif.link && notif.link.startsWith('document:')) {
           const documentId = notif.link.split(':')[1];
           navigate('/invoices', { state: { documentId, filter: 'devis' } });
-          setShowNotifications(false);
+      } else if (notif.title && notif.title.toLowerCase().includes('devis')) {
+          navigate('/invoices', { state: { filter: 'devis' } });
+      } else if (notif.title && (notif.title.toLowerCase().includes('planning') || notif.title.toLowerCase().includes('créneau') || notif.title.toLowerCase().includes('verrouillé'))) {
+          navigate('/planning');
+      } else if (notif.title && notif.title.toLowerCase().includes('message')) {
+          navigate('/secretariat', { state: { tab: 'messaging' } });
+      } else if (notif.title && notif.title.toLowerCase().includes('prestataire')) {
+          navigate('/providers');
+      } else if (notif.title && notif.title.toLowerCase().includes('client')) {
+          navigate('/clients');
       }
   };
 
@@ -66,7 +93,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
       <div className="flex items-center gap-4 md:gap-6">
         {currentUser?.role === 'admin' && (
-            <div className="relative">
+            <div className="relative" ref={notificationRef}>
                 <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 text-slate-400 hover:text-brand-orange transition-colors rounded-full hover:bg-cream-50">
                     <Bell className="w-5 h-5" />
                     {unreadCount > 0 && (<span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white animate-pulse"></span>)}

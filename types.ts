@@ -110,6 +110,7 @@ export interface Contract {
     name: string;
     content: string;
     packId?: string; // FK
+    clientId?: string; // FK to client for direct association
     status: 'draft' | 'active' | 'pending_validation';
     isSap?: boolean;
     validationDate?: string;
@@ -124,6 +125,20 @@ export interface Contract {
     validationRequestedAt?: string;
     validationRequestedBy?: string; // User ID who requested validation
     isModifiable?: boolean; // Champ pour permettre la modification après création
+    // Nouveaux champs pour contrat générique
+    isGeneric?: boolean; // Indique si c'est le contrat générique
+    quoteId?: string; // ID du devis associé
+    generatedAt?: string; // Date de génération du contrat personnalisé
+}
+
+export interface GenericContract {
+    id: string;
+    name: string;
+    content: string; // Contenu du contrat générique avec placeholders
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+    createdBy: string; // ID de l'admin qui l'a créé/modifié
 }
 
 export interface Mission {
@@ -202,6 +217,11 @@ export interface Document {
     signatureData?: string; // URL or Base64
     signatureDate?: string;
     reminderSent?: boolean;
+    
+    // Nouvelles propriétés pour les signatures
+    clientSignatureUrl?: string;
+    signedAt?: string;
+    packId?: string; // FK vers le pack associé
 }
 
 // Updated based on DB schema provided in prompt
