@@ -360,7 +360,7 @@ const ProviderPortal: React.FC = () => {
                <div>
                    <h1 className="font-bold text-slate-800 text-lg hidden md:block">Espace Prestataire</h1>
                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-700 md:hidden">Espace Pro</span>
+                        <span className="text-sm font-bold text-slate-700 md:hidden">{provider?.firstName} {provider?.lastName}</span>
                         <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold border border-green-200 flex items-center gap-1">
                             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> En ligne
                         </span>
@@ -380,16 +380,16 @@ const ProviderPortal: React.FC = () => {
                    </button>
                    
                    {showNotifDropdown && (
-                       <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
-                           <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
-                               <span>Notifications</span>
-                               <span className="text-brand-blue">{unreadProviderNotifs.length}</span>
+                       <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 md:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
+                           <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
+                               <span className="text-xs sm:text-sm">Notifications</span>
+                               <span className="text-brand-blue text-xs sm:text-sm">{unreadProviderNotifs.length}</span>
                            </div>
-                           <div className="max-h-64 overflow-y-auto">
-                                {allProviderNotifs.length === 0 && <div className="p-4 text-center text-slate-400 italic">Rien à signaler</div>}
+                           <div className="max-h-56 sm:max-h-64 overflow-y-auto">
+                                {allProviderNotifs.length === 0 && <div className="p-3 sm:p-4 text-center text-slate-400 italic text-xs sm:text-sm">Rien à signaler</div>}
                                 {allProviderNotifs.slice(0, 5).map(n => (
-                                    <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 border-b hover:bg-blue-50 cursor-pointer transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
-                                        <span className="font-bold block text-brand-blue mb-1 truncate">{n.title}</span>
+                                    <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-2 sm:p-3 border-b hover:bg-blue-50 cursor-pointer transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
+                                        <span className="font-bold block text-brand-blue mb-1 truncate text-xs sm:text-sm">{n.title}</span>
                                         <p className="text-xs text-slate-600 line-clamp-2 break-words">{n.message}</p>
                                     </div>
                                 ))}
