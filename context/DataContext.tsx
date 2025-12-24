@@ -692,89 +692,87 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         await addNotification('client', 'info', 'Rappel Intervention', `Votre intervention du ${m.date} ne peut plus être annulée sans frais.`, m.clientId);
                     }
                 }
-                setIsOnline(true);
-                return true;
             }
         });
-    };
-
-    const performSilentLogin = async (): Promise<boolean> => {
-        // Add rate limiting protection - augmenté à 60 secondes pour éviter le rate limiting
-        const lastAttempt = localStorage.getItem('presta_last_login_attempt');
-        const now = Date.now();
-        if (lastAttempt && (now - parseInt(lastAttempt)) < 60000) { // 60 secondes cooldown
-            console.log("Silent login rate limited, skipping attempt");
-            return false;
-        }
-
-        const storedAuth = localStorage.getItem('presta_auth_recovery');
-        if (!storedAuth) return false;
-
+        setIsOnline(true);
+        return true;
+    };const performSilentLogin = async (): Promise<boolean> => {
         try {
-            console.log("Attempting silent recovery...");
+            console.log("Attempting silent login...");
+            
+            // Rate limiting: éviter les tentatives répétées
+            const lastAttempt = localStorage.getItem('presta_last_login_attempt');
+            const now = Date.now();
+            if (lastAttempt && (now - parseInt(lastAttempt)) < 30000) { // 30 secondes
+                console.log("Silent login rate limited, skipping attempt");
+                return false;
+            }
 
-            // POUR LES CLIENTS ET PRESTATAIRES: Jamais déconnecter automatiquement
+            // Vérifier d'abord s'il y a une session Supabase active
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                console.log("Found existing Supabase session, validating...");
+                const isValid = await fetchUserProfile(session.user);
+                if (isValid) {
+                    console.log("Existing session is valid, restoring...");
+                    // Prolonger la session de manière proactive
+                    localStorage.setItem('presta_last_login_attempt', (now + 300000).toString()); // 5 minutes
+                    return true;
+                }
+            }
+
+            // Tenter la récupération depuis le storage local
+            const storedAuth = localStorage.getItem('presta_auth_recovery');
+            if (!storedAuth) {
+                console.log("No stored auth recovery data found");
+                return false;
+            }
+
+            // Vérifier si l'utilisateur était un client/provider pour éviter la déconnexion automatique
             const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
             if (currentUser && (currentUser.role === 'client' || currentUser.role === 'provider')) {
-                console.log("Client/Provider detected - preventing automatic disconnection");
-                setIsOnline(true);
-                setLoading(false);
+                console.log("Protected user type found, preventing auto-logout");
+                // Ne pas déconnecter automatiquement les clients/providers
+                localStorage.setItem('presta_last_login_attempt', (now + 600000).toString()); // 10 minutes
                 return true;
             }
 
-            // First check if we already have a valid session to avoid unnecessary signOut
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                console.log("Found existing session, validating...");
-                const isValid = await fetchUserProfile(session.user);
-                if (isValid) {
-                    setIsOnline(true);
-                    return true;
-                }
-            }
-
-            // Only clear if we need to re-authenticate (admin only)
+            // Forcer Supabase SignOut uniquement pour les admins
             if (currentUser?.role === 'admin') {
-                console.log("Admin user - clearing invalid session and re-authenticating...");
+                console.log("Admin user - clearing session before re-auth");
                 await supabase.auth.signOut();
-
-                const { e, p } = JSON.parse(atob(storedAuth));
-                
-                // Ajouter un délai pour éviter le rate limiting
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
-
-                if (!error && data.session) {
-                    console.log("Silent recovery successful.");
-                    await fetchUserProfile(data.session.user);
-                    setIsOnline(true);
-                    return true;
-                } else if (error) {
-                    console.warn("Silent recovery failed:", error.message);
-                    // Gérer spécifiquement les erreurs de rate limiting
-                    if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
-                        console.log("Rate limiting detected, waiting longer...");
-                        localStorage.setItem('presta_last_login_attempt', (now + 120000).toString()); // 2 minutes supplémentaires
-                        return false;
-                    }
-                    // Only logout admin users on failure
-                    await logout(true);
-                    return false;
-                }
             }
-        } catch (e) {
-            console.warn("Silent login failed:", e);
-            // Only logout admin users on error
+
+            // Tenter la reconnexion silencieuse
+            const { e, p } = JSON.parse(atob(storedAuth));
+            const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
+
+            if (!error && data.session) {
+                console.log("Silent login successful");
+                await fetchUserProfile(data.session.user);
+                
+                // Prolonger la session et marquer le succès
+                localStorage.setItem('presta_last_login_attempt', (now + 600000).toString()); // 10 minutes
+                localStorage.setItem('presta_session_extended', now.toString());
+                
+                return true;
+            } else {
+                console.warn("Silent login failed:", error);
+                // Nettoyer les données invalides
+                localStorage.removeItem('presta_auth_recovery');
+                localStorage.setItem('presta_last_login_attempt', now.toString());
+                return false;
+            }
+        } catch (e: any) {
+            console.warn("Silent login error:", e);
             const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
             if (currentUser?.role === 'admin') {
-                await logout(true);
+                // Nettoyer uniquement pour les admins en cas d'erreur
+                localStorage.removeItem('presta_auth_recovery');
             }
-            return false;
-        } finally {
             localStorage.setItem('presta_last_login_attempt', Date.now().toString());
+            return false;
         }
-        return true;
     };
 
     const fetchUserProfile = async (authUser: any): Promise<boolean> => {
@@ -1483,29 +1481,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (data && data.length > 0) {
                 const newProvider = data[0];
 
+                // Envoi de l'email de bienvenue sans créer de compte Supabase Auth
                 try {
-                    const { error: fnError } = await supabase.functions.invoke('create-user', {
-                        body: {
-                            email: providerData.email,
-                            password: password,
-                            name: `${providerData.firstName} ${providerData.lastName}`,
-                            role: 'provider',
-                            relatedEntityId: newProvider.id
-                        }
-                    });
-                    if (fnError) {
-                        console.warn("Error creating provider auth:", fnError);
-                    }
-
                     await sendEmail(providerData.email, 'Votre compte Prestataire est actif', 'welcome_provider', {
                         name: providerData.firstName,
                         login: providerData.email,
                         password: password,
                         link: 'https://outremerfermetures.com/login'
                     });
-
+                    console.log("Email de bienvenue envoyé au prestataire:", providerData.email);
                 } catch (e) {
-                    console.warn("Auth edge function failed/unavailable.", e);
+                    console.warn("Erreur lors de l'envoi de l'email:", e);
                 }
 
                 setProviders(prev => [...prev, {
@@ -1593,11 +1579,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { data: providerData, error: providerError } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
 
             if (providerData && !providerError) {
-                // Validation du mot de passe pour prestataire
-                const isValidPassword = password && password.length > 0; // Logique à adapter
+                // Validation renforcée du mot de passe pour prestataire
+                const isValidPassword = password && password.length >= 6; // Minimum 6 caractères
                 
                 if (!isValidPassword) {
-                    console.error("Mot de passe invalide pour le prestataire");
+                    console.error("Mot de passe invalide pour le prestataire (minimum 6 caractères)");
                     return false;
                 }
                 
@@ -1608,6 +1594,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     role: 'provider',
                     relatedEntityId: providerData.id
                 };
+                
                 setCurrentUser(userObj);
                 setSimulatedProviderId(providerData.id);
 
@@ -2142,24 +2129,91 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
         const docToSign = documents.find(d => d.id === id);
         if (docToSign && docToSign.slotsData) {
-            const hasConflict = docToSign.slotsData.some(slot => {
-                if (!slot.date) return false;
+            const conflictingSlots = [];
+            const availableProvidersForSlots = [];
+            
+            // Analyser chaque créneau pour détecter les conflits et trouver des prestataires disponibles
+            for (const slot of docToSign.slotsData) {
+                if (!slot.date) continue;
+                
                 const slotStart = new Date(`${slot.date}T${slot.startTime}`);
                 const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
-
-                return missions.some(m => {
+                
+                // Vérifier s'il y a des missions en conflit
+                const conflictingMissions = missions.filter(m => {
                     if (m.status === 'cancelled' || !m.date) return false;
                     const mStart = new Date(`${m.date}T${m.startTime}`);
                     const mEnd = new Date(`${m.date}T${m.endTime}`);
-                    // Check overlap
                     return (slotStart < mEnd && slotEnd > mStart);
                 });
-            });
-
-            if (hasConflict) {
-                // Envoyer l'alerte au client
-                await addNotification('client', 'alert', 'Conflit de Créneaux', "Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat pour modifier votre devis.");
-                throw new Error("Conflit de créneaux : signature annulée");
+                
+                if (conflictingMissions.length > 0) {
+                    conflictingSlots.push({
+                        slot,
+                        conflictingMissions
+                    });
+                    
+                    // Trouver les prestataires disponibles pour ce créneau
+                    const availableProviders = providers.filter(provider => {
+                        if (provider.status !== 'Active') return false;
+                        
+                        // Vérifier si le prestataire est déjà assigné à une mission en conflit
+                        const isAssignedToConflictingMission = conflictingMissions.some(m => 
+                            m.providerId === provider.id
+                        );
+                        
+                        if (isAssignedToConflictingMission) return false;
+                        
+                        // Vérifier si le prestataire a déjà une mission à ce créneau
+                        const hasOtherMission = missions.some(m => {
+                            if (m.status === 'cancelled' || !m.date || m.providerId !== provider.id) return false;
+                            const mStart = new Date(`${m.date}T${m.startTime}`);
+                            const mEnd = new Date(`${m.date}T${m.endTime}`);
+                            return (slotStart < mEnd && slotEnd > mStart);
+                        });
+                        
+                        return !hasOtherMission;
+                    });
+                    
+                    availableProvidersForSlots.push({
+                        slot,
+                        availableProviders: availableProviders.map(p => `${p.firstName} ${p.lastName}`)
+                    });
+                }
+            }
+            
+            if (conflictingSlots.length > 0) {
+                // Vérifier s'il y a des prestataires disponibles pour tous les créneaux en conflit
+                const allSlotsHaveProviders = availableProvidersForSlots.every(slotInfo => 
+                    slotInfo.availableProviders.length > 0
+                );
+                
+                if (allSlotsHaveProviders) {
+                    // Il y a des prestataires disponibles, on peut continuer avec une notification informative
+                    const providerDetails = availableProvidersForSlots.map(slotInfo => 
+                        `Créneau ${slotInfo.slot.startTime}-${slotInfo.slot.endTime}: ${slotInfo.availableProviders.join(', ')}`
+                    ).join('\n');
+                    
+                    await addNotification('admin', 'info', 'Réassignation Automatique Requise', 
+                        `Le devis ${docToSign.ref} a été signé mais certains créneaux sont occupés. ` +
+                        `Prestataires disponibles pour la réassignation:\n${providerDetails}`);
+                    
+                    console.log('Slots conflict detected but providers available:', availableProvidersForSlots);
+                } else {
+                    // Aucun prestataire disponible pour au moins un créneau
+                    const unavailableSlots = availableProvidersForSlots
+                        .filter(slotInfo => slotInfo.availableProviders.length === 0)
+                        .map(slotInfo => `${slotInfo.slot.date} ${slotInfo.slot.startTime}-${slotInfo.slot.endTime}`);
+                    
+                    await addNotification('client', 'alert', 'Conflit de Créneaux', 
+                        `Un ou plusieurs créneaux ne sont plus disponibles et aucun prestataire alternatif n'est disponible pour: ${unavailableSlots.join(', ')}. ` +
+                        `Veuillez contacter le secrétariat pour modifier votre devis.`);
+                    
+                    await addNotification('admin', 'alert', 'Conflit de Créneaux - Aucun Prestataire Disponible', 
+                        `Devis ${docToSign.ref}: Créneaux indisponibles sans prestataire alternatif: ${unavailableSlots.join(', ')}`);
+                    
+                    throw new Error("Conflit de créneaux : aucun prestataire disponible pour les créneaux demandés");
+                }
             }
         }
 
@@ -2779,11 +2833,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             // Vérifier d'abord si la table visit_scans existe
             let recentScans = [];
             try {
-                const { data: scans, error: scanError } = await supabase
+                // Récupérer TOUS les scans du jour pour ce client (tous scanneurs)
+                const { data: allClientScans, error: scanError } = await supabase
                     .from('visit_scans')
                     .select('*')
                     .eq('client_id', clientId)
-                    .eq('scanner_id', currentUser.id)
                     .gte('timestamp', todayStart.toISOString())
                     .order('timestamp', { ascending: false });
                     
@@ -2793,16 +2847,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return handleScanFallback(clientId, currentUser.id, currentUser.name);
                 }
                 
-                recentScans = scans || [];
+                recentScans = allClientScans || [];
             } catch (tableError) {
                 console.warn("[RegisterScan] Table access error:", tableError);
                 return handleScanFallback(clientId, currentUser.id, currentUser.name);
             }
             
+            // Logique d'alternance : si le dernier scan était une entrée, le suivant est une sortie
+            // IMPORTANT : on regarde TOUS les scans du client, pas seulement ceux de l'utilisateur courant
             const lastScan = recentScans && recentScans.length > 0 ? recentScans[0] : null;
-            const newType: 'entry' | 'exit' = (lastScan && lastScan.scan_type === 'entry') ? 'exit' : 'entry';
+            let newType: 'entry' | 'exit';
             
-            console.log("[RegisterScan] Determined scan type:", newType, "last scan:", lastScan);
+            if (!lastScan) {
+                // Premier scan du jour pour ce client = entrée
+                newType = 'entry';
+                console.log("[RegisterScan] Premier scan du jour pour ce client, type: entrée");
+            } else {
+                // Alternance : si dernier était entrée, prochain est sortie
+                // si dernier était sortie, prochain est entrée
+                newType = lastScan.scan_type === 'entry' ? 'exit' : 'entry';
+                console.log("[RegisterScan] Alternance détectée - dernier scan:", lastScan.scan_type, "-> nouveau:", newType);
+            }
+            
+            // Vérification supplémentaire : pas deux sorties consécutives
+            if (lastScan && lastScan.scan_type === 'exit' && newType === 'exit') {
+                console.warn("[RegisterScan] Tentative de sortie consécutive détectée, correction en entrée");
+                newType = 'entry';
+            }
+            
+            console.log("[RegisterScan] Final scan type determined:", newType, "last scan:", lastScan);
             
             const newScan = {
                 client_id: clientId,
@@ -2834,7 +2907,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
                 setVisitScans(prev => [mappedScan, ...prev]);
                 console.log("[RegisterScan] Scan successfully recorded:", mappedScan);
-                return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée avec succès" : "Sortie enregistrée avec succès" };
+                
+                const message = newType === 'entry' 
+                    ? `✅ Entrée enregistrée avec succès pour le client ${clientId}` 
+                    : `✅ Sortie enregistrée avec succès pour le client ${clientId}`;
+                    
+                return { success: true, type: newType, message };
             }
             
             return { success: false, message: "Erreur inconnue lors du scan" };
@@ -2855,11 +2933,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const todayScans = existingScans.filter((s: any) => {
                 const scanDate = new Date(s.timestamp);
                 const today = new Date();
-                return scanDate.toDateString() === today.toDateString() && s.clientId === clientId && s.scannerId === scannerId;
+                return scanDate.toDateString() === today.toDateString() && s.clientId === clientId;
             });
             
+            // Logique d'alternance : on regarde TOUS les scans du client, pas seulement ceux du scanneur
             const lastScan = todayScans.length > 0 ? todayScans[todayScans.length - 1] : null;
-            const newType: 'entry' | 'exit' = forcedType || (lastScan && lastScan.scanType === 'entry') ? 'exit' : 'entry';
+            let newType: 'entry' | 'exit';
+            
+            if (!forcedType) {
+                if (!lastScan) {
+                    // Premier scan du jour pour ce client = entrée
+                    newType = 'entry';
+                    console.log("[ScanFallback] Premier scan du jour pour ce client, type: entrée");
+                } else {
+                    // Alternance : si dernier était entrée, prochain est sortie
+                    // si dernier était sortie, prochain est entrée
+                    newType = lastScan.scanType === 'entry' ? 'exit' : 'entry';
+                    console.log("[ScanFallback] Alternance détectée - dernier scan:", lastScan.scanType, "-> nouveau:", newType);
+                }
+                
+                // Vérification supplémentaire : pas deux sorties consécutives
+                if (lastScan && lastScan.scanType === 'exit' && newType === 'exit') {
+                    console.warn("[ScanFallback] Tentative de sortie consécutive détectée, correction en entrée");
+                    newType = 'entry';
+                }
+            } else {
+                newType = forcedType;
+            }
             
             const newScan = {
                 id: `fallback-${Date.now()}`,
@@ -2880,7 +2980,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             
             console.log("[ScanFallback] Fallback scan recorded:", newScan);
             
-            return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée (mode local)" : "Sortie enregistrée (mode local)" };
+            const message = newType === 'entry' 
+                ? `✅ Entrée enregistrée (mode local) pour le client ${clientId}` 
+                : `✅ Sortie enregistrée (mode local) pour le client ${clientId}`;
+                
+            return { success: true, type: newType, message };
         } catch (error: any) {
             console.error("[ScanFallback] Fallback error:", error);
             return { success: false, message: "Erreur critique lors du scan" };
@@ -2894,16 +2998,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const logout = async (skipReload?: boolean) => {
+    const logout = async (skipReload = false) => {
         // PROTECTION: Empêcher la déconnexion AUTOMATIQUE des clients et prestataires
         // mais permettre la déconnexion MANUELLE (skipReload = true)
         const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
         if (currentUser && (currentUser.role === 'client' || currentUser.role === 'provider')) {
             if (!skipReload) {
                 console.log("PROTECTION: Empêcher la déconnexion automatique pour", currentUser.role);
+                // Conserver les données de session pour la reconnexion automatique
+                localStorage.setItem('presta_session_persistent', 'true');
                 return; // Ne jamais déconnecter automatiquement les clients/prestataires
             } else {
                 console.log("Déconnexion MANUELLE autorisée pour:", currentUser.role);
+                // Nettoyer uniquement lors de la déconnexion manuelle
+                localStorage.removeItem('presta_session_persistent');
             }
         }
 
@@ -2914,8 +3022,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         console.log("Déconnexion en cours pour utilisateur:", currentUser?.role);
-        localStorage.removeItem('presta_current_user');
-        localStorage.clear();
+        
+        // Nettoyer les données de session mais conserver la récupération pour clients/prestataires
+        if (!currentUser || (currentUser.role !== 'client' && currentUser.role !== 'provider')) {
+            localStorage.removeItem('presta_current_user');
+            localStorage.clear();
+        } else {
+            // Pour clients/prestataires, nettoyer seulement certaines clés
+            localStorage.removeItem('presta_current_user');
+            localStorage.removeItem('presta_session_extended');
+        }
 
         setCurrentUser(null);
         setSimulatedClientId(null);

@@ -23,10 +23,77 @@ import {
 const Dashboard: React.FC = () => {
   const [viewMode, setViewMode] = useState<DashboardViewMode>(DashboardViewMode.COMMERCIAL);
   const [timeFilter, setTimeFilter] = useState<string>('month');
+  const [providerFilter, setProviderFilter] = useState<string>('');
   const navigate = useNavigate();
   const { missions, documents, clients, providers } = useData();
 
   // --- DATA CALCULATION FOR CHARTS ---
+
+  // Fonction pour filtrer les données selon le filtre temporel
+  const filterDataByTime = (items: any[], dateField: string = 'date') => {
+    if (!timeFilter || timeFilter === 'all') return items;
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    switch (timeFilter) {
+      case 'day':
+        return items.filter(item => {
+          if (!item[dateField]) return false;
+          const itemDate = new Date(item[dateField]);
+          return itemDate.toDateString() === today.toDateString();
+        });
+      
+      case 'week':
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+        
+        return items.filter(item => {
+          if (!item[dateField]) return false;
+          const itemDate = new Date(item[dateField]);
+          return itemDate >= weekStart && itemDate <= weekEnd;
+        });
+      
+      case 'month':
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        
+        return items.filter(item => {
+          if (!item[dateField]) return false;
+          const itemDate = new Date(item[dateField]);
+          return itemDate >= monthStart && itemDate <= monthEnd;
+        });
+      
+      case 'year':
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        
+        return items.filter(item => {
+          if (!item[dateField]) return false;
+          const itemDate = new Date(item[dateField]);
+          return itemDate >= yearStart && itemDate <= yearEnd;
+        });
+      
+      default:
+        return items;
+    }
+  };
+
+  // Données filtrées par temps
+  const filteredMissions = useMemo(() => filterDataByTime(missions), [missions, timeFilter]);
+  const filteredDocuments = useMemo(() => filterDataByTime(documents), [documents, timeFilter]);
+  const filteredClients = useMemo(() => filterDataByTime(clients, 'since'), [clients, timeFilter]);
+
+  // Données filtrées par prestataire
+  const missionsFilteredByProvider = useMemo(() => {
+    if (!providerFilter) return filteredMissions;
+    return filteredMissions.filter(m => m.providerId === providerFilter);
+  }, [filteredMissions, providerFilter]);
 
   // 1. Turnover Data (Last 6 months from Documents)
   const turnoverData = useMemo(() => {
@@ -41,8 +108,8 @@ const Dashboard: React.FC = () => {
         data.push({ name: months[mIndex], ca: 0, monthIndex: mIndex });
     }
 
-    // Aggregate Factures (Billed Revenue)
-    documents.forEach(doc => {
+    // Aggregate Factures (Billed Revenue) - Utiliser les documents filtrés
+    filteredDocuments.forEach(doc => {
         // We count all valid invoices for Turnover stats (CA Facturé)
         if (doc.type === 'Facture' && doc.status !== 'rejected' && doc.date) {
             const docDate = new Date(doc.date);
@@ -55,24 +122,24 @@ const Dashboard: React.FC = () => {
     });
 
     return data.map(d => ({ ...d, ca: Number(d.ca.toFixed(0)) }));
-  }, [documents]);
+  }, [filteredDocuments]);
 
-  // 2. Clients Data (Status distribution)
+  // 2. Clients Data (Status distribution) - Utiliser les clients filtrés
   const clientsData = useMemo(() => {
-      const active = clients.filter(c => c.status === 'active').length;
-      const newItem = clients.filter(c => c.status === 'new').length;
-      const prospect = clients.filter(c => c.status === 'prospect').length;
+      const active = filteredClients.filter(c => c.status === 'active').length;
+      const newItem = filteredClients.filter(c => c.status === 'new').length;
+      const prospect = filteredClients.filter(c => c.status === 'prospect').length;
       return [
           { name: 'Actifs', value: active },
           { name: 'Nouveaux', value: newItem },
           { name: 'Prospects', value: prospect },
       ];
-  }, [clients]);
+  }, [filteredClients]);
 
-  // 3. Missions Data (Service distribution)
+  // 3. Missions Data (Service distribution) - Utiliser les missions filtrées par prestataire
   const missionsData = useMemo(() => {
       const counts: Record<string, number> = {};
-      missions.forEach(m => {
+      missionsFilteredByProvider.forEach(m => {
           const service = m.service || 'Autre';
           // Simple grouping
           let key = service;
@@ -84,24 +151,24 @@ const Dashboard: React.FC = () => {
       });
 
       return Object.keys(counts).map(key => ({ name: key, value: counts[key] }));
-  }, [missions]);
+  }, [missionsFilteredByProvider]);
 
-  // Calculate missing providers
-  const missingProvidersCount = missions.filter(m => 
+  // Calculate missing providers - Utiliser les missions filtrées
+  const missingProvidersCount = missionsFilteredByProvider.filter(m => 
       m.status === 'planned' && 
       (!m.providerId || m.providerId === 'null' || m.providerName === 'À assigner')
   ).length;
 
-  // KPI Calculations
+  // KPI Calculations - Utiliser les données filtrées
   
   // 1. Total Revenue (Cash Collected)
-  const totalRevenue = documents.filter(d => d.status === 'paid').reduce((acc, d) => acc + d.totalTTC, 0);
+  const totalRevenue = filteredDocuments.filter(d => d.status === 'paid').reduce((acc, d) => acc + d.totalTTC, 0);
   
   // 2. Pending Revenue (Accounts Receivable + Signed Quotes)
   // This represents money that is expected to come in:
   // - Factures emitted but not paid (pending)
   // - Devis signed but not yet converted/invoiced (committed revenue)
-  const pendingRevenue = documents.reduce((acc, d) => {
+  const pendingRevenue = filteredDocuments.reduce((acc, d) => {
       const isPendingInvoice = d.type === 'Facture' && d.status === 'pending';
       const isSignedQuote = d.type === 'Devis' && d.status === 'signed';
 
@@ -111,8 +178,8 @@ const Dashboard: React.FC = () => {
       return acc;
   }, 0);
 
-  const signedQuotes = documents.filter(d => d.type === 'Devis' && d.status === 'signed').length;
-  const sentQuotes = documents.filter(d => d.type === 'Devis' && d.status === 'sent').length;
+  const signedQuotes = filteredDocuments.filter(d => d.type === 'Devis' && d.status === 'signed').length;
+  const sentQuotes = filteredDocuments.filter(d => d.type === 'Devis' && d.status === 'sent').length;
 
   // Navigation Handlers
   const goToStats = (status: 'all' | 'completed' | 'planned' | 'cancelled') => {
@@ -170,7 +237,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Nouveaux clients" 
-              value={clients.filter(c => c.status === 'new').length}
+              value={filteredClients.filter(c => c.status === 'new').length}
               subtext="À traiter" 
               bgColor="bg-slate-100" 
               icon={UserPlus}
@@ -184,7 +251,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Devis expirés" 
-              value={documents.filter(d => d.status === 'expired').length}
+              value={filteredDocuments.filter(d => d.status === 'expired').length}
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToInvoices('expired')}
@@ -196,28 +263,28 @@ const Dashboard: React.FC = () => {
           <>
             <StatCard 
               title="Missions planifiées" 
-              value={missions.filter(m => m.status === 'planned').length}
+              value={missionsFilteredByProvider.filter(m => m.status === 'planned').length}
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToStats('planned')}
             />
             <StatCard 
               title="Mission en cours" 
-              value={missions.filter(m => m.status === 'in_progress').length} 
+              value={missionsFilteredByProvider.filter(m => m.status === 'in_progress').length} 
               bgColor="bg-slate-100" 
               icon={Briefcase}
               onClick={() => goToStats('planned')} 
             />
             <StatCard 
               title="Missions terminées" 
-              value={missions.filter(m => m.status === 'completed').length} 
+              value={missionsFilteredByProvider.filter(m => m.status === 'completed').length} 
               bgColor="bg-slate-100" 
               icon={CheckCircle}
               onClick={() => goToStats('completed')}
             />
             <StatCard 
               title="Missions annulées" 
-              value={missions.filter(m => m.status === 'cancelled').length} 
+              value={missionsFilteredByProvider.filter(m => m.status === 'cancelled').length} 
               bgColor="bg-red-50" 
               icon={XCircle}
               onClick={() => goToStats('cancelled')}
@@ -312,10 +379,13 @@ const Dashboard: React.FC = () => {
                 <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
             </div>
              <div className="relative">
-                <select className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer">
-                    <option>Prestataires</option>
-                    <option>Tous</option>
-                    {providers.map(p => <option key={p.id} value={p.id}>{p.firstName}</option>)}
+                <select 
+                  className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer"
+                  value={providerFilter}
+                  onChange={(e) => setProviderFilter(e.target.value)}
+                >
+                    <option value="">Tous les prestataires</option>
+                    {providers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
                 </select>
                 <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
             </div>
