@@ -265,6 +265,7 @@ export interface StreamSession {
     clientId: string; // FK
     status: 'active' | 'ended';
     startTime: string;
+    streamUrl?: string; // URL du flux vidéo
 }
 
 export interface VideoRecording {
@@ -282,6 +283,7 @@ export interface VideoRecording {
     thumbnailUrl?: string;
     accessToken?: string; // Token d'accès temporaire
     expiresAt?: string; // Date d'expiration du token
+    url?: string; // URL de la vidéo finale
 }
 
 export interface VideoAccessToken {

@@ -684,6 +684,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         });
 
                         // Mark as sent in DB
+                        const recordingsBaseUrl = process.env.NODE_ENV === 'production' 
+                            ? 'https://recordings.presta-services.com' 
+                            : 'http://localhost:3001/recordings';
                         await supabase.from('missions').update({ reminder_48h_sent: true }).eq('id', m.id);
                         await addNotification('admin', 'info', 'Rappel 48h Envoyé', `Rappel annulation envoyé au client ${m.clientName} pour le ${m.date}.`, undefined);
                         await addNotification('client', 'info', 'Rappel Intervention', `Votre intervention du ${m.date} ne peut plus être annulée sans frais.`, m.clientId);
@@ -2773,12 +2776,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const startLiveStream = async (providerId: string, clientId: string) => {
         const sessionId = `stream-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // URLs configurables selon l'environnement
+        const recordingsBaseUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://www.outremerfermetures.com' 
+            : 'http://localhost:3001/recordings';
+            
         const session: StreamSession = {
             id: sessionId,
             providerId,
             clientId,
             status: 'active',
-            startTime: new Date().toISOString()
+            startTime: new Date().toISOString(),
+            streamUrl: `${recordingsBaseUrl}/stream/${sessionId}`
         };
         setActiveStream(session);
 

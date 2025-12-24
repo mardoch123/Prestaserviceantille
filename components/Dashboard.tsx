@@ -293,13 +293,13 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="p-8 h-full overflow-y-auto bg-white/40">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <h2 className="text-3xl font-serif font-bold text-slate-800">Tableau de bord</h2>
         
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
             <div className="relative">
                 <select 
-                  className="appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer"
+                  className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer"
                   value={timeFilter}
                   onChange={(e) => setTimeFilter(e.target.value)}
                 >
@@ -312,7 +312,7 @@ const Dashboard: React.FC = () => {
                 <ChevronDown className="w-4 h-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
             </div>
              <div className="relative">
-                <select className="appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer">
+                <select className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer">
                     <option>Prestataires</option>
                     <option>Tous</option>
                     {providers.map(p => <option key={p.id} value={p.id}>{p.firstName}</option>)}
@@ -323,7 +323,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* View Selector Dropdown */}
-      <div className="relative mb-6 max-w-md">
+      <div className="relative mb-6 w-full sm:max-w-md">
         <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
           <ChevronDown className="h-4 w-4 text-slate-500" />
         </div>
@@ -344,23 +344,23 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Charts Section */}
-      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+      <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-100">
         <h3 className="text-sm font-bold text-slate-700 mb-4">Statistiques graphiques (Temps Réel)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 h-48">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8 min-h-[200px] lg:h-48">
             <div className="flex flex-col items-center">
-                <div className="w-full h-40">
+                <div className="w-full h-32 lg:h-40">
                     <TurnoverChart data={turnoverData} />
                 </div>
                 <span className="text-xs text-slate-500 italic mt-2">Évolution CA (6 derniers mois)</span>
             </div>
             <div className="flex flex-col items-center">
-                <div className="w-full h-40">
+                <div className="w-full h-32 lg:h-40">
                     <ClientsChart data={clientsData} />
                 </div>
                 <span className="text-xs text-slate-500 italic mt-2">Répartition Clients</span>
             </div>
             <div className="flex flex-col items-center">
-                <div className="w-full h-40">
+                <div className="w-full h-32 lg:h-40">
                     <MissionsChart data={missionsData} />
                 </div>
                 <span className="text-xs text-slate-500 italic mt-2">Types de Missions</span>

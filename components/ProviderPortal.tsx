@@ -40,6 +40,7 @@ const ProviderPortal: React.FC = () => {
     cancelMissionByProvider,
     startLiveStream,
     stopLiveStream,
+    logout,
     activeStream
   } = useData();
 
@@ -50,6 +51,24 @@ const ProviderPortal: React.FC = () => {
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Fermer le menu notifications au clic externe
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifDropdown(false);
+      }
+    };
+
+    if (showNotifDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifDropdown]);
 
   // Live Stream State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -103,7 +122,7 @@ const ProviderPortal: React.FC = () => {
   // Fonctions utilitaires (doivent être définies avant les hooks qui les utilisent)
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+    setTimeout(() => setToast({ show: false, message: '', type }), 3000);
   };
 
   const handleNotificationClick = (notif: any) => {
@@ -370,7 +389,7 @@ const ProviderPortal: React.FC = () => {
 
            <div className="flex gap-4 items-center">
                {/* Notifications */}
-               <div className="relative">
+               <div className="relative" ref={notificationRef}>
                    <button 
                     onClick={() => setShowNotifDropdown(!showNotifDropdown)}
                     className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-brand-blue transition relative"
@@ -380,7 +399,7 @@ const ProviderPortal: React.FC = () => {
                    </button>
                    
                    {showNotifDropdown && (
-                       <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 md:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-50 text-sm overflow-hidden">
+                       <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 md:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-[9999] text-sm overflow-hidden">
                            <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
                                <span className="text-xs sm:text-sm">Notifications</span>
                                <span className="text-brand-blue text-xs sm:text-sm">{unreadProviderNotifs.length}</span>
@@ -405,13 +424,13 @@ const ProviderPortal: React.FC = () => {
                </div>
 
                <button 
-                onClick={() => setSimulatedProviderId(null)} 
+                onClick={() => { setSimulatedProviderId(null); logout(true); }} 
                 className="hidden md:flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-red-500 transition px-3 py-2 rounded-lg hover:bg-red-50"
                >
                    <LogOut className="w-4 h-4" /> <span className="hidden lg:inline">Déconnexion</span>
                </button>
                <button 
-                onClick={() => setSimulatedProviderId(null)} 
+                onClick={() => { setSimulatedProviderId(null); logout(true); }} 
                 className="md:hidden p-2 text-slate-500"
                >
                    <LogOut className="w-5 h-5" />

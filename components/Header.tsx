@@ -36,7 +36,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const unreadCount = adminNotifs.length;
 
   const handleLogout = () => {
-      logout();
+      logout(true);
       navigate('/'); 
   };
 
@@ -99,7 +99,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                     {unreadCount > 0 && (<span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white animate-pulse"></span>)}
                 </button>
                 {showNotifications && (
-                    <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden">
+                    <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-[9999] overflow-hidden">
                         <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
                             <span className="font-bold text-sm text-slate-700">Notifications Admin</span>
                             <span className="text-xs text-slate-500">{unreadCount} non lues</span>

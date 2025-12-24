@@ -100,13 +100,45 @@ const QRCodeManager: React.FC = () => {
         if (!selectedClientForScan) return;
 
         setScanResult(null);
-        await new Promise(r => setTimeout(r, 800));
+        
+        // Jouer un son de scan (simulation)
+        try {
+            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+            audio.volume = 0.3;
+            await audio.play();
+        } catch (e) {
+            // Ignorer les erreurs audio
+        }
+
+        // Animation de scan
+        await new Promise(r => setTimeout(r, 1200));
 
         const result = await registerScan(selectedClientForScan);
+        
+        // Ajouter une notification visuelle permanente
+        if (result.success) {
+            // Jouer un son de succès
+            try {
+                const successAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                successAudio.volume = 0.5;
+                await successAudio.play();
+            } catch (e) {
+                // Ignorer les erreurs audio
+            }
+        }
+
         setScanResult({
-            type: result.type,
+            type: result.success ? 'success' : 'error',
             message: result.message
         });
+
+        // Effacer le résultat après 5 secondes pour un nouveau scan
+        if (result.success) {
+            setTimeout(() => {
+                setScanResult(null);
+                setSelectedClientForScan('');
+            }, 5000);
+        }
     };
 
     // --- History Logic ---
@@ -364,12 +396,35 @@ const QRCodeManager: React.FC = () => {
                                 </button>
 
                                 {scanResult && (
-                                    <div className={`mt-4 p-3 rounded-lg text-sm ${
-                                        scanResult.type === 'success' ? 'bg-green-100 text-green-700' :
-                                        scanResult.type === 'error' ? 'bg-red-100 text-red-700' :
-                                        'bg-blue-100 text-blue-700'
+                                    <div className={`mt-6 p-4 rounded-xl text-sm font-medium animate-in fade-in zoom-in duration-300 flex items-center gap-3 ${
+                                        scanResult.type === 'success' ? 'bg-green-50 border-2 border-green-200 text-green-800' :
+                                        'bg-red-50 border-2 border-red-200 text-red-800'
                                     }`}>
-                                        {scanResult.message}
+                                        {scanResult.type === 'success' ? (
+                                            <>
+                                                <div className="flex-shrink-0 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-green-800">{scanResult.message}</p>
+                                                    <p className="text-xs text-green-600 mt-1">Le pointage a été enregistré avec succès</p>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex-shrink-0 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-red-800">{scanResult.message}</p>
+                                                    <p className="text-xs text-red-600 mt-1">Une erreur est survenue lors du pointage</p>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                             </div>

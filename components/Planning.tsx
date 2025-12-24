@@ -27,7 +27,7 @@ const Planning: React.FC = () => {
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
       setToast({ show: true, message, type });
-      setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+      setTimeout(() => setToast({ show: false, message: '', type }), 3000);
   };
 
   // Selection State for Unassigned Missions

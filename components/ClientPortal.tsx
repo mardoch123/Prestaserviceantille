@@ -206,7 +206,7 @@ const ClientPortal: React.FC = () => {
     const isLive = activeStream && activeStream.clientId === client.id;
 
     const handleLogout = () => {
-        logout();
+        logout(true);
     };
 
     const handleNotificationClick = (notif: any) => {
@@ -215,6 +215,9 @@ const ClientPortal: React.FC = () => {
             setActiveTab('planning');
         } else if (notif.link === 'tab:messages') {
             setActiveTab('messages');
+        } else if (notif.link === 'tab:live') {
+            // Si la notification pointe vers un appel en cours, ouvrir l'onglet live
+            setActiveTab('live');
         } else if (notif.type === 'message' && (notif.title.includes('devis') || notif.title.includes('Devis') || notif.message.includes('devis') || notif.message.includes('Devis'))) {
             // Si c'est une notification concernant un devis, ouvrir la page des documents
             setActiveTab('docs');
@@ -1178,12 +1181,22 @@ const ClientPortal: React.FC = () => {
                                             </button>
                                         </div>
 
-                                        <div className="flex-1 flex items-center justify-center bg-black">
-                                            <div className="text-white text-center">
-                                                <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
-                                                <h3 className="text-xl font-bold">Intervention en cours</h3>
-                                                <p className="text-sm text-slate-400">Connexion établie avec l'intervenant.</p>
-                                            </div>
+                                        <div className="flex-1 flex items-center justify-center bg-black relative">
+                                            {activeStream && activeStream.streamUrl ? (
+                                                <video
+                                                    className="w-full h-full object-contain"
+                                                    autoPlay
+                                                    playsInline
+                                                    muted
+                                                    src={activeStream.streamUrl}
+                                                />
+                                            ) : (
+                                                <div className="text-white text-center">
+                                                    <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
+                                                    <h3 className="text-xl font-bold">Intervention en cours</h3>
+                                                    <p className="text-sm text-slate-400">Connexion établie avec l'intervenant.</p>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ) : (

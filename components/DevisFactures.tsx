@@ -611,7 +611,7 @@ const DevisFactures: React.FC = () => {
     const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         if (toastTimeoutRef.current) { clearTimeout(toastTimeoutRef.current); }
         setToast({ show: true, message, type });
-        toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '', type: 'success' }); }, 3000);
+        toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '', type }); }, 3000);
     };
 
     const handleDownloadContract = (doc: Document) => {

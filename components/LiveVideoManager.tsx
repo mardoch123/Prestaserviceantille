@@ -152,6 +152,7 @@ const LiveVideoManager: React.FC = () => {
                                 autoPlay
                                 playsInline
                                 muted={isMuted}
+                                src={activeStream.streamUrl || ''}
                             />
                             <div className="absolute top-2 lg:top-4 right-2 lg:right-4 flex items-center gap-2">
                                 <button
