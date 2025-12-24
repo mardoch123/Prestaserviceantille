@@ -55,6 +55,7 @@ const ProviderPortal: React.FC = () => {
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
+  const [showMobileNotifModal, setShowMobileNotifModal] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
   // Fermer le menu mobile au clic externe
@@ -424,7 +425,13 @@ const ProviderPortal: React.FC = () => {
                {/* Notifications */}
                <div className="relative" ref={notificationRef}>
                    <button 
-                    onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                    onClick={() => {
+                        if (window.innerWidth < 768) {
+                            setShowMobileNotifModal(true);
+                        } else {
+                            setShowNotifDropdown(!showNotifDropdown);
+                        }
+                    }}
                     className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-brand-blue transition relative"
                    >
                         <Bell className="w-6 h-6" />
@@ -432,12 +439,12 @@ const ProviderPortal: React.FC = () => {
                    </button>
                    
                    {showNotifDropdown && (
-                       <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 md:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-[9999] text-sm overflow-hidden">
+                       <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 md:w-96 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 z-[9999] text-sm overflow-hidden md:right-0 md:left-auto left-0 right-0 md:w-80">
                            <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 font-bold text-slate-600 text-xs uppercase flex justify-between">
                                <span className="text-xs sm:text-sm">Notifications</span>
                                <span className="text-brand-blue text-xs sm:text-sm">{unreadProviderNotifs.length}</span>
                            </div>
-                           <div className="max-h-56 sm:max-h-64 overflow-y-auto">
+                           <div className="max-h-48 sm:max-h-56 md:max-h-64 overflow-y-auto">
                                 {allProviderNotifs.length === 0 && <div className="p-3 sm:p-4 text-center text-slate-400 italic text-xs sm:text-sm">Rien à signaler</div>}
                                 {allProviderNotifs.slice(0, 5).map(n => (
                                     <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-2 sm:p-3 border-b hover:bg-blue-50 cursor-pointer transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
@@ -996,6 +1003,38 @@ const ProviderPortal: React.FC = () => {
                {toast.message}
            </div>
        )}
+
+    {/* Modal Mobile pour les notifications Provider */}
+    {showMobileNotifModal && (
+      <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50">
+        <div className="bg-white w-full max-h-[80vh] rounded-t-2xl shadow-xl overflow-hidden animate-in slide-in-from-bottom duration-300">
+          <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+            <h3 className="font-bold text-slate-700">Notifications</h3>
+            <button 
+              onClick={() => setShowMobileNotifModal(false)}
+              className="p-2 rounded-full hover:bg-slate-100 transition"
+            >
+              <X className="w-5 h-5 text-slate-600" />
+            </button>
+          </div>
+          <div className="overflow-y-auto max-h-[60vh] p-4">
+            {allProviderNotifs.length === 0 ? (
+              <div className="text-center text-slate-400 py-8">Aucune notification</div>
+            ) : (
+              allProviderNotifs.slice(0, 10).map(n => (
+                <div key={n.id} onClick={() => {
+                  handleNotificationClick(n);
+                  setShowMobileNotifModal(false);
+                }} className={`p-3 mb-2 rounded-lg border border-slate-100 cursor-pointer hover:bg-blue-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
+                  <span className="font-bold block text-brand-blue mb-1 truncate text-sm">{n.title}</span>
+                  <p className="text-xs text-slate-600 line-clamp-2 break-words">{n.message}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )}
 
     </div>
   );

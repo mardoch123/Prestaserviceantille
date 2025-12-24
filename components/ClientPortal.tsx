@@ -146,6 +146,7 @@ const ClientPortal: React.FC = () => {
     // Notification State
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
+    const [showMobileNotifModal, setShowMobileNotifModal] = useState(false);
 
     // Mobile Menu State
     const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -586,7 +587,13 @@ const ClientPortal: React.FC = () => {
                     {/* Notification Bell */}
                     <div className="relative">
                         <button
-                            onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                            onClick={() => {
+                                if (window.innerWidth < 768) {
+                                    setShowMobileNotifModal(true);
+                                } else {
+                                    setShowNotifDropdown(!showNotifDropdown);
+                                }
+                            }}
                             className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-brand-blue transition relative"
                         >
                             <Bell className="w-6 h-6" />
@@ -594,17 +601,17 @@ const ClientPortal: React.FC = () => {
                         </button>
 
                         {showNotifDropdown && (
-                            <div className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden">
-                                <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
-                                    <span className="font-bold text-sm text-slate-700">Notifications</span>
+                            <div className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden md:right-0 md:left-auto left-0 right-0">
+                                <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 flex justify-between items-center">
+                                    <span className="font-bold text-xs sm:text-sm text-slate-700">Notifications</span>
                                     <span className="text-xs text-slate-500">{unreadClientNotifs.length} nouvelles</span>
                                 </div>
-                                <div className="max-h-64 overflow-y-auto">
+                                <div className="max-h-48 sm:max-h-64 overflow-y-auto">
                                     {allClientNotifs.length === 0 ? (
-                                        <div className="p-4 text-center text-xs text-slate-400">Aucune notification.</div>
+                                        <div className="p-3 sm:p-4 text-center text-xs text-slate-400">Aucune notification.</div>
                                     ) : (
                                         allClientNotifs.slice(0, 5).map(n => (
-                                            <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
+                                            <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <span className={`text-xs font-bold ${n.type === 'alert' ? 'text-red-600' : 'text-brand-blue'}`}>{n.title}</span>
                                                     <span className="text-[10px] text-slate-400">{new Date(n.date).toLocaleDateString()}</span>
@@ -1660,8 +1667,43 @@ const ClientPortal: React.FC = () => {
                     </div>
                 </div>
             )}
+        
+        {/* Modal Mobile pour les notifications Client */}
+        {showMobileNotifModal && (
+        <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50">
+            <div className="bg-white w-full max-h-[80vh] rounded-t-2xl shadow-xl overflow-hidden animate-in slide-in-from-bottom duration-300">
+            <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="font-bold text-slate-700">Notifications</h3>
+                <button 
+                onClick={() => setShowMobileNotifModal(false)}
+                className="p-2 rounded-full hover:bg-slate-100 transition"
+                >
+                <X className="w-5 h-5 text-slate-600" />
+                </button>
+            </div>
+            <div className="overflow-y-auto max-h-[60vh] p-4">
+                {allClientNotifs.length === 0 ? (
+                <div className="text-center text-slate-400 py-8">Aucune notification</div>
+                ) : (
+                allClientNotifs.slice(0, 10).map(n => (
+                    <div key={n.id} onClick={() => {
+                    handleNotificationClick(n);
+                    setShowMobileNotifModal(false);
+                    }} className={`p-3 mb-2 rounded-lg border border-slate-100 cursor-pointer hover:bg-blue-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
+                    <div className="flex justify-between items-start mb-1">
+                        <span className={`text-xs font-bold ${n.type === 'alert' ? 'text-red-600' : 'text-brand-blue'}`}>{n.title}</span>
+                        <span className="text-[10px] text-slate-400">{new Date(n.date).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
+                    </div>
+                ))
+                )}
+            </div>
+            </div>
         </div>
-    );
-};
+        )}
+        </div>
+    )}
 
+    
 export default ClientPortal;

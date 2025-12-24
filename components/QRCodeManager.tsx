@@ -22,6 +22,7 @@ const QRCodeManager: React.FC = () => {
         startDate: '',
         endDate: '',
         clientId: '',
+        scannerId: '', // Ajout du filtre par prestataire
         type: ''
     });
 
@@ -150,6 +151,24 @@ const QRCodeManager: React.FC = () => {
             filtered = filtered.filter(s => s.clientId === simulatedClientId);
         }
 
+        // Apply admin filters
+        if (currentUser?.role === 'admin') {
+            // Filter by selected client
+            if (scanFilters.clientId) {
+                filtered = filtered.filter(s => s.clientId === scanFilters.clientId);
+            }
+            
+            // Filter by selected prestataire (scanner)
+            if (scanFilters.scannerId) {
+                filtered = filtered.filter(s => s.scannerId === scanFilters.scannerId);
+            }
+            
+            // Filter by scan type
+            if (scanFilters.type) {
+                filtered = filtered.filter(s => s.scanType === scanFilters.type);
+            }
+        }
+
         // Apply date filters
         if (scanFilters.startDate) {
             filtered = filtered.filter(s => new Date(s.timestamp) >= new Date(scanFilters.startDate));
@@ -160,26 +179,16 @@ const QRCodeManager: React.FC = () => {
             filtered = filtered.filter(s => new Date(s.timestamp) <= end);
         }
 
-        // Apply client filter (admin only)
-        if (scanFilters.clientId && currentUser?.role === 'admin') {
-            filtered = filtered.filter(s => s.clientId === scanFilters.clientId);
-        }
-
-        // Apply type filter
-        if (scanFilters.type) {
-            filtered = filtered.filter(s => s.scanType === scanFilters.type);
-        }
-
         return filtered
-            .map(scan => {
-                const client = clients.find(c => c.id === scan.clientId);
+            .map((scan: any) => {
+                const client = clients.find((c: any) => c.id === scan.clientId);
                 return {
                     ...scan,
                     clientName: client ? client.name : 'Client Inconnu',
                     scannerName: currentUser?.name || 'Système'
                 };
             })
-            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }, [visitScans, clients, scanFilters, currentUser, simulatedClientId]);
 
     return (
@@ -273,7 +282,7 @@ const QRCodeManager: React.FC = () => {
                         <div className="space-y-6">
                             {/* Filters */}
                             {currentUser?.role === 'admin' && (
-                                <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow-sm">
+                                <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow-sm flex-wrap">
                                     <select
                                         value={scanFilters.clientId}
                                         onChange={(e) => setScanFilters(prev => ({ ...prev, clientId: e.target.value }))}
@@ -281,6 +290,21 @@ const QRCodeManager: React.FC = () => {
                                     >
                                         <option value="">Tous les clients</option>
                                         {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                    <select
+                                        value={scanFilters.scannerId}
+                                        onChange={(e) => setScanFilters(prev => ({ ...prev, scannerId: e.target.value }))}
+                                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                                    >
+                                        <option value="">Tous les prestataires</option>
+                                        {Array.from(new Set(visitScans.map(s => s.scannerId))).map(scannerId => {
+                                            const scan = visitScans.find(s => s.scannerId === scannerId);
+                                            return (
+                                                <option key={scannerId} value={scannerId}>
+                                                    {scan?.scannerName || `Prestataire ${scannerId}`}
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                     <select
                                         value={scanFilters.type}
@@ -314,9 +338,9 @@ const QRCodeManager: React.FC = () => {
                                         title="Date Fin" 
                                     />
                                 </div>
-                                {(scanFilters.startDate || scanFilters.endDate || scanFilters.clientId || scanFilters.type) && (
+                                {(scanFilters.startDate || scanFilters.endDate || scanFilters.clientId || scanFilters.scannerId || scanFilters.type) && (
                                     <button 
-                                        onClick={() => setScanFilters({ startDate: '', endDate: '', clientId: '', type: '' })} 
+                                        onClick={() => setScanFilters({ startDate: '', endDate: '', clientId: '', scannerId: '', type: '' })} 
                                         className="ml-auto text-red-500 text-xs hover:underline"
                                     >
                                         Effacer filtres

@@ -1,6 +1,17 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, User, ChevronDown, Settings, LogOut, Eye, Briefcase, Camera, Video, X, Menu } from 'lucide-react';
+import { 
+    Bell, 
+    Settings, 
+    LogOut, 
+    User, 
+    ChevronDown, 
+    Camera, 
+    Video, 
+    X,
+    Menu,
+    Eye,
+    Briefcase
+} from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,6 +22,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { notifications, markNotificationRead, currentUser, logout, missions } = useData();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
   const navigate = useNavigate();
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -94,22 +106,28 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       <div className="flex items-center gap-4 md:gap-6">
         {currentUser?.role === 'admin' && (
             <div className="relative" ref={notificationRef}>
-                <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 text-slate-400 hover:text-brand-orange transition-colors rounded-full hover:bg-cream-50">
+                <button onClick={() => {
+                    if (window.innerWidth < 768) {
+                        setShowMobileNotifications(true);
+                    } else {
+                        setShowNotifications(!showNotifications);
+                    }
+                }} className="relative p-2 text-slate-400 hover:text-brand-orange transition-colors rounded-full hover:bg-cream-50">
                     <Bell className="w-5 h-5" />
                     {unreadCount > 0 && (<span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white animate-pulse"></span>)}
                 </button>
                 {showNotifications && (
-                    <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-[9999] overflow-hidden">
-                        <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
-                            <span className="font-bold text-sm text-slate-700">Notifications Admin</span>
+                    <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-100 z-[9999] overflow-hidden md:right-0 md:left-auto left-0 right-0 md:w-80">
+                        <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 flex justify-between items-center">
+                            <span className="font-bold text-xs sm:text-sm text-slate-700">Notifications Admin</span>
                             <span className="text-xs text-slate-500">{unreadCount} non lues</span>
                         </div>
-                        <div className="max-h-64 overflow-y-auto">
+                        <div className="max-h-48 sm:max-h-64 overflow-y-auto">
                             {adminNotifs.length === 0 ? (
-                                <div className="p-4 text-center text-xs text-slate-400">Aucune notification.</div>
+                                <div className="p-3 sm:p-4 text-center text-xs text-slate-400">Aucune notification.</div>
                             ) : (
                                 adminNotifs.map(notif => (
-                                    <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                                    <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!notif.read ? 'bg-blue-50/50' : ''}`}>
                                         <div className="flex justify-between items-start mb-1">
                                             <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${notif.type === 'alert' ? 'bg-red-100 text-red-600' : notif.type === 'success' ? 'bg-green-100 text-green-600' : notif.type === 'message' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-600'}`}>{notif.title}</span>
                                             <span className="text-[10px] text-slate-400">{notif.date}</span>
@@ -177,6 +195,43 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
               </div>
           </div>
       )}
+
+    {/* Modal Mobile pour les notifications Admin */}
+    {showMobileNotifications && (
+      <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50">
+        <div className="bg-white w-full max-h-[80vh] rounded-t-2xl shadow-xl overflow-hidden animate-in slide-in-from-bottom duration-300">
+          <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+            <h3 className="font-bold text-slate-700">Notifications</h3>
+            <button 
+              onClick={() => setShowMobileNotifications(false)}
+              className="p-2 rounded-full hover:bg-slate-100 transition"
+            >
+              <X className="w-5 h-5 text-slate-600" />
+            </button>
+          </div>
+          <div className="overflow-y-auto max-h-[60vh] p-4">
+            {adminNotifs.length === 0 ? (
+              <div className="text-center text-slate-400 py-8">Aucune notification</div>
+            ) : (
+              adminNotifs.map(notif => (
+                <div key={notif.id} onClick={() => {
+                  handleNotificationClick(notif);
+                  setShowMobileNotifications(false);
+                }} className={`p-3 mb-2 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-50 transition ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${notif.type === 'alert' ? 'bg-red-100 text-red-600' : notif.type === 'success' ? 'bg-green-100 text-green-600' : notif.type === 'message' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-600'}`}>
+                      {notif.title}
+                    </span>
+                    <span className="text-[10px] text-slate-400">{notif.date}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 line-clamp-2">{notif.message}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     </header>
   );
 };
