@@ -699,10 +699,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const performSilentLogin = async (): Promise<boolean> => {
-        // Add rate limiting protection
+        // Add rate limiting protection - augmenté à 60 secondes pour éviter le rate limiting
         const lastAttempt = localStorage.getItem('presta_last_login_attempt');
         const now = Date.now();
-        if (lastAttempt && (now - parseInt(lastAttempt)) < 30000) { // 30 second cooldown
+        if (lastAttempt && (now - parseInt(lastAttempt)) < 60000) { // 60 secondes cooldown
             console.log("Silent login rate limited, skipping attempt");
             return false;
         }
@@ -739,6 +739,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 await supabase.auth.signOut();
 
                 const { e, p } = JSON.parse(atob(storedAuth));
+                
+                // Ajouter un délai pour éviter le rate limiting
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
                 const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
 
                 if (!error && data.session) {
@@ -748,6 +752,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return true;
                 } else if (error) {
                     console.warn("Silent recovery failed:", error.message);
+                    // Gérer spécifiquement les erreurs de rate limiting
+                    if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
+                        console.log("Rate limiting detected, waiting longer...");
+                        localStorage.setItem('presta_last_login_attempt', (now + 120000).toString()); // 2 minutes supplémentaires
+                        return false;
+                    }
                     // Only logout admin users on failure
                     await logout(true);
                     return false;
@@ -1009,22 +1019,64 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const handleReconnection = async () => {
             if (document.visibilityState === 'visible') {
                 console.log("App focused/visible - Checking connection...");
+
+                // Vérifier le rate limiting avant de faire des requêtes
+                const lastReconnect = localStorage.getItem('presta_last_reconnect');
+                const now = Date.now();
+                if (lastReconnect && (now - parseInt(lastReconnect)) < 30000) { // 30 secondes minimum
+                    console.log("[Reconnect] Rate limited, skipping check");
+                    return;
+                }
+
+                localStorage.setItem('presta_last_reconnect', now.toString());
+
                 try {
                     const { data, error } = await supabase.auth.getSession();
                     if (error) {
                         console.warn("Session check error on wake:", error);
+                        // Gérer spécifiquement les erreurs de rate limiting
+                        if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
+                            console.log("[Reconnect] Rate limiting detected, extending cooldown");
+                            localStorage.setItem('presta_last_reconnect', (now + 180000).toString()); // 3 minutes supplémentaires
+                            return;
+                        }
                         return;
                     }
 
                     if (data?.session) {
                         setIsOnline(true);
-                        await refreshData();
+                        // Ne pas rafraîchir les données à chaque focus pour éviter le rate limiting
+                        const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
+                        if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) { // 5 minutes minimum
+                            await refreshData();
+                            localStorage.setItem('presta_last_data_refresh', now.toString());
+                        }
                     } else {
                         console.log("No active session found on wake.");
+                        // Only attempt recovery if we had a user before
+                        if (currentUser) {
+                            const recovered = await performSilentLogin();
+                            if (recovered) {
+                                console.log("Immediate session recovery successful via helper.");
+                                // Force refresh only if successful
+                                const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
+                                if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) {
+                                    refreshData();
+                                    localStorage.setItem('presta_last_data_refresh', now.toString());
+                                }
+                            } else {
+                                console.warn("Immediate recovery failed, showing login screen.");
+                                setIsOnline(false);
+                                // Only logout admin users on failure
+                                if (currentUser?.role === 'admin') {
+                                    await logout(true);
+                                }
+                            }
+                        }
                     }
                 } catch (err) {
-                    console.warn("Unexpected error during reconnection check:", err);
-                    // Prevent crash by catching all async errors
+                    console.error("Reconnection error:", err);
+                    // Don't disconnect on reconnection errors
                 }
             }
         };
@@ -1046,9 +1098,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             try {
                 if (document.visibilityState === 'hidden') return; // Don't ping if background
 
+                // Vérifier d'abord si on a récemment fait des requêtes pour éviter le rate limiting
+                const lastHeartbeat = localStorage.getItem('presta_last_heartbeat');
+                const now = Date.now();
+                if (lastHeartbeat && (now - parseInt(lastHeartbeat)) < 240000) { // 4 minutes minimum
+                    console.log("[Heartbeat] Skipping to avoid rate limiting");
+                    return;
+                }
+
+                localStorage.setItem('presta_last_heartbeat', now.toString());
+
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (error) {
                     console.warn("[Heartbeat] Session check error:", error.message);
+                    // Gérer spécifiquement les erreurs de rate limiting
+                    if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
+                        console.log("[Heartbeat] Rate limiting detected, extending cooldown");
+                        localStorage.setItem('presta_last_heartbeat', (now + 300000).toString()); // 5 minutes supplémentaires
+                        return;
+                    }
                     return; // Don't disconnect on simple errors
                 }
 
@@ -1073,7 +1141,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.warn("[Heartbeat] Critical error:", err);
                 // Don't disconnect on heartbeat errors
             }
-        }, 300000); // Check every 5 minutes (reduced frequency)
+        }, 600000); // Check every 10 minutes (réduit encore plus la fréquence)
 
         return () => clearInterval(heartbeatInterval);
     }, [currentUser, isOnline]);
