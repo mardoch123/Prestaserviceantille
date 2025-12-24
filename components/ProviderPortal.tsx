@@ -48,10 +48,31 @@ const ProviderPortal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live'>('dashboard');
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
+  // Mobile menu state
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Fermer le menu mobile au clic externe
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setShowMobileMenu(false);
+      }
+    };
+
+    if (showMobileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMobileMenu]);
 
   // Fermer le menu notifications au clic externe
   useEffect(() => {
@@ -373,6 +394,18 @@ const ProviderPortal: React.FC = () => {
        {/* Desktop/Tablet Header */}
        <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
            <div className="flex items-center gap-4">
+               {/* Mobile Menu Toggle */}
+               <button 
+                   onClick={() => setShowMobileMenu(!showMobileMenu)}
+                   className="md:hidden p-2 rounded-lg hover:bg-slate-100 transition"
+               >
+                   <div className="w-6 h-5 flex flex-col justify-center gap-1">
+                       <div className={`w-full h-0.5 bg-slate-600 transition-all ${showMobileMenu ? 'rotate-45 translate-y-1.5' : ''}`}></div>
+                       <div className={`w-full h-0.5 bg-slate-600 transition-all ${showMobileMenu ? 'opacity-0' : ''}`}></div>
+                       <div className={`w-full h-0.5 bg-slate-600 transition-all ${showMobileMenu ? '-rotate-45 -translate-y-1.5' : ''}`}></div>
+                   </div>
+               </button>
+               
                <div className="w-10 h-10 rounded-full bg-brand-blue text-white flex items-center justify-center font-bold text-lg border-2 border-blue-100">
                    {provider.firstName.charAt(0)}{provider.lastName.charAt(0)}
                </div>
@@ -437,6 +470,65 @@ const ProviderPortal: React.FC = () => {
                </button>
            </div>
        </header>
+
+       {/* Mobile Menu Overlay */}
+       {showMobileMenu && (
+           <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setShowMobileMenu(false)}>
+               <div 
+                   ref={mobileMenuRef}
+                   className="bg-white w-80 h-full shadow-xl overflow-y-auto"
+                   onClick={(e) => e.stopPropagation()}
+               >
+                   <div className="p-4 border-b border-slate-200">
+                       <div className="flex items-center justify-between">
+                           <h2 className="font-bold text-lg text-slate-800">Menu</h2>
+                           <button 
+                               onClick={() => setShowMobileMenu(false)}
+                               className="p-2 rounded-lg hover:bg-slate-100 transition"
+                           >
+                               <X className="w-5 h-5 text-slate-600" />
+                           </button>
+                       </div>
+                   </div>
+                   
+                   <nav className="p-4 space-y-2">
+                       <button 
+                           onClick={() => { setActiveTab('dashboard'); setShowMobileMenu(false); }}
+                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                               activeTab === 'dashboard' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+                           }`}
+                       >
+                           <Briefcase className="w-4 h-4" /> Missions
+                       </button>
+                       <button 
+                           onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }}
+                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                               activeTab === 'live' ? 'bg-red-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+                           }`}
+                       >
+                           <Wifi className="w-4 h-4" /> Live Vidéo
+                       </button>
+                       <button 
+                           onClick={() => { setActiveTab('leaves'); setShowMobileMenu(false); }}
+                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                               activeTab === 'leaves' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+                           }`}
+                       >
+                           <CalendarX className="w-4 h-4" /> Absences
+                       </button>
+                       
+                       <div className="border-t border-slate-200 pt-4 mt-4">
+                           <button 
+                               onClick={() => { setSimulatedProviderId(null); logout(true); }}
+                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition"
+                           >
+                               <LogOut className="w-4 h-4" /> Déconnexion
+                           </button>
+                       </div>
+                   </nav>
+               </div>
+           </div>
+       )}
 
        <div className="flex-1 flex overflow-hidden relative">
            {/* Desktop Sidebar */}

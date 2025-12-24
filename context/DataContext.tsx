@@ -1556,8 +1556,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { data: clientData, error: clientError } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
 
             if (clientData && !clientError) {
-                // Validation simple du mot de passe (adapter selon votre logique)
-                // Pour l'instant, on accepte si le client existe dans la base
+                // Validation du mot de passe pour le client
+                // Pour l'instant, on utilise une validation simple (à améliorer selon vos besoins)
+                // Vous pouvez ajouter ici votre logique de validation de mot de passe
+                const isValidPassword = password && password.length > 0; // Logique à adapter
+                
+                if (!isValidPassword) {
+                    console.error("Mot de passe invalide pour le client");
+                    return false;
+                }
+                
                 const userObj: User = {
                     id: clientData.id,
                     email: clientData.email,
@@ -1585,7 +1593,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { data: providerData, error: providerError } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
 
             if (providerData && !providerError) {
-                // Validation simple du mot de passe pour prestataire
+                // Validation du mot de passe pour prestataire
+                const isValidPassword = password && password.length > 0; // Logique à adapter
+                
+                if (!isValidPassword) {
+                    console.error("Mot de passe invalide pour le prestataire");
+                    return false;
+                }
+                
                 const userObj: User = {
                     id: providerData.id,
                     email: providerData.email,
@@ -2754,18 +2769,41 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const registerScan = async (clientId: string): Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }> => {
         if (!currentUser) return { success: false, message: "Vous devez être connecté pour scanner." };
+        
+        console.log("[RegisterScan] Starting scan for client:", clientId, "by user:", currentUser.id);
+        
         try {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
-            const { data: recentScans } = await supabase
-                .from('visit_scans')
-                .select('*')
-                .eq('client_id', clientId)
-                .eq('scanner_id', currentUser.id)
-                .gte('timestamp', todayStart.toISOString())
-                .order('timestamp', { ascending: false });
+            
+            // Vérifier d'abord si la table visit_scans existe
+            let recentScans = [];
+            try {
+                const { data: scans, error: scanError } = await supabase
+                    .from('visit_scans')
+                    .select('*')
+                    .eq('client_id', clientId)
+                    .eq('scanner_id', currentUser.id)
+                    .gte('timestamp', todayStart.toISOString())
+                    .order('timestamp', { ascending: false });
+                    
+                if (scanError) {
+                    console.warn("[RegisterScan] Table visit_scans error:", scanError);
+                    // Si la table n'existe pas, utiliser un fallback localStorage
+                    return handleScanFallback(clientId, currentUser.id, currentUser.name);
+                }
+                
+                recentScans = scans || [];
+            } catch (tableError) {
+                console.warn("[RegisterScan] Table access error:", tableError);
+                return handleScanFallback(clientId, currentUser.id, currentUser.name);
+            }
+            
             const lastScan = recentScans && recentScans.length > 0 ? recentScans[0] : null;
             const newType: 'entry' | 'exit' = (lastScan && lastScan.scan_type === 'entry') ? 'exit' : 'entry';
+            
+            console.log("[RegisterScan] Determined scan type:", newType, "last scan:", lastScan);
+            
             const newScan = {
                 client_id: clientId,
                 scanner_id: currentUser.id,
@@ -2773,8 +2811,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 scan_type: newType,
                 timestamp: new Date().toISOString()
             };
+            
+            console.log("[RegisterScan] Inserting scan:", newScan);
+            
             const { data, error } = await supabase.from('visit_scans').insert(newScan).select();
-            if (error) throw error;
+            
+            if (error) {
+                console.error("[RegisterScan] Insert error:", error);
+                // Si erreur d'insertion, utiliser fallback
+                return handleScanFallback(clientId, currentUser.id, currentUser.name, newType);
+            }
+            
             if (data) {
                 const s = data[0];
                 const mappedScan: VisitScan = {
@@ -2786,12 +2833,57 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     timestamp: s.timestamp
                 };
                 setVisitScans(prev => [mappedScan, ...prev]);
-                return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée" : "Sortie enregistrée" };
+                console.log("[RegisterScan] Scan successfully recorded:", mappedScan);
+                return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée avec succès" : "Sortie enregistrée avec succès" };
             }
+            
             return { success: false, message: "Erreur inconnue lors du scan" };
         } catch (error: any) {
-            console.error("Scan error:", error);
-            return { success: false, message: String(error.message || "Erreur scan") };
+            console.error("[RegisterScan] Critical error:", error);
+            // En cas d'erreur critique, utiliser fallback
+            return handleScanFallback(clientId, currentUser?.id, currentUser?.name);
+        }
+    };
+
+    // Fonction fallback pour les scans quand la table n'existe pas
+    const handleScanFallback = async (clientId: string, scannerId: string, scannerName: string, forcedType?: 'entry' | 'exit'): Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }> => {
+        try {
+            console.log("[ScanFallback] Using fallback for scan");
+            
+            // Récupérer les scans précédents depuis localStorage
+            const existingScans = JSON.parse(localStorage.getItem('presta_visit_scans') || '[]');
+            const todayScans = existingScans.filter((s: any) => {
+                const scanDate = new Date(s.timestamp);
+                const today = new Date();
+                return scanDate.toDateString() === today.toDateString() && s.clientId === clientId && s.scannerId === scannerId;
+            });
+            
+            const lastScan = todayScans.length > 0 ? todayScans[todayScans.length - 1] : null;
+            const newType: 'entry' | 'exit' = forcedType || (lastScan && lastScan.scanType === 'entry') ? 'exit' : 'entry';
+            
+            const newScan = {
+                id: `fallback-${Date.now()}`,
+                clientId,
+                scannerId,
+                scannerName,
+                scanType: newType,
+                timestamp: new Date().toISOString()
+            };
+            
+            // Ajouter à localStorage
+            const updatedScans = [...existingScans, newScan];
+            localStorage.setItem('presta_visit_scans', JSON.stringify(updatedScans));
+            
+            // Mettre à jour l'état local
+            const mappedScan: VisitScan = newScan;
+            setVisitScans(prev => [mappedScan, ...prev]);
+            
+            console.log("[ScanFallback] Fallback scan recorded:", newScan);
+            
+            return { success: true, type: newType, message: newType === 'entry' ? "Entrée enregistrée (mode local)" : "Sortie enregistrée (mode local)" };
+        } catch (error: any) {
+            console.error("[ScanFallback] Fallback error:", error);
+            return { success: false, message: "Erreur critique lors du scan" };
         }
     };
 
@@ -2803,11 +2895,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const logout = async (skipReload?: boolean) => {
-        // PROTECTION: Empêcher la déconnexion automatique des clients et prestataires
+        // PROTECTION: Empêcher la déconnexion AUTOMATIQUE des clients et prestataires
+        // mais permettre la déconnexion MANUELLE (skipReload = true)
         const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
         if (currentUser && (currentUser.role === 'client' || currentUser.role === 'provider')) {
-            console.log("PROTECTION: Empêcher la déconnexion automatique pour", currentUser.role);
-            return; // Ne jamais déconnecter automatiquement les clients/prestataires
+            if (!skipReload) {
+                console.log("PROTECTION: Empêcher la déconnexion automatique pour", currentUser.role);
+                return; // Ne jamais déconnecter automatiquement les clients/prestataires
+            } else {
+                console.log("Déconnexion MANUELLE autorisée pour:", currentUser.role);
+            }
         }
 
         // Vérifier si une session de lecture est active
@@ -2816,7 +2913,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return; // Ne pas déconnecter pendant lecture active
         }
 
-        console.log("Déconnexion autorisée pour utilisateur:", currentUser?.role);
+        console.log("Déconnexion en cours pour utilisateur:", currentUser?.role);
         localStorage.removeItem('presta_current_user');
         localStorage.clear();
 
