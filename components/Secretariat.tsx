@@ -52,9 +52,10 @@ import {
     HelpCircle
 } from 'lucide-react';
 import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
-import { Pack, Reminder, Message, Client, Expense, Contract, Mission, ScheduleOption } from '../types';
+import type { Pack, Contract, Reminder, Message, Expense, Client, Provider, Mission, Document, StreamSession, VideoRecording } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 import LiveVideoManager from './LiveVideoManager';
+import SearchableSelect from './SearchableSelect';
 
 type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'live-videos';
 
@@ -66,8 +67,8 @@ type InterventionSchedule = {
 };
 
 // Extended Pack type to include intervention schedules (different from existing schedules)
-type PackWithSchedules = Pack & { 
-    interventionSchedules?: InterventionSchedule[] 
+type PackWithSchedules = Pack & {
+    interventionSchedules?: InterventionSchedule[]
 };
 
 // EXACT LIST FROM PDF OCR
@@ -100,9 +101,10 @@ const CONTRACT_TYPES = [
 ];
 
 const Secretariat: React.FC = () => {
-    const { 
+    const {
         packs,
         addPack,
+        updatePack,
         deletePacks,
         providers,
         reminders,
@@ -146,7 +148,7 @@ const Secretariat: React.FC = () => {
         // Extraire le nombre de jours de la fréquence si disponible
         const frequency = pack.frequency || '';
         let days = 1; // Par défaut, 1 jour
-        
+
         // D'abord, vérifier si la description contient un nombre de jours explicite
         if (pack.description && pack.description.includes('(')) {
             console.log('Description found:', pack.description);
@@ -173,7 +175,7 @@ const Secretariat: React.FC = () => {
                 }
             }
         }
-        
+
         // Si aucun nombre trouvé dans la description, utiliser les valeurs par défaut selon la fréquence
         if (days === 1) {
             // Gérer les différents types de fréquence
@@ -208,10 +210,10 @@ const Secretariat: React.FC = () => {
                 }
             }
         }
-        
+
         // Calculer la durée totale
         const totalHours = pack.hours * days;
-        
+
         // Afficher toujours le total d'heures avec le détail
         return `${totalHours}h total (${pack.hours}h × ${days}j)`;
     };
@@ -298,6 +300,9 @@ const Secretariat: React.FC = () => {
     // Extra state for "Régulier" days count
     const [regularDaysCount, setRegularDaysCount] = useState(1);
 
+    // Pack editing state
+    const [editingPackId, setEditingPackId] = useState<string | null>(null);
+
     // --- CONTRACT EDIT STATE ---
     const [contractForm, setContractForm] = useState<Partial<Contract>>({ name: '', content: '' });
 
@@ -353,14 +358,14 @@ const Secretariat: React.FC = () => {
             if (contractFilters.status !== 'all' && contract.status !== contractFilters.status) {
                 return false;
             }
-            
+
             // Filter by SAP
             if (contractFilters.isSap !== 'all') {
                 const isSap = contract.isSap === true;
                 if (contractFilters.isSap === 'sap' && !isSap) return false;
                 if (contractFilters.isSap === 'non-sap' && isSap) return false;
             }
-            
+
             // Filter by search term
             if (contractFilters.search) {
                 const searchLower = contractFilters.search.toLowerCase();
@@ -368,7 +373,7 @@ const Secretariat: React.FC = () => {
                 const contentMatch = contract.content.toLowerCase().includes(searchLower);
                 if (!nameMatch && !contentMatch) return false;
             }
-            
+
             return true;
         });
     }, [contracts, contractFilters]);
@@ -395,7 +400,7 @@ const Secretariat: React.FC = () => {
             showToast("La date est obligatoire pour les packs ponctuels. Veuillez sélectionner une date.", 'error');
             return;
         }
-        
+
         const priceTTC = packForm.priceTTC || 0;
         const tva = 0.021; // 2.1% from PDF
         const priceHT = priceTTC / (1 + tva);
@@ -406,52 +411,103 @@ const Secretariat: React.FC = () => {
             finalDescription += ` (${regularDaysCount} jours)`;
         }
 
-        const newPack: Pack = {
-            id: '', // Will be generated
-            name: packForm.name || 'Nouveau Pack',
-            mainService: packForm.mainService || 'Service',
-            description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
-            hours: packForm.hours || 3,
-            frequency: packForm.frequency || 'Ponctuelle',
-            type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
-            quantity: packForm.quantity,
-            location: packForm.location,
-            priceTTC: priceTTC,
-            priceHT: parseFloat(priceHT.toFixed(2)),
-            priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
-            suppliesIncluded: packForm.suppliesIncluded || false,
-            suppliesDetails: packForm.suppliesDetails,
-            contractType: packForm.contractType || 'Contrat Prestataire Standard',
-            isSap: true,
-            schedules: []
-        };
+        if (editingPackId) {
+            // MODE ÉDITION
+            const updates: Partial<Pack> = {
+                name: packForm.name || 'Pack',
+                mainService: packForm.mainService || 'Service',
+                description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                hours: packForm.hours || 3,
+                frequency: packForm.frequency || 'Ponctuelle',
+                type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
+                quantity: packForm.quantity,
+                location: packForm.location,
+                priceTTC: priceTTC,
+                priceHT: parseFloat(priceHT.toFixed(2)),
+                priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
+                suppliesIncluded: packForm.suppliesIncluded || false,
+                suppliesDetails: packForm.suppliesDetails,
+                contractType: packForm.contractType || 'Contrat Prestataire Standard',
+                isSap: true,
+                schedules: []
+            };
 
-        const createdPackId = await addPack(newPack);
-
-        if (createdPackId) {
-            // AUTO-GENERATE CONTRACT
-            const contractContent = legalTemplate.replace('[INFO_PACK]', `Nom : ${newPack.name}\nService : ${newPack.mainService}\nType Contrat : ${newPack.contractType}`);
-
-            await addContract({
-                id: '',
-                name: `Contrat Type - ${newPack.name}`,
-                content: contractContent,
-                packId: createdPackId,
-                status: 'draft',
-                isSap: true
-            });
-
-            showToast('Pack créé et Contrat Type généré automatiquement !');
+            await updatePack(editingPackId, updates);
+            showToast('Pack modifié avec succès !');
         } else {
-            showToast('Pack créé avec succès.');
+            // MODE CRÉATION
+            const newPack: Pack = {
+                id: '', // Will be generated
+                name: packForm.name || 'Nouveau Pack',
+                mainService: packForm.mainService || 'Service',
+                description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                hours: packForm.hours || 3,
+                frequency: packForm.frequency || 'Ponctuelle',
+                type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
+                quantity: packForm.quantity,
+                location: packForm.location,
+                priceTTC: priceTTC,
+                priceHT: parseFloat(priceHT.toFixed(2)),
+                priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
+                suppliesIncluded: packForm.suppliesIncluded || false,
+                suppliesDetails: packForm.suppliesDetails,
+                contractType: packForm.contractType || 'Contrat Prestataire Standard',
+                isSap: true,
+                schedules: []
+            };
+
+            const createdPackId = await addPack(newPack);
+
+            if (createdPackId) {
+                // AUTO-GENERATE CONTRACT
+                const contractContent = legalTemplate.replace('[INFO_PACK]', `Nom : ${newPack.name}\nService : ${newPack.mainService}\nType Contrat : ${newPack.contractType}`);
+
+                await addContract({
+                    id: '',
+                    name: `Contrat Type - ${newPack.name}`,
+                    content: contractContent,
+                    packId: createdPackId,
+                    status: 'draft',
+                    isSap: true
+                });
+
+                showToast('Pack créé et Contrat Type généré automatiquement !');
+            } else {
+                showToast('Pack créé avec succès.');
+            }
         }
 
         closePackModal();
     };
 
+    const handleEditPack = (pack: Pack) => {
+        setEditingPackId(pack.id);
+        setPackForm({
+            name: pack.name,
+            mainService: pack.mainService,
+            description: pack.description,
+            hours: pack.hours,
+            frequency: pack.frequency,
+            type: pack.type,
+            quantity: pack.quantity,
+            location: pack.location,
+            priceTTC: pack.priceTTC,
+            priceHT: pack.priceHT,
+            priceTaxCredit: pack.priceTaxCredit,
+            suppliesIncluded: pack.suppliesIncluded,
+            suppliesDetails: pack.suppliesDetails,
+            contractType: pack.contractType,
+            isSap: pack.isSap,
+            interventionSchedules: []
+        });
+        setModalType('pack');
+        setIsModalOpen(true);
+    };
+
     const closePackModal = () => {
         setIsModalOpen(false);
         setPackStep(1);
+        setEditingPackId(null);
         setPackForm({
             type: 'ponctuel',
             hours: 3,
@@ -494,7 +550,7 @@ const Secretariat: React.FC = () => {
     const confirmDeleteContracts = () => {
         if (selectedContractIds.size > 0) {
             openConfirmation(
-                "Confirmer la suppression", 
+                "Confirmer la suppression",
                 `Supprimer ${selectedContractIds.size} contrat(s) sélectionné(s) ? Cette action est irréversible.`,
                 async () => {
                     await deleteContracts(Array.from(selectedContractIds));
@@ -544,9 +600,9 @@ const Secretariat: React.FC = () => {
         }
 
         // Check if client has existing quotes (devis)
-        const clientQuotes = documents.filter((doc: any) => 
-            doc.clientId === selectedClientIdForContract && 
-            doc.type === 'Devis' && 
+        const clientQuotes = documents.filter((doc: any) =>
+            doc.clientId === selectedClientIdForContract &&
+            doc.type === 'Devis' &&
             (doc.status === 'sent' || doc.status === 'signed')
         );
 
@@ -570,15 +626,15 @@ const Secretariat: React.FC = () => {
         // Utiliser les contrats génériques si disponibles
         const client = clients.find(c => c.id === selectedClientIdForContract);
         const pack = packs.find(p => p.id === selectedPackIdForContract);
-        
+
         if (client && pack && genericContracts.length > 0) {
             // Utiliser la fonction generateContractFromTemplate du DataContext
             const contract = generateContractFromTemplate(selectedQuote, client, pack);
-            
+
             if (contract) {
-                setContractForm(prev => ({ 
-                    ...prev, 
-                    content: contract.content, 
+                setContractForm(prev => ({
+                    ...prev,
+                    content: contract.content,
                     packId: selectedPackIdForContract,
                     name: contract.name
                 }));
@@ -587,7 +643,7 @@ const Secretariat: React.FC = () => {
                 return;
             }
         }
-        
+
         // Fallback à l'ancienne méthode si aucun contrat générique n'est disponible
         let content = legalTemplate;
 
@@ -604,10 +660,10 @@ const Secretariat: React.FC = () => {
             if (selectedQuote.slots_data && selectedQuote.slots_data.length > 0) {
                 // Parse slots_data from quote (JSON format)
                 try {
-                    const slotsData = typeof selectedQuote.slots_data === 'string' 
-                        ? JSON.parse(selectedQuote.slots_data) 
+                    const slotsData = typeof selectedQuote.slots_data === 'string'
+                        ? JSON.parse(selectedQuote.slots_data)
                         : selectedQuote.slots_data;
-                    
+
                     if (Array.isArray(slotsData) && slotsData.length > 0) {
                         scheduleInfo = `\nHoraires d'intervention : ${slotsData.map((slot: any) => {
                             const day = slot.day || slot.date || '';
@@ -620,12 +676,12 @@ const Secretariat: React.FC = () => {
                     console.warn('Error parsing slots_data:', error);
                 }
             }
-            
+
             // Fallback to pack intervention schedules if no slots_data found
             if (!scheduleInfo && (pack as any).interventionSchedules && (pack as any).interventionSchedules.length > 0) {
                 scheduleInfo = `\nHoraires d'intervention : ${(pack as any).interventionSchedules.map((s: InterventionSchedule) => `${s.day} de ${s.startTime} à ${s.endTime}`).join(', ')}`;
             }
-            
+
             const packInfo = `Nom du Pack : ${pack.name}\nService : ${pack.mainService}\nDurée : ${pack.hours}h (${pack.frequency})\nLieu : ${pack.location || 'Domicile Client'}\nTarif TTC : ${pack.priceTTC} €\nMatériel inclus : ${pack.suppliesIncluded ? 'Oui' : 'Non'}${scheduleInfo}`;
             content = content.replace('[INFO_PACK]', packInfo);
         }
@@ -685,30 +741,30 @@ const Secretariat: React.FC = () => {
         if (printWindow) {
             // Use SAP logo if contract is SAP, otherwise use normal logo
             const logoToUse = contract.isSap ? LOGO_SAP : LOGO_NORMAL;
-            
+
             // Récupérer la signature du client depuis les documents
             let clientSignature = '';
             let clientSignatureDate = '';
-            
+
             if (contract.clientId) {
-                const clientDocuments = documents.filter(doc => 
-                    doc.clientId === contract.clientId && 
-                    doc.type === 'Devis' && 
-                    doc.status === 'signed' && 
+                const clientDocuments = documents.filter(doc =>
+                    doc.clientId === contract.clientId &&
+                    doc.type === 'Devis' &&
+                    doc.status === 'signed' &&
                     doc.signatureData
                 );
-                
+
                 if (clientDocuments.length > 0) {
                     // Prendre le document signé le plus récent
-                    const latestSignedDoc = clientDocuments.sort((a, b) => 
+                    const latestSignedDoc = clientDocuments.sort((a, b) =>
                         new Date(b.signatureDate || '').getTime() - new Date(a.signatureDate || '').getTime()
                     )[0];
-                    
+
                     clientSignature = latestSignedDoc.signatureData || '';
                     clientSignatureDate = latestSignedDoc.signatureDate || '';
                 }
             }
-            
+
             printWindow.document.write(`
             <html>
               <head>
@@ -906,25 +962,23 @@ const Secretariat: React.FC = () => {
         <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
             {/* Toast */}
             <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-                <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
-                    toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
+                <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
                     toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
-                    'bg-green-800 text-white border-green-700'
-                }`}>
-                    <div className={`p-1 rounded-full text-white ${
-                        toast.type === 'error' ? 'bg-red-500' :
-                        toast.type === 'warning' ? 'bg-orange-500' :
-                        'bg-green-500'
+                        'bg-green-800 text-white border-green-700'
                     }`}>
+                    <div className={`p-1 rounded-full text-white ${toast.type === 'error' ? 'bg-red-500' :
+                        toast.type === 'warning' ? 'bg-orange-500' :
+                            'bg-green-500'
+                        }`}>
                         {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
-                         toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
-                         <CheckCircle className="w-4 h-4" />}
+                            toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
+                                <CheckCircle className="w-4 h-4" />}
                     </div>
                     <div>
                         <h4 className="font-bold text-sm">
                             {toast.type === 'error' ? 'Erreur' :
-                             toast.type === 'warning' ? 'Attention' :
-                             'Succès'}
+                                toast.type === 'warning' ? 'Attention' :
+                                    'Succès'}
                         </h4>
                         <p className="text-xs opacity-90">{toast.message}</p>
                     </div>
@@ -1022,7 +1076,15 @@ const Secretariat: React.FC = () => {
                                         </span>
                                         <div className="flex items-center gap-2">
                                             {pack.isSap && <span className="text-[10px] bg-brand-blue text-white px-1 rounded">SAP</span>}
-                                            <button 
+                                            <button
+                                                onClick={() => handleEditPack(pack)}
+                                                className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-600 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                                                title="Modifier le pack"
+                                            >
+                                                <Edit className="w-3 h-3" />
+                                                Modifier
+                                            </button>
+                                            <button
                                                 onClick={() => {
                                                     setPackDetailsModal({ open: true, pack });
                                                 }}
@@ -1051,14 +1113,14 @@ const Secretariat: React.FC = () => {
                                 <Plus className="w-3 h-3" /> Nouveau Contrat
                             </button>
                         </div>
-                        
+
                         {/* Contract Filters */}
                         <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-4">
                             <div className="flex flex-wrap gap-4 items-center">
                                 <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded">
                                     <Filter className="w-4 h-4" /> Filtres
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2">
                                     <label className="text-sm text-slate-600">Statut:</label>
                                     <select
@@ -1072,7 +1134,7 @@ const Secretariat: React.FC = () => {
                                         <option value="active">Actif</option>
                                     </select>
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2">
                                     <label className="text-sm text-slate-600">Type:</label>
                                     <select
@@ -1085,7 +1147,7 @@ const Secretariat: React.FC = () => {
                                         <option value="non-sap">Non SAP</option>
                                     </select>
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2">
                                     <Search className="w-4 h-4 text-slate-400" />
                                     <input
@@ -1103,7 +1165,7 @@ const Secretariat: React.FC = () => {
                                 <div key={contract.id} className={`flex items-center justify-between p-4 border rounded-lg ${contract.status === 'pending_validation' ? 'border-orange-200 bg-orange-50' : 'border-slate-200'}`}>
                                     <div className="flex items-center gap-3">
                                         {/* Checkbox for selection */}
-                                        <button 
+                                        <button
                                             onClick={() => {
                                                 const newSelection = new Set(selectedContractIds);
                                                 if (newSelection.has(contract.id)) {
@@ -1221,9 +1283,9 @@ const Secretariat: React.FC = () => {
                 )}
 
                 {activeTab === 'messaging' && (
-                    <div className="flex h-[600px] border rounded-lg overflow-hidden">
+                    <div className="flex flex-col lg:flex-row h-[600px] border rounded-lg overflow-hidden">
                         {/* Sidebar Users */}
-                        <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto">
+                        <div className="w-full lg:w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto">
                             <div className="p-4 border-b bg-white font-bold text-slate-700">Conversations</div>
                             {chatClients.map(client => (
                                 <div
@@ -1238,7 +1300,7 @@ const Secretariat: React.FC = () => {
                         </div>
 
                         {/* Chat Area */}
-                        <div className="w-2/3 flex flex-col bg-white">
+                        <div className="w-full lg:w-2/3 flex flex-col bg-white">
                             {selectedChatClientId ? (
                                 <>
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
@@ -1250,7 +1312,7 @@ const Secretariat: React.FC = () => {
                                         ) : (
                                             currentChatMessages.map(msg => (
                                                 <div key={msg.id} className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                                                    <div className={`max-w-[80%] p-3 rounded-xl text-sm shadow-sm ${msg.sender === 'admin' ? 'bg-brand-blue text-white rounded-tr-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'}`}>
+                                                    <div className={`max-w-[80%] lg:max-w-[60%] p-3 rounded-xl text-sm shadow-sm ${msg.sender === 'admin' ? 'bg-brand-blue text-white rounded-tr-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'}`}>
                                                         <p>{msg.text}</p>
                                                         <div className="flex justify-between items-center mt-1 gap-4">
                                                             <span className={`text-[10px] ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>
@@ -1294,14 +1356,13 @@ const Secretariat: React.FC = () => {
 
                 {activeTab === 'expenses' && (
                     <div>
-                        <div className="flex justify-between items-center mb-6">
+                        <div className="flex justify-between items-center mb-6 flex-col sm:flex-row gap-4">
                             <h3 className="text-lg font-bold text-slate-700">Comptabilité Générale</h3>
-                            <button onClick={() => { setModalType('expense'); setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: new Date().toISOString().split('T')[0] }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700">
+                            <button onClick={() => { setModalType('expense'); setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: new Date().toISOString().split('T')[0] }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 w-full sm:w-auto">
                                 <Plus className="w-4 h-4" /> Saisir Dépense
                             </button>
                         </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex items-center gap-4">
                                 <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600">
                                     <TrendingUp className="w-6 h-6" />
@@ -1313,111 +1374,117 @@ const Secretariat: React.FC = () => {
                             </div>
 
                             {/* FILTERS UI */}
-                            <div className="md:col-span-3 bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
-                                <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded">
-                                    <Filter className="w-4 h-4" /> Filtres
-                                </div>
+                            <div className="lg:col-span-3 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+                                    <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded whitespace-nowrap">
+                                        <Filter className="w-4 h-4" /> Filtres
+                                    </div>
 
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="w-4 h-4 text-slate-400" />
-                                    <input
-                                        type="date"
-                                        value={expenseFilters.startDate}
-                                        onChange={e => setExpenseFilters({ ...expenseFilters, startDate: e.target.value })}
-                                        className="border rounded px-2 py-1 text-xs"
-                                        title="Date début"
-                                    />
-                                    <span className="text-slate-300">-</span>
-                                    <input
-                                        type="date"
-                                        value={expenseFilters.endDate}
-                                        onChange={e => setExpenseFilters({ ...expenseFilters, endDate: e.target.value })}
-                                        className="border rounded px-2 py-1 text-xs"
-                                        title="Date fin"
-                                    />
-                                </div>
+                                    <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+                                        <div className="flex items-center gap-2 w-full">
+                                            <Calendar className="w-4 h-4 text-slate-400" />
+                                            <input
+                                                type="date"
+                                                value={expenseFilters.startDate}
+                                                onChange={e => setExpenseFilters({ ...expenseFilters, startDate: e.target.value })}
+                                                className="border rounded px-2 py-1 text-xs flex-1"
+                                                title="Date début"
+                                            />
+                                        </div>
+                                        <span className="text-slate-300 hidden sm:inline">-</span>
+                                        <div className="flex items-center gap-2 w-full">
+                                            <input
+                                                type="date"
+                                                value={expenseFilters.endDate}
+                                                onChange={e => setExpenseFilters({ ...expenseFilters, endDate: e.target.value })}
+                                                className="border rounded px-2 py-1 text-xs flex-1"
+                                                title="Date fin"
+                                            />
+                                        </div>
+                                    </div>
 
-                                <div className="flex items-center gap-2 border-l pl-4">
-                                    <SlidersHorizontal className="w-4 h-4 text-slate-400" />
-                                    <select
-                                        value={expenseFilters.category}
-                                        onChange={e => setExpenseFilters({ ...expenseFilters, category: e.target.value })}
-                                        className="border rounded px-2 py-1 text-xs bg-white"
-                                    >
-                                        <option value="">Toutes Catégories</option>
-                                        <option value="fournitures">Fournitures</option>
-                                        <option value="carburant">Carburant</option>
-                                        <option value="administratif">Administratif</option>
-                                        <option value="autre">Autre</option>
-                                    </select>
-                                </div>
+                                    <div className="flex items-center gap-2 border-l pl-4">
+                                        <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+                                        <select
+                                            value={expenseFilters.category}
+                                            onChange={e => setExpenseFilters({ ...expenseFilters, category: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs bg-white"
+                                        >
+                                            <option value="">Toutes Catégories</option>
+                                            <option value="fournitures">Fournitures</option>
+                                            <option value="carburant">Carburant</option>
+                                            <option value="administratif">Administratif</option>
+                                            <option value="autre">Autre</option>
+                                        </select>
+                                    </div>
 
-                                <div className="flex items-center gap-2 border-l pl-4">
-                                    <Euro className="w-4 h-4 text-slate-400" />
-                                    <input
-                                        type="number"
-                                        placeholder="Min"
-                                        value={expenseFilters.minAmount}
-                                        onChange={e => setExpenseFilters({ ...expenseFilters, minAmount: e.target.value })}
-                                        className="border rounded px-2 py-1 text-xs w-20"
-                                    />
-                                    <span className="text-slate-300">-</span>
-                                    <input
-                                        type="number"
-                                        placeholder="Max"
-                                        value={expenseFilters.maxAmount}
-                                        onChange={e => setExpenseFilters({ ...expenseFilters, maxAmount: e.target.value })}
-                                        className="border rounded px-2 py-1 text-xs w-20"
-                                    />
-                                </div>
+                                    <div className="flex items-center gap-2 border-l pl-4">
+                                        <Euro className="w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="number"
+                                            placeholder="Min"
+                                            value={expenseFilters.minAmount}
+                                            onChange={e => setExpenseFilters({ ...expenseFilters, minAmount: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs w-20"
+                                        />
+                                        <span className="text-slate-300">-</span>
+                                        <input
+                                            type="number"
+                                            placeholder="Max"
+                                            value={expenseFilters.maxAmount}
+                                            onChange={e => setExpenseFilters({ ...expenseFilters, maxAmount: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs w-20"
+                                        />
+                                    </div>
 
-                                {(expenseFilters.startDate || expenseFilters.endDate || expenseFilters.category || expenseFilters.minAmount || expenseFilters.maxAmount) && (
-                                    <button
-                                        onClick={() => setExpenseFilters({ startDate: '', endDate: '', category: '', minAmount: '', maxAmount: '' })}
-                                        className="text-xs text-red-500 hover:text-red-700 underline ml-auto"
-                                    >
-                                        Effacer
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="bg-white border rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                                    <tr>
-                                        <th className="px-6 py-3">Date</th>
-                                        <th className="px-6 py-3">Description</th>
-                                        <th className="px-6 py-3">Catégorie</th>
-                                        <th className="px-6 py-3 text-right">Montant</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {filteredExpenses.length === 0 ? (
-                                        <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
-                                    ) : (
-                                        filteredExpenses.map((expense) => (
-                                            <tr key={expense.id} className="hover:bg-slate-50 group">
-                                                <td className="px-6 py-4 text-slate-600">{expense.date}</td>
-                                                <td className="px-6 py-4 font-bold text-slate-700">{expense.description}</td>
-                                                <td className="px-6 py-4">
-                                                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs capitalize">{expense.category}</span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right font-bold text-red-500">- {expense.amount.toFixed(2)} €</td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <button
-                                                        onClick={() => handleEditExpense(expense)}
-                                                        className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
-                                                        title="Modifier"
-                                                    >
-                                                        <Edit className="w-3 h-3" />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
+                                    {(expenseFilters.startDate || expenseFilters.endDate || expenseFilters.category || expenseFilters.minAmount || expenseFilters.maxAmount) && (
+                                        <button
+                                            onClick={() => setExpenseFilters({ startDate: '', endDate: '', category: '', minAmount: '', maxAmount: '' })}
+                                            className="text-xs text-red-500 hover:text-red-700 underline ml-auto"
+                                        >
+                                            Effacer
+                                        </button>
                                     )}
-                                </tbody>
-                            </table>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                        <tr>
+                                            <th className="px-6 py-3">Date</th>
+                                            <th className="px-6 py-3">Description</th>
+                                            <th className="px-6 py-3">Catégorie</th>
+                                            <th className="px-6 py-3 text-right">Montant</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredExpenses.length === 0 ? (
+                                            <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
+                                        ) : (
+                                            filteredExpenses.map((expense) => (
+                                                <tr key={expense.id} className="hover:bg-slate-50 group">
+                                                    <td className="px-6 py-4 text-slate-600">{expense.date}</td>
+                                                    <td className="px-6 py-4 font-bold text-slate-700">{expense.description}</td>
+                                                    <td className="px-6 py-4">
+                                                        <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs capitalize">{expense.category}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right font-bold text-red-500">- {expense.amount.toFixed(2)} €</td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button
+                                                            onClick={() => handleEditExpense(expense)}
+                                                            className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
+                                                            title="Modifier"
+                                                        >
+                                                            <Edit className="w-3 h-3" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1448,7 +1515,7 @@ const Secretariat: React.FC = () => {
                                         <div key={provider.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
                                             <div className="flex justify-between items-start mb-3">
                                                 <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                                                    <User className="w-4 h-4 text-slate-400" />
+                                                    <User className="w-4 h-4" />
                                                     {provider.firstName} {provider.lastName}
                                                 </h4>
                                                 <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{provider.leaves.length} absence(s)</span>
@@ -1507,7 +1574,7 @@ const Secretariat: React.FC = () => {
                         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                             <div>
                                 <h3 className="text-xl font-serif font-bold text-slate-800">
-                                    {modalType === 'pack' && 'Créer Pack (Processus)'}
+                                    {modalType === 'pack' && (editingPackId ? 'Modifier Pack' : 'Créer Pack (Processus)')}
                                     {modalType === 'contract' && 'Création Contrat SAP'}
                                     {modalType === 'reminder' && 'Nouveau Rappel'}
                                     {modalType === 'expense' && 'Saisir Dépense'}
@@ -1597,18 +1664,18 @@ const Secretariat: React.FC = () => {
                                             <div className="space-y-3">
                                                 <div className="flex justify-between items-center">
                                                     <label className="font-bold text-slate-700 text-xs uppercase">Horaires d'intervention</label>
-                                                    <button 
+                                                    <button
                                                         type="button"
                                                         onClick={() => {
                                                             const currentSchedules = packForm.interventionSchedules || [];
-                                                            const newSchedule: InterventionSchedule = { 
-                                                                day: 'Lundi', 
-                                                                startTime: '09:00', 
-                                                                endTime: '12:00' 
+                                                            const newSchedule: InterventionSchedule = {
+                                                                day: 'Lundi',
+                                                                startTime: '09:00',
+                                                                endTime: '12:00'
                                                             };
-                                                            setPackForm({ 
-                                                                ...packForm, 
-                                                                interventionSchedules: [...currentSchedules, newSchedule] 
+                                                            setPackForm({
+                                                                ...packForm,
+                                                                interventionSchedules: [...currentSchedules, newSchedule]
                                                             });
                                                         }}
                                                         className="bg-brand-blue text-white px-3 py-1 rounded text-xs font-bold hover:bg-teal-700"
@@ -1616,12 +1683,12 @@ const Secretariat: React.FC = () => {
                                                         + Ajouter un créneau
                                                     </button>
                                                 </div>
-                                                
+
                                                 <div className="space-y-2 max-h-40 overflow-y-auto">
                                                     {(packForm.interventionSchedules || []).map((schedule: any, index: number) => (
                                                         <div key={index} className="flex gap-2 items-center bg-slate-50 p-2 rounded">
-                                                            <select 
-                                                                value={schedule.day} 
+                                                            <select
+                                                                value={schedule.day}
                                                                 onChange={(e) => {
                                                                     const newSchedules = [...(packForm.schedules || [])];
                                                                     newSchedules[index] = { ...schedule, day: e.target.value };
@@ -1637,9 +1704,9 @@ const Secretariat: React.FC = () => {
                                                                 <option value="Samedi">Samedi</option>
                                                                 <option value="Dimanche">Dimanche</option>
                                                             </select>
-                                                            <input 
-                                                                type="time" 
-                                                                value={schedule.startTime} 
+                                                            <input
+                                                                type="time"
+                                                                value={schedule.startTime}
                                                                 onChange={(e) => {
                                                                     const newSchedules = [...(packForm.schedules || [])];
                                                                     newSchedules[index] = { ...schedule, startTime: e.target.value };
@@ -1648,9 +1715,9 @@ const Secretariat: React.FC = () => {
                                                                 className="p-1 border rounded text-xs"
                                                             />
                                                             <span className="text-xs">à</span>
-                                                            <input 
-                                                                type="time" 
-                                                                value={schedule.endTime} 
+                                                            <input
+                                                                type="time"
+                                                                value={schedule.endTime}
                                                                 onChange={(e) => {
                                                                     const newSchedules = [...(packForm.schedules || [])];
                                                                     newSchedules[index] = { ...schedule, endTime: e.target.value };
@@ -1658,7 +1725,7 @@ const Secretariat: React.FC = () => {
                                                                 }}
                                                                 className="p-1 border rounded text-xs"
                                                             />
-                                                            <button 
+                                                            <button
                                                                 type="button"
                                                                 onClick={() => {
                                                                     const newSchedules = [...(packForm.schedules || [])];
@@ -1672,7 +1739,7 @@ const Secretariat: React.FC = () => {
                                                         </div>
                                                     ))}
                                                 </div>
-                                                
+
                                                 {(packForm.interventionSchedules || []).length === 0 && (
                                                     <p className="text-xs text-slate-500 italic">Aucun créneau défini. Cliquez sur "+ Ajouter un créneau" pour définir les horaires.</p>
                                                 )}
@@ -1770,7 +1837,7 @@ const Secretariat: React.FC = () => {
                                             </button>
                                         ) : (
                                             <button onClick={handleSavePack} className="ml-auto px-6 py-2 bg-green-600 text-white rounded font-bold flex items-center gap-2 shadow-lg">
-                                                <Save className="w-4 h-4" /> Valider et Créer le Pack
+                                                <Save className="w-4 h-4" /> Valider
                                             </button>
                                         )}
                                     </div>
@@ -1813,26 +1880,22 @@ const Secretariat: React.FC = () => {
                                     {/* Selection Logic */}
                                     <div className="bg-slate-50 p-4 rounded border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-end">
                                         <div className="w-full md:flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Client (Infos obligatoires)</label>
-                                            <select
-                                                className="w-full p-2 border rounded text-sm"
+                                            <SearchableSelect
+                                                label="Client (Infos obligatoires)"
+                                                options={clients.map(c => ({ value: c.id, label: c.name }))}
                                                 value={selectedClientIdForContract}
-                                                onChange={e => setSelectedClientIdForContract(e.target.value)}
-                                            >
-                                                <option value="">-- Sélectionner un client --</option>
-                                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                            </select>
+                                                onChange={setSelectedClientIdForContract}
+                                                placeholder="-- Sélectionner un client --"
+                                            />
                                         </div>
                                         <div className="w-full md:flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Pack (Infos Pack)</label>
-                                            <select
-                                                className="w-full p-2 border rounded text-sm"
+                                            <SearchableSelect
+                                                label="Pack (Infos Pack)"
+                                                options={packs.map(p => ({ value: p.id, label: p.name }))}
                                                 value={selectedPackIdForContract}
-                                                onChange={e => setSelectedPackIdForContract(e.target.value)}
-                                            >
-                                                <option value="">-- Sélectionner un pack --</option>
-                                                {packs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                            </select>
+                                                onChange={setSelectedPackIdForContract}
+                                                placeholder="-- Sélectionner un pack --"
+                                            />
                                         </div>
                                         <button
                                             onClick={handleGenerateContractContent}
@@ -2066,13 +2129,13 @@ const Secretariat: React.FC = () => {
                                 <p>• Les modifications seront sauvegardées automatiquement</p>
                             </div>
                             <div className="flex gap-3">
-                                <button 
+                                <button
                                     onClick={closeContractEditModal}
                                     className="px-6 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
                                 >
                                     Annuler
                                 </button>
-                                <button 
+                                <button
                                     onClick={saveContractEdit}
                                     className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition shadow-md flex items-center gap-2"
                                 >
@@ -2092,14 +2155,14 @@ const Secretariat: React.FC = () => {
                         <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
                                 <h3 className="text-xl font-bold text-slate-800">Détails du Pack</h3>
-                                <button 
+                                <button
                                     onClick={() => setPackDetailsModal({ open: false, pack: null })}
                                     className="text-slate-400 hover:text-slate-600 transition-colors"
                                 >
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
-                            
+
                             <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-slate-50 p-3 rounded">
@@ -2111,12 +2174,12 @@ const Secretariat: React.FC = () => {
                                         <p className="font-bold text-slate-800">{packDetailsModal.pack.mainService}</p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="bg-blue-50 p-3 rounded">
                                     <p className="text-xs text-blue-500 uppercase font-bold mb-2">Description</p>
                                     <p className="text-slate-700">{packDetailsModal.pack.description}</p>
                                 </div>
-                                
+
                                 <div className="grid grid-cols-3 gap-4">
                                     <div className="bg-green-50 p-3 rounded">
                                         <p className="text-xs text-green-500 uppercase font-bold">Durée</p>
@@ -2131,7 +2194,7 @@ const Secretariat: React.FC = () => {
                                         <p className="font-bold text-orange-800">{packDetailsModal.pack.location || 'Domicile Client'}</p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="grid grid-cols-1 gap-4">
                                     <div className="bg-yellow-50 p-3 rounded">
                                         <p className="text-xs text-yellow-500 uppercase font-bold">Prix TTC</p>
@@ -2143,7 +2206,7 @@ const Secretariat: React.FC = () => {
                                     <p className="text-xs text-slate-500 uppercase font-bold">Prix HT</p>
                                     <p className="font-bold text-slate-800">{packDetailsModal.pack.priceHT}€</p>
                                 </div> */}
-                                
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-green-50 p-3 rounded">
                                         <p className="text-xs text-green-500 uppercase font-bold">Crédit Impôt</p>
@@ -2154,27 +2217,27 @@ const Secretariat: React.FC = () => {
                                         <p className="font-bold text-blue-800">{packDetailsModal.pack.contractType}</p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="bg-purple-50 p-3 rounded">
                                     <p className="text-xs text-purple-500 uppercase font-bold">Matériel inclus</p>
                                     <p className="font-bold text-purple-800">{packDetailsModal.pack.suppliesIncluded ? 'Oui' : 'Non'}</p>
                                 </div>
-                                
-                                                                
+
+
                                 {packDetailsModal.pack.suppliesDetails && (
                                     <div className="bg-amber-50 p-3 rounded">
                                         <p className="text-xs text-amber-500 uppercase font-bold mb-2">Détails du matériel</p>
                                         <p className="text-slate-700">{packDetailsModal.pack.suppliesDetails}</p>
                                     </div>
                                 )}
-                                
+
                                 {packDetailsModal.pack.quantity && (
                                     <div className="bg-slate-50 p-3 rounded">
                                         <p className="text-xs text-slate-500 uppercase font-bold mb-2">Quantité/Spécificités</p>
                                         <p className="text-slate-700">{packDetailsModal.pack.quantity}</p>
                                     </div>
                                 )}
-                                
+
                                 {/* Debug information - Masqué */}
                                 {/* <div className="bg-red-50 p-3 rounded border border-red-200">
                                     <p className="text-xs text-red-500 uppercase font-bold mb-2">Débogage - Données brutes</p>
@@ -2187,9 +2250,9 @@ const Secretariat: React.FC = () => {
                                     </p>
                                 </div> */}
                             </div>
-                            
+
                             <div className="flex justify-end mt-6 pt-4 border-t border-slate-200">
-                                <button 
+                                <button
                                     onClick={() => setPackDetailsModal({ open: false, pack: null })}
                                     className="px-6 py-2 bg-slate-600 text-white rounded-lg font-bold hover:bg-slate-700 transition"
                                 >
@@ -2205,5 +2268,3 @@ const Secretariat: React.FC = () => {
 };
 
 export default Secretariat;
-
-

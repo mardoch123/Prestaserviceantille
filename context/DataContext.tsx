@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { 
+import {
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
     CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract
@@ -100,6 +100,7 @@ interface DataContextType {
 
     packs: Pack[];
     addPack: (pack: Pack) => Promise<string | null>; // Returns ID if success
+    updatePack: (id: string, updates: Partial<Pack>) => Promise<void>;
     deletePacks: (ids: string[]) => Promise<void>;
 
     contracts: Contract[];
@@ -161,7 +162,7 @@ interface DataContextType {
     isOnline: boolean;
     pendingSyncCount: number;
     loading: boolean;
-    
+
     // Session management functions
     extendReadingSession: () => void;
     endReadingSession: () => void;
@@ -222,40 +223,40 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
-    
+
     // Session management pour éviter la déconnexion pendant lecture
     const [lastActivity, setLastActivity] = useState(Date.now());
     const [isReadingDocument, setIsReadingDocument] = useState(false);
-    
+
     // Gestion des coupures réseau et reconnexion
     const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const [maxReconnectAttempts] = useState(5);
     const [reconnectDelay, setReconnectDelay] = useState(1000); // 1 seconde initialement
-    
+
     // Prolonger la session pendant lecture active
     const extendReadingSession = () => {
         setIsReadingDocument(true);
         setLastActivity(Date.now());
     };
-    
+
     const endReadingSession = () => {
         setIsReadingDocument(false);
         setLastActivity(Date.now());
     };
-    
+
     // Vérifier l'activité et prolonger la session si nécessaire
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
             const timeSinceLastActivity = now - lastActivity;
-            
+
             // Si lecture active, prolonger la session
             if (isReadingDocument && timeSinceLastActivity < 30 * 60 * 1000) { // 30 minutes
                 setLastActivity(now);
             }
         }, 60000); // Vérifier chaque minute
-        
+
         return () => clearInterval(interval);
     }, [lastActivity, isReadingDocument]);
 
@@ -333,23 +334,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         console.log("[NotificationSubscription] Setting up subscription for", currentUser.role, currentUser.relatedEntityId);
 
         // Subscribe to notifications for the current user using target_user_type (enum NOT NULL)
-        const notificationChannel = currentUser.role === 'client' 
+        const notificationChannel = currentUser.role === 'client'
             ? `notifications:target_user_type=eq.client&target_user_id=eq.${currentUser.relatedEntityId}`
             : currentUser.role === 'provider'
-            ? `notifications:target_user_type=eq.provider&target_user_id=eq.${currentUser.relatedEntityId}`
-            : 'notifications:target_user_type=eq.admin';
+                ? `notifications:target_user_type=eq.provider&target_user_id=eq.${currentUser.relatedEntityId}`
+                : 'notifications:target_user_type=eq.admin';
 
         console.log("[NotificationSubscription] Using filter:", notificationChannel);
 
         const subscription = supabase
             .channel('notifications')
-            .on('postgres_changes', 
-                { 
-                    event: 'INSERT', 
-                    schema: 'public', 
+            .on('postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
                     table: 'notifications',
                     filter: notificationChannel
-                }, 
+                },
                 (payload) => {
                     console.log("[NotificationSubscription] Received notification:", payload.new);
                     const newNotif = payload.new;
@@ -365,11 +366,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         targetUserType: newNotif.target_user_type, // CORRIGÉ: Utiliser target_user_type
                         targetUserId: newNotif.target_user_id
                     };
-                    
+
                     console.log("[NotificationSubscription] Adding to state:", mappedNotif);
                     // Add notification to state immediately
                     setNotifications(prev => [mappedNotif, ...prev]);
-                    
+
                     // Show browser notification if permission granted
                     if (Notification.permission === 'granted') {
                         new Notification(mappedNotif.title, {
@@ -393,7 +394,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const refreshData = async () => {
         try {
             console.log("[RefreshData] Starting data refresh...");
-            
+
             if (!isSupabaseConfigured) {
                 console.log("[RefreshData] Supabase not configured, skipping fetch");
                 // If not configured, we don't fetch but we MUST ensure loading stops
@@ -407,21 +408,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const fetchTable = async (table: string, query: any = '*', timeout: number = 5000) => {
                 try {
                     console.log(`[RefreshData] Fetching ${table}...`);
-                    
+
                     // Add timeout to prevent hanging
                     const timeoutPromise = new Promise((_, reject) => {
                         setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
                     });
-                    
+
                     const fetchPromise = supabase.from(table).select(query);
-                    
+
                     const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
-                    
+
                     if (result.error) {
                         console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
                         return null;
                     }
-                    
+
                     console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                     return result.data;
                 } catch (err) {
@@ -453,25 +454,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('leaves'),
                 fetchTable('generic_contracts')
             ]);
-            
+
             console.log("[RefreshData] All fetches completed, processing data...");
 
             if (cData) {
                 // Enrichir les clients avec leurs packs associés via les contrats
                 const enrichedClients = cData.map((c: any) => {
                     // Chercher les contrats actifs du client
-                    const clientContracts = ctData?.filter((contract: any) => 
+                    const clientContracts = ctData?.filter((contract: any) =>
                         contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
                     ) || [];
-                    
+
                     // Chercher les packs associés via les contrats
-                    const associatedPacks = packData?.filter((pack: any) => 
+                    const associatedPacks = packData?.filter((pack: any) =>
                         clientContracts.some((contract: any) => contract.packId === pack.id)
                     ) || [];
-                    
+
                     // Utiliser le premier pack trouvé ou garder le pack existant
                     const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
-                    
+
                     return {
                         ...c,
                         packsConsumed: c.packs_consumed || 0,
@@ -480,7 +481,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         pack: packName && packName !== '-' ? packName : null
                     };
                 });
-                
+
                 setClients(enrichedClients);
             }
 
@@ -708,7 +709,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         try {
             console.log("Attempting silent recovery...");
-            
+
             // POUR LES CLIENTS ET PRESTATAIRES: Jamais déconnecter automatiquement
             const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
             if (currentUser && (currentUser.role === 'client' || currentUser.role === 'provider')) {
@@ -717,7 +718,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 setLoading(false);
                 return true;
             }
-            
+
             // First check if we already have a valid session to avoid unnecessary signOut
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
@@ -766,14 +767,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const fetchUserProfile = async (authUser: any): Promise<boolean> => {
         try {
             console.log("[FetchProfile] Starting profile fetch for user:", authUser.id, authUser.email);
-            
+
             if (!isSupabaseConfigured) {
                 console.log("[FetchProfile] Supabase not configured");
                 return false;
             }
-            
+
             let userObj: User | null = null;
-            
+
             // Check for admin first to avoid unnecessary DB queries
             if (authUser.email === 'admin@presta.com') {
                 console.log("[FetchProfile] Admin user detected, using admin fallback");
@@ -788,7 +789,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Try to get profile from users table only for non-admin users
                 try {
                     const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
-                    
+
                     if (error) {
                         console.log("[FetchProfile] Profile query error:", error.message);
                     } else if (profile) {
@@ -806,7 +807,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } catch (profileErr) {
                     console.log("[FetchProfile] Profile query failed, using generic fallback:", profileErr);
                 }
-                
+
                 // Generic fallback for non-admin users if no profile found
                 if (!userObj) {
                     console.log("[FetchProfile] Using generic user fallback");
@@ -818,7 +819,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     } as User;
                 }
             }
-            
+
             if (userObj) {
                 console.log("[FetchProfile] Setting user:", userObj.name, userObj.role);
                 setCurrentUser(userObj);
@@ -827,14 +828,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
                     setSimulatedProviderId(userObj.relatedEntityId);
                 }
-                try { 
-                    localStorage.setItem('presta_current_user', JSON.stringify(userObj)); 
+                try {
+                    localStorage.setItem('presta_current_user', JSON.stringify(userObj));
                     console.log("[FetchProfile] User saved to localStorage");
                 } catch { }
                 console.log("[FetchProfile] Profile fetch completed successfully");
                 return true;
             }
-            
+
             console.log("[FetchProfile] No user object created");
             return false;
         } catch (e) {
@@ -867,7 +868,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 console.log("Starting auth initialization...");
-                
+
                 // First try to restore user from localStorage for immediate UI update
                 try {
                     const storedUser = localStorage.getItem('presta_current_user');
@@ -884,7 +885,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } catch (err) {
                     console.warn("Failed to restore user from localStorage:", err);
                 }
-                
+
                 // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
 
@@ -953,7 +954,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.log("[AuthStateChange] Processing signed in session for user:", session.user.id);
                 // Clear the safety timer since we're processing a valid session
                 clearTimeout(safetyTimer);
-                
+
                 // Double check profile fetch if needed
                 if (!currentUser || currentUser.id !== session.user.id) {
                     console.log("[AuthStateChange] Fetching user profile...");
@@ -961,7 +962,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 } else {
                     console.log("[AuthStateChange] User profile already loaded");
                 }
-                
+
                 // Ensure data is refreshed whenever auth state confirms a session
                 console.log("[AuthStateChange] Refreshing application data...");
                 await refreshData();
@@ -1047,10 +1048,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.warn("[Heartbeat] Session check error:", error.message);
                     return; // Don't disconnect on simple errors
                 }
-                
+
                 if (!session) {
                     console.warn("[Heartbeat] Session lost, attempting recovery...");
-                    
+
                     // Only attempt recovery if we had a user before
                     if (currentUser) {
                         const recovered = await performSilentLogin();
@@ -1094,7 +1095,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
         console.log("[AddNotification] Creating notification:", { targetUserType, type, title, targetUserId, link });
-        
+
         const id = generateUUID();
         const now = new Date().toISOString();
 
@@ -1131,7 +1132,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 targetUserType,
                 targetUserId
             };
-            
+
             console.log("[AddNotification] Adding to local state:", mappedNotif);
             setNotifications(prev => [mappedNotif, ...prev]);
         }
@@ -1142,7 +1143,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // TEST FUNCTION: Pour tester les notifications manuellement
     const testNotification = async () => {
         console.log("[TestNotification] Starting notification test...");
-        
+
         if (!currentUser) {
             console.log("[TestNotification] No current user, cannot test");
             return;
@@ -1469,7 +1470,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
                     localStorage.setItem('presta_auth_recovery', authRecovery);
                 } catch { }
-                
+
                 await fetchUserProfile(data.user);
                 await refreshData();
                 return true;
@@ -1482,7 +1483,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         try {
             // Vérifier d'abord si c'est un client
             const { data: clientData, error: clientError } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
-            
+
             if (clientData && !clientError) {
                 // Validation simple du mot de passe (adapter selon votre logique)
                 // Pour l'instant, on accepte si le client existe dans la base
@@ -1495,8 +1496,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
                 setCurrentUser(userObj);
                 setSimulatedClientId(clientData.id);
-                
-                try { 
+
+                try {
                     localStorage.setItem('presta_current_user', JSON.stringify(userObj));
                     // Save auth recovery info for session persistence
                     const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
@@ -1511,7 +1512,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             // Vérifier si c'est un prestataire
             const { data: providerData, error: providerError } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
-            
+
             if (providerData && !providerError) {
                 // Validation simple du mot de passe pour prestataire
                 const userObj: User = {
@@ -1523,8 +1524,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
                 setCurrentUser(userObj);
                 setSimulatedProviderId(providerData.id);
-                
-                try { 
+
+                try {
                     localStorage.setItem('presta_current_user', JSON.stringify(userObj));
                     // Save auth recovery info for session persistence
                     const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
@@ -1808,7 +1809,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 let totalHours = 0;
                 let hasMultipleDays = false;
                 const firstDate = doc.slotsData && doc.slotsData.length > 0 ? doc.slotsData[0].date : null;
-                
+
                 if (doc.slotsData && Array.isArray(doc.slotsData)) {
                     doc.slotsData.forEach((slot: any) => {
                         if (slot.startTime && slot.endTime) {
@@ -1816,20 +1817,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             const end = new Date(`2000-01-01T${slot.endTime}`);
                             const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
                             totalHours += hours;
-                            
+
                             if (firstDate && slot.date !== firstDate) {
                                 hasMultipleDays = true;
                             }
                         }
                     });
                 }
-                
+
                 if (totalHours < 6 || hasMultipleDays) {
                     const sessionsCount = doc.slotsData ? doc.slotsData.length : 0;
-                    const warningMessage = hasMultipleDays 
+                    const warningMessage = hasMultipleDays
                         ? "Le Pack Ultime 6 doit être effectué sur une seule journée. Veuillez regrouper les créneaux sur le même jour."
                         : `Le pack "Pack ULTIME 6" requiert exactement 6h. Vous avez planifié ${totalHours.toFixed(1)}h (${sessionsCount} séance(s)).`;
-                    
+
                     throw new Error(warningMessage);
                 }
             }
@@ -1879,13 +1880,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 reminderSent: newDoc.reminder_sent,
                 recurrenceEndDate: newDoc.recurrence_end_date
             }]);
-            
+
             // Envoyer une notification au client lors de la création du devis
             await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${doc.type} ${doc.ref}) de ${doc.totalTTC.toFixed(2)} € est disponible pour consultation.`, doc.clientId, `document:${newDoc.id}`);
-            
+
             // Envoyer une notification à l'admin
             await addNotification('admin', 'success', 'Devis Créé', `Devis ${doc.ref} créé pour ${doc.clientName} - Montant: ${doc.totalTTC.toFixed(2)} €`, undefined, `document:${newDoc.id}`);
-            
+
             const client = clients.find(c => c.id === doc.clientId);
             if (client && client.email) {
                 await sendEmail(client.email, 'Nouveau devis disponible', 'quote_created', {
@@ -1893,7 +1894,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     quoteRef: doc.ref,
                     amount: doc.totalTTC.toFixed(2)
                 });
-                
+
                 // Notification supplémentaire lors de l'envoi par email
                 await addNotification('client', 'info', 'Devis Envoyé par Email', `Le devis ${doc.ref} a été envoyé à votre adresse email ${client.email}.`, doc.clientId, `document:${newDoc.id}`);
             }
@@ -2070,11 +2071,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             });
 
             if (hasConflict) {
-                setAlertPopup({ 
-                    show: true, 
-                    message: "Impossible de signer ce devis : Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat." 
-                });
-                return; // Stop execution
+                // Envoyer l'alerte au client
+                await addNotification('client', 'alert', 'Conflit de Créneaux', "Un ou plusieurs créneaux ne sont plus disponibles. Veuillez contacter le secrétariat pour modifier votre devis.");
+                throw new Error("Conflit de créneaux : signature annulée");
             }
         }
 
@@ -2123,12 +2122,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                                 newContract.clientSignatureUrl = signatureData;
                                 newContract.signedAt = now;
                                 newContract.status = 'active';
-                                
-                                console.log('About to add contract:', { 
-                                    id: newContract.id, 
+
+                                console.log('About to add contract:', {
+                                    id: newContract.id,
                                     clientId: newContract.clientId,
-                                    clientSignatureUrl: newContract.clientSignatureUrl ? 'exists' : 'none', 
-                                    signatureDataLength: signatureData?.length 
+                                    clientSignatureUrl: newContract.clientSignatureUrl ? 'exists' : 'none',
+                                    signatureDataLength: signatureData?.length
                                 });
                                 await addContract(newContract);
                                 console.log('Contract created automatically from signed quote:', newContract.id);
@@ -2245,6 +2244,51 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return finalId;
         }
         return null;
+    };
+
+    const updatePack = async (id: string, updates: Partial<Pack>) => {
+        // Prepare database updates with snake_case field names
+        const dbUpdates: any = {};
+
+        if (updates.name !== undefined) dbUpdates.name = updates.name;
+        if (updates.mainService !== undefined) dbUpdates.main_service = updates.mainService;
+        if (updates.description !== undefined) {
+            const mergedDescription = updates.location
+                ? `${updates.description}\n| Lieu: ${updates.location}`
+                : updates.description;
+            dbUpdates.description = mergedDescription;
+        }
+        if (updates.hours !== undefined) dbUpdates.hours = updates.hours;
+        if (updates.frequency !== undefined) dbUpdates.frequency = updates.frequency.toLowerCase();
+        if (updates.suppliesIncluded !== undefined) dbUpdates.supplies_included = updates.suppliesIncluded;
+        if (updates.suppliesDetails !== undefined) dbUpdates.supplies_details = updates.suppliesDetails;
+        if (updates.type !== undefined) dbUpdates.type = updates.type;
+        if (updates.priceTTC !== undefined) dbUpdates.price_ttc = updates.priceTTC;
+        if (updates.priceHT !== undefined) dbUpdates.price_ht = updates.priceHT;
+        if (updates.priceTaxCredit !== undefined) dbUpdates.price_tax_credit = updates.priceTaxCredit;
+        if (updates.contractType !== undefined) dbUpdates.contract_type = updates.contractType;
+        if (updates.isSap !== undefined) dbUpdates.is_sap = updates.isSap;
+        if (updates.schedules !== undefined) dbUpdates.schedules = updates.schedules;
+        if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
+
+        const { error } = await supabase.from('packs').update(dbUpdates).eq('id', id);
+
+        if (error) {
+            console.error("Erreur updatePack:", error);
+            throw new Error("Erreur lors de la mise à jour du pack: " + error.message);
+        }
+
+        // Update local state
+        setPacks(prev => prev.map(p => {
+            if (p.id === id) {
+                return {
+                    ...p,
+                    ...updates,
+                    frequency: updates.frequency ? capitalize(updates.frequency) as any : p.frequency
+                };
+            }
+            return p;
+        }));
     };
 
     const deletePacks = async (ids: string[]) => {
@@ -2451,7 +2495,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 alert("Erreur lors de la suppression du contrat: " + error.message);
                 return;
             }
-            
+
             setContracts(prev => prev.filter(c => c.id !== id));
         } catch (error: any) {
             console.error("Erreur suppression contrat:", error);
@@ -2466,7 +2510,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 alert("Erreur lors de la suppression des contrats: " + error.message);
                 return;
             }
-            
+
             setContracts(prev => prev.filter(c => !ids.includes(c.id)));
         } catch (error: any) {
             console.error("Erreur suppression contrats:", error);
@@ -2694,13 +2738,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log("PROTECTION: Empêcher la déconnexion automatique pour", currentUser.role);
             return; // Ne jamais déconnecter automatiquement les clients/prestataires
         }
-        
+
         // Vérifier si une session de lecture est active
         if (isReadingDocument) {
             console.log("Session de lecture active - déconnexion reportée");
             return; // Ne pas déconnecter pendant lecture active
         }
-        
+
         console.log("Déconnexion autorisée pour utilisateur:", currentUser?.role);
         localStorage.removeItem('presta_current_user');
         localStorage.clear();
@@ -2737,17 +2781,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             startTime: new Date().toISOString()
         };
         setActiveStream(session);
-        
+
         // Envoyer une notification au client pour l'appel vidéo
         const provider = providers.find(p => p.id === providerId);
         const client = clients.find(c => c.id === clientId);
-        
+
         if (provider && client) {
             // Notification in-app
-            await addNotification('client', 'alert', 'Appel Vidéo en Cours', 
-                `${provider.firstName} ${provider.lastName} vous appelle en vidéo. Cliquez pour rejoindre l'appel.`, 
+            await addNotification('client', 'alert', 'Appel Vidéo en Cours',
+                `${provider.firstName} ${provider.lastName} vous appelle en vidéo. Cliquez pour rejoindre l'appel.`,
                 clientId, 'tab:live');
-            
+
             // Notification par email
             if (client.email) {
                 await sendEmail(client.email, 'Appel Vidéo en Cours', 'video_call', {
@@ -2756,7 +2800,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     clientName: client.name
                 });
             }
-            
+
             // Créer l'enregistrement vidéo dans la base de données
             const videoRecord = {
                 id: generateUUID(),
@@ -2770,7 +2814,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 duration: 0,
                 fileSize: 0
             };
-            
+
             // Ajouter à la base de données (simulé pour l'instant)
             console.log('Création enregistrement vidéo:', videoRecord);
         }
@@ -2780,13 +2824,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (activeStream) {
             const provider = providers.find(p => p.id === activeStream.providerId);
             const client = clients.find(c => c.id === activeStream.clientId);
-            
+
             // Envoyer notification post-appel au client
             if (client && provider) {
-                await addNotification('client', 'success', 'Appel Vidéo Terminé', 
-                    `Votre appel vidéo avec ${provider.firstName} ${provider.lastName} est terminé. La vidéo sera bientôt disponible en replay.`, 
+                await addNotification('client', 'success', 'Appel Vidéo Terminé',
+                    `Votre appel vidéo avec ${provider.firstName} ${provider.lastName} est terminé. La vidéo sera bientôt disponible en replay.`,
                     activeStream.clientId, 'tab:live');
-                
+
                 // Notification par email pour le replay
                 if (client.email) {
                     await sendEmail(client.email, 'Appel Vidéo Terminé - Replay Disponible', 'video_call_ended', {
@@ -2796,11 +2840,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     });
                 }
             }
-            
+
             // Mettre à jour le statut de l'enregistrement vidéo
             console.log(`Mise à jour enregistrement vidéo pour session ${activeStream.id}: terminé`);
         }
-        
+
         setActiveStream(null);
     };
 
@@ -2822,7 +2866,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const updateVideoRecording = async (id: string, updates: Partial<VideoRecording>) => {
-        setVideoRecordings(prev => prev.map(r => 
+        setVideoRecordings(prev => prev.map(r =>
             r.id === id ? { ...r, ...updates } : r
         ));
         console.log(`Enregistrement vidéo ${id} mis à jour:`, updates);
@@ -2845,10 +2889,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
 
         setVideoAccessTokens(prev => [accessToken, ...prev]);
-        
+
         // Mettre à jour l'enregistrement vidéo avec le token
         await updateVideoRecording(recordingId, { accessToken: token, expiresAt: expiresAt.toISOString() });
-        
+
         console.log('Token d\'accès vidéo généré:', { recordingId, userId, permissions, expiresAt });
         return token;
     };
@@ -2856,7 +2900,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // Validation de token d'accès vidéo
     const validateVideoAccessToken = async (token: string, recordingId: string) => {
         const accessToken = videoAccessTokens.find(t => t.token === token && t.recordingId === recordingId);
-        
+
         if (!accessToken) {
             console.log('Token non trouvé');
             return false;
@@ -2865,7 +2909,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Vérifier si le token n'est pas expiré
         const now = new Date();
         const expiresAt = new Date(accessToken.expiresAt);
-        
+
         if (now > expiresAt) {
             console.log('Token expiré');
             // Supprimer le token expiré
@@ -2880,13 +2924,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // Révocation de token d'accès vidéo
     const revokeVideoAccessToken = async (token: string) => {
         setVideoAccessTokens(prev => prev.filter(t => t.token !== token));
-        
+
         // Mettre à jour l'enregistrement vidéo pour supprimer le token
         const recording = videoRecordings.find(r => r.accessToken === token);
         if (recording) {
             await updateVideoRecording(recording.id, { accessToken: undefined, expiresAt: undefined });
         }
-        
+
         console.log('Token d\'accès vidéo révoqué:', token);
     };
 
@@ -2904,14 +2948,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         try {
             // Simuler une tentative de reconnexion
             await new Promise(resolve => setTimeout(resolve, reconnectDelay));
-            
+
             // Vérifier si la connexion est rétablie
             if (navigator.onLine) {
                 setConnectionStatus('connected');
                 setReconnectAttempts(0);
                 setReconnectDelay(1000);
                 console.log('Connexion rétablie avec succès');
-                
+
                 // Rafraîchir les données si nécessaire
                 if (activeStream) {
                     console.log('Tentative de restauration du flux vidéo...');
@@ -2921,10 +2965,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         } catch (error) {
             console.error(`Tentative de reconnexion ${reconnectAttempts} échouée:`, error);
-            
+
             // Augmenter le délai pour la prochaine tentative (exponentiel backoff)
             setReconnectDelay(prev => Math.min(prev * 2, 30000)); // Max 30 secondes
-            
+
             // Programmer la prochaine tentative
             setTimeout(() => {
                 if (connectionStatus === 'reconnecting') {
@@ -3030,14 +3074,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log('Downloading contract:', contract.id);
             console.log('Contract client signature:', contract.clientSignatureUrl ? 'exists' : 'none');
             console.log('Contract signed at:', contract.signedAt);
-            
+
             // Récupérer la signature depuis la table documents si elle n'existe pas dans le contrat
             let clientSignatureData = contract.clientSignatureUrl;
-            
+
             console.log('Recherche signature - contract.clientSignatureUrl:', contract.clientSignatureUrl ? 'exists' : 'none');
             console.log('Recherche signature - contract.quoteId:', contract.quoteId);
             console.log('Recherche signature - contract.clientId:', contract.clientId);
-            
+
             if (!clientSignatureData && contract.quoteId) {
                 console.log('Recherche de la signature dans les documents pour quoteId:', contract.quoteId);
                 const { data: documentData, error: documentError } = await supabase
@@ -3045,9 +3089,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     .select('signature_data, signature_date')
                     .eq('id', contract.quoteId)
                     .single();
-                
+
                 console.log('Document query result:', { documentError, documentData });
-                
+
                 if (!documentError && documentData) {
                     clientSignatureData = documentData.signature_data;
                     console.log('Signature trouvée dans les documents:', clientSignatureData ? 'exists' : 'none');
@@ -3061,7 +3105,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.log('Erreur ou document non trouvé:', documentError);
                 }
             }
-            
+
             // Si toujours pas de signature, chercher par clientId
             if (!clientSignatureData && contract.clientId) {
                 console.log('Recherche de la signature par clientId:', contract.clientId);
@@ -3072,9 +3116,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     .eq('status', 'signed')
                     .order('created_at', { ascending: false })
                     .limit(1);
-                
+
                 console.log('Client documents query result:', { clientDocsError, clientDocuments });
-                
+
                 if (!clientDocsError && clientDocuments && clientDocuments.length > 0) {
                     clientSignatureData = clientDocuments[0].signature_data;
                     console.log('Signature trouvée via clientId:', clientSignatureData ? 'exists' : 'none');
@@ -3088,12 +3132,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     console.log('Erreur ou aucun document signé trouvé:', clientDocsError);
                 }
             }
-            
+
             console.log('Signature finale utilisée:', clientSignatureData ? 'exists' : 'none');
             console.log('Type de signature finale:', typeof clientSignatureData);
             console.log('Longueur signature finale:', clientSignatureData?.length);
             console.log('Commence par data:image:', clientSignatureData?.startsWith('data:image/'));
-            
+
             // Create HTML content for printing
             const htmlContent = `
 <!DOCTYPE html>
@@ -3198,19 +3242,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         <div class="signature-box">
             <h3>Signature Client</h3>
             ${(() => {
-                if (clientSignatureData && clientSignatureData !== 'auto-signed') {
-                    // Vérifier si c'est une URL Base64
-                    if (clientSignatureData.startsWith('data:image/')) {
-                        return `<img src="${clientSignatureData}" alt="Signature Client" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" />`;
+                    if (clientSignatureData && clientSignatureData !== 'auto-signed') {
+                        // Vérifier si c'est une URL Base64
+                        if (clientSignatureData.startsWith('data:image/')) {
+                            return `<img src="${clientSignatureData}" alt="Signature Client" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" />`;
+                        } else {
+                            return `<img src="${clientSignatureData}" alt="Signature Client" onload="console.log('Client signature loaded')" onerror="console.error('Failed to load client signature:', this.src); this.style.display='none'; this.nextElementSibling.style.display='block';" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" /><div style="display: none; min-height: 60px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; color: #999; font-style: italic; margin: 10px 0; background: #f9f9f9;">Signature non disponible</div>`;
+                        }
+                    } else if (clientSignatureData === 'auto-signed') {
+                        return `<div class="signature-placeholder">Signature automatique (Devis signé)</div>`;
                     } else {
-                        return `<img src="${clientSignatureData}" alt="Signature Client" onload="console.log('Client signature loaded')" onerror="console.error('Failed to load client signature:', this.src); this.style.display='none'; this.nextElementSibling.style.display='block';" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;" /><div style="display: none; min-height: 60px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; color: #999; font-style: italic; margin: 10px 0; background: #f9f9f9;">Signature non disponible</div>`;
+                        return `<div class="signature-placeholder">En attente de signature</div>`;
                     }
-                } else if (clientSignatureData === 'auto-signed') {
-                    return `<div class="signature-placeholder">Signature automatique (Devis signé)</div>`;
-                } else {
-                    return `<div class="signature-placeholder">En attente de signature</div>`;
-                }
-            })()}
+                })()}
             ${contract.signedAt ? `<p><small>Signé le: ${new Date(contract.signedAt).toLocaleDateString('fr-FR')}</small></p>` : '<p><small><em>Non signé</em></small></p>'}
         </div>
         <div class="signature-box">
@@ -3226,20 +3270,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     </div>
 </body>
 </html>`;
-            
+
             // Create a new window for printing
             const printWindow = window.open('', '_blank', 'width=800,height=600');
             if (printWindow) {
                 printWindow.document.write(htmlContent);
                 printWindow.document.close();
-                
+
                 // Wait for all content to load including images before printing
                 printWindow.onload = () => {
                     // Check if all images are loaded
                     const images = printWindow.document.querySelectorAll('img');
                     let loadedImages = 0;
                     const totalImages = images.length;
-                    
+
                     if (totalImages === 0) {
                         // No images to wait for, print immediately
                         setTimeout(() => {
@@ -3270,7 +3314,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                                 }
                             };
                         });
-                        
+
                         // Fallback timeout in case images don't load
                         setTimeout(() => {
                             if (!printWindow.closed) {
@@ -3284,7 +3328,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             } else {
                 throw new Error('Impossible d\'ouvrir la fenêtre d\'impression');
             }
-            
+
         } catch (error: any) {
             console.error('Error generating contract document:', error);
             throw new Error('Erreur lors de la génération du document: ' + error.message);
@@ -3298,7 +3342,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
             documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
-            packs, addPack, deletePacks,
+            packs, addPack, updatePack, deletePacks,
             contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate,
             genericContracts,
             generateContractFromTemplate, downloadContract,

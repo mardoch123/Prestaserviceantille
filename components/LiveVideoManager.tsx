@@ -85,17 +85,17 @@ const LiveVideoManager: React.FC = () => {
     }, []);
 
     return (
-        <div className="p-8 h-full overflow-y-auto bg-white/40">
-            <div className="mb-8">
-                <h2 className="text-3xl font-serif font-bold text-slate-800 mb-2">Suivi des Appels Vidéo</h2>
+        <div className="p-4 lg:p-8 h-full overflow-y-auto bg-white/40">
+            <div className="mb-6 lg:mb-8">
+                <h2 className="text-2xl lg:text-3xl font-serif font-bold text-slate-800 mb-2">Suivi des Appels Vidéo</h2>
                 <p className="text-sm text-slate-500">
                     Suivi des appels vidéo en direct et consultation des historiques
                 </p>
             </div>
 
             {/* Live Stream Section - Lecture seule */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
-                <div className="flex items-center justify-between mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 lg:p-6 mb-6 lg:mb-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 lg:mb-6 gap-4">
                     <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                         <Wifi className={`w-5 h-5 ${activeStream ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
                         Appel en Direct
@@ -143,10 +143,7 @@ const LiveVideoManager: React.FC = () => {
                 </div>
 
                 {/* Video Player - Lecture seule */}
-                <div
-                    ref={containerRef}
-                    className={`relative bg-black rounded-lg overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'}`}
-                >
+                <div className="relative bg-black rounded-lg overflow-hidden" style={{ minHeight: '400px' }}>
                     {activeStream ? (
                         <div className="relative w-full h-full">
                             <video
@@ -156,7 +153,7 @@ const LiveVideoManager: React.FC = () => {
                                 playsInline
                                 muted={isMuted}
                             />
-                            <div className="absolute top-4 right-4 flex items-center gap-2">
+                            <div className="absolute top-2 lg:top-4 right-2 lg:right-4 flex items-center gap-2">
                                 <button
                                     onClick={toggleMute}
                                     className="bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition"
@@ -170,7 +167,7 @@ const LiveVideoManager: React.FC = () => {
                                     {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
                                 </button>
                             </div>
-                            <div className="absolute bottom-4 left-4 bg-black/50 text-white px-3 py-1 rounded text-sm">
+                            <div className="absolute bottom-2 lg:bottom-4 left-2 lg:left-4 bg-black/50 text-white px-2 lg:px-3 py-1 rounded text-xs lg:text-sm">
                                 {(() => {
                                     const client = clients.find(c => c.id === activeStream.clientId);
                                     const provider = providers.find(p => p.id === activeStream.providerId);
@@ -179,10 +176,10 @@ const LiveVideoManager: React.FC = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-white/50">
-                            <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                            <h3 className="text-xl font-bold text-slate-400">Aucun Appel en Cours</h3>
-                            <p className="text-sm mb-4">Les appels vidéo apparaîtront ici lorsqu'ils seront démarrés par les prestataires.</p>
+                        <div className="flex flex-col items-center justify-center h-full text-white/50 p-4">
+                            <Wifi className="w-12 lg:w-16 mx-auto mb-4 opacity-20" />
+                            <h3 className="text-lg lg:text-xl font-bold text-slate-400">Aucun Appel en Cours</h3>
+                            <p className="text-sm mb-4 text-center">Les appels vidéo apparaîtront ici lorsqu'ils seront démarrés par les prestataires.</p>
                         </div>
                     )}
                 </div>
@@ -192,7 +189,7 @@ const LiveVideoManager: React.FC = () => {
                     <div className="mt-4 flex justify-center">
                         <button
                             onClick={handleStopStream}
-                            className="bg-red-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-red-700 transition flex items-center gap-2"
+                            className="bg-red-600 text-white px-4 lg:px-6 py-2 rounded-lg font-bold hover:bg-red-700 transition flex items-center gap-2 text-sm lg:text-base"
                         >
                             <X className="w-4 h-4" />
                             Arrêter d'urgence
