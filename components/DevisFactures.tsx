@@ -549,23 +549,38 @@ const DevisFactures: React.FC = () => {
 
             // Compter les prestataires disponibles pour ce créneau
             const availableProviders = providers.filter(provider => {
-                // Vérifier si le prestataire est inactif
-                if (!provider.isActive) return false;
+                // Vérifier si le prestataire est actif (utiliser status !== 'Inactive' et !== 'Passive')
+                const isActive = provider.status === 'Active';
+                if (!isActive) {
+                    console.log(`Provider ${provider.firstName} ${provider.lastName} is not active: ${provider.status}`);
+                    return false;
+                }
 
                 // Vérifier si le prestataire a des congés à cette date
-                const hasLeave = provider.leaves.some(leave => {
+                const hasLeave = provider.leaves && provider.leaves.some(leave => {
                     const leaveStart = new Date(leave.startDate);
                     const leaveEnd = new Date(leave.endDate);
                     const slotDate = new Date(slot.date);
                     return slotDate >= leaveStart && slotDate <= leaveEnd;
                 });
 
-                if (hasLeave) return false;
+                if (hasLeave) {
+                    console.log(`Provider ${provider.firstName} ${provider.lastName} has leave on ${slot.date}`);
+                    return false;
+                }
 
                 // Vérifier si le prestataire a déjà des missions à ce créneau
                 const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
-                return !hasConflict;
+                if (hasConflict) {
+                    console.log(`Provider ${provider.firstName} ${provider.lastName} has conflict mission`);
+                    return false;
+                }
+
+                console.log(`Provider ${provider.firstName} ${provider.lastName} is AVAILABLE`);
+                return true;
             });
+
+            console.log(`Total providers: ${providers.length}, Available providers: ${availableProviders.length}`);
 
             // S'il y a au moins un prestataire disponible, accepter la prestation
             if (availableProviders.length > 0) {
@@ -575,7 +590,7 @@ const DevisFactures: React.FC = () => {
             // S'il n'y a aucun prestataire disponible pour ce créneau
             return {
                 isValid: false,
-                message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. Veuillez choisir d'autres dates.`
+                message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. (${providers.length} prestataires au total, ${availableProviders.length} disponibles). Veuillez choisir d'autres dates.`
             };
         }
 
