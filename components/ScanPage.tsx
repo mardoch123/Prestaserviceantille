@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Loader2, CheckCircle, XCircle, LogIn } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, LogIn, Clock, User, MapPin } from 'lucide-react';
 
 // Ajouter les animations CSS personnalisées
 const style = document.createElement('style');
@@ -39,10 +39,11 @@ document.head.appendChild(style);
 const ScanPage: React.FC = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const { currentUser, registerScan } = useData();
+    const { currentUser, registerScan, visitScans, clients } = useData();
     const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'unauthorized'>('loading');
     const [message, setMessage] = useState('');
     const [scanType, setScanType] = useState<'entry' | 'exit' | null>(null);
+    const [clientScans, setClientScans] = useState<any[]>([]);
 
     const clientId = searchParams.get('client');
 
@@ -74,6 +75,15 @@ const ScanPage: React.FC = () => {
                 if (result.success) {
                     setScanType(result.type || 'entry');
                     setStatus('success');
+                    
+                    // Récupérer tous les scans du client pour les afficher
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const clientTodayScans = visitScans.filter(scan => 
+                        scan.clientId === clientId && 
+                        new Date(scan.timestamp) >= today
+                    ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                    setClientScans(clientTodayScans);
                     
                     // Jouer un son de succès
                     try {
@@ -179,6 +189,53 @@ const ScanPage: React.FC = () => {
                                 minute: '2-digit' 
                             })}
                         </div>
+
+                        {/* Historique des scans du jour */}
+                        {clientScans.length > 1 && (
+                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                                    <Clock className="w-4 h-4" />
+                                    Historique des scans du jour ({clientScans.length})
+                                </h4>
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {clientScans.map((scan, index) => {
+                                        const client = clients.find(c => c.id === scan.clientId);
+                                        return (
+                                            <div key={scan.id} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-blue-100">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                                        scan.scanType === 'entry' ? 'bg-green-100' : 'bg-orange-100'
+                                                    }`}>
+                                                        {scan.scanType === 'entry' ? (
+                                                            <LogIn className="w-3 h-3 text-green-600" />
+                                                        ) : (
+                                                            <LogIn className="w-3 h-3 text-orange-600 rotate-180" />
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <span className={`font-bold ${
+                                                            scan.scanType === 'entry' ? 'text-green-700' : 'text-orange-700'
+                                                        }`}>
+                                                            {scan.scanType === 'entry' ? 'Entrée' : 'Sortie'}
+                                                        </span>
+                                                        <span className="text-slate-500 ml-2">
+                                                            {new Date(scan.timestamp).toLocaleTimeString('fr-FR', { 
+                                                                hour: '2-digit', 
+                                                                minute: '2-digit' 
+                                                            })}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-slate-400">
+                                                    {scan.scannerName}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         <button
                             onClick={() => navigate('/')}
                             className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition"

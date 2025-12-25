@@ -714,7 +714,7 @@ const ProviderPortal: React.FC = () => {
                             </div>
 
                             {/* Controls */}
-                            {isStreaming && (
+                            {(isStreaming || activeStream) && (
                                 <div className="p-4 bg-slate-800 flex justify-between items-center border-t border-slate-700">
                                     <div className="text-white text-xs">
                                         <p className="font-bold opacity-70">Diffusé vers</p>
