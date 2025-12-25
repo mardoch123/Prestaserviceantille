@@ -547,27 +547,6 @@ const DevisFactures: React.FC = () => {
                 return (slotStart < mEnd && slotEnd > mStart);
             });
 
-            // Vérifier les devis de moins de 24h pour ce créneau
-            const now = new Date();
-            const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-            const recentQuotes = documents.filter(doc => {
-                if (doc.type !== 'Devis' || !doc.slotsData) return false;
-                const docDate = new Date(doc.date);
-                return docDate >= twentyFourHoursAgo;
-            });
-
-            // Vérifier si un devis récent utilise ce créneau
-            const hasRecentQuoteConflict = recentQuotes.some(doc => {
-                if (!doc.slotsData) return false;
-                return doc.slotsData.some(docSlot => {
-                    if (!docSlot.date) return false;
-                    const docSlotStart = new Date(`${docSlot.date}T${docSlot.startTime}`);
-                    const docSlotEnd = new Date(`${docSlot.date}T${docSlot.endTime}`);
-                    return (slotStart < docSlotEnd && slotEnd > docSlotStart);
-                });
-            });
-
             // Compter les prestataires disponibles pour ce créneau
             const availableProviders = providers.filter(provider => {
                 // Vérifier si le prestataire est inactif
@@ -588,21 +567,16 @@ const DevisFactures: React.FC = () => {
                 return !hasConflict;
             });
 
-            // S'il y a des prestataires disponibles mais qu'il y a des devis récents conflictuels
-            if (availableProviders.length > 0 && hasRecentQuoteConflict) {
-                return {
-                    isValid: false,
-                    message: `Ce créneau (${slot.date} de ${slot.startTime} à ${slot.endTime}) est déjà réservé par un devis de moins de 24h. Veuillez choisir d'autres dates.`
-                };
+            // S'il y a au moins un prestataire disponible, accepter la prestation
+            if (availableProviders.length > 0) {
+                return { isValid: true, message: '' };
             }
 
-            // S'il n'y a aucun prestataire disponible
-            if (availableProviders.length === 0) {
-                return {
-                    isValid: false,
-                    message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. Veuillez choisir d'autres dates.`
-                };
-            }
+            // S'il n'y a aucun prestataire disponible pour ce créneau
+            return {
+                isValid: false,
+                message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. Veuillez choisir d'autres dates.`
+            };
         }
 
         return { isValid: true, message: '' };
