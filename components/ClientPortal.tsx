@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Document, Contract } from '../types';
 import QRCodeManager from './ScanPage';
+import ClientQRCode from './ClientQRCode';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { 
@@ -718,7 +719,7 @@ const ClientPortal: React.FC = () => {
 
                 <main className="flex-1 p-4 md:p-8 overflow-y-auto">
                     {activeTab === 'qr-scans' && (
-                        <QRCodeManager />
+                        <ClientQRCode />
                     )}
                     {activeTab === 'profile' && (
                         <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
