@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Document, Contract } from '../types';
 import QRCodeManager from './ScanPage';
-import VideoCallManager from './VideoCallManager';
+import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { 
     User,
@@ -1169,7 +1169,7 @@ const ClientPortal: React.FC = () => {
                     {activeTab === 'live' && (
                         <div className="space-y-6">
                             {showVideoCall && activeStream ? (
-                                <VideoCallManager
+                                <VideoCallManagerImproved
                                     sessionId={activeStream.id}
                                     isInitiator={isCallInitiator}
                                     onEnd={() => {

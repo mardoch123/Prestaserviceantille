@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import { Video, VideoOff, Phone, PhoneOff, Users, Eye, EyeOff, Wifi, Lock, AlertCircle, CheckCircle } from 'lucide-react';
-import VideoCallManager from './VideoCallManager';
+import VideoCallManagerImproved from './VideoCallManagerImproved';
 
 interface AdminVideoSupervisorProps {
     onClose?: () => void;
@@ -180,7 +180,7 @@ const AdminVideoSupervisor: React.FC<AdminVideoSupervisorProps> = ({ onClose }) 
                 ) : (
                     <div className="space-y-3">
                         {supervisionMode === 'join' && showVideoCall && (
-                            <VideoCallManager
+                            <VideoCallManagerImproved
                                 sessionId={activeStream.id}
                                 isInitiator={false}
                                 onEnd={stopSupervision}

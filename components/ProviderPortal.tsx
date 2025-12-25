@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
-import VideoCallManager from './VideoCallManager';
+import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { 
   Calendar, 
   Clock, 
@@ -617,7 +617,7 @@ const ProviderPortal: React.FC = () => {
                        <div className="space-y-6">
                            <h2 className="text-2xl font-bold text-slate-800 font-serif">Appel Vidéo</h2>
                             {showVideoCall && activeStream ? (
-                               <VideoCallManager
+                               <VideoCallManagerImproved
                                    sessionId={activeStream.id}
                                    isInitiator={true}
                                    onEnd={endVideoCall}
