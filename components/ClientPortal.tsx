@@ -1,25 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useData, LOGO_NORMAL } from '../context/DataContext';
-import { Contract } from '../types';
-import QRCodeManager from './QRCodeManager';
-import {
-    FileText,
-    Calendar,
-    MessageSquare,
+import { useData } from '../context/DataContext';
+import { Document, Contract } from '../types';
+import QRCodeManager from './ScanPage';
+import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
+import { 
     User,
-    CheckCircle,
-    Download,
-    MessageCircle,
-    Star,
-    Send,
-    PenTool,
-    X,
-    Menu,
-    Wifi,
-    Lock,
-    FileSignature,
-    AlertTriangle,
-    LogOut,
+    Calendar,
+    Clock,
     MapPin,
     Phone,
     Mail,
@@ -36,7 +23,25 @@ import {
     History,
     Search,
     RotateCcw,
-    Clock
+    Clock as ClockIcon,
+    MessageCircle,
+    MessageSquare,
+    Star,
+    Send,
+    PenTool,
+    X,
+    Menu,
+    Wifi,
+    Lock,
+    FileSignature,
+    AlertTriangle,
+    LogOut,
+    MapPin as MapPinIcon,
+    Phone as PhoneIcon,
+    Mail as MailIcon,
+    Download,
+    FileText,
+    CheckCircle
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -1439,6 +1444,20 @@ const ClientPortal: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Contract Download Button - Show for quotes that have a contract */}
+                            {selectedQuote && (
+                                <div className="bg-white p-4 rounded-lg border border-slate-200 mb-4">
+                                    <h4 className="font-bold text-slate-700 mb-3">Contrat de Service</h4>
+                                    <button
+                                        onClick={handleDownloadContract}
+                                        className="w-full flex items-center justify-center gap-2 bg-brand-blue text-white px-4 py-3 rounded-lg hover:bg-blue-600 transition-colors font-bold"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        Télécharger le contrat
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Signature Pad - Only show for quotes that can be signed */}
                             {selectedQuote.status === 'sent' && (

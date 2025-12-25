@@ -1044,7 +1044,7 @@ const DevisFactures: React.FC = () => {
                                     {/* Montant et statut */}
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <div className="text-lg font-bold text-slate-900">{doc.totalTTC.toFixed(2)} €</div>
+                                            <div className="text-lg font-bold text-slate-900">{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</div>
                                         </div>
                                         <div className="text-center">
                                             <select
@@ -1190,7 +1190,7 @@ const DevisFactures: React.FC = () => {
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.date}</td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
-                                        <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC.toFixed(2)} €</td>
+                                        <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                                                 <select
@@ -1786,7 +1786,7 @@ const DevisFactures: React.FC = () => {
                                 <h4 className="font-bold text-slate-800 mb-3">Détails de la Prestation</h4>
                                 <div className="space-y-2 text-sm">
                                     <div><span className="text-slate-500">Description : </span><span className="font-medium">{selectedDocument.description}</span></div>
-                                    <div><span className="text-slate-500">Prix unitaire HT : </span><span className="font-medium">{selectedDocument.unitPrice.toFixed(2)} €</span></div>
+                                    <div><span className="text-slate-500">Prix unitaire HT : </span><span className="font-medium">{selectedDocument.unitPrice ? selectedDocument.unitPrice.toFixed(2) : '0.00'} €</span></div>
                                     <div><span className="text-slate-500">Taux TVA : </span><span className="font-medium">{selectedDocument.tvaRate}%</span></div>
                                 </div>
                             </div>
@@ -1795,9 +1795,9 @@ const DevisFactures: React.FC = () => {
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <h4 className="font-bold text-slate-800 mb-3">Récapitulatif Financier</h4>
                                 <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between"><span>Total HT : </span><span className="font-medium">{selectedDocument.totalHT.toFixed(2)} €</span></div>
-                                    <div className="flex justify-between"><span>Montant TVA : </span><span className="font-medium">{(selectedDocument.totalTTC - selectedDocument.totalHT).toFixed(2)} €</span></div>
-                                    <div className="flex justify-between font-bold text-lg pt-2 border-t border-slate-200"><span>Total TTC : </span><span className="font-medium">{selectedDocument.totalTTC.toFixed(2)} €</span></div>
+                                    <div className="flex justify-between"><span>Total HT : </span><span className="font-medium">{selectedDocument.totalHT ? selectedDocument.totalHT.toFixed(2) : '0.00'} €</span></div>
+                                    <div className="flex justify-between"><span>Montant TVA : </span><span className="font-medium">{selectedDocument.totalTTC && selectedDocument.totalHT ? (selectedDocument.totalTTC - selectedDocument.totalHT).toFixed(2) : '0.00'} €</span></div>
+                                    <div className="flex justify-between font-bold text-lg pt-2 border-t border-slate-200"><span>Total TTC : </span><span className="font-medium">{selectedDocument.totalTTC ? selectedDocument.totalTTC.toFixed(2) : '0.00'} €</span></div>
                                 </div>
                             </div>
 
