@@ -1,18 +1,28 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, Home } from 'lucide-react';
+import { CheckCircle, Home, Clock } from 'lucide-react';
 
 const ScanSuccess: React.FC = () => {
     const navigate = useNavigate();
+    const [countdown, setCountdown] = useState(5);
+    const [isRedirecting, setIsRedirecting] = useState(false);
 
     useEffect(() => {
-        // Rediriger automatiquement après 5 secondes
-        const timer = setTimeout(() => {
-            navigate('/');
-        }, 5000);
+        if (isRedirecting) return;
+        
+        const timer = setInterval(() => {
+            setCountdown(prev => {
+                if (prev <= 1) {
+                    setIsRedirecting(true);
+                    navigate('/');
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
 
-        return () => clearTimeout(timer);
-    }, [navigate]);
+        return () => clearInterval(timer);
+    }, [navigate, isRedirecting]);
 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-6">
@@ -40,9 +50,14 @@ const ScanSuccess: React.FC = () => {
                     Retour à l'accueil
                 </button>
                 
-                <p className="text-xs text-slate-500 mt-4">
-                    Redirection automatique dans 5 secondes...
-                </p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                    <div className="flex items-center justify-center gap-2 text-green-700">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-sm font-medium">
+                            Redirection automatique dans {countdown}s...
+                        </span>
+                    </div>
+                </div>
             </div>
         </div>
     );

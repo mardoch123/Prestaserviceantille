@@ -45,6 +45,8 @@ const ScanPage: React.FC = () => {
     const [message, setMessage] = useState('');
     const [scanType, setScanType] = useState<'entry' | 'exit' | null>(null);
     const [clientScans, setClientScans] = useState<any[]>([]);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [processedClientId, setProcessedClientId] = useState<string | null>(null);
 
     const clientId = searchParams.get('client');
 
@@ -60,15 +62,25 @@ const ScanPage: React.FC = () => {
     useEffect(() => {
         let timeoutId: NodeJS.Timeout;
         
+        // Éviter les traitements multiples du même clientId
+        if (!clientId || isProcessing || processedClientId === clientId) {
+            return;
+        }
+
         const processScan = async () => {
+            setIsProcessing(true);
+            setProcessedClientId(clientId);
+            
             if (!clientId) {
                 setStatus('error');
                 setMessage("Code QR invalide (Client ID manquant).");
+                setIsProcessing(false);
                 return;
             }
 
             if (!currentUser) {
                 setStatus('unauthorized');
+                setIsProcessing(false);
                 return;
             }
 
@@ -76,6 +88,7 @@ const ScanPage: React.FC = () => {
             timeoutId = setTimeout(() => {
                 setStatus('error');
                 setMessage("Délai d'attente dépassé. Veuillez réessayer.");
+                setIsProcessing(false);
             }, 10000);
 
             try {
@@ -94,6 +107,7 @@ const ScanPage: React.FC = () => {
                     clearTimeout(timeoutId);
                     setStatus('error');
                     setMessage("Client non trouvé. Veuillez vérifier le code QR.");
+                    setIsProcessing(false);
                     return;
                 }
 
@@ -162,6 +176,8 @@ const ScanPage: React.FC = () => {
                 } else {
                     setMessage("Erreur lors de l'enregistrement du scan: " + (err.message || "Erreur inconnue"));
                 }
+            } finally {
+                setIsProcessing(false);
             }
         };
 
@@ -173,7 +189,7 @@ const ScanPage: React.FC = () => {
                 clearTimeout(timeoutId);
             }
         };
-    }, [clientId, currentUser, registerScan, visitScans, clients]);
+    }, [clientId, currentUser]); // Suppression des dépendances qui causent des re-renders
 
     if (status === 'unauthorized') {
         return (
@@ -318,6 +334,12 @@ const ScanPage: React.FC = () => {
 
                         <button
                             onClick={() => {
+                                // Empêcher les clics multiples
+                                const button = event?.currentTarget;
+                                if (button) {
+                                    button.disabled = true;
+                                }
+                                
                                 // Rediriger vers une page de succès simple après un seul scan
                                 if (clientScans.length === 1) {
                                     navigate('/scan-success');
@@ -325,7 +347,7 @@ const ScanPage: React.FC = () => {
                                     navigate('/');
                                 }
                             }}
-                            className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition"
+                            className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition disabled:bg-green-400 disabled:cursor-not-allowed"
                         >
                             Retour à l'accueil
                         </button>
@@ -343,8 +365,26 @@ const ScanPage: React.FC = () => {
                         </div>
                         <div className="space-y-2">
                             <button
-                                onClick={() => window.location.reload()}
-                                className="w-full bg-slate-100 text-slate-700 py-2 px-6 rounded-lg font-bold hover:bg-slate-200 transition"
+                                onClick={() => {
+                                    // Empêcher les clics multiples
+                                    const button = event?.currentTarget;
+                                    if (button) {
+                                        button.disabled = true;
+                                        button.textContent = 'Chargement...';
+                                    }
+                                    
+                                    // Réinitialiser les états et recharger
+                                    setIsProcessing(false);
+                                    setProcessedClientId(null);
+                                    setStatus('loading');
+                                    setMessage('');
+                                    
+                                    // Forcer une nouvelle tentative de scan
+                                    setTimeout(() => {
+                                        window.location.reload();
+                                    }, 100);
+                                }}
+                                className="w-full bg-slate-100 text-slate-700 py-2 px-6 rounded-lg font-bold hover:bg-slate-200 transition disabled:bg-slate-300 disabled:cursor-not-allowed"
                             >
                                 Réessayer
                             </button>
