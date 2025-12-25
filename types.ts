@@ -44,17 +44,17 @@ export interface Leave {
 
 export interface Provider {
     id: string;
-    firstName: string;
-    lastName: string;
-    status: 'Active' | 'Inactive' | 'Passive';
+    firstName: string; // first_name en DB
+    lastName: string; // last_name en DB
+    status: 'Active' | 'Inactive' | 'Passive'; // USER-DEFINED provider_status
     specialty: string;
     leaves: Leave[]; // In a real DB, this would be a join, but kept here for UI convenience
-    hoursWorked: number;
-    rating: number;
-    phone: string;
-    email: string;
+    hoursWorked: number; // hours_worked en DB
+    rating: number; // rating en DB
+    phone: string; // phone en DB
+    email: string; // email en DB
     initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
-    isActive?: boolean; // Champ pour vérifier si le prestataire est actif
+    isActive?: boolean; // Champ pour vérifier si le prestataire est actif (dérivé de status)
 }
 
 // DTO for creating a provider (no ID)
