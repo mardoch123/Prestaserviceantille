@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardViewMode } from '../types';
 import StatCard from './StatCard';
 import { TurnoverChart, ClientsChart, MissionsChart } from './Charts';
 import { useData } from '../context/DataContext';
+import AdminVideoSupervisor from './AdminVideoSupervisor';
 import { 
     ChevronDown, 
     Euro, 
@@ -17,15 +17,18 @@ import {
     Users, 
     Wallet, 
     AlertCircle,
-    XCircle
+    XCircle,
+    Video,
+    Wifi
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const [viewMode, setViewMode] = useState<DashboardViewMode>(DashboardViewMode.COMMERCIAL);
   const [timeFilter, setTimeFilter] = useState<string>('month');
   const [providerFilter, setProviderFilter] = useState<string>('');
+  const [showVideoSupervisor, setShowVideoSupervisor] = useState(false);
   const navigate = useNavigate();
-  const { missions, documents, clients, providers } = useData();
+  const { missions, documents, clients, providers, activeStream, currentUser } = useData();
 
   // --- DATA CALCULATION FOR CHARTS ---
 
@@ -453,9 +456,35 @@ const Dashboard: React.FC = () => {
             </div>
         </div>
       </div>
+
+      {/* Video Supervision Section - Admin Only */}
+      {currentUser?.role === 'admin' && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Video className="w-5 h-5" />
+              Supervision Vidéo
+            </h3>
+            {activeStream && (
+              <button
+                onClick={() => setShowVideoSupervisor(!showVideoSupervisor)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                  showVideoSupervisor 
+                    ? 'bg-slate-600 text-white hover:bg-slate-700' 
+                    : 'bg-red-600 text-white hover:bg-red-700 animate-pulse'
+                }`}
+              >
+                <Wifi className="w-4 h-4" />
+                {showVideoSupervisor ? 'Masquer' : 'Superviser'}
+              </button>
+            )}
+          </div>
+          
+          {showVideoSupervisor && <AdminVideoSupervisor onClose={() => setShowVideoSupervisor(false)} />}
+        </div>
+      )}
     </div>
   );
 };
 
 export default Dashboard;
-    

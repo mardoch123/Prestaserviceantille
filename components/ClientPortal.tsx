@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Document, Contract } from '../types';
 import QRCodeManager from './ScanPage';
+import VideoCallManager from './VideoCallManager';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { 
     User,
@@ -72,7 +73,8 @@ const ClientPortal: React.FC = () => {
         extendReadingSession,
         endReadingSession,
         videoRecordings,
-        getVideoRecordings
+        getVideoRecordings,
+        stopLiveStream
     } = useData();
 
     // Determine client ID either from simulation or real login
@@ -176,6 +178,8 @@ const ClientPortal: React.FC = () => {
     const [hasSignature, setHasSignature] = useState(false);
     const [showSignatureModal, setShowSignatureModal] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
+    const [showVideoCall, setShowVideoCall] = useState(false);
+    const [isCallInitiator, setIsCallInitiator] = useState(false);
 
     // Chat Scroll
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1158,69 +1162,97 @@ const ClientPortal: React.FC = () => {
 
                     {activeTab === 'live' && (
                         <div className="space-y-6">
-                            {/* Section Appel en Direct */}
-                            <div className="h-96 flex flex-col items-center justify-center bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
-                                {isLive ? (
-                                    <div className="w-full h-full flex flex-col">
-                                        <div className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center gap-2">
-                                            <span className="w-2 h-2 bg-white rounded-full"></span> DIRECT
-                                        </div>
-                                        <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
-                                            <Lock className="w-3 h-3 text-green-400" /> Flux Sécurisé
-                                        </div>
+                            {showVideoCall && activeStream ? (
+                                <VideoCallManager
+                                    sessionId={activeStream.id}
+                                    isInitiator={isCallInitiator}
+                                    onEnd={() => {
+                                        setShowVideoCall(false);
+                                        setIsCallInitiator(false);
+                                    }}
+                                />
+                            ) : (
+                                <div className="h-96 flex flex-col items-center justify-center bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
+                                    {isLive ? (
+                                        <div className="w-full h-full flex flex-col">
+                                            <div className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center gap-2">
+                                                <span className="w-2 h-2 bg-white rounded-full"></span> DIRECT
+                                            </div>
+                                            <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                                                <Lock className="w-3 h-3 text-green-400" /> Flux Sécurisé
+                                            </div>
 
-                                        {/* Informations sur l'appel */}
-                                        <div className="absolute bottom-4 left-4 right-4 z-10 bg-black/70 text-white p-4 rounded-lg">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div>
-                                                    <h4 className="font-bold text-lg">Appel Vidéo en Cours</h4>
-                                                    <p className="text-sm text-slate-300">
-                                                        {activeStream && (() => {
-                                                            const provider = providers.find(p => p.id === activeStream.providerId);
-                                                            return provider ? `${provider.firstName} ${provider.lastName}` : 'Intervenant';
-                                                        })()}
-                                                    </p>
+                                            {/* Informations sur l'appel */}
+                                            <div className="absolute bottom-4 left-4 right-4 z-10 bg-black/70 text-white p-4 rounded-lg">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <h4 className="font-bold text-lg">Appel Vidéo en Cours</h4>
+                                                        <p className="text-sm text-slate-300">
+                                                            {activeStream && (() => {
+                                                                const provider = providers.find(p => p.id === activeStream.providerId);
+                                                                return provider ? `${provider.firstName} ${provider.lastName}` : 'Intervenant';
+                                                            })()}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-xs text-slate-400">Débuté à</p>
+                                                        <p className="text-sm font-mono">
+                                                            {activeStream && new Date(activeStream.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="text-xs text-slate-400">Débuté à</p>
-                                                    <p className="text-sm font-mono">
-                                                        {activeStream && new Date(activeStream.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                                                    </p>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            setShowVideoCall(true);
+                                                            setIsCallInitiator(false);
+                                                        }}
+                                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                                                    >
+                                                        <Video className="w-5 h-5" />
+                                                        Rejoindre l'Appel
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            stopLiveStream();
+                                                            showToast('Appel vidéo terminé');
+                                                        }}
+                                                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                                                    >
+                                                        <X className="w-5 h-5" />
+                                                        Raccrocher
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <button className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                                <Video className="w-5 h-5" />
-                                                Rejoindre l'Appel
-                                            </button>
-                                        </div>
 
-                                        <div className="flex-1 flex items-center justify-center bg-black relative">
-                                            {activeStream && activeStream.streamUrl ? (
-                                                <video
-                                                    className="w-full h-full object-contain"
-                                                    autoPlay
-                                                    playsInline
-                                                    muted
-                                                    src={activeStream.streamUrl}
-                                                />
-                                            ) : (
-                                                <div className="text-white text-center">
-                                                    <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
-                                                    <h3 className="text-xl font-bold">Intervention en cours</h3>
-                                                    <p className="text-sm text-slate-400">Connexion établie avec l'intervenant.</p>
-                                                </div>
-                                            )}
+                                            <div className="flex-1 flex items-center justify-center bg-black relative">
+                                                {activeStream && activeStream.streamUrl ? (
+                                                    <video
+                                                        className="w-full h-full object-contain"
+                                                        autoPlay
+                                                        playsInline
+                                                        muted
+                                                        src={activeStream.streamUrl}
+                                                    />
+                                                ) : (
+                                                    <div className="text-white text-center">
+                                                        <Wifi className="w-16 h-16 mx-auto mb-4 text-green-500 animate-pulse" />
+                                                        <h3 className="text-xl font-bold">Intervention en cours</h3>
+                                                        <p className="text-slate-400">L'intervenant vous contacte en vidéo</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="text-center text-slate-500 p-8">
-                                        <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                                        <h3 className="text-xl font-bold text-slate-400">Hors Ligne</h3>
-                                        <p className="text-sm mb-4">Aucun flux vidéo actif pour le moment.</p>
-                                        <p className="text-xs text-slate-500">Vous recevrez une notification lorsqu'un intervenant lancera un appel vidéo.</p>
-                                    </div>
-                                )}
-                            </div>
+                                    ) : (
+                                        <div className="text-center text-slate-500 p-8">
+                                            <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                                            <h3 className="text-xl font-bold text-slate-400">Hors Ligne</h3>
+                                            <p className="text-sm mb-4">Aucun flux vidéo actif pour le moment.</p>
+                                            <p className="text-xs text-slate-500">Vous recevrez une notification lorsqu'un intervenant lancera un appel vidéo.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Section Vidéos en Replay */}
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1329,8 +1361,8 @@ const ClientPortal: React.FC = () => {
                         </div>
 
                         <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-                            {/* Document Viewer - Affiche le devis en priorité */}
-                            <div className={`${selectedQuote.status === 'sent' ? 'flex-1 md:flex-1' : 'flex-1'} bg-slate-100 p-4 md:p-6 overflow-y-auto border-r border-slate-200`}>
+                            {/* Document Viewer - Partie plus grande pour le devis */}
+                            <div className="flex-1 md:flex-[2] bg-slate-100 p-4 md:p-6 overflow-y-auto border-r border-slate-200">
                                 <div className="bg-white shadow-sm p-4 md:p-8 min-h-full text-xs md:text-sm text-slate-800 leading-relaxed" style={{ fontFamily: 'Times New Roman, serif' }}>
                                     <div className="flex justify-between mb-8 border-b pb-4">
                                         <div className="w-20">
@@ -1383,7 +1415,7 @@ const ClientPortal: React.FC = () => {
                                         {selectedQuote.description.includes('|') ? (
                                             <>
                                                 <p className="text-sm"><strong>Description :</strong> {selectedQuote.description.split('|')[0].trim()}</p>
-                                                <p className="text-sm"><strong>Lieu :</strong> {selectedQuote.description.split('|')[1].replace('Lieu:', '').trim()}</p>
+                                                <p className="text-sm"><strong>Lieu :</strong><br />{selectedQuote.description.split('|')[1].replace('Lieu:', '').trim()}</p>
                                             </>
                                         ) : (
                                             <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
@@ -1392,14 +1424,14 @@ const ClientPortal: React.FC = () => {
                                         <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} €</p>
                                         
                                         {/* Affichage du crédit d'impôt si activé */}
-                                        {selectedQuote.hasTaxCredit && (
+                                        {(selectedQuote.hasTaxCredit || selectedQuote.taxCreditEnabled) && (
                                             <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                                                 <p className="text-sm text-green-800 font-bold">
                                                     <strong>Crédit d'impôt : </strong>
                                                     -{((selectedQuote.totalTTC || 0) * 0.5).toFixed(2)} € (50%)
                                                 </p>
                                                 <p className="text-sm text-green-700 font-bold mt-1">
-                                                    <strong>Reste à charge : </strong>
+                                                    <strong>Reste à charge après crédit d'impôt : </strong>
                                                     {((selectedQuote.totalTTC || 0) * 0.5).toFixed(2)} €
                                                 </p>
                                             </div>
@@ -1422,9 +1454,14 @@ const ClientPortal: React.FC = () => {
                                     <div className="mt-8 flex justify-between border-t pt-4">
                                         <div className="w-1/2 pr-4 border-r">
                                             <p className="font-bold mb-2">Pour l'Entreprise :</p>
-                                            {selectedContract?.status === 'active' ? (
-                                                <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
-                                                    Validé & Signé
+                                            {selectedQuote.status === 'signed' ? (
+                                                <div className="space-y-2">
+                                                    <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
+                                                        Validé & Signé
+                                                    </div>
+                                                    {selectedQuote.signatureDate && (
+                                                        <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signatureDate).toLocaleDateString('fr-FR')}</p>
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <div className="text-slate-400 font-bold text-xs uppercase border-2 border-slate-300 p-2 inline-block rounded">
@@ -1434,9 +1471,19 @@ const ClientPortal: React.FC = () => {
                                         </div>
                                         <div className="w-1/2 pl-4">
                                             <p className="font-bold mb-2">Pour le Client :</p>
-                                            <div className="border-2 border-slate-300 h-12 rounded flex items-center justify-center text-xs text-slate-400">
-                                                En attente de signature
-                                            </div>
+                                            {selectedQuote.status === 'signed' && selectedQuote.clientSignatureUrl ? (
+                                                <div className="space-y-2">
+                                                    <img src={selectedQuote.clientSignatureUrl} alt="Signature client" className="h-12 border border-slate-300 rounded" />
+                                                    <p className="text-xs text-green-600 font-bold">Signature enregistrée</p>
+                                                    {selectedQuote.signedAt && (
+                                                        <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signedAt).toLocaleDateString('fr-FR')}</p>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="border-2 border-slate-300 h-12 rounded flex items-center justify-center text-xs text-slate-400">
+                                                    En attente de signature
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -1446,31 +1493,21 @@ const ClientPortal: React.FC = () => {
                                             <input
                                                 type="checkbox"
                                                 className="mt-1 w-5 h-5 text-brand-blue rounded"
-                                                checked={termsAccepted}
+                                                checked={selectedQuote.status === 'signed' ? true : termsAccepted}
                                                 onChange={(e) => setTermsAccepted(e.target.checked)}
+                                                disabled={selectedQuote.status === 'signed'}
                                             />
                                             <span className="text-sm font-bold text-slate-700">
                                                 Je reconnais avoir pris connaissance des conditions générales de vente et j'accepte les termes du contrat.
                                                 Je m'engage à régler le montant de {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} € TTC.
+                                                {selectedQuote.status === 'signed' && (
+                                                    <span className="block text-green-600 font-bold mt-1">✓ Conditions acceptées et signées</span>
+                                                )}
                                             </span>
                                         </label>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Contract Download Button - Show for quotes that have a contract */}
-                            {selectedQuote && (
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 mb-4">
-                                    <h4 className="font-bold text-slate-700 mb-3">Contrat de Service</h4>
-                                    <button
-                                        onClick={handleDownloadContract}
-                                        className="w-full flex items-center justify-center gap-2 bg-brand-blue text-white px-4 py-3 rounded-lg hover:bg-blue-600 transition-colors font-bold"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                        Télécharger le contrat
-                                    </button>
-                                </div>
-                            )}
 
                             {/* Signature Pad - Only show for quotes that can be signed */}
                             {selectedQuote.status === 'sent' && (
@@ -1521,6 +1558,13 @@ const ClientPortal: React.FC = () => {
                                             className="w-full py-2 text-red-500 font-bold hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition"
                                         >
                                             Refuser
+                                        </button>
+                                        {/* Bouton de téléchargement du contrat intégré */}
+                                        <button
+                                            onClick={handleDownloadContract}
+                                            className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                        >
+                                            <Download className="w-4 h-4" /> Télécharger le contrat
                                         </button>
                                     </div>
                                 </div>

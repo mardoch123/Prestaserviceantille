@@ -88,6 +88,35 @@ const ScanPage: React.FC = () => {
                     // Ignorer les erreurs audio
                 }
 
+                // Vérifier si le client existe
+                const client = clients.find(c => c.id === clientId);
+                if (!client) {
+                    clearTimeout(timeoutId);
+                    setStatus('error');
+                    setMessage("Client non trouvé. Veuillez vérifier le code QR.");
+                    return;
+                }
+
+                // Récupérer les scans précédents du client aujourd'hui
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const clientTodayScans = visitScans.filter(scan => 
+                    scan.clientId === clientId && 
+                    new Date(scan.timestamp) >= today
+                ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+                // Déterminer le type de scan (alternance entrée/sortie)
+                let scanType: 'entry' | 'exit';
+                if (clientTodayScans.length === 0) {
+                    // Premier scan du jour = entrée
+                    scanType = 'entry';
+                } else {
+                    const lastScan = clientTodayScans[0];
+                    // Si le dernier scan était une entrée, le suivant doit être une sortie
+                    // Si le dernier scan était une sortie, le suivant doit être une entrée
+                    scanType = lastScan.scanType === 'entry' ? 'exit' : 'entry';
+                }
+
                 const result = await registerScan(clientId);
 
                 // Annuler le timeout si le scan réussit
@@ -124,7 +153,15 @@ const ScanPage: React.FC = () => {
                 clearTimeout(timeoutId);
                 console.error("Scan error:", err);
                 setStatus('error');
-                setMessage("Erreur lors de l'enregistrement du scan: " + (err.message || "Erreur inconnue"));
+                
+                // Messages d'erreur plus spécifiques
+                if (err.message && err.message.includes('Network')) {
+                    setMessage("Erreur réseau. Veuillez vérifier votre connexion.");
+                } else if (err.message && err.message.includes('403')) {
+                    setMessage("Accès non autorisé. Veuillez vous reconnecter.");
+                } else {
+                    setMessage("Erreur lors de l'enregistrement du scan: " + (err.message || "Erreur inconnue"));
+                }
             }
         };
 
@@ -136,7 +173,7 @@ const ScanPage: React.FC = () => {
                 clearTimeout(timeoutId);
             }
         };
-    }, [clientId, currentUser, registerScan, visitScans]);
+    }, [clientId, currentUser, registerScan, visitScans, clients]);
 
     if (status === 'unauthorized') {
         return (

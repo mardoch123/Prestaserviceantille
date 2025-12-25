@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
-import { VideoStreamManager } from '../utils/videoStreaming';
+import VideoCallManager from './VideoCallManager';
 import { 
   Calendar, 
   Clock, 
@@ -31,7 +31,8 @@ import {
   UploadCloud,
   FileVideo,
   LinkIcon,
-  MessageSquare
+  MessageSquare,
+  Loader
 } from 'lucide-react';
 
 const ProviderPortal: React.FC = () => {
@@ -101,14 +102,9 @@ const ProviderPortal: React.FC = () => {
   }, [showNotifDropdown]);
 
   // Live Stream State
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamMissionId, setStreamMissionId] = useState<string>('');
-  const [micMuted, setMicMuted] = useState(false);
+  const [showVideoCall, setShowVideoCall] = useState(false);
+  const [selectedMissionForCall, setSelectedMissionForCall] = useState<Mission | null>(null);
   const [streamError, setStreamError] = useState('');
-  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
-  const [videoStreamManager, setVideoStreamManager] = useState<VideoStreamManager | null>(null);
 
   // Execution Modals
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -142,17 +138,8 @@ const ProviderPortal: React.FC = () => {
           if (activeStream) {
               stopLiveStream();
           }
-          if (videoStreamManager) {
-              videoStreamManager.stopLocalStream();
-              videoStreamManager.closePeerConnection();
-          }
       };
-  }, [videoStreamManager]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Détecter les caméras au chargement du composant
-  useEffect(() => {
-    detectAvailableCameras();
-  }, []);
+  }, [activeStream]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fonctions utilitaires (doivent être définies avant les hooks qui les utilisent)
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
@@ -170,13 +157,11 @@ const ProviderPortal: React.FC = () => {
   };
 
   const detectAvailableCameras = async () => {
+      // Fonction conservée pour compatibilité mais non utilisée
       try {
           const devices = await navigator.mediaDevices.enumerateDevices();
           const cameras = devices.filter(device => device.kind === 'videoinput');
-          setAvailableCameras(cameras);
-          if (cameras.length > 0 && !selectedCameraId) {
-              setSelectedCameraId(cameras[0].deviceId);
-          }
+          console.log('Caméras détectées:', cameras.length);
       } catch (error) {
           console.error('Erreur lors de la détection des caméras:', error);
       }
@@ -324,69 +309,48 @@ const ProviderPortal: React.FC = () => {
   };
 
   const startCamera = async () => {
-      try {
-          setStreamError('');
-          
-          const mission = activeMissions.find(m => m.id === streamMissionId);
-          if(!mission || !mission.clientId) {
-              setStreamError('Veuillez sélectionner une mission valide pour sécuriser le flux.');
-              return;
-          }
-
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error("Votre navigateur ne supporte pas l'accès caméra.");
-          }
-
-          // Configuration de la caméra sélectionnée
-          const videoConstraints: MediaStreamConstraints = {
-            video: selectedCameraId ? 
-              { deviceId: { exact: selectedCameraId } } : 
-              { facingMode: 'user' },
-            audio: true
-          };
-
-          const stream = await navigator.mediaDevices.getUserMedia(videoConstraints);
-          if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-          }
-          setIsStreaming(true);
-          showToast('Caméra démarrée avec succès', 'success');
-          
-          // Démarrer le stream live
-          await startLiveStream(provider.id, mission.clientId);
-          
-      } catch (error: any) {
-          console.error('Erreur lors du démarrage de la caméra:', error);
-          setStreamError(error.message || 'Impossible de démarrer la caméra. Vérifiez que votre caméra n\'est pas utilisée par une autre application.');
-          setIsStreaming(false);
-      }
+      // Fonction obsolète remplacée par startVideoCall
+      console.log('startCamera est obsolète, utilisez startVideoCall');
   };
 
   const stopCamera = () => {
-      try {
-          if (videoRef.current && videoRef.current.srcObject) {
-              const stream = videoRef.current.srcObject as MediaStream;
-              stream.getTracks().forEach(track => track.stop());
-              videoRef.current.srcObject = null;
-          }
-          
-          setIsStreaming(false);
-          setStreamError('');
-          stopLiveStream();
-          showToast('Caméra arrêtée', 'success');
-          
-      } catch (error: any) {
-          console.error('Erreur lors de l\'arrêt de la caméra:', error);
-          setStreamError(error.message || 'Erreur lors de l\'arrêt de la caméra');
-      }
+      // Fonction obsolète remplacée par endVideoCall
+      console.log('stopCamera est obsolète, utilisez endVideoCall');
   };
 
   const toggleMic = () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-          const audioTracks = (videoRef.current.srcObject as MediaStream).getAudioTracks();
-          audioTracks.forEach(track => track.enabled = !track.enabled);
-          setMicMuted(!micMuted);
+      // Fonction obsolète - gérée par VideoCallManager
+      console.log('toggleMic est obsolète, géré par VideoCallManager');
+  };
+
+  const startVideoCall = async (mission: Mission) => {
+    try {
+      setSelectedMissionForCall(mission);
+      
+      // Vérifier que le clientId existe
+      if (!mission.clientId) {
+        throw new Error('Client ID manquant pour cette mission');
       }
+      
+      // Démarrer le stream live
+      await startLiveStream(provider.id, mission.clientId);
+      
+      // Activer l'interface vidéo
+      setShowVideoCall(true);
+      showToast('Appel vidéo démarré avec succès', 'success');
+      
+    } catch (error: any) {
+      console.error('Erreur lors du démarrage de l\'appel vidéo:', error);
+      setStreamError(error.message || 'Impossible de démarrer l\'appel vidéo');
+      showToast('Erreur lors du démarrage de l\'appel vidéo', 'error');
+    }
+  };
+
+  const endVideoCall = () => {
+    stopLiveStream();
+    setShowVideoCall(false);
+    setSelectedMissionForCall(null);
+    showToast('Appel vidéo terminé', 'success');
   };
 
   return (
@@ -650,103 +614,79 @@ const ProviderPortal: React.FC = () => {
                    )}
 
                    {activeTab === 'live' && (
-                       <div className="h-[600px] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col relative">
-                            <div className="flex-1 relative bg-black">
-                                {!isStreaming && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
-                                        <div className="bg-slate-800 p-4 rounded-full mb-4">
-                                            <Lock className="w-8 h-8 text-green-400" />
-                                        </div>
-                                        <h3 className="text-white font-bold text-lg mb-2">Connexion Sécurisée</h3>
-                                        <p className="text-xs mb-4 text-slate-400">Le flux vidéo sera crypté et visible uniquement par le client sélectionné.</p>
-                                        
-                                        <div className="w-full max-w-xs">
-                                            {/* Sélection de la mission */}
-                                            <select 
-                                                className="w-full bg-slate-800 text-white border border-slate-700 rounded-lg p-3 mb-3 text-sm outline-none focus:border-brand-blue"
-                                                value={streamMissionId}
-                                                onChange={(e) => setStreamMissionId(e.target.value)}
-                                            >
-                                                <option value="">Sélectionner la mission...</option>
-                                                {activeMissions.map(m => (
-                                                    <option key={m.id} value={m.id}>Client: {m.clientName} - {m.date}</option>
-                                                ))}
-                                            </select>
-                                            
-                                            {/* Sélection de la caméra */}
-                                            {availableCameras.length > 1 && (
-                                                <select 
-                                                    className="w-full bg-slate-800 text-white border border-slate-700 rounded-lg p-3 mb-3 text-sm outline-none focus:border-brand-blue"
-                                                    value={selectedCameraId}
-                                                    onChange={(e) => setSelectedCameraId(e.target.value)}
-                                                >
-                                                    <option value="">Sélectionner une caméra...</option>
-                                                    {availableCameras.map((camera, index) => (
-                                                        <option key={camera.deviceId} value={camera.deviceId}>
-                                                            {camera.label || `Caméra ${index + 1}`}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            )}
-                                            
-                                            {/* Bouton pour rafraîchir les caméras */}
-                                            <button 
-                                                onClick={detectAvailableCameras}
-                                                className="w-full bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs mb-3 flex items-center justify-center gap-2 transition-colors"
-                                            >
-                                                <Camera className="w-4 h-4" />
-                                                Détecter les caméras ({availableCameras.length})
-                                            </button>
-                                            
-                                            {streamError && <p className="text-red-500 text-xs mb-4 font-bold bg-red-100/10 p-2 rounded">{streamError}</p>}
-
-                                            <button 
-                                                onClick={startCamera} 
-                                                disabled={!streamMissionId}
-                                                className={`w-full px-8 py-3 rounded-full font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${!streamMissionId ? 'bg-slate-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
-                                            >
-                                                <Video className="w-5 h-5" /> LANCER LE DIRECT
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                                <video 
-                                    ref={videoRef} 
-                                    autoPlay 
-                                    playsInline 
-                                    muted 
-                                    className={`w-full h-full object-cover ${!isStreaming ? 'hidden' : 'block'}`} 
-                                />
-                                
-                                {isStreaming && (
-                                    <div className="absolute top-4 left-4 flex flex-col gap-1 z-10">
-                                        <div className="bg-red-600 text-white px-3 py-1 rounded text-xs font-bold animate-pulse flex items-center gap-2 w-fit">
-                                            <span className="w-2 h-2 bg-white rounded-full"></span> EN DIRECT
-                                        </div>
-                                        <div className="bg-black/50 text-white px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
-                                            <Lock className="w-3 h-3 text-green-400" /> Sécurisé
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Controls */}
-                            {(isStreaming || activeStream) && (
-                                <div className="p-4 bg-slate-800 flex justify-between items-center border-t border-slate-700">
-                                    <div className="text-white text-xs">
-                                        <p className="font-bold opacity-70">Diffusé vers</p>
-                                        <p className="text-green-400 font-mono">{activeMissions.find(m => m.id === streamMissionId)?.clientName || 'Client'}</p>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <button onClick={toggleMic} className={`p-3 rounded-full transition-colors ${micMuted ? 'bg-red-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'}`}>
-                                            {micMuted ? <MicOff className="w-5 h-5"/> : <Mic className="w-5 h-5"/>}
-                                        </button>
-                                        <button onClick={stopCamera} className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-full text-sm transition-colors">
-                                            ARRÊTER
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
+                       <div className="space-y-6">
+                           <h2 className="text-2xl font-bold text-slate-800 font-serif">Appel Vidéo</h2>
+                            {showVideoCall && activeStream ? (
+                               <VideoCallManager
+                                   sessionId={activeStream.id}
+                                   isInitiator={true}
+                                   onEnd={endVideoCall}
+                               />
+                           ) : (
+                               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                                   <div className="text-center mb-6">
+                                       <div className="bg-slate-100 p-4 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                                           <Video className="w-8 h-8 text-brand-blue" />
+                                       </div>
+                                       <h3 className="text-lg font-bold text-slate-800 mb-2">Démarrer un Appel Vidéo</h3>
+                                       <p className="text-slate-600 text-sm">Sélectionnez une mission active pour lancer un appel vidéo sécurisé avec le client.</p>
+                                   </div>
+                                   
+                                   {streamError && (
+                                       <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg mb-4">
+                                           <p className="text-sm">{streamError}</p>
+                                       </div>
+                                   )}
+                                   
+                                   <div className="space-y-4">
+                                       <div>
+                                           <label className="block text-sm font-medium text-slate-700 mb-2">Mission Active</label>
+                                           <select 
+                                               className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm outline-none focus:border-brand-blue"
+                                               value={selectedMissionForCall?.id || ''}
+                                               onChange={(e) => {
+                                                   const mission = activeMissions.find(m => m.id === e.target.value);
+                                                   setSelectedMissionForCall(mission || null);
+                                               }}
+                                           >
+                                               <option value="">Sélectionner une mission...</option>
+                                               {activeMissions.map(m => (
+                                                   <option key={m.id} value={m.id}>
+                                                       {m.clientName} - {m.date} ({m.service})
+                                                   </option>
+                                               ))}
+                                           </select>
+                                       </div>
+                                       
+                                       {selectedMissionForCall && (
+                                           <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                                               <h4 className="font-medium text-blue-900 mb-2">Détails de l'appel</h4>
+                                               <div className="space-y-1 text-sm text-blue-700">
+                                                   <p><strong>Client:</strong> {selectedMissionForCall.clientName}</p>
+                                                   <p><strong>Date:</strong> {selectedMissionForCall.date}</p>
+                                                   <p><strong>Service:</strong> {selectedMissionForCall.service}</p>
+                                               </div>
+                                           </div>
+                                       )}
+                                       
+                                       <button
+                                           onClick={() => selectedMissionForCall && startVideoCall(selectedMissionForCall)}
+                                           disabled={!selectedMissionForCall}
+                                           className="w-full bg-brand-blue hover:bg-blue-600 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                       >
+                                           <Video className="w-5 h-5" />
+                                           Démarrer l'Appel Vidéo
+                                       </button>
+                                   </div>
+                                   
+                                   {activeMissions.length === 0 && (
+                                       <div className="text-center py-8">
+                                           <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                           <p className="text-slate-500">Aucune mission active disponible pour lancer un appel vidéo.</p>
+                                       </div>
+                                   )}
+                               </div>
+                           )}
                        </div>
                    )}
 
