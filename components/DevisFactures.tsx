@@ -276,12 +276,12 @@ const DevisFactures: React.FC = () => {
                 });
             }
         } else if (pack.name.includes("Ultime 6")) {
-            // Pack ULTIME 6: 6h en une seule journée de 9h à 17h
+            // Pack ULTIME 6: 6h en une seule journée de 9h à 15h
             newSlots.push({
                 id: `slot-ultime-6`,
                 date: baseDate.toISOString().split('T')[0],
                 startTime: '09:00',
-                endTime: '17:00',
+                endTime: '15:00',
                 duration: 6
             });
         } else if (pack.name.includes("personnalisé")) {
@@ -498,7 +498,7 @@ const DevisFactures: React.FC = () => {
         if (pack.name.includes("Ultime 6") && sessionCount === 1 && Math.abs(totalHours - 6) <= 0.01) {
             return {
                 isValid: true,
-                message: `Pack Ultime 6 correctement configuré : 6h sur une journée (9h-17h).`
+                message: `Pack Ultime 6 correctement configuré : 6h sur une journée (9h-15h).`
             };
         }
 
@@ -1543,7 +1543,7 @@ const DevisFactures: React.FC = () => {
                                                 <div className="flex items-center gap-2 text-purple-800 font-bold text-sm">
                                                     <Zap className="w-4 h-4" /> Pack Ultime 6 (Journée unique)
                                                 </div>
-                                                <p className="text-xs text-purple-600">Le pack Ultime 6 compte 6 heures en 1 journée (9h-17h).</p>
+                                                <p className="text-xs text-purple-600">Le pack Ultime 6 compte 6 heures en 1 journée (9h-15h).</p>
                                                 <div className="flex items-center gap-2 bg-white p-2 rounded border border-purple-200 text-xs">
                                                     <AlertTriangle className="w-3 h-3 text-orange-500" /> Ces créneaux sont libres : aucun client n'a réservé à ces heures.
                                                 </div>

@@ -67,6 +67,11 @@ const ScanPage: React.FC = () => {
             return;
         }
 
+        // Attendre que les données clients soient chargées
+        if (!clients || clients.length === 0) {
+            return;
+        }
+
         const processScan = async () => {
             setIsProcessing(true);
             setProcessedClientId(clientId);
@@ -189,7 +194,7 @@ const ScanPage: React.FC = () => {
                 clearTimeout(timeoutId);
             }
         };
-    }, [clientId, currentUser]); // Suppression des dépendances qui causent des re-renders
+    }, [clientId, currentUser, clients]); // Ajout de clients dans les dépendances
 
     if (status === 'unauthorized') {
         return (
