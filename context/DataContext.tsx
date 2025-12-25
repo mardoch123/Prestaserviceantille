@@ -3267,21 +3267,42 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // Créer l'enregistrement vidéo dans la base de données
-            const videoRecord = {
+            const videoRecord: VideoRecording = {
                 id: generateUUID(),
                 sessionId: sessionId,
                 providerId: providerId,
                 clientId: clientId,
                 status: 'recording',
                 startTime: new Date().toISOString(),
-                recordingUrl: null, // Sera mis à jour quand l'enregistrement sera disponible
-                replayUrl: null, // Sera mis à jour quand le replay sera disponible
+                recordingUrl: undefined, // Sera mis à jour quand l'enregistrement sera disponible
+                replayUrl: undefined, // Sera mis à jour quand le replay sera disponible
                 duration: 0,
                 fileSize: 0
             };
 
-            // Ajouter à la base de données (simulé pour l'instant)
-            console.log('Création enregistrement vidéo:', videoRecord);
+            // Ajouter à la base de données
+            try {
+                if (isSupabaseConfigured) {
+                    const { data, error } = await supabase
+                        .from('video_recordings')
+                        .insert(videoRecord)
+                        .select();
+                    
+                    if (error) {
+                        console.error('[StartLiveStream] Erreur création enregistrement vidéo:', error);
+                    } else {
+                        console.log('[StartLiveStream] Enregistrement vidéo créé:', data);
+                        // Ajouter à l'état local
+                        setVideoRecordings(prev => [videoRecord, ...prev]);
+                    }
+                } else {
+                    // Mode hors ligne: ajouter à l'état local
+                    setVideoRecordings(prev => [videoRecord, ...prev]);
+                    console.log('[StartLiveStream] Enregistrement vidéo créé (local):', videoRecord);
+                }
+            } catch (error) {
+                console.error('[StartLiveStream] Erreur lors de la création de l\'enregistrement vidéo:', error);
+            }
         }
     };
 
@@ -3307,7 +3328,44 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // Mettre à jour le statut de l'enregistrement vidéo
-            console.log(`Mise à jour enregistrement vidéo pour session ${activeStream.id}: terminé`);
+            try {
+                const endTime = new Date();
+                const startTime = new Date(activeStream.startTime);
+                const duration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+
+                if (isSupabaseConfigured) {
+                    const { error } = await supabase
+                        .from('video_recordings')
+                        .update({ 
+                            status: 'processing',
+                            duration: duration,
+                            endTime: endTime.toISOString()
+                        })
+                        .eq('sessionId', activeStream.id);
+                    
+                    if (error) {
+                        console.error('[StopLiveStream] Erreur mise à jour enregistrement vidéo:', error);
+                    } else {
+                        console.log(`[StopLiveStream] Enregistrement vidéo mis à jour pour session ${activeStream.id}: processing`);
+                        // Mettre à jour l'état local
+                        setVideoRecordings(prev => prev.map(r => 
+                            r.sessionId === activeStream.id 
+                                ? { ...r, status: 'processing', duration, endTime: endTime.toISOString() }
+                                : r
+                        ));
+                    }
+                } else {
+                    // Mode hors ligne: mettre à jour l'état local
+                    setVideoRecordings(prev => prev.map(r => 
+                        r.sessionId === activeStream.id 
+                            ? { ...r, status: 'processing', duration, endTime: endTime.toISOString() }
+                            : r
+                    ));
+                    console.log(`[StopLiveStream] Enregistrement vidéo mis à jour (local) pour session ${activeStream.id}: processing`);
+                }
+            } catch (error) {
+                console.error('[StopLiveStream] Erreur lors de la mise à jour de l\'enregistrement vidéo:', error);
+            }
         }
 
         setActiveStream(null);

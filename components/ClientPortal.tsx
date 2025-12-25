@@ -14,6 +14,7 @@ import {
     Award,
     Package,
     AlertCircle,
+    AlertTriangle,
     Bell,
     ArrowRight,
     Camera,
@@ -35,7 +36,6 @@ import {
     Wifi,
     Lock,
     FileSignature,
-    AlertTriangle,
     LogOut,
     MapPin as MapPinIcon,
     Phone as PhoneIcon,
@@ -213,7 +213,18 @@ const ClientPortal: React.FC = () => {
     const allClientNotifs = notifications.filter(n => n.targetUserType === 'client' && (!n.targetUserId || n.targetUserId === client.id));
     const unreadClientNotifs = allClientNotifs.filter(n => !n.read);
     const clientMessages = messages.filter(m => m.clientId === client.id);
-    const isLive = activeStream && activeStream.clientId === client.id;
+    
+    // Améliorer la détection des appels actifs pour les clients
+    const isLive = activeStream && (
+        activeStream.clientId === client.id || 
+        currentUser?.role === 'admin' // Les admins peuvent voir tous les appels
+    );
+    
+    // Vérifier s'il y a des appels vidéo récents pour ce client
+    const hasRecentVideoCalls = videoRecordings.some(r => 
+        r.clientId === client.id && 
+        (r.status === 'recording' || r.status === 'processing')
+    );
 
     const handleLogout = () => {
         logout(true);
@@ -1254,7 +1265,34 @@ const ClientPortal: React.FC = () => {
                                             <Wifi className="w-16 h-16 mx-auto mb-4 opacity-20" />
                                             <h3 className="text-xl font-bold text-slate-400">Hors Ligne</h3>
                                             <p className="text-sm mb-4">Aucun flux vidéo actif pour le moment.</p>
-                                            <p className="text-xs text-slate-500">Vous recevrez une notification lorsqu'un intervenant lancera un appel vidéo.</p>
+                                            <p className="text-xs text-slate-500 mb-6">Vous recevrez une notification lorsqu'un intervenant lancera un appel vidéo.</p>
+                                            
+                                            {/* Afficher les appels vidéo récents */}
+                                            {hasRecentVideoCalls && (
+                                                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                                    <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
+                                                        <Video className="w-4 h-4" />
+                                                        Appels vidéo récents
+                                                    </h4>
+                                                    <div className="text-sm text-blue-700">
+                                                        <p>Vous avez des appels vidéo récents. Consultez la section Replay ci-dessous.</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Instructions pour tester */}
+                                            <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                                                <h4 className="font-medium text-amber-900 mb-2 flex items-center gap-2">
+                                                    <AlertTriangle className="w-4 h-4" />
+                                                    Test d'appel vidéo
+                                                </h4>
+                                                <div className="text-sm text-amber-700 text-left">
+                                                    <p>• Un intervenant peut démarrer un appel depuis son portail</p>
+                                                    <p>• Vous recevrez une notification sonore et visuelle</p>
+                                                    <p>• Cliquez sur la notification pour rejoindre l'appel</p>
+                                                    <p>• L'appel sera enregistré automatiquement</p>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
