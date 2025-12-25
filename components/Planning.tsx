@@ -485,7 +485,7 @@ const Planning: React.FC = () => {
                         className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
                     >
                         <option value="all">Tous les prestataires</option>
-                        {providers.map(p => (
+                        {providers.filter(p => p.status === 'Active').map(p => (
                             <option key={p.id} value={`${p.firstName} ${p.lastName}`}>{p.firstName} {p.lastName}</option>
                         ))}
                     </select>
@@ -967,9 +967,11 @@ const Planning: React.FC = () => {
                                 <option value="">Sélectionner dans la liste...</option>
                                 {providers.map(p => {
                                     const available = missionToAssign.date ? isProviderAvailable(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : true;
+                                    const isActive = p.status === 'Active';
+                                    const canAssign = available && isActive;
                                     return (
-                                        <option key={p.id} value={p.id} disabled={!available} className={!available ? 'text-slate-400' : ''}>
-                                            {p.firstName} {p.lastName} {available ? '✅' : '(Indisponible/Congés)'}
+                                        <option key={p.id} value={p.id} disabled={!canAssign} className={!canAssign ? 'text-slate-400' : ''}>
+                                            {p.firstName} {p.lastName} {isActive ? (available ? '✅' : '(Indisponible/Congés)') : '(Inactif)'}
                                         </option>
                                     )
                                 })}

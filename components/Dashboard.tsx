@@ -95,6 +95,22 @@ const Dashboard: React.FC = () => {
     return filteredMissions.filter(m => m.providerId === providerFilter);
   }, [filteredMissions, providerFilter]);
 
+  // Documents filtrés par prestataire (basé sur les missions associées)
+  const documentsFilteredByProvider = useMemo(() => {
+    if (!providerFilter) return filteredDocuments;
+    // Filtrer les documents qui sont liés aux missions du prestataire sélectionné
+    const providerMissionIds = missionsFilteredByProvider.map(m => m.sourceDocumentId).filter(Boolean);
+    return filteredDocuments.filter(doc => providerMissionIds.includes(doc.id));
+  }, [filteredDocuments, missionsFilteredByProvider, providerFilter]);
+
+  // Clients filtrés par prestataire (basé sur les missions associées)
+  const clientsFilteredByProvider = useMemo(() => {
+    if (!providerFilter) return filteredClients;
+    // Filtrer les clients qui ont des missions avec le prestataire sélectionné
+    const providerClientIds = [...new Set(missionsFilteredByProvider.map(m => m.clientId).filter(Boolean))];
+    return filteredClients.filter(client => providerClientIds.includes(client.id));
+  }, [filteredClients, missionsFilteredByProvider, providerFilter]);
+
   // 1. Turnover Data (Last 6 months from Documents)
   const turnoverData = useMemo(() => {
     const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
@@ -108,8 +124,8 @@ const Dashboard: React.FC = () => {
         data.push({ name: months[mIndex], ca: 0, monthIndex: mIndex });
     }
 
-    // Aggregate Factures (Billed Revenue) - Utiliser les documents filtrés
-    filteredDocuments.forEach(doc => {
+    // Aggregate Factures (Billed Revenue) - Utiliser les documents filtrés par prestataire
+    documentsFilteredByProvider.forEach(doc => {
         // We count all valid invoices for Turnover stats (CA Facturé)
         if (doc.type === 'Facture' && doc.status !== 'rejected' && doc.date) {
             const docDate = new Date(doc.date);
@@ -122,19 +138,19 @@ const Dashboard: React.FC = () => {
     });
 
     return data.map(d => ({ ...d, ca: Number(d.ca.toFixed(0)) }));
-  }, [filteredDocuments]);
+  }, [documentsFilteredByProvider]);
 
-  // 2. Clients Data (Status distribution) - Utiliser les clients filtrés
+  // 2. Clients Data (Status distribution) - Utiliser les clients filtrés par prestataire
   const clientsData = useMemo(() => {
-      const active = filteredClients.filter(c => c.status === 'active').length;
-      const newItem = filteredClients.filter(c => c.status === 'new').length;
-      const prospect = filteredClients.filter(c => c.status === 'prospect').length;
+      const active = clientsFilteredByProvider.filter(c => c.status === 'active').length;
+      const newItem = clientsFilteredByProvider.filter(c => c.status === 'new').length;
+      const prospect = clientsFilteredByProvider.filter(c => c.status === 'prospect').length;
       return [
           { name: 'Actifs', value: active },
           { name: 'Nouveaux', value: newItem },
           { name: 'Prospects', value: prospect },
       ];
-  }, [filteredClients]);
+  }, [clientsFilteredByProvider]);
 
   // 3. Missions Data (Service distribution) - Utiliser les missions filtrées par prestataire
   const missionsData = useMemo(() => {
@@ -161,14 +177,14 @@ const Dashboard: React.FC = () => {
 
   // KPI Calculations - Utiliser les données filtrées
   
-  // 1. Total Revenue (Cash Collected)
-  const totalRevenue = filteredDocuments.filter(d => d.status === 'paid').reduce((acc, d) => acc + d.totalTTC, 0);
+  // 1. Total Revenue (Cash Collected) - Utiliser les documents filtrés par prestataire
+  const totalRevenue = documentsFilteredByProvider.filter(d => d.status === 'paid').reduce((acc, d) => acc + d.totalTTC, 0);
   
-  // 2. Pending Revenue (Accounts Receivable + Signed Quotes)
+  // 2. Pending Revenue (Accounts Receivable + Signed Quotes) - Utiliser les documents filtrés par prestataire
   // This represents money that is expected to come in:
   // - Factures emitted but not paid (pending)
   // - Devis signed but not yet converted/invoiced (committed revenue)
-  const pendingRevenue = filteredDocuments.reduce((acc, d) => {
+  const pendingRevenue = documentsFilteredByProvider.reduce((acc, d) => {
       const isPendingInvoice = d.type === 'Facture' && d.status === 'pending';
       const isSignedQuote = d.type === 'Devis' && d.status === 'signed';
 
@@ -178,8 +194,8 @@ const Dashboard: React.FC = () => {
       return acc;
   }, 0);
 
-  const signedQuotes = filteredDocuments.filter(d => d.type === 'Devis' && d.status === 'signed').length;
-  const sentQuotes = filteredDocuments.filter(d => d.type === 'Devis' && d.status === 'sent').length;
+  const signedQuotes = documentsFilteredByProvider.filter(d => d.type === 'Devis' && d.status === 'signed').length;
+  const sentQuotes = documentsFilteredByProvider.filter(d => d.type === 'Devis' && d.status === 'sent').length;
 
   // Navigation Handlers
   const goToStats = (status: 'all' | 'completed' | 'planned' | 'cancelled') => {
@@ -237,7 +253,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Nouveaux clients" 
-              value={filteredClients.filter(c => c.status === 'new').length}
+              value={clientsFilteredByProvider.filter(c => c.status === 'new').length}
               subtext="À traiter" 
               bgColor="bg-slate-100" 
               icon={UserPlus}
@@ -251,7 +267,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Devis expirés" 
-              value={filteredDocuments.filter(d => d.status === 'expired').length}
+              value={documentsFilteredByProvider.filter(d => d.status === 'expired').length}
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToInvoices('expired')}

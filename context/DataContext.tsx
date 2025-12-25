@@ -1579,6 +1579,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { data: providerData, error: providerError } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
 
             if (providerData && !providerError) {
+                // Vérifier si le prestataire est actif
+                if (providerData.status !== 'Active') {
+                    console.error("Prestataire inactif - connexion refusée");
+                    return false;
+                }
+                
                 // Validation renforcée du mot de passe pour prestataire
                 const isValidPassword = password && password.length >= 6; // Minimum 6 caractères
                 
@@ -2873,6 +2879,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (lastScan && lastScan.scan_type === 'exit' && newType === 'exit') {
                 console.warn("[RegisterScan] Tentative de sortie consécutive détectée, correction en entrée");
                 newType = 'entry';
+            }
+            
+            // Vérification anti-spam : éviter les scans multiples successifs du même type
+            if (lastScan) {
+                const timeDiff = new Date().getTime() - new Date(lastScan.timestamp).getTime();
+                const minTimeBetweenScans = 30000; // 30 secondes minimum entre scans
+                
+                if (timeDiff < minTimeBetweenScans) {
+                    console.warn("[RegisterScan] Scan trop rapide détecté, temps écoulé:", timeDiff + "ms");
+                    return { 
+                        success: false, 
+                        message: `Veuillez attendre ${Math.ceil((minTimeBetweenScans - timeDiff) / 1000)} secondes avant de scanner à nouveau` 
+                    };
+                }
             }
             
             console.log("[RegisterScan] Final scan type determined:", newType, "last scan:", lastScan);
