@@ -693,7 +693,23 @@ const DevisFactures: React.FC = () => {
             // Determine description suffix based on slots if custom
             let finalDescription = customDescription;
             const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
-            if (serviceType === 'pack' && packs.find(p => p.id === selectedPackId)?.name.includes("personnalisé")) {
+            
+            if (serviceType === 'custom') {
+                // Pour les devis personnalisés, la description doit être l'ensemble des désignations des lignes personnalisées
+                if (customLines.length > 0) {
+                    finalDescription = customLines
+                        .map(line => line.description || `Ligne personnalisée`)
+                        .filter(desc => desc.trim() !== '')
+                        .join(' | ');
+                    
+                    // Ajouter les informations de planification si disponibles
+                    if (interventionSlots.length > 0) {
+                        finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
+                    }
+                } else {
+                    finalDescription = 'Devis personnalisé - Veuillez ajouter des lignes de prestation';
+                }
+            } else if (serviceType === 'pack' && packs.find(p => p.id === selectedPackId)?.name.includes("personnalisé")) {
                 finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
             }
 
@@ -1791,6 +1807,39 @@ const DevisFactures: React.FC = () => {
                                     <div className="flex justify-between"><span>Total HT : </span><span className="font-medium">{selectedDocument.totalHT ? selectedDocument.totalHT.toFixed(2) : '0.00'} €</span></div>
                                     <div className="flex justify-between"><span>Montant TVA : </span><span className="font-medium">{selectedDocument.totalTTC && selectedDocument.totalHT ? (selectedDocument.totalTTC - selectedDocument.totalHT).toFixed(2) : '0.00'} €</span></div>
                                     <div className="flex justify-between font-bold text-lg pt-2 border-t border-slate-200"><span>Total TTC : </span><span className="font-medium">{selectedDocument.totalTTC ? selectedDocument.totalTTC.toFixed(2) : '0.00'} €</span></div>
+                                    
+                                    {/* Crédit d'impôt */}
+                                    {selectedDocument.taxCreditEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                                <span className="text-sm font-bold text-green-700">Crédit d'impôt ACTIVÉ</span>
+                                            </div>
+                                            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                                <p className="text-xs text-green-700 italic mb-2">"Conformément à l'article 199 sexdecies du CGI, les prestations ouvrent droit à un crédit d'impôt de 50 %."</p>
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between text-green-700">
+                                                        <span className="text-sm">Montant crédit d'impôt (50%) : </span>
+                                                        <span className="font-bold">{(selectedDocument.totalTTC * 0.5).toFixed(2)} €</span>
+                                                    </div>
+                                                    <div className="flex justify-between font-bold text-green-800 text-base pt-2 border-t border-green-300">
+                                                        <span>Reste à charge client : </span>
+                                                        <span>{(selectedDocument.totalTTC * 0.5).toFixed(2)} €</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {!selectedDocument.taxCreditEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3 h-3 bg-slate-400 rounded-full"></div>
+                                                <span className="text-sm font-medium text-slate-500">Crédit d'impôt NON ACTIVÉ</span>
+                                            </div>
+                                            <p className="text-xs text-slate-400 mt-1">Le client paiera la totalité du montant TTC.</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

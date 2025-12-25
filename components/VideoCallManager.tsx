@@ -52,8 +52,6 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
 
     // Connexion WebSocket pour le signaling
     useEffect(() => {
-        // Utiliser l'URL du serveur de développement par défaut
-        // En production, cela devrait être configuré avec l'URL réelle du serveur WebSocket
         const wsUrl = process.env.NODE_ENV === 'production' 
             ? window.location.protocol === 'https:' 
                 ? `wss://${window.location.host}/ws`
@@ -74,12 +72,10 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
 
             socket.onerror = (error) => {
                 console.error('Erreur WebSocket:', error);
-                // Ne pas terminer l'appel immédiatement, essayer de continuer sans WebSocket
-                // pour le développement local
                 if (process.env.NODE_ENV !== 'production') {
                     console.log('Mode développement: continuation sans WebSocket');
                     setIsConnected(false);
-                    setCallStatus('connected'); // Simuler la connexion pour le développement
+                    setCallStatus('connected');
                 } else {
                     setCallStatus('ended');
                 }
@@ -89,12 +85,12 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
                 console.log('WebSocket fermé');
                 setIsConnected(false);
                 if (process.env.NODE_ENV !== 'production') {
-                    // En développement, ne pas terminer l'appel si le WebSocket se ferme
                     console.log('Mode développement: WebSocket fermé mais appel continue');
                 } else {
                     setCallStatus('ended');
                 }
             };
+
             socket.onmessage = async (event) => {
                 try {
                     const data = JSON.parse(event.data);
@@ -102,7 +98,6 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
                     if (data.type === 'signal' && peerRef.current) {
                         await peerRef.current.signal(data.signal as any);
                     } else if (data.type === 'start-call' && !isInitiator) {
-                        // Le destinataire reçoit l'invitation
                         setupPeer(false);
                     }
                 } catch (error: any) {
@@ -115,7 +110,6 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
             };
         } catch (error: any) {
             console.error('Erreur création WebSocket:', error);
-            // En développement, continuer sans WebSocket
             if (process.env.NODE_ENV !== 'production') {
                 console.log('Mode développement: continuation sans WebSocket');
                 setCallStatus('connected');
@@ -135,7 +129,7 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
         try {
             const peer = new Peer({
                 initiator: initiator,
-                trickle: false, // Désactiver trickle pour le développement sans WebSocket
+                trickle: false,
                 stream: localStream,
                 config: {
                     iceServers: [
@@ -148,17 +142,14 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
             peerRef.current = peer;
 
             peer.on('signal', (data) => {
-                // Envoyer le signal via WebSocket si disponible
                 if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
                     socketRef.current.send(JSON.stringify({
                         type: 'signal',
                         signal: data
                     }));
                 } else {
-                    // En développement sans WebSocket, essayer de se connecter directement
                     if (process.env.NODE_ENV !== 'production') {
                         console.log('Signal généré (pas de WebSocket):', data);
-                        // En mode développement, simuler une connexion réussie après un délai
                         setTimeout(() => {
                             if (peerRef.current) {
                                 setCallStatus('connected');
@@ -189,7 +180,6 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
 
             peer.on('error', (error) => {
                 console.error('Erreur peer:', error);
-                // En développement, ne pas terminer l'appel immédiatement
                 if (process.env.NODE_ENV !== 'production') {
                     console.log('Mode développement: erreur peer ignorée pour le test');
                     setCallStatus('connected');
@@ -198,7 +188,6 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
                 }
             });
 
-            // Si c'est l'initiateur et pas de WebSocket, démarrer l'appel directement
             if (initiator && (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN)) {
                 if (process.env.NODE_ENV !== 'production') {
                     console.log('Mode développement: démarrage appel sans WebSocket');
@@ -254,90 +243,9 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
         }
         stopLiveStream();
         onEnd();
-                        <video
-                            ref={remoteVideoRef}
-                            autoPlay
-                            playsInline
-                            className="w-full h-full object-cover"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-black">
-                            <div className="text-center">
-                                <Video className="w-16 h-16 text-slate-500 mx-auto mb-4" />
-                                <p className="text-slate-400">
-                                    {isConnected ? 'En attente de la vidéo...' : 'Connexion en cours...'}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Vidéo local (petit incrusté) */}
-                <div className="absolute top-4 right-4 w-32 h-24 bg-slate-800 rounded-lg shadow-lg overflow-hidden border-2 border-slate-600">
-                    {localStream ? (
-                        <video
-                            ref={localVideoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className="w-full h-full object-cover"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                            <Loader className="w-8 h-8 text-slate-500 animate-spin" />
-                        </div>
-                    )}
-                </div>
-
-                {/* Contrôles */}
-                <div className="absolute bottom-0 left-0 right-0 bg-black/70 p-4">
-                    <div className="flex justify-center gap-4">
-                        <button
-                            onClick={toggleAudio}
-                            className={`p-3 rounded-full transition-colors ${
-                                isAudioEnabled 
-                                    ? 'bg-slate-600 hover:bg-slate-500 text-white' 
-                                    : 'bg-red-600 hover:bg-red-500 text-white'
-                            }`}
-                        >
-                            {isAudioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-                        </button>
-                        
-                        <button
-                            onClick={toggleVideo}
-                            className={`p-3 rounded-full transition-colors ${
-                                isVideoEnabled 
-                                    ? 'bg-slate-600 hover:bg-slate-500 text-white' 
-                                    : 'bg-red-600 hover:bg-red-500 text-white'
-                            }`}
-                        >
-                            {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                        </button>
-                        
-                        <button
-                            onClick={endCall}
-                            className="p-3 bg-red-600 hover:bg-red-500 text-white rounded-full transition-colors"
-                        >
-                            <PhoneOff className="w-5 h-5" />
-                        </button>
-                    </div>
-                    
-                    {/* Informations d'appel */}
-                    <div className="text-center mt-2">
-                        <p className="text-white text-sm font-medium">
-                            {isConnected ? 'Connecté' : 'Connexion...'}
-                        </p>
-                        {activeStream && (
-                            <p className="text-slate-300 text-xs">
-                                Session: {activeStream.id}
-                            </p>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
     };
 
+    // État "Appel terminé"
     if (callStatus === 'ended') {
         return (
             <div className="flex flex-col items-center justify-center h-96 bg-slate-900 rounded-xl">
@@ -353,6 +261,7 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
         );
     }
 
+    // État "Connexion en cours"
     if (callStatus === 'connecting') {
         return (
             <div className="flex flex-col items-center justify-center h-96 bg-slate-900 rounded-xl">
@@ -365,6 +274,7 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
         );
     }
 
+    // État "Connecté" - Interface principale
     return (
         <div className="h-96 bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
             {/* Vidéo distant (principal) */}
