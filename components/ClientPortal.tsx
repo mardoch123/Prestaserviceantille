@@ -1615,15 +1615,35 @@ const ClientPortal: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Mobile Signature Button */}
+                            {/* Mobile Action Buttons */}
                             {selectedQuote.status === 'sent' && (
-                                <div className="md:hidden fixed bottom-24 right-4 z-40">
+                                <div className="md:hidden fixed bottom-24 right-4 z-40 flex flex-col gap-2">
+                                    <button
+                                        onClick={handleDownloadContract}
+                                        className="bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-700 transition flex items-center gap-2"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        <span className="text-sm font-bold">Contrat</span>
+                                    </button>
                                     <button
                                         onClick={() => setShowSignatureModal(true)}
                                         className="bg-brand-blue text-white px-4 py-3 rounded-full shadow-lg hover:bg-teal-700 transition flex items-center gap-2"
                                     >
                                         <PenTool className="w-4 h-4" />
                                         <span className="text-sm font-bold">Signer</span>
+                                    </button>
+                                </div>
+                            )}
+                            
+                            {/* Mobile Download Contract Button for Signed Quotes */}
+                            {selectedQuote.status === 'signed' && (
+                                <div className="md:hidden fixed bottom-24 right-4 z-40">
+                                    <button
+                                        onClick={handleDownloadContract}
+                                        className="bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-700 transition flex items-center gap-2"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        <span className="text-sm font-bold">Contrat</span>
                                     </button>
                                 </div>
                             )}
