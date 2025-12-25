@@ -3267,17 +3267,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // Créer l'enregistrement vidéo dans la base de données
-            const videoRecord: VideoRecording = {
+            const videoRecord = {
                 id: generateUUID(),
-                sessionId: sessionId,
-                providerId: providerId,
-                clientId: clientId,
+                session_id: sessionId,
+                provider_id: providerId,
+                client_id: clientId,
                 status: 'recording',
-                startTime: new Date().toISOString(),
-                recordingUrl: undefined, // Sera mis à jour quand l'enregistrement sera disponible
-                replayUrl: undefined, // Sera mis à jour quand le replay sera disponible
+                start_time: new Date().toISOString(),
+                recording_url: undefined, // Sera mis à jour quand l'enregistrement sera disponible
+                replay_url: undefined, // Sera mis à jour quand le replay sera disponible
                 duration: 0,
-                fileSize: 0
+                file_size: 0
             };
 
             // Ajouter à la base de données
@@ -3292,12 +3292,37 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         console.error('[StartLiveStream] Erreur création enregistrement vidéo:', error);
                     } else {
                         console.log('[StartLiveStream] Enregistrement vidéo créé:', data);
+                        // Mapper les données de la base vers l'interface TypeScript
+                        const mappedRecord: VideoRecording = {
+                            id: videoRecord.id,
+                            sessionId: videoRecord.session_id,
+                            providerId: videoRecord.provider_id,
+                            clientId: videoRecord.client_id,
+                            status: videoRecord.status as 'recording' | 'processing' | 'ready' | 'failed',
+                            startTime: videoRecord.start_time,
+                            recordingUrl: videoRecord.recording_url,
+                            replayUrl: videoRecord.replay_url,
+                            duration: videoRecord.duration,
+                            fileSize: videoRecord.file_size
+                        };
                         // Ajouter à l'état local
-                        setVideoRecordings(prev => [videoRecord, ...prev]);
+                        setVideoRecordings(prev => [mappedRecord, ...prev]);
                     }
                 } else {
-                    // Mode hors ligne: ajouter à l'état local
-                    setVideoRecordings(prev => [videoRecord, ...prev]);
+                    // Mode hors ligne: mapper et ajouter à l'état local
+                    const mappedRecord: VideoRecording = {
+                        id: videoRecord.id,
+                        sessionId: videoRecord.session_id,
+                        providerId: videoRecord.provider_id,
+                        clientId: videoRecord.client_id,
+                        status: videoRecord.status as 'recording' | 'processing' | 'ready' | 'failed',
+                        startTime: videoRecord.start_time,
+                        recordingUrl: videoRecord.recording_url,
+                        replayUrl: videoRecord.replay_url,
+                        duration: videoRecord.duration,
+                        fileSize: videoRecord.file_size
+                    };
+                    setVideoRecordings(prev => [mappedRecord, ...prev]);
                     console.log('[StartLiveStream] Enregistrement vidéo créé (local):', videoRecord);
                 }
             } catch (error) {
@@ -3339,9 +3364,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         .update({ 
                             status: 'processing',
                             duration: duration,
-                            endTime: endTime.toISOString()
+                            end_time: endTime.toISOString()
                         })
-                        .eq('sessionId', activeStream.id);
+                        .eq('session_id', activeStream.id);
                     
                     if (error) {
                         console.error('[StopLiveStream] Erreur mise à jour enregistrement vidéo:', error);
