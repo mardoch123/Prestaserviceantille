@@ -42,10 +42,18 @@ const ClientQRCode: React.FC = () => {
     }, [client]);
 
     useEffect(() => {
-        // Récupérer les scans du client
+        // Récupérer les scans du client effectués par les prestataires et admins uniquement
         if (client && visitScans) {
             const scans = visitScans
-                .filter(scan => scan.clientId === client.id)
+                .filter(scan => {
+                    // Filtrer par client
+                    if (scan.clientId !== client.id) return false;
+                    
+                    // Filtrer pour n'afficher que les scans par prestataires et admins
+                    // On utilise scannerName pour déterminer le rôle car scannerId correspond à l'ID utilisateur
+                    // Les scans par le client lui-même ont généralement un scannerName qui correspond au nom du client
+                    return scan.scannerName !== client.name; // Exclure les auto-scans du client
+                })
                 .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
             setClientScans(scans);
         }
@@ -162,7 +170,7 @@ const ClientQRCode: React.FC = () => {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <Clock className="w-6 h-6 text-brand-blue" />
-                            <h2 className="text-xl font-bold text-slate-800">Historique de Pointage</h2>
+                            <h2 className="text-xl font-bold text-slate-800">Historique de Pointage (Prestataires & Admins)</h2>
                         </div>
                         <span className="text-sm text-slate-500">
                             {clientScans.length} pointage{clientScans.length > 1 ? 's' : ''}
@@ -174,9 +182,9 @@ const ClientQRCode: React.FC = () => {
                     {clientScans.length === 0 ? (
                         <div className="text-center py-8">
                             <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                            <p className="text-slate-500">Aucun pointage enregistré</p>
+                            <p className="text-slate-500">Aucun pointage enregistré par les prestataires</p>
                             <p className="text-sm text-slate-400 mt-1">
-                                Votre premier pointage apparaîtra ici
+                                Les pointages effectués par les prestataires et admins apparaîtront ici
                             </p>
                         </div>
                     ) : (
