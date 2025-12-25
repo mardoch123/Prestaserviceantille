@@ -333,12 +333,10 @@ const ScanPage: React.FC = () => {
                         )}
 
                         <button
-                            onClick={() => {
+                            onClick={(e) => {
                                 // Empêcher les clics multiples
-                                const button = event?.currentTarget;
-                                if (button) {
-                                    button.disabled = true;
-                                }
+                                const button = e.currentTarget;
+                                button.disabled = true;
                                 
                                 // Rediriger vers une page de succès simple après un seul scan
                                 if (clientScans.length === 1) {
@@ -365,13 +363,11 @@ const ScanPage: React.FC = () => {
                         </div>
                         <div className="space-y-2">
                             <button
-                                onClick={() => {
+                                onClick={(e) => {
                                     // Empêcher les clics multiples
-                                    const button = event?.currentTarget;
-                                    if (button) {
-                                        button.disabled = true;
-                                        button.textContent = 'Chargement...';
-                                    }
+                                    const button = e.currentTarget;
+                                    button.disabled = true;
+                                    button.textContent = 'Chargement...';
                                     
                                     // Réinitialiser les états et recharger
                                     setIsProcessing(false);
