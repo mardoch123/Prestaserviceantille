@@ -388,9 +388,9 @@ const ClientPortal: React.FC = () => {
               </div>
               
               <div class="amount-info">
-                <p>Montant HT: ${doc.totalHT.toFixed(2)} €</p>
-                <p>TVA: ${((doc.totalTTC - doc.totalHT)).toFixed(2)} €</p>
-                <p class="total">Montant TTC: ${doc.totalTTC.toFixed(2)} €</p>
+                <p>Montant HT: ${doc.totalHT ? doc.totalHT.toFixed(2) : '0.00'} €</p>
+                <p>TVA: ${doc.totalTTC && doc.totalHT ? ((doc.totalTTC - doc.totalHT)).toFixed(2) : '0.00'} €</p>
+                <p class="total">Montant TTC: ${doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</p>
               </div>
               
               <div class="footer">
@@ -1383,9 +1383,9 @@ const ClientPortal: React.FC = () => {
                                         ) : (
                                             <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
                                         )}
-                                        <p className="text-sm"><strong>Prix unitaire HT :</strong> {selectedQuote.unitPrice.toFixed(2)} €</p>
+                                        <p className="text-sm"><strong>Prix unitaire HT :</strong> {selectedQuote.unitPrice ? selectedQuote.unitPrice.toFixed(2) : '0.00'} €</p>
                                         <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate}%</p>
-                                        <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC.toFixed(2)} €</p>
+                                        <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} €</p>
                                     </div>
 
                                     {/* Section Contrat de Service masquée */}
@@ -1433,7 +1433,7 @@ const ClientPortal: React.FC = () => {
                                             />
                                             <span className="text-sm font-bold text-slate-700">
                                                 Je reconnais avoir pris connaissance des conditions générales de vente et j'accepte les termes du contrat.
-                                                Je m'engage à régler le montant de {selectedQuote.totalTTC.toFixed(2)} € TTC.
+                                                Je m'engage à régler le montant de {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} € TTC.
                                             </span>
                                         </label>
                                     </div>
