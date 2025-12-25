@@ -237,50 +237,23 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
             const audioTrack = localStream.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
+                setIsAudioEnabled(audioTrack.enabled);
             }
-        }, [isInitiator, localStream]);
+        }
+    };
 
-        // Gestion des contrôles vidéo/audio
-        const toggleVideo = () => {
-            if (localStream) {
-                const videoTrack = localStream.getVideoTracks()[0];
-                if (videoTrack) {
-                    videoTrack.enabled = !videoTrack.enabled;
-                    setIsVideoEnabled(videoTrack.enabled);
-                }
-            }
-        };
-
-        const toggleAudio = () => {
-            if (localStream) {
-                const audioTrack = localStream.getAudioTracks()[0];
-                if (audioTrack) {
-                    audioTrack.enabled = !audioTrack.enabled;
-                    setIsAudioEnabled(audioTrack.enabled);
-                }
-            }
-        };
-
-        const endCall = () => {
-            if (peerRef.current) {
-                peerRef.current.destroy();
-            }
-            if (socketRef.current) {
-                socketRef.current.close();
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-            stopLiveStream();
-            onEnd();
-        };
-
-        // Affichage du composant
-        return (
-            <div className="h-96 bg-slate-900 rounded-xl shadow-lg overflow-hidden relative">
-                {/* Vidéo distant (principal) */}
-                <div className="absolute inset-0">
-                    {remoteStream ? (
+    const endCall = () => {
+        if (peerRef.current) {
+            peerRef.current.destroy();
+        }
+        if (socketRef.current) {
+            socketRef.current.close();
+        }
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        stopLiveStream();
+        onEnd();
                         <video
                             ref={remoteVideoRef}
                             autoPlay
