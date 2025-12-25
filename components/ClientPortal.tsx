@@ -1046,13 +1046,19 @@ const ClientPortal: React.FC = () => {
                                             {/* Header du document */}
                                             <div className="flex justify-between items-start mb-3">
                                                 <div className="flex-1">
-                                                    <button
-                                                        onClick={() => openQuoteModal(doc.id)}
-                                                        className="text-brand-blue hover:underline cursor-pointer font-bold text-lg"
-                                                        title="Voir les détails du devis"
-                                                    >
-                                                        {doc.ref}
-                                                    </button>
+                                                    {doc.type === 'Devis' ? (
+                                                        <button
+                                                            onClick={() => openQuoteModal(doc.id)}
+                                                            className="text-brand-blue hover:underline cursor-pointer font-bold text-lg"
+                                                            title="Voir les détails du devis"
+                                                        >
+                                                            {doc.ref}
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-slate-700 font-bold text-lg">
+                                                            {doc.ref}
+                                                        </span>
+                                                    )}
                                                     <div className="text-xs text-slate-500 mt-1">{doc.date}</div>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${doc.type === 'Devis' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
