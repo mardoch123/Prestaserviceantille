@@ -1,29 +1,37 @@
-
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useData } from '../context/DataContext';
+import { Mission } from '../types';
+import { VideoStreamManager } from '../utils/videoStreaming';
 import { 
-  Briefcase, 
+  Calendar, 
   Clock, 
   MapPin, 
   Camera, 
   Video, 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
-  LogOut, 
-  Bell,
-  CalendarX,
-  MessageSquare, 
-  UploadCloud,
+  VideoOff, 
+  Mic, 
+  MicOff, 
+  Phone, 
+  PhoneOff,
+  AlertCircle,
+  CheckCircle,
+  Upload,
+  FileText,
+  Send,
   X,
+  Menu,
   Wifi,
-  Mic,
-  MicOff,
   Lock,
-  Link as LinkIcon,
-  FileVideo,
+  Briefcase,
+  LogOut,
+  Bell,
+  AlertTriangle,
+  CalendarX,
   Trash2,
-  Loader2
+  UploadCloud,
+  FileVideo,
+  LinkIcon,
+  MessageSquare
 } from 'lucide-react';
 
 const ProviderPortal: React.FC = () => {
@@ -100,6 +108,7 @@ const ProviderPortal: React.FC = () => {
   const [streamError, setStreamError] = useState('');
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [videoStreamManager, setVideoStreamManager] = useState<VideoStreamManager | null>(null);
 
   // Execution Modals
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -133,8 +142,12 @@ const ProviderPortal: React.FC = () => {
           if (activeStream) {
               stopLiveStream();
           }
+          if (videoStreamManager) {
+              videoStreamManager.stopLocalStream();
+              videoStreamManager.closePeerConnection();
+          }
       };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoStreamManager]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Détecter les caméras au chargement du composant
   useEffect(() => {
@@ -337,41 +350,45 @@ const ProviderPortal: React.FC = () => {
               videoRef.current.srcObject = stream;
           }
           setIsStreaming(true);
+          showToast('Caméra démarrée avec succès', 'success');
           
-          startLiveStream(provider.id, mission.clientId);
+          // Démarrer le stream live
+          await startLiveStream(provider.id, mission.clientId);
           
-      } catch (err: any) {
-          console.error("Camera Error:", err);
-          if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-              setStreamError('Aucune caméra trouvée sur cet appareil. Veuillez vérifier que votre caméra est bien connectée.');
-          } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-              setStreamError('Permission caméra refusée. Veuillez autoriser l\'accès à la caméra dans votre navigateur.');
-          } else if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
-              setStreamError('La caméra sélectionnée ne supporte pas les paramètres requis. Essayez une autre caméra.');
-          } else {
-              setStreamError(err.message || 'Erreur accès caméra.');
-          }
+      } catch (error: any) {
+          console.error('Erreur lors du démarrage de la caméra:', error);
+          setStreamError(error.message || 'Impossible de démarrer la caméra. Vérifiez que votre caméra n\'est pas utilisée par une autre application.');
+          setIsStreaming(false);
       }
   };
-  
+
   const stopCamera = () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-          const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-          tracks.forEach(track => track.stop());
-          videoRef.current.srcObject = null;
+      try {
+          if (videoRef.current && videoRef.current.srcObject) {
+              const stream = videoRef.current.srcObject as MediaStream;
+              stream.getTracks().forEach(track => track.stop());
+              videoRef.current.srcObject = null;
+          }
+          
+          setIsStreaming(false);
+          setStreamError('');
+          stopLiveStream();
+          showToast('Caméra arrêtée', 'success');
+          
+      } catch (error: any) {
+          console.error('Erreur lors de l\'arrêt de la caméra:', error);
+          setStreamError(error.message || 'Erreur lors de l\'arrêt de la caméra');
       }
-      setIsStreaming(false);
-      stopLiveStream();
   };
-  
+
   const toggleMic = () => {
       if (videoRef.current && videoRef.current.srcObject) {
           const audioTracks = (videoRef.current.srcObject as MediaStream).getAudioTracks();
-          audioTracks.forEach(track => track.enabled = !micMuted);
+          audioTracks.forEach(track => track.enabled = !track.enabled);
           setMicMuted(!micMuted);
       }
   };
-  
+
   return (
     <div className="h-full bg-slate-50 flex flex-col font-sans relative overflow-hidden pb-4 md:pb-0">
        

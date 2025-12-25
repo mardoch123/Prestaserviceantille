@@ -2967,13 +2967,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             // Vérification anti-spam : éviter les scans multiples successifs du même type
             if (lastScan) {
                 const timeDiff = new Date().getTime() - new Date(lastScan.timestamp).getTime();
-                const minTimeBetweenScans = 30000; // 30 secondes minimum entre scans
+                const minTimeBetweenScans = 5000; // 5 secondes minimum entre scans (réduit de 30s)
                 
-                if (timeDiff < minTimeBetweenScans) {
-                    console.warn("[RegisterScan] Scan trop rapide détecté, temps écoulé:", timeDiff + "ms");
+                // Vérifier si c'est le même scanneur et le même type de scan
+                if (lastScan.scanner_id === currentUser.id && timeDiff < minTimeBetweenScans) {
+                    console.warn("[RegisterScan] Scan trop rapide détecté du même scanneur, temps écoulé:", timeDiff + "ms");
                     return { 
                         success: false, 
                         message: `Veuillez attendre ${Math.ceil((minTimeBetweenScans - timeDiff) / 1000)} secondes avant de scanner à nouveau` 
+                    };
+                }
+                
+                // Si c'est un scanneur différent, permettre le scan mais avec un délai plus court
+                if (lastScan.scanner_id !== currentUser.id && timeDiff < 2000) {
+                    console.warn("[RegisterScan] Scan trop rapide détecté d'un autre scanneur, temps écoulé:", timeDiff + "ms");
+                    return { 
+                        success: false, 
+                        message: `Veuillez attendre ${Math.ceil((2000 - timeDiff) / 1000)} secondes avant de scanner à nouveau` 
                     };
                 }
             }

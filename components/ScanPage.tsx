@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Loader2, CheckCircle, XCircle, LogIn, Clock, User, MapPin } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, LogIn, Clock, User, MapPin, RefreshCw } from 'lucide-react';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
 // Ajouter les animations CSS personnalisées
 const style = document.createElement('style');
@@ -46,6 +47,15 @@ const ScanPage: React.FC = () => {
     const [clientScans, setClientScans] = useState<any[]>([]);
 
     const clientId = searchParams.get('client');
+
+    // Pull-to-refresh functionality
+    const { containerRef, isPulling, pullDistance, isRefreshing, pullProgress } = usePullToRefresh({
+        onRefresh: () => {
+            navigate('/');
+            return Promise.resolve();
+        },
+        threshold: 80
+    });
 
     useEffect(() => {
         let timeoutId: NodeJS.Timeout;
@@ -151,7 +161,20 @@ const ScanPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-6 text-center pb-8">
+        <div ref={containerRef} className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-6 text-center pb-8 relative">
+            {/* Pull-to-refresh indicator */}
+            {(isPulling || isRefreshing) && (
+                <div 
+                    className="absolute top-0 left-0 right-0 flex items-center justify-center bg-white/80 backdrop-blur-sm border-b border-slate-200 transition-all duration-300"
+                    style={{ height: `${Math.min(pullDistance, 80)}px`, opacity: pullProgress }}
+                >
+                    <RefreshCw 
+                        className={`w-6 h-6 text-brand-blue ${isRefreshing ? 'animate-spin' : ''}`} 
+                        style={{ transform: `rotate(${pullProgress * 360}deg)` }}
+                    />
+                </div>
+            )}
+            
             <div className="bg-white p-8 rounded-xl shadow-xl max-w-sm w-full animate-in fade-in zoom-in">
                 {status === 'loading' && (
                     <>
