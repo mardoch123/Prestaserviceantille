@@ -48,6 +48,8 @@ const ScanPage: React.FC = () => {
     const clientId = searchParams.get('client');
 
     useEffect(() => {
+        let timeoutId: NodeJS.Timeout;
+        
         const processScan = async () => {
             if (!clientId) {
                 setStatus('error');
@@ -60,6 +62,12 @@ const ScanPage: React.FC = () => {
                 return;
             }
 
+            // Timeout de 10 secondes pour éviter le blocage
+            timeoutId = setTimeout(() => {
+                setStatus('error');
+                setMessage("Délai d'attente dépassé. Veuillez réessayer.");
+            }, 10000);
+
             try {
                 // Jouer un son de scan
                 try {
@@ -71,6 +79,9 @@ const ScanPage: React.FC = () => {
                 }
 
                 const result = await registerScan(clientId);
+
+                // Annuler le timeout si le scan réussit
+                clearTimeout(timeoutId);
 
                 if (result.success) {
                     setScanType(result.type || 'entry');
@@ -99,14 +110,23 @@ const ScanPage: React.FC = () => {
                 setMessage(result.message);
 
             } catch (err: any) {
+                // Annuler le timeout en cas d'erreur
+                clearTimeout(timeoutId);
                 console.error("Scan error:", err);
                 setStatus('error');
-                setMessage("Erreur lors de l'enregistrement du scan.");
+                setMessage("Erreur lors de l'enregistrement du scan: " + (err.message || "Erreur inconnue"));
             }
         };
 
         processScan();
-    }, [clientId, currentUser, registerScan]);
+
+        // Nettoyage du timeout si le composant est démonté
+        return () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        };
+    }, [clientId, currentUser, registerScan, visitScans]);
 
     if (status === 'unauthorized') {
         return (
@@ -131,7 +151,7 @@ const ScanPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-6 text-center">
+        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-6 text-center pb-8">
             <div className="bg-white p-8 rounded-xl shadow-xl max-w-sm w-full animate-in fade-in zoom-in">
                 {status === 'loading' && (
                     <>

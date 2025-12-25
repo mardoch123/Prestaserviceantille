@@ -373,7 +373,7 @@ const ProviderPortal: React.FC = () => {
   };
   
   return (
-    <div className="h-full bg-slate-50 flex flex-col font-sans relative overflow-hidden">
+    <div className="h-full bg-slate-50 flex flex-col font-sans relative overflow-hidden pb-4 md:pb-0">
        
        {/* Hidden Inputs for Uploads */}
        <input 
@@ -411,7 +411,7 @@ const ProviderPortal: React.FC = () => {
                    {provider.firstName.charAt(0)}{provider.lastName.charAt(0)}
                </div>
                <div>
-                   <h1 className="font-bold text-slate-800 text-lg hidden md:block">Espace Prestataire</h1>
+                   <h1 className="font-bold text-slate-800 text-lg hidden md:block">{provider?.firstName} {provider?.lastName}</h1>
                    <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-slate-700 md:hidden">{provider?.firstName} {provider?.lastName}</span>
                         <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold border border-green-200 flex items-center gap-1">

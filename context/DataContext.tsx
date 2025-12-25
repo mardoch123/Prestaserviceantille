@@ -245,6 +245,83 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setLastActivity(Date.now());
     };
 
+    // Gestion des notifications en temps réel
+    const [lastNotificationCheck, setLastNotificationCheck] = useState(Date.now());
+    const [notificationPollingInterval, setNotificationPollingInterval] = useState<NodeJS.Timeout | null>(null);
+
+    // Polling pour les notifications en temps réel
+    useEffect(() => {
+        if (currentUser && isOnline) {
+            // Initialiser le polling toutes les 5 secondes pour les notifications
+            const interval = setInterval(async () => {
+                try {
+                    // Rafraîchir les notifications
+                    if (isSupabaseConfigured) {
+                        const { data: newNotifications, error } = await supabase
+                            .from('notifications')
+                            .select('*')
+                            .eq('is_read', false)
+                            .gte('created_at', new Date(lastNotificationCheck).toISOString())
+                            .order('created_at', { ascending: false });
+
+                        if (!error && newNotifications && newNotifications.length > 0) {
+                            // Ajouter les nouvelles notifications
+                            const mappedNotifications = newNotifications.map((notif: any) => ({
+                                id: notif.id,
+                                type: notif.type as 'alert' | 'info' | 'success',
+                                title: notif.title,
+                                message: notif.message,
+                                date: notif.created_at,
+                                is_read: false,
+                                targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
+                                targetUserId: notif.target_user_id
+                            }));
+
+                            // Filtrer pour l'utilisateur courant
+                            const userNotifications = mappedNotifications.filter(notif => {
+                                if (currentUser.role === 'admin') return notif.targetUserType === 'admin';
+                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && notif.targetUserId === currentUser.relatedEntityId;
+                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && notif.targetUserId === currentUser.relatedEntityId;
+                                return false;
+                            });
+
+                            if (userNotifications.length > 0) {
+                                setNotifications(prev => [...userNotifications, ...prev]);
+                                setLastNotificationCheck(Date.now());
+
+                                // Jouer un son de notification (optionnel)
+                                try {
+                                    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                                    audio.volume = 0.3;
+                                    audio.play().catch(() => {});
+                                } catch (e) {}
+                            }
+                        }
+                    }
+
+                    // Rafraîchir les scans pour les prestataires et clients
+                    if (currentUser.role === 'provider' || currentUser.role === 'client') {
+                        await refreshData();
+                    }
+                } catch (error) {
+                    console.warn('[NotificationPolling] Error:', error);
+                }
+            }, 5000); // 5 secondes
+
+            setNotificationPollingInterval(interval);
+
+            return () => {
+                if (interval) clearInterval(interval);
+            };
+        } else {
+            // Nettoyer l'intervalle si pas d'utilisateur ou hors ligne
+            if (notificationPollingInterval) {
+                clearInterval(notificationPollingInterval);
+                setNotificationPollingInterval(null);
+            }
+        }
+    }, [currentUser, isOnline, lastNotificationCheck]);
+
     // Vérifier l'activité et prolonger la session si nécessaire
     useEffect(() => {
         const interval = setInterval(() => {
@@ -2875,7 +2952,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 console.log("[RegisterScan] Alternance détectée - dernier scan:", lastScan.scan_type, "-> nouveau:", newType);
             }
             
-            // Vérification supplémentaire : pas deux sorties consécutives
+            // Vérification stricte : pas deux entrées consécutives
+            if (lastScan && lastScan.scan_type === 'entry' && newType === 'entry') {
+                console.warn("[RegisterScan] Tentative d'entrée consécutive détectée, correction en sortie");
+                newType = 'exit';
+            }
+            
+            // Vérification stricte : pas deux sorties consécutives
             if (lastScan && lastScan.scan_type === 'exit' && newType === 'exit') {
                 console.warn("[RegisterScan] Tentative de sortie consécutive détectée, correction en entrée");
                 newType = 'entry';

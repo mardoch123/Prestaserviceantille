@@ -539,7 +539,7 @@ const ClientPortal: React.FC = () => {
     };
 
     return (
-        <div className="h-full bg-slate-50 flex flex-col overflow-hidden font-sans relative">
+        <div className="h-full bg-slate-50 flex flex-col overflow-hidden font-sans relative pb-4 md:pb-0">
             <div className={`fixed top-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-10 opacity-0 pointer-events-none'}`}>
                 <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
                     toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :

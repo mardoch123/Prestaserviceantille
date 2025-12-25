@@ -375,7 +375,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="p-8 h-full overflow-y-auto bg-white/40">
+    <div className="p-8 h-full overflow-y-auto bg-white/40 pb-4 md:pb-8">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <h2 className="text-3xl font-serif font-bold text-slate-800">Tableau de bord</h2>
         

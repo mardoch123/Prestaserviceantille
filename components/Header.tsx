@@ -10,7 +10,8 @@ import {
     X,
     Menu,
     Eye,
-    Briefcase
+    Briefcase,
+    RefreshCw
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
@@ -46,6 +47,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   const adminNotifs = notifications.filter(n => n.targetUserType === 'admin' && !n.read);
   const unreadCount = adminNotifs.length;
+
+  const handleRefresh = () => {
+      window.location.reload();
+  };
 
   const handleLogout = () => {
       logout(true);
@@ -104,6 +109,15 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">
+        {/* Bouton d'actualisation pour mobile */}
+        <button 
+            onClick={handleRefresh}
+            className="md:hidden p-2 text-slate-400 hover:text-brand-blue transition-colors rounded-full hover:bg-cream-50"
+            title="Actualiser la page"
+        >
+            <RefreshCw className="w-5 h-5" />
+        </button>
+
         {currentUser?.role === 'admin' && (
             <div className="relative" ref={notificationRef}>
                 <button onClick={() => {
