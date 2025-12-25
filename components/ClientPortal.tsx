@@ -1465,7 +1465,7 @@ const ClientPortal: React.FC = () => {
                                         ) : (
                                             <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
                                         )}
-                                        <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate}%</p>
+                                        <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate || 0}%</p>
                                         <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} €</p>
                                         
                                         {/* Affichage du crédit d'impôt si activé */}

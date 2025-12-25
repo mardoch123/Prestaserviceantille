@@ -1831,7 +1831,7 @@ const DevisFactures: React.FC = () => {
                                 <div className="space-y-2 text-sm">
                                     <div><span className="text-slate-500">Description : </span><span className="font-medium">{selectedDocument.description}</span></div>
                                     <div><span className="text-slate-500">Prix unitaire HT : </span><span className="font-medium">{selectedDocument.unitPrice ? selectedDocument.unitPrice.toFixed(2) : '0.00'} €</span></div>
-                                    <div><span className="text-slate-500">Taux TVA : </span><span className="font-medium">{selectedDocument.tvaRate}%</span></div>
+                                    <div><span className="text-slate-500">Taux TVA : </span><span className="font-medium">{selectedDocument.tvaRate || 0}%</span></div>
                                 </div>
                             </div>
 
