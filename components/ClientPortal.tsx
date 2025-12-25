@@ -219,12 +219,13 @@ const ClientPortal: React.FC = () => {
         } else if (notif.link === 'tab:live') {
             // Si la notification pointe vers un appel en cours, ouvrir l'onglet live
             setActiveTab('live');
-        } else if (notif.type === 'message' && (notif.title.includes('devis') || notif.title.includes('Devis') || notif.message.includes('devis') || notif.message.includes('Devis'))) {
-            // Si c'est une notification concernant un devis, ouvrir la page des documents
+        } else if (notif.link === 'documents' || notif.type === 'message' && (notif.title.includes('devis') || notif.title.includes('Devis') || notif.message.includes('devis') || notif.message.includes('Devis'))) {
+            // Si c'est une notification concernant un devis ou lien vers documents, ouvrir la page des documents
             setActiveTab('docs');
         } else if (notif.link && notif.link.startsWith('document:')) {
-            // Si le lien pointe vers un document spécifique, ouvrir la page des documents
+            // Si la notification pointe vers un document spécifique, ouvrir documents et scroller vers le document
             setActiveTab('docs');
+            // TODO: Implémenter le scroll vers le document spécifique
         }
         setShowNotifDropdown(false);
         setShowAllNotifsModal(false);
@@ -1054,7 +1055,7 @@ const ClientPortal: React.FC = () => {
                                             {/* Statut et montant */}
                                             <div className="flex justify-between items-center mb-4">
                                                 <div className="text-lg font-bold text-slate-800">
-                                                    {doc.totalTTC.toFixed(2)} €
+                                                    {doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €
                                                 </div>
                                                 <div className="text-center">
                                                     {doc.status === 'sent' && <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-bold">À signer</span>}

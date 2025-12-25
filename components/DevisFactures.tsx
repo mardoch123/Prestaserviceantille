@@ -685,7 +685,15 @@ const DevisFactures: React.FC = () => {
 
             const client = clients.find(c => c.id === selectedClientId);
             const clientName = client?.name || 'Client Inconnu';
-            const totalHT = unitPrice * packQuantity;
+            
+            // Calcul différent pour le mode personnalisé
+            let totalHT: number;
+            if (serviceType === 'custom') {
+                totalHT = calculateCustomTotal();
+            } else {
+                totalHT = unitPrice * packQuantity;
+            }
+            
             const tvaAmount = totalHT * (tvaRate / 100);
             const totalTTC = totalHT + tvaAmount;
 
