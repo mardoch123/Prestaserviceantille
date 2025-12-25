@@ -34,6 +34,7 @@ const DevisFactures: React.FC = () => {
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
 
     // Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -928,14 +929,26 @@ const DevisFactures: React.FC = () => {
     };
 
     const filteredDocs = useMemo(() => {
-        let docs = documents;
+        let docs = [...documents]; // Copie pour éviter les mutations
+        
+        // Filtrage par statut
         if (filterStatus !== 'all') docs = docs.filter(doc => doc.status === filterStatus);
+        
+        // Filtrage par recherche
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             docs = docs.filter(doc => doc.clientName.toLowerCase().includes(query) || doc.ref.toLowerCase().includes(query));
         }
+        
+        // Tri par ordre de création (date)
+        docs.sort((a, b) => {
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+        });
+        
         return docs;
-    }, [filterStatus, searchQuery, documents]);
+    }, [filterStatus, searchQuery, documents, sortOrder]);
 
     // Calculs qui s'adaptent au type de service
     const baseAmount = serviceType === 'custom' ? calculateCustomTotal() : (unitPrice * packQuantity);
@@ -1177,9 +1190,31 @@ const DevisFactures: React.FC = () => {
                                         {selectedIds.size > 0 && selectedIds.size === filteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                                     </button>
                                 </th>
-                                <th className="px-6 py-3">Réf</th>
+                                <th className="px-6 py-3">
+                                    <div className="flex items-center gap-1">
+                                        Réf
+                                        <button
+                                            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                                            className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded"
+                                            title={`Tri par ordre de création: ${sortOrder === 'asc' ? 'croissant' : 'décroissant'}`}
+                                        >
+                                            {sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                    </div>
+                                </th>
                                 <th className="px-6 py-3">Client</th>
-                                <th className="px-6 py-3">Date</th>
+                                <th className="px-6 py-3">
+                                    <div className="flex items-center gap-1">
+                                        Date
+                                        <button
+                                            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                                            className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded"
+                                            title={`Tri par date: ${sortOrder === 'asc' ? 'plus ancien d\'abord' : 'plus récent d\'abord'}`}
+                                        >
+                                            {sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                    </div>
+                                </th>
                                 <th className="px-6 py-3">Type</th>
                                 <th className="px-6 py-3 text-right">TTC</th>
                                 <th className="px-6 py-3 text-center">Statut (Modifiable)</th>

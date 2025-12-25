@@ -252,6 +252,49 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Polling pour les notifications en temps réel
     useEffect(() => {
         if (currentUser && isOnline) {
+            // Charger les notifications existantes au démarrage
+            const loadInitialNotifications = async () => {
+                try {
+                    if (isSupabaseConfigured) {
+                        const { data: existingNotifications, error } = await supabase
+                            .from('notifications')
+                            .select('*')
+                            .eq('is_read', false)
+                            .order('created_at', { ascending: false })
+                            .limit(50);
+
+                        if (!error && existingNotifications) {
+                            const mappedNotifications = existingNotifications.map((notif: any) => ({
+                                id: notif.id,
+                                type: notif.type as 'alert' | 'info' | 'success',
+                                title: notif.title,
+                                message: notif.message,
+                                date: notif.created_at,
+                                read: notif.is_read,
+                                is_read: notif.is_read, // Ajout de la propriété manquante
+                                targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
+                                targetUserId: notif.target_user_id
+                            }));
+
+                            // Filtrer pour l'utilisateur courant
+                            const userNotifications = mappedNotifications.filter(notif => {
+                                if (currentUser.role === 'admin') return notif.targetUserType === 'admin';
+                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
+                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
+                                return false;
+                            });
+
+                            setNotifications(userNotifications);
+                            setLastNotificationCheck(Date.now());
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[LoadInitialNotifications] Error:', error);
+                }
+            };
+
+            loadInitialNotifications();
+
             // Initialiser le polling toutes les 5 secondes pour les notifications
             const interval = setInterval(async () => {
                 try {
@@ -272,7 +315,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                                 title: notif.title,
                                 message: notif.message,
                                 date: notif.created_at,
-                                is_read: false,
+                                read: notif.is_read,
+                                is_read: notif.is_read, // Ajout de la propriété manquante
                                 targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
                                 targetUserId: notif.target_user_id
                             }));
@@ -280,8 +324,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                             // Filtrer pour l'utilisateur courant
                             const userNotifications = mappedNotifications.filter(notif => {
                                 if (currentUser.role === 'admin') return notif.targetUserType === 'admin';
-                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && notif.targetUserId === currentUser.relatedEntityId;
-                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && notif.targetUserId === currentUser.relatedEntityId;
+                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
+                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
                                 return false;
                             });
 
@@ -289,19 +333,36 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                                 setNotifications(prev => [...userNotifications, ...prev]);
                                 setLastNotificationCheck(Date.now());
 
-                                // Jouer un son de notification (optionnel)
-                                try {
-                                    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
-                                    audio.volume = 0.3;
-                                    audio.play().catch(() => {});
-                                } catch (e) {}
+                                // Jouer un son de notification plus fort pour les appels vidéo
+                                userNotifications.forEach(notif => {
+                                    if (notif.title.includes('Appel Vidéo')) {
+                                        try {
+                                            // Son plus distinctif pour les appels vidéo
+                                            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                                            audio.volume = 0.7;
+                                            audio.play().catch(() => {});
+
+                                            // Vibration si disponible (mobile)
+                                            if ('vibrate' in navigator) {
+                                                navigator.vibrate([200, 100, 200]);
+                                            }
+                                        } catch (e) {}
+                                    } else {
+                                        // Son normal pour les autres notifications
+                                        try {
+                                            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                                            audio.volume = 0.3;
+                                            audio.play().catch(() => {});
+                                        } catch (e) {}
+                                    }
+                                });
                             }
                         }
-                    }
 
-                    // Rafraîchir les scans pour les prestataires et clients
-                    if (currentUser.role === 'provider' || currentUser.role === 'client') {
-                        await refreshData();
+                        // Rafraîchir les scans pour les prestataires et clients
+                        if (currentUser.role === 'provider' || currentUser.role === 'client') {
+                            await refreshData();
+                        }
                     }
                 } catch (error) {
                     console.warn('[NotificationPolling] Error:', error);

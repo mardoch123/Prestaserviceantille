@@ -14,19 +14,53 @@ const AdminVideoSupervisor: React.FC<AdminVideoSupervisorProps> = ({ onClose }) 
         clients, 
         stopLiveStream, 
         currentUser,
-        startLiveStream 
+        startLiveStream,
+        notifications,
+        videoRecordings
     } = useData();
 
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [isSupervising, setIsSupervising] = useState(false);
     const [supervisionMode, setSupervisionMode] = useState<'watch' | 'join'>('watch');
+    const [autoRefresh, setAutoRefresh] = useState(true);
 
     // Vérifier si l'admin peut superviser
-    const canSupervise = currentUser?.role === 'admin' && activeStream;
-
+    const canSupervise = currentUser?.role === 'admin';
+    
     // Récupérer les informations du stream actif
     const streamProvider = activeStream ? providers.find(p => p.id === activeStream.providerId) : null;
     const streamClient = activeStream ? clients.find(c => c.id === activeStream.clientId) : null;
+    
+    // Vérifier les notifications d'appels vidéo
+    const videoCallNotifications = notifications.filter(n => 
+        n.title.includes('Appel Vidéo') && 
+        (n.targetUserType === 'admin' || !n.targetUserId)
+    );
+    
+    // Calculer le temps d'attente depuis le début de l'appel
+    const getCallDuration = () => {
+        if (!activeStream) return '';
+        const start = new Date(activeStream.startTime);
+        const now = new Date();
+        const diff = now.getTime() - start.getTime();
+        const minutes = Math.floor(diff / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
+    
+    // Auto-rafraîchissement
+    useEffect(() => {
+        if (!autoRefresh) return;
+        
+        const interval = setInterval(() => {
+            // Force le rafraîchissement des données
+            if (activeStream) {
+                console.log('[AdminVideoSupervisor] Auto-refresh active stream');
+            }
+        }, 5000);
+        
+        return () => clearInterval(interval);
+    }, [autoRefresh, activeStream]);
 
     // Démarrer la supervision
     const startSupervision = async (mode: 'watch' | 'join') => {
@@ -73,9 +107,9 @@ const AdminVideoSupervisor: React.FC<AdminVideoSupervisorProps> = ({ onClose }) 
                 <div className="text-center py-8">
                     <Eye className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                     <h3 className="text-lg font-bold text-slate-800 mb-2">Supervision Vidéo</h3>
-                    <p className="text-slate-600 mb-4">Aucun appel vidéo en cours à superviser.</p>
+                    <p className="text-slate-600 mb-4">Accès réservé aux administrateurs.</p>
                     <p className="text-sm text-slate-500">
-                        Les appels vidéo actifs apparaîtront ici pour supervision.
+                        Connectez-vous en tant qu'administrateur pour superviser les appels vidéo.
                     </p>
                 </div>
             </div>
@@ -84,31 +118,115 @@ const AdminVideoSupervisor: React.FC<AdminVideoSupervisorProps> = ({ onClose }) 
 
     return (
         <div className="space-y-6">
-            {/* En-tête de supervision */}
+            {/* En-tête avec état global */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                        <div className="bg-red-100 p-3 rounded-full">
-                            <Wifi className="w-6 h-6 text-red-600 animate-pulse" />
+                        <div className={`${activeStream ? 'bg-red-100' : 'bg-slate-100'} p-3 rounded-full`}>
+                            {activeStream ? (
+                                <Wifi className="w-6 h-6 text-red-600 animate-pulse" />
+                            ) : (
+                                <Eye className="w-6 h-6 text-slate-400" />
+                            )}
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Appel Vidéo Actif</h3>
-                            <p className="text-sm text-slate-600">Supervision en temps réel</p>
+                            <h3 className="text-lg font-bold text-slate-800">Supervision Vidéo</h3>
+                            <p className="text-sm text-slate-600">
+                                {activeStream ? 'Appel en cours' : 'Aucun appel actif'}
+                            </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse">
-                            LIVE
-                        </span>
+                        {activeStream && (
+                            <span className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse">
+                                LIVE - {getCallDuration()}
+                            </span>
+                        )}
                         {isSupervising && (
                             <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
                                 Supervision Active
                             </span>
                         )}
+                        <button
+                            onClick={() => setAutoRefresh(!autoRefresh)}
+                            className={`px-3 py-1 text-xs font-bold rounded-full ${
+                                autoRefresh 
+                                    ? 'bg-blue-100 text-blue-700' 
+                                    : 'bg-slate-100 text-slate-600'
+                            }`}
+                        >
+                            Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
+                        </button>
                     </div>
                 </div>
 
-                {/* Informations du stream */}
+                {/* Notifications d'appels vidéo */}
+                {videoCallNotifications.length > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
+                        <h4 className="font-medium text-yellow-900 mb-2 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            Notifications d'appels vidéo récentes
+                        </h4>
+                        <div className="space-y-2">
+                            {videoCallNotifications.slice(0, 3).map(notif => (
+                                <div key={notif.id} className="text-sm text-yellow-800 p-2 bg-yellow-100 rounded">
+                                    <p className="font-medium">{notif.title}</p>
+                                    <p className="text-xs">{notif.message}</p>
+                                    <p className="text-xs text-yellow-600">
+                                        {new Date(notif.date).toLocaleString('fr-FR')}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Section vide si aucun appel actif */}
+                {!activeStream && (
+                    <div className="text-center py-8">
+                        <Eye className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <h4 className="text-lg font-bold text-slate-800 mb-2">Aucun appel vidéo actif</h4>
+                        <p className="text-slate-600 mb-4">
+                            Les appels vidéo actifs apparaîtront ici pour supervision.
+                        </p>
+                        
+                        {/* Statistiques des enregistrements vidéo */}
+                        {videoRecordings.length > 0 && (
+                            <div className="mt-6 text-left">
+                                <h5 className="font-medium text-slate-700 mb-3">Enregistrements vidéo récents</h5>
+                                <div className="space-y-2">
+                                    {videoRecordings.slice(0, 3).map(recording => (
+                                        <div key={recording.id} className="bg-slate-50 p-3 rounded-lg text-sm">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <p className="font-medium text-slate-700">
+                                                        Session: {recording.sessionId.slice(0, 8)}...
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {new Date(recording.startTime).toLocaleString('fr-FR')}
+                                                    </p>
+                                                </div>
+                                                <span className={`px-2 py-1 text-xs rounded-full ${
+                                                    recording.status === 'recording' 
+                                                        ? 'bg-red-100 text-red-700' 
+                                                        : recording.status === 'processing'
+                                                        ? 'bg-green-100 text-green-700'
+                                                        : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    {recording.status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Informations du stream uniquement si actif */}
+                {activeStream && (
+                <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
                         <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
@@ -204,6 +322,8 @@ const AdminVideoSupervisor: React.FC<AdminVideoSupervisorProps> = ({ onClose }) 
                             </button>
                         </div>
                     </div>
+                )}
+                </>
                 )}
             </div>
 
