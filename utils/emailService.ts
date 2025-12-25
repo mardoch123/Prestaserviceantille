@@ -2,9 +2,9 @@ import emailjs from '@emailjs/browser';
 import { generateEmailTemplate } from './emailTemplates';
 
 // EmailJS Configuration
-const EMAILJS_SERVICE_ID = "PrestaServicesAntilles";
-const EMAILJS_TEMPLATE_ID = "template_o74lx0n";
-const EMAILJS_PUBLIC_KEY = "CAw5EbFlSL9psrSaW";
+const EMAILJS_SERVICE_ID = "service_fuz4xun";
+const EMAILJS_TEMPLATE_ID = "template_rbhwm3n";
+const EMAILJS_PUBLIC_KEY = "IjPFArfcYyNDZTQSS";
 
 /**
  * Professional Email Service using EmailJS with Preconfigured Templates
