@@ -54,6 +54,7 @@ export interface Provider {
     phone: string;
     email: string;
     initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
+    isActive?: boolean; // Champ pour vérifier si le prestataire est actif
 }
 
 // DTO for creating a provider (no ID)
@@ -204,6 +205,7 @@ export interface Document {
     totalHT: number;
     totalTTC: number;
     taxCreditEnabled: boolean;
+    hasTaxCredit?: boolean; // Champ pour indiquer si le crédit d'impôt est activé
 
     status: 'signed' | 'sent' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected';
 

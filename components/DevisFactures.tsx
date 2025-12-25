@@ -532,6 +532,7 @@ const DevisFactures: React.FC = () => {
             return { isValid: true, message: '' };
         }
 
+        // Vérifier chaque créneau planifié
         for (const slot of interventionSlots) {
             if (!slot.date) continue;
 
@@ -569,6 +570,9 @@ const DevisFactures: React.FC = () => {
 
             // Compter les prestataires disponibles pour ce créneau
             const availableProviders = providers.filter(provider => {
+                // Vérifier si le prestataire est inactif
+                if (!provider.isActive) return false;
+
                 // Vérifier si le prestataire a des congés à cette date
                 const hasLeave = provider.leaves.some(leave => {
                     const leaveStart = new Date(leave.startDate);

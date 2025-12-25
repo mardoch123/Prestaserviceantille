@@ -20,6 +20,7 @@ import ProviderPortal from './components/ProviderPortal';
 import MissionReports from './components/MissionReports';
 import Login from './components/Login';
 import ScanPage from './components/ScanPage';
+import ScanSuccess from './components/ScanSuccess';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 // Error Boundary to catch DataProvider context issues
@@ -205,6 +206,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
                         <Route path="/scan" element={<ScanPage />} />
+                        <Route path="/scan-success" element={<ScanSuccess />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                 </main>

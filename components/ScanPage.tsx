@@ -280,7 +280,14 @@ const ScanPage: React.FC = () => {
                         )}
 
                         <button
-                            onClick={() => navigate('/')}
+                            onClick={() => {
+                                // Rediriger vers une page de succès simple après un seul scan
+                                if (clientScans.length === 1) {
+                                    navigate('/scan-success');
+                                } else {
+                                    navigate('/');
+                                }
+                            }}
                             className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition"
                         >
                             Retour à l'accueil

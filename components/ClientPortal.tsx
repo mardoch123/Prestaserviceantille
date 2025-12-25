@@ -1388,9 +1388,22 @@ const ClientPortal: React.FC = () => {
                                         ) : (
                                             <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
                                         )}
-                                        <p className="text-sm"><strong>Prix unitaire HT :</strong> {selectedQuote.unitPrice ? selectedQuote.unitPrice.toFixed(2) : '0.00'} €</p>
                                         <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate}%</p>
                                         <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} €</p>
+                                        
+                                        {/* Affichage du crédit d'impôt si activé */}
+                                        {selectedQuote.hasTaxCredit && (
+                                            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                                <p className="text-sm text-green-800 font-bold">
+                                                    <strong>Crédit d'impôt : </strong>
+                                                    -{((selectedQuote.totalTTC || 0) * 0.5).toFixed(2)} € (50%)
+                                                </p>
+                                                <p className="text-sm text-green-700 font-bold mt-1">
+                                                    <strong>Reste à charge : </strong>
+                                                    {((selectedQuote.totalTTC || 0) * 0.5).toFixed(2)} €
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Section Contrat de Service masquée */}
@@ -1515,7 +1528,7 @@ const ClientPortal: React.FC = () => {
 
                             {/* Mobile Signature Button */}
                             {selectedQuote.status === 'sent' && (
-                                <div className="md:hidden fixed bottom-20 right-4 z-40">
+                                <div className="md:hidden fixed bottom-24 right-4 z-40">
                                     <button
                                         onClick={() => setShowSignatureModal(true)}
                                         className="bg-brand-blue text-white px-4 py-3 rounded-full shadow-lg hover:bg-teal-700 transition flex items-center gap-2"
