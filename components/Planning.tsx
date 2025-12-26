@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
+  const { missions, providers, clients, packs, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
   const navigate = useNavigate();
 
   // Filter State

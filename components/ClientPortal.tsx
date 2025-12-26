@@ -446,7 +446,7 @@ const ClientPortal: React.FC = () => {
             };
 
             // Génération du PDF avec react-pdf
-            const blob = await pdf(<InvoicePDF doc={pdfData} />).toBlob();
+            const blob = await pdf(<InvoicePDF doc={pdfData} packs={packs} />).toBlob();
             
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);
@@ -538,7 +538,7 @@ const ClientPortal: React.FC = () => {
             };
 
             // Génération du PDF avec react-pdf
-            const blob = await pdf(<SignedQuotePDF doc={pdfData} />).toBlob();
+            const blob = await pdf(<SignedQuotePDF doc={pdfData} packs={packs} />).toBlob();
             
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);
@@ -696,7 +696,7 @@ const ClientPortal: React.FC = () => {
                 logoUrl: LOGO_NORMAL,
                 total: clientContract.amount || getContractAmountFromContent(clientContract.content) || 0,
                 paymentTerms: clientContract.paymentTerms || 'Selon conditions générales de vente',
-                object: clientContract.object || 'Contrat de services entre PrestaService Antilles et le client',
+                object: clientContract.object || 'Contrat de services entre Presta Services Antilles et le client',
                 // Important: ne pas ré-injecter tout le contenu du contrat dans "services.description",
                 // sinon ça crée un doublon en bas (et perd la mise en forme).
                 services: clientContract.services || [
@@ -708,7 +708,7 @@ const ClientPortal: React.FC = () => {
             };
 
             // Génération du PDF avec react-pdf
-            const blob = await pdf(<ContractPDF doc={pdfData} />).toBlob();
+            const blob = await pdf(<ContractPDF doc={pdfData} packs={packs} />).toBlob();
             
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);

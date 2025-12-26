@@ -494,7 +494,7 @@ const Secretariat: React.FC = () => {
                 logoUrl: LOGO_NORMAL,
                 total: linkedQuoteTotal || contract.amount || getContractAmountFromContent(contract.content || '') || 0,
                 paymentTerms: contract.paymentTerms || 'Selon conditions générales de vente',
-                object: contract.object || 'Contrat de services entre PrestaService Antilles et le client',
+                object: contract.object || 'Contrat de services entre Presta Services Antilles et le client',
                 services: contract.services || [
                     {
                         name: 'Service principal',
@@ -504,7 +504,7 @@ const Secretariat: React.FC = () => {
             };
 
             // Génération du PDF avec react-pdf
-            const blob = await pdf(<ContractPDF doc={pdfData} />).toBlob();
+            const blob = await pdf(<ContractPDF doc={pdfData} packs={packs} />).toBlob();
             
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);

@@ -888,14 +888,7 @@ const DevisFactures: React.FC = () => {
                 finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
             }
 
-            // Ajout du nom du pack à la fin de la description (demande UX)
-            if (serviceType === 'pack' && selectedPackId) {
-                const pack = packs.find(p => p.id === selectedPackId);
-                if (pack && !/\bpack\s*:/i.test(finalDescription)) {
-                    finalDescription = `${finalDescription}\nPack: ${pack.name}`;
-                }
-            }
-
+            
             const newDoc: Document = {
                 id: '',
                 ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
@@ -1138,6 +1131,7 @@ const DevisFactures: React.FC = () => {
         client: '',
         date: '',
         type: '',
+        pack: '',
         ttc: '',
         status: ''
     });
@@ -1163,6 +1157,15 @@ const DevisFactures: React.FC = () => {
         if (columnFilters.type) {
             const q = columnFilters.type.toLowerCase();
             result = result.filter(d => (d.type || '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.pack) {
+            const q = columnFilters.pack.toLowerCase();
+            result = result.filter(d => {
+                if (!d.packId) return false;
+                const pack = packs.find(p => p.id === d.packId);
+                return pack && pack.name.toLowerCase().includes(q);
+            });
         }
 
         if (columnFilters.ttc) {
@@ -1444,6 +1447,7 @@ const DevisFactures: React.FC = () => {
                                     </div>
                                 </th>
                                 <th className="px-6 py-3">Type</th>
+                                <th className="px-6 py-3">Pack</th>
                                 <th className="px-6 py-3 text-right">TTC</th>
                                 <th className="px-6 py-3 text-center">Statut (Modifiable)</th>
                                 <th className="px-6 py-3 text-center">Actions</th>
@@ -1484,6 +1488,14 @@ const DevisFactures: React.FC = () => {
                                 </th>
                                 <th className="px-6 py-2">
                                     <input
+                                        value={columnFilters.pack}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, pack: e.target.value }))}
+                                        placeholder="Pack..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
                                         value={columnFilters.ttc}
                                         onChange={(e) => setColumnFilters(prev => ({ ...prev, ttc: e.target.value }))}
                                         placeholder="TTC..."
@@ -1514,6 +1526,15 @@ const DevisFactures: React.FC = () => {
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.date}</td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
+                                        <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>
+                                            {doc.packId ? (
+                                                <span className="bg-slate-100 px-2 py-1 rounded text-xs font-medium text-slate-700">
+                                                    {packs.find(p => p.id === doc.packId)?.name || 'Pack inconnu'}
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-400 text-xs">-</span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
