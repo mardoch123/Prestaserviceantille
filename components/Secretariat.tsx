@@ -28,14 +28,6 @@ import {
     Video,
     Wifi,
     Camera,
-    Monitor,
-    Play,
-    Pause,
-    Volume2,
-    VolumeX,
-    Maximize,
-    Minimize,
-    RefreshCw,
     Users,
     MapPin,
     Clock,
@@ -52,6 +44,14 @@ import {
     HelpCircle
 } from 'lucide-react';
 import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
+import { 
+    getMartiniqueToday,
+    getMartiniqueNowISO,
+    formatMartiniqueDate
+} from '../src/utils/martiniqueTime';
+import { ContractPDF } from './PDFComponents';
+import { LOGO_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import { pdf } from '@react-pdf/renderer';
 import type { Pack, Contract, Reminder, Message, Expense, Client, Provider, Mission, Document, StreamSession, VideoRecording } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 import LiveVideoManager from './LiveVideoManager';
@@ -268,6 +268,8 @@ const Secretariat: React.FC = () => {
                 setActiveTab('messaging');
             } else if (state.tab === 'absences') {
                 setActiveTab('absences');
+            } else if (state.tab === 'live-videos') {
+                setActiveTab('live-videos');
             }
         }
     }, [location]);
@@ -329,7 +331,7 @@ const Secretariat: React.FC = () => {
         category: 'fournitures',
         amount: 0,
         description: '',
-        date: new Date().toISOString().split('T')[0]
+        date: getMartiniqueToday()
     });
 
     const filteredExpenses = useMemo(() => {
@@ -353,7 +355,7 @@ const Secretariat: React.FC = () => {
 
     // Contract filtering logic
     const filteredContracts = useMemo(() => {
-        return contracts.filter(contract => {
+        const filtered = contracts.filter(contract => {
             // Filter by status
             if (contractFilters.status !== 'all' && contract.status !== contractFilters.status) {
                 return false;
@@ -376,7 +378,150 @@ const Secretariat: React.FC = () => {
 
             return true;
         });
+        const getSortTime = (c: Contract) => {
+            const raw = c.generatedAt || c.createdAt || c.validatedAt || c.validationDate || c.signedAt || '';
+            const t = new Date(raw).getTime();
+            return Number.isFinite(t) ? t : 0;
+        };
+
+        return filtered
+            .slice()
+            .sort((a, b) => getSortTime(b) - getSortTime(a));
     }, [contracts, contractFilters]);
+
+    const handleDownloadContractPDF = async (contract: Contract) => {
+        try {
+            // Récupérer les informations du client si disponible
+            const client = clients.find(c => c.id === contract.clientId);
+            
+            // Récupérer la signature du client depuis les documents signés
+            let clientSignature = null;
+            if (contract.clientId) {
+                const clientDocuments = documents.filter(doc =>
+                    doc.clientId === contract.clientId &&
+                    doc.type === 'Devis' &&
+                    doc.status === 'signed' &&
+                    doc.signatureData
+                );
+
+                if (clientDocuments.length > 0) {
+                    // Prendre le document signé le plus récent
+                    const latestSignedDoc = clientDocuments.sort((a, b) =>
+                        new Date(b.signatureDate || '').getTime() - new Date(a.signatureDate || '').getTime()
+                    )[0];
+
+                    clientSignature = latestSignedDoc.signatureData || '';
+                }
+            }
+            
+            const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+                return await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) {
+                            reject(new Error('Canvas context not available'));
+                            return;
+                        }
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = () => reject(new Error('Image load failed'));
+                    img.src = dataUrl;
+                });
+            };
+
+            const ensurePngDataUrl = async (value: any): Promise<any> => {
+                if (!value || typeof value !== 'string') return value;
+                if (!value.startsWith('data:image/')) return value;
+                if (value.startsWith('data:image/png')) return value;
+                try {
+                    return await convertDataUrlToPng(value);
+                } catch {
+                    return value;
+                }
+            };
+
+            const getContractAmountFromContent = (content: string): number => {
+                if (!content) return 0;
+                const patterns = [
+                    /total\s*[:\s]*(\d+(?:[\.,]\d+)?)\s*€?/gi,
+                    /montant\s*total\s*[:\s]*(\d+(?:[\.,]\d+)?)\s*€?/gi,
+                    /(\d+(?:[\.,]\d+)?)\s*€/g
+                ];
+
+                for (const pattern of patterns) {
+                    const matches = content.match(pattern);
+                    if (matches && matches.length > 0) {
+                        const amountMatch = matches[0].match(/(\d+(?:[\.,]\d+)?)/);
+                        if (amountMatch) {
+                            return parseFloat(amountMatch[1].replace(',', '.'));
+                        }
+                    }
+                }
+
+                return 0;
+            };
+
+            const logoBase64 = await ensurePngDataUrl(LOGO_BASE64);
+            const companySignatureBase64 = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStampBase64 = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+            const clientSignatureBase64 = await ensurePngDataUrl(clientSignature);
+
+            const linkedQuoteTotal = contract.quoteId
+                ? (documents.find(d => d.id === contract.quoteId)?.totalTTC || 0)
+                : 0;
+            
+            // Préparation des données pour le PDF
+            const pdfData = {
+                ref: contract.name || `Contrat_${contract.id}`,
+                date: contract.createdAt || getMartiniqueNowISO(),
+                duration: contract.duration || 'Durée définie dans les conditions',
+                clientName: client?.name || 'Client',
+                clientEmail: client?.email || '',
+                clientPhone: client?.phone || '',
+                clientSignature: clientSignatureBase64,
+                companySignature: companySignatureBase64,
+                companyStamp: companyStampBase64,
+                logoBase64,
+                content: contract.content || '',
+
+                companySignatureUrl: COMPANY_SIGNATURE_URL,
+                companyStampUrl: COMPANY_STAMP_URL,
+                logoUrl: LOGO_NORMAL,
+                total: linkedQuoteTotal || contract.amount || getContractAmountFromContent(contract.content || '') || 0,
+                paymentTerms: contract.paymentTerms || 'Selon conditions générales de vente',
+                object: contract.object || 'Contrat de services entre PrestaService Antilles et le client',
+                services: contract.services || [
+                    {
+                        name: 'Service principal',
+                        description: contract.object || 'Description des services à fournir'
+                    }
+                ]
+            };
+
+            // Génération du PDF avec react-pdf
+            const blob = await pdf(<ContractPDF doc={pdfData} />).toBlob();
+            
+            // Téléchargement du fichier
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Contrat_${contract.name || contract.id}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            alert('Contrat téléchargé avec succès.');
+        } catch (error) {
+            console.error('Erreur lors de la génération du PDF:', error);
+            alert('Erreur lors du téléchargement du contrat.');
+        }
+    };
 
     const openConfirmation = (title: string, message: string, onConfirm: () => void) => {
         setConfirmationModal({ open: true, title, message, onConfirm });
@@ -687,7 +832,7 @@ const Secretariat: React.FC = () => {
         }
 
         // Inject Date
-        content = content.replace('[DATE]', new Date().toLocaleDateString());
+        content = content.replace('[DATE]', formatMartiniqueDate(new Date()));
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
         setShowQuoteSelectionModal(false);
@@ -1235,6 +1380,15 @@ const Secretariat: React.FC = () => {
                                                 </span>
                                             )
                                         )}
+
+                                        {contract.status === 'active' && (
+                                            <button
+                                                onClick={() => handleDownloadContractPDF(contract)}
+                                                className="text-green-600 hover:text-green-700 transition text-xs font-bold px-3 py-1 rounded flex items-center gap-1 bg-green-50 border border-green-200"
+                                            >
+                                                <Download className="w-3 h-3" /> Télécharger PDF
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -1358,7 +1512,7 @@ const Secretariat: React.FC = () => {
                     <div>
                         <div className="flex justify-between items-center mb-6 flex-col sm:flex-row gap-4">
                             <h3 className="text-lg font-bold text-slate-700">Comptabilité Générale</h3>
-                            <button onClick={() => { setModalType('expense'); setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: new Date().toISOString().split('T')[0] }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 w-full sm:w-auto">
+                            <button onClick={() => { setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: getMartiniqueToday() }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 w-full sm:w-auto">
                                 <Plus className="w-4 h-4" /> Saisir Dépense
                             </button>
                         </div>
@@ -1372,7 +1526,6 @@ const Secretariat: React.FC = () => {
                                     <p className="text-2xl font-bold text-slate-800">{totalExpenses.toFixed(2)} €</p>
                                 </div>
                             </div>
-
                             {/* FILTERS UI */}
                             <div className="lg:col-span-3 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                                 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
@@ -1447,44 +1600,46 @@ const Secretariat: React.FC = () => {
                                     )}
                                 </div>
                             </div>
-
-                            <div className="bg-white border rounded-lg overflow-hidden">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                                        <tr>
-                                            <th className="px-6 py-3">Date</th>
-                                            <th className="px-6 py-3">Description</th>
-                                            <th className="px-6 py-3">Catégorie</th>
-                                            <th className="px-6 py-3 text-right">Montant</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {filteredExpenses.length === 0 ? (
-                                            <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
-                                        ) : (
-                                            filteredExpenses.map((expense) => (
-                                                <tr key={expense.id} className="hover:bg-slate-50 group">
-                                                    <td className="px-6 py-4 text-slate-600">{expense.date}</td>
-                                                    <td className="px-6 py-4 font-bold text-slate-700">{expense.description}</td>
-                                                    <td className="px-6 py-4">
-                                                        <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs capitalize">{expense.category}</span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right font-bold text-red-500">- {expense.amount.toFixed(2)} €</td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <button
-                                                            onClick={() => handleEditExpense(expense)}
-                                                            className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
-                                                            title="Modifier"
-                                                        >
-                                                            <Edit className="w-3 h-3" />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                        </div>
+                        
+                        {/* TABLEAU DES DÉPENSES - EN DEHORS DE LA GRILLE */}
+                        <div className="bg-white border rounded-lg overflow-x-auto -mx-6 px-6">
+                            <table className="w-full text-sm text-left min-w-[800px]">
+                                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                    <tr>
+                                        <th className="px-4 py-3 min-w-[100px]">Date</th>
+                                        <th className="px-4 py-3 min-w-[200px]">Description</th>
+                                        <th className="px-4 py-3 min-w-[120px]">Catégorie</th>
+                                        <th className="px-4 py-3 text-right min-w-[100px]">Montant</th>
+                                        <th className="px-4 py-3 text-center min-w-[80px]">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {filteredExpenses.length === 0 ? (
+                                        <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
+                                    ) : (
+                                        filteredExpenses.map((expense) => (
+                                            <tr key={expense.id} className="hover:bg-slate-50 group">
+                                                <td className="px-4 py-4 text-slate-600 whitespace-nowrap">{expense.date}</td>
+                                                <td className="px-4 py-4 font-bold text-slate-700">{expense.description}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">
+                                                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs capitalize">{expense.category}</span>
+                                                </td>
+                                                <td className="px-4 py-4 text-right font-bold text-red-500 whitespace-nowrap">- {expense.amount.toFixed(2)} €</td>
+                                                <td className="px-4 py-4 text-center">
+                                                    <button
+                                                        onClick={() => handleEditExpense(expense)}
+                                                        className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
+                                                        title="Modifier"
+                                                    >
+                                                        <Edit className="w-3 h-3" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}

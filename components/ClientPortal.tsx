@@ -5,6 +5,15 @@ import QRCodeManager from './ScanPage';
 import ClientQRCode from './ClientQRCode';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
+import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
+import { pdf } from '@react-pdf/renderer';
+import { 
+    getMartiniqueNowISO,
+    getMartiniqueToday,
+    formatMartiniqueDateTime,
+    formatMartiniqueDate
+} from '../src/utils/martiniqueTime';
 import { 
     User,
     Calendar,
@@ -43,7 +52,8 @@ import {
     Mail as MailIcon,
     Download,
     FileText,
-    CheckCircle
+    CheckCircle,
+    ChevronDown
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -103,7 +113,7 @@ const ClientPortal: React.FC = () => {
 
     // Filter documents
     const filteredClientDocs = useMemo(() => {
-        return clientDocs.filter((doc: any) => {
+        const filtered = clientDocs.filter((doc: any) => {
             const matchesType = documentFilter === 'all' || doc.type === documentFilter;
             const matchesStatus = documentStatusFilter === 'all' || doc.status === documentStatusFilter;
             const matchesSearch = documentSearch === '' ||
@@ -112,6 +122,9 @@ const ClientPortal: React.FC = () => {
 
             return matchesType && matchesStatus && matchesSearch;
         });
+        return filtered
+            .slice()
+            .sort((a: any, b: any) => new Date((b as any).created_at || b.date).getTime() - new Date((a as any).created_at || a.date).getTime());
     }, [clientDocs, documentFilter, documentStatusFilter, documentSearch]);
 
     // Filter planning missions
@@ -123,7 +136,7 @@ const ClientPortal: React.FC = () => {
                 (m.providerName && m.providerName.toLowerCase().includes(planningSearch.toLowerCase())) ||
                 m.date.includes(planningSearch);
 
-            const today = new Date().toISOString().split('T')[0];
+            const today = getMartiniqueToday();
             let matchesDate = true;
 
             if (planningDateFilter === 'upcoming') {
@@ -181,6 +194,7 @@ const ClientPortal: React.FC = () => {
     const [showNotifications, setShowNotifications] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [isCallInitiator, setIsCallInitiator] = useState(false);
+    const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
     // Chat Scroll
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -211,7 +225,10 @@ const ClientPortal: React.FC = () => {
 
     // Get client missions and other data
     // All notifications
-    const allClientNotifs = notifications.filter(n => n.targetUserType === 'client' && (!n.targetUserId || n.targetUserId === client.id));
+    const allClientNotifs = notifications
+        .filter(n => n.targetUserType === 'client' && (!n.targetUserId || n.targetUserId === client.id))
+        .slice()
+        .sort((a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime());
     const unreadClientNotifs = allClientNotifs.filter(n => !n.read);
     const clientMessages = messages.filter(m => m.clientId === client.id);
     
@@ -341,7 +358,7 @@ const ClientPortal: React.FC = () => {
         }
     };
 
-    const handleDownloadInvoice = (doc: any) => {
+    const handleDownloadInvoice = async (doc: any) => {
         // Vérifier si la prestation est terminée avant de demander un avis
         const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
         const hasCompletedPrestation = clientCompletedMissions.length > 0;
@@ -361,78 +378,214 @@ const ClientPortal: React.FC = () => {
             showToast('Téléchargement de la facture en cours...');
         }
 
-        // Generate proper PDF using print window
-        const printWindow = window.open('', '', 'width=800,height=600');
-        if (printWindow) {
-            printWindow.document.write(`
-          <html>
-            <head>
-              <title>FACTURE - ${doc.ref}</title>
-              <style>
-                body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; padding: 40px; }
-                .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
-                .company-info { margin-bottom: 20px; }
-                .invoice-info { margin-bottom: 20px; }
-                .client-info { margin-bottom: 20px; }
-                .amount-info { margin: 20px 0; }
-                .total { font-weight: bold; font-size: 14pt; margin-top: 10px; }
-                .footer { margin-top: 50px; font-size: 10pt; color: #666; }
-              </style>
-            </head>
-            <body>
-              <div class="header">
-                <h2>FACTURE</h2>
-                <p><strong>N° ${doc.ref}</strong></p>
-                <p>Date: ${doc.date}</p>
-              </div>
-              
-              <div class="company-info">
-                <h3>PRESTA SERVICES ANTILLES</h3>
-                <p>31 Résidence L'Autre Bord – 97220 La Trinité</p>
-                <p>N° SAP : SAP944789700</p>
-                <p>Email: prestaservicesantilles.rh@gmail.com</p>
-                <p>Téléphone: 0696 06 15 94</p>
-              </div>
-              
-              <div class="client-info">
-                <h4>Client:</h4>
-                <p><strong>${client.name}</strong></p>
-                <p>${client.address || ''}</p>
-                <p>${client.city || ''}</p>
-                <p>Email: ${client.email}</p>
-                <p>Téléphone: ${client.phone}</p>
-              </div>
-              
-              <div class="invoice-info">
-                <h4>Détails de la facture:</h4>
-                <p>${doc.description || 'Service standard'}</p>
-              </div>
-              
-              <div class="amount-info">
-                <p>Montant HT: ${doc.totalHT ? doc.totalHT.toFixed(2) : '0.00'} €</p>
-                <p>TVA: ${doc.totalTTC && doc.totalHT ? ((doc.totalTTC - doc.totalHT)).toFixed(2) : '0.00'} €</p>
-                <p class="total">Montant TTC: ${doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</p>
-              </div>
-              
-              <div class="footer">
-                <p><strong>Conditions de paiement:</strong></p>
-                <p>- Paiement à réception</p>
-                <p>- Délai de paiement: 30 jours</p>
-                <p>Statut: ${doc.status}</p>
-                <br>
-                <p>Contact pour toute question: prestaservicesantilles.rh@gmail.com - 0696 06 15 94</p>
-              </div>
-            </body>
-          </html>
-          `);
-            printWindow.document.close();
-            printWindow.print();
-        }
+        const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+            return await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width;
+                        canvas.height = img.naturalHeight || img.height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return reject(new Error('Canvas context not available'));
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+                img.onerror = () => reject(new Error('Image decode failed'));
+                img.src = dataUrl;
+            });
+        };
 
-        showToast('Facture téléchargée avec succès.');
+        const ensurePngDataUrl = async (value: any): Promise<any> => {
+            if (!value || typeof value !== 'string') return value;
+            if (!value.startsWith('data:image/')) return value;
+            if (value.startsWith('data:image/png')) return value;
+            try {
+                return await convertDataUrlToPng(value);
+            } catch {
+                return value;
+            }
+        };
+
+        try {
+            const tvaRate = doc.tvaRate ?? 8.5;
+            const logoBase64 = tvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+
+            // Préparation des données pour le PDF
+            const pdfData = {
+                ref: doc.ref,
+                date: doc.date,
+                dueDate: doc.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 jours après
+                paid: doc.status === 'paid',
+                status: doc.status,
+                tvaRate,
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                companySignature,
+                companyStamp,
+                logoBase64,
+                subtotal: doc.totalHT || 0,
+                tax: doc.totalTTC && doc.totalHT ? (doc.totalTTC - doc.totalHT) : 0,
+                total: doc.totalTTC || 0,
+                items: [
+                    {
+                        description: doc.description || 'Service standard',
+                        location: doc.location || doc.address || doc.lieu || undefined,
+                        quantity: 1,
+                        unitPrice: doc.totalHT || 0,
+                        total: doc.totalHT || 0
+                    }
+                ],
+                paymentInfo: 'Paiement par virement bancaire ou chèque. Délai de paiement: 30 jours.'
+            };
+
+            // Génération du PDF avec react-pdf
+            const blob = await pdf(<InvoicePDF doc={pdfData} />).toBlob();
+            
+            // Téléchargement du fichier
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Facture_${doc.ref}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Facture téléchargée avec succès.');
+        } catch (error) {
+            console.error('Erreur lors de la génération du PDF:', error);
+            showToast('Erreur lors du téléchargement de la facture.', 'error');
+        }
     };
 
-    const handleDownloadContract = () => {
+    const handleDownloadSignedQuote = async (doc: any) => {
+        showToast('Téléchargement du devis signé...');
+        
+        const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+            return await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width;
+                        canvas.height = img.naturalHeight || img.height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return reject(new Error('Canvas context not available'));
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+                img.onerror = () => reject(new Error('Image decode failed'));
+                img.src = dataUrl;
+            });
+        };
+
+        const ensurePngDataUrl = async (value: any): Promise<any> => {
+            if (!value || typeof value !== 'string') return value;
+            if (!value.startsWith('data:image/')) return value;
+            if (value.startsWith('data:image/png')) return value;
+            try {
+                return await convertDataUrlToPng(value);
+            } catch {
+                return value;
+            }
+        };
+
+        try {
+            const tvaRate = doc.tvaRate ?? 8.5;
+            const logoBase64 = tvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+            const clientSignature = await ensurePngDataUrl(doc.signatureData || null);
+
+            // Préparation des données pour le PDF
+            const pdfData = {
+                ref: doc.ref,
+                date: doc.date,
+                signed: doc.status === 'signed',
+                status: doc.status,
+                tvaRate,
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                clientSignature,
+                companySignature,
+                companyStamp,
+                logoBase64,
+                subtotal: doc.totalHT || 0,
+                tax: doc.totalTTC && doc.totalHT ? (doc.totalTTC - doc.totalHT) : 0,
+                total: doc.totalTTC || 0,
+                notes: doc.description || '',
+                items: [
+                    {
+                        description: doc.description || 'Service standard',
+                        location: doc.location || doc.address || doc.lieu || undefined,
+                        quantity: 1,
+                        unitPrice: doc.totalHT || 0,
+                        total: doc.totalHT || 0
+                    }
+                ],
+                slotsData: doc.slotsData || []
+            };
+
+            // Génération du PDF avec react-pdf
+            const blob = await pdf(<SignedQuotePDF doc={pdfData} />).toBlob();
+            
+            // Téléchargement du fichier
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Devis_Signe_${doc.ref}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Devis signé téléchargé avec succès.');
+        } catch (error) {
+            console.error('Erreur lors de la génération du PDF:', error);
+            showToast('Erreur lors du téléchargement du devis signé.', 'error');
+        }
+    };
+
+    // Fonction pour extraire le montant du contenu du contrat
+    const getContractAmountFromContent = (content: string): number => {
+        if (!content) return 0;
+        
+        // Chercher les montants dans le contenu (formats possibles)
+        const patterns = [
+            /(\d+(?:\.\d+)?)\s*€/g,
+            /(\d+(?:\.\d+)?)\s*euros?/gi,
+            /(\d+(?:\.\d+)?)\s*EUR/gi,
+            /montant\s*[:\s]*(\d+(?:\.\d+)?)\s*€?/gi,
+            /prix\s*[:\s]*(\d+(?:\.\d+)?)\s*€?/gi,
+            /tarif\s*[:\s]*(\d+(?:\.\d+)?)\s*€?/gi
+        ];
+        
+        for (const pattern of patterns) {
+            const matches = content.match(pattern);
+            if (matches && matches.length > 0) {
+                // Prendre le premier montant trouvé
+                const amountMatch = matches[0].match(/(\d+(?:\.\d+)?)/);
+                if (amountMatch) {
+                    return parseFloat(amountMatch[1]);
+                }
+            }
+        }
+        
+        return 0;
+    };
+
+    const handleDownloadContract = async () => {
         showToast('Téléchargement du contrat signé...');
 
         console.log('Searching contracts for client:', client.id);
@@ -474,9 +627,104 @@ const ClientPortal: React.FC = () => {
             return;
         }
 
-        // Use the downloadContract function from DataContext
-        downloadContract(clientContract);
-        showToast('Contrat téléchargé avec succès.');
+        try {
+            const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+                return await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) {
+                            reject(new Error('Canvas context not available'));
+                            return;
+                        }
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = () => reject(new Error('Image load failed'));
+                    img.src = dataUrl;
+                });
+            };
+
+            const ensurePngDataUrl = async (value: any): Promise<any> => {
+                if (!value || typeof value !== 'string') return value;
+                if (!value.startsWith('data:image/')) return value;
+                if (value.startsWith('data:image/png')) return value;
+                try {
+                    return await convertDataUrlToPng(value);
+                } catch {
+                    return value;
+                }
+            };
+
+            const logoBase64 = await ensurePngDataUrl(LOGO_BASE64);
+            const companySignatureBase64 = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStampBase64 = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+
+            // La signature client est souvent stockée sur le devis (Document.signatureData), pas sur le contrat.
+            // On garde la logique existante mais on ajoute un fallback robuste.
+            let clientSignatureSource: any = clientContract.clientSignatureUrl || null;
+            if (!clientSignatureSource) {
+                clientSignatureSource = (selectedQuote as any)?.signatureData || (selectedQuote as any)?.clientSignatureUrl || null;
+            }
+            if (!clientSignatureSource) {
+                const signedDocs = documents
+                    .filter(d => d.clientId === client.id && d.type === 'Devis' && d.status === 'signed' && d.signatureData)
+                    .sort((a: any, b: any) => new Date(b.signatureDate || '').getTime() - new Date(a.signatureDate || '').getTime());
+                if (signedDocs.length > 0) clientSignatureSource = signedDocs[0].signatureData;
+            }
+            const clientSignatureBase64 = await ensurePngDataUrl(clientSignatureSource);
+
+            // Préparation des données pour le PDF
+            const pdfData = {
+                ref: clientContract.name || `Contrat_${clientContract.id}`,
+                date: clientContract.createdAt || getMartiniqueNowISO(),
+                duration: clientContract.duration || 'Durée définie dans les conditions',
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                clientSignature: clientSignatureBase64,
+                companySignature: companySignatureBase64,
+                companyStamp: companyStampBase64,
+                logoBase64,
+                content: clientContract.content || '',
+
+                companySignatureUrl: COMPANY_SIGNATURE_URL,
+                companyStampUrl: COMPANY_STAMP_URL,
+                logoUrl: LOGO_NORMAL,
+                total: clientContract.amount || getContractAmountFromContent(clientContract.content) || 0,
+                paymentTerms: clientContract.paymentTerms || 'Selon conditions générales de vente',
+                object: clientContract.object || 'Contrat de services entre PrestaService Antilles et le client',
+                // Important: ne pas ré-injecter tout le contenu du contrat dans "services.description",
+                // sinon ça crée un doublon en bas (et perd la mise en forme).
+                services: clientContract.services || [
+                    {
+                        name: 'Service principal',
+                        description: clientContract.object || 'Description des services à fournir'
+                    }
+                ]
+            };
+
+            // Génération du PDF avec react-pdf
+            const blob = await pdf(<ContractPDF doc={pdfData} />).toBlob();
+            
+            // Téléchargement du fichier
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Contrat_${clientContract.name || clientContract.id}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Contrat téléchargé avec succès.');
+        } catch (error) {
+            console.error('Erreur lors de la génération du PDF:', error);
+            showToast('Erreur lors du téléchargement du contrat.', 'error');
+        }
     };
 
     const handleRequestInvoice = (docId: string) => {
@@ -636,7 +884,7 @@ const ClientPortal: React.FC = () => {
                                             <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <span className={`text-xs font-bold ${n.type === 'alert' ? 'text-red-600' : 'text-brand-blue'}`}>{n.title}</span>
-                                                    <span className="text-[10px] text-slate-400">{new Date(n.date).toLocaleDateString()}</span>
+                                                    <span className="text-[10px] text-slate-400">{formatMartiniqueDate(new Date(n.date))}</span>
                                                 </div>
                                                 <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
                                             </div>
@@ -1071,7 +1319,14 @@ const ClientPortal: React.FC = () => {
                                                             {doc.ref}
                                                         </span>
                                                     )}
-                                                    <div className="text-xs text-slate-500 mt-1">{doc.date}</div>
+                                                    <div className="text-xs text-slate-500 mt-1">
+                                                    {doc.date}
+                                                    {doc.slotsData && doc.slotsData.length > 0 && (
+                                                        <span className="block text-xs text-blue-600 font-medium mt-1">
+                                                            {doc.slotsData.map((slot: any) => `${slot.startTime}-${slot.endTime}`).join(', ')}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${doc.type === 'Devis' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
                                                     }`}>
@@ -1096,13 +1351,105 @@ const ClientPortal: React.FC = () => {
 
                                             {/* Actions */}
                                             <div className="flex flex-wrap gap-2">
-                                                <button
-                                                    onClick={() => handleDownloadInvoice(doc)}
-                                                    className="flex-1 bg-slate-100 text-slate-700 text-xs font-bold px-3 py-2 rounded hover:bg-slate-200 transition flex items-center justify-center gap-1"
-                                                    title="Télécharger PDF"
-                                                >
-                                                    <Download className="w-3 h-3" /> Télécharger
-                                                </button>
+                                                {/* Dropdown d'actions pour les devis */}
+                                                {doc.type === 'Devis' ? (
+                                                    <div className="relative">
+                                                        <button
+                                                            onClick={() => setActiveDropdown(activeDropdown === doc.id ? null : doc.id)}
+                                                            className="flex-1 bg-brand-blue text-white text-xs font-bold px-3 py-2 rounded hover:bg-blue-600 transition flex items-center justify-center gap-1"
+                                                        >
+                                                            Actions <ChevronDown className="w-3 h-3" />
+                                                        </button>
+                                                        {activeDropdown === doc.id && (
+                                                            <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-xl z-10 overflow-hidden">
+                                                                {doc.status === 'signed' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleDownloadContract();
+                                                                            setActiveDropdown(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3 border-b border-slate-100"
+                                                                    >
+                                                                        <FileText className="w-4 h-4 text-blue-600" /> 
+                                                                        <div>
+                                                                            <div className="font-medium">Télécharger contrat</div>
+                                                                            <div className="text-xs text-slate-500">Format PDF</div>
+                                                                        </div>
+                                                                    </button>
+                                                                )}
+                                                                {doc.status === 'signed' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleDownloadInvoice(doc);
+                                                                            setActiveDropdown(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3 border-b border-slate-100"
+                                                                    >
+                                                                        <Download className="w-4 h-4 text-green-600" /> 
+                                                                        <div>
+                                                                            <div className="font-medium">Facture</div>
+                                                                            <div className="text-xs text-slate-500">Télécharger PDF</div>
+                                                                        </div>
+                                                                    </button>
+                                                                )}
+                                                                {doc.status === 'signed' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleDownloadSignedQuote(doc);
+                                                                            setActiveDropdown(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3"
+                                                                    >
+                                                                        <FileSignature className="w-4 h-4 text-purple-600" /> 
+                                                                        <div>
+                                                                            <div className="font-medium">Télécharger devis signé</div>
+                                                                            <div className="text-xs text-slate-500">Avec signatures</div>
+                                                                        </div>
+                                                                    </button>
+                                                                )}
+                                                                {doc.status !== 'signed' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleDownloadContract();
+                                                                            setActiveDropdown(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3 border-b border-slate-100"
+                                                                    >
+                                                                        <FileText className="w-4 h-4 text-blue-600" /> 
+                                                                        <div>
+                                                                            <div className="font-medium">Télécharger contrat</div>
+                                                                            <div className="text-xs text-slate-500">Format PDF</div>
+                                                                        </div>
+                                                                    </button>
+                                                                )}
+                                                                {doc.status !== 'signed' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleDownloadSignedQuote(doc);
+                                                                            setActiveDropdown(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3"
+                                                                    >
+                                                                        <FileSignature className="w-4 h-4 text-purple-600" /> 
+                                                                        <div>
+                                                                            <div className="font-medium">Télécharger devis</div>
+                                                                            <div className="text-xs text-slate-500">Format PDF</div>
+                                                                        </div>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    /* Bouton simple pour les factures */
+                                                    <button
+                                                        onClick={() => handleDownloadInvoice(doc)}
+                                                        className="flex-1 bg-slate-100 text-slate-700 text-xs font-bold px-3 py-2 rounded hover:bg-slate-200 transition flex items-center justify-center gap-1"
+                                                        title="Télécharger la facture"
+                                                    >
+                                                        <Download className="w-3 h-3" /> Facture
+                                                    </button>
+                                                )}
 
                                                 {doc.type === 'Devis' && doc.status === 'sent' && (
                                                     <button
@@ -1113,15 +1460,7 @@ const ClientPortal: React.FC = () => {
                                                     </button>
                                                 )}
 
-                                                {doc.type === 'Devis' && doc.status === 'signed' && (
-                                                    <button
-                                                        onClick={handleDownloadContract}
-                                                        className="flex-1 bg-green-600 text-white text-xs font-bold px-3 py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-1"
-                                                    >
-                                                        <FileSignature className="w-3 h-3" /> Contrat
-                                                    </button>
-                                                )}
-
+                                                
                                                 {doc.type === 'Facture' && (
                                                     <button
                                                         onClick={() => handleRequestInvoice(doc.id)}
@@ -1350,7 +1689,13 @@ const ClientPortal: React.FC = () => {
                                                     </div>
                                                     <div className="ml-4">
                                                         {recording.status === 'ready' && recording.replayUrl ? (
-                                                            <button className="bg-brand-blue text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    const url = recording.replayUrl || recording.recordingUrl || (recording as any).url;
+                                                                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                                                                }}
+                                                                className="bg-brand-blue text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors flex items-center gap-2"
+                                                            >
                                                                 <Play className="w-4 h-4" />
                                                                 Voir
                                                             </button>
@@ -1402,7 +1747,41 @@ const ClientPortal: React.FC = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
                         <div className="p-4 border-b bg-cream-50 flex justify-between items-center">
                             <h3 className="font-serif font-bold text-xl text-slate-800">Consultation du Devis {selectedQuote.ref}</h3>
-                            <button onClick={() => setQuoteModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
+                            <div className="flex items-center gap-2">
+                                {selectedQuote.status === 'sent' && (
+                                    <>
+                                        <button
+                                            onClick={handleDownloadContract}
+                                            className="px-3 py-2 text-green-600 font-bold hover:bg-green-50 rounded-xl border border-transparent hover:border-green-100 transition text-sm"
+                                        >
+                                            Télécharger contrat
+                                        </button>
+                                        <button
+                                            onClick={() => handleRefuse(selectedQuote.id)}
+                                            className="px-3 py-2 text-red-500 font-bold hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition text-sm"
+                                        >
+                                            Refuser
+                                        </button>
+                                    </>
+                                )}
+                                {selectedQuote.status === 'signed' && (
+                                    <>
+                                        <button
+                                            onClick={() => handleDownloadSignedQuote(selectedQuote)}
+                                            className="px-3 py-2 text-purple-600 font-bold hover:bg-purple-50 rounded-xl border border-transparent hover:border-purple-100 transition text-sm"
+                                        >
+                                            Télécharger devis signé
+                                        </button>
+                                        <button
+                                            onClick={handleDownloadContract}
+                                            className="px-3 py-2 text-green-600 font-bold hover:bg-green-50 rounded-xl border border-transparent hover:border-green-100 transition text-sm"
+                                        >
+                                            Télécharger contrat
+                                        </button>
+                                    </>
+                                )}
+                                <button onClick={() => setQuoteModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
@@ -1428,7 +1807,7 @@ const ClientPortal: React.FC = () => {
                                             <div className="text-sm">
                                                 {selectedQuote.slotsData.map((slot: any, index: number) => (
                                                     <p key={index} className="mb-1">
-                                                        <strong>Créneau {index + 1} :</strong> {slot.date || 'Date à définir'} à {slot.startTime || 'Heure à définir'}
+                                                        <strong>Créneau {index + 1} :</strong> {slot.date || 'Date à définir'} de {slot.startTime || 'Heure à définir'} à {slot.endTime || 'Heure de fin à définir'}
                                                     </p>
                                                 ))}
                                             </div>
@@ -1457,14 +1836,30 @@ const ClientPortal: React.FC = () => {
                                     <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
                                         <h5 className="font-bold text-green-800 mb-2">Détails du Devis :</h5>
                                         {/* Séparer la description et le lieu */}
-                                        {selectedQuote.description.includes('|') ? (
-                                            <>
-                                                <p className="text-sm"><strong>Description :</strong> {selectedQuote.description.split('|')[0].trim()}</p>
-                                                <p className="text-sm"><strong>Lieu :</strong><br />{selectedQuote.description.split('|')[1].replace('Lieu:', '').trim()}</p>
-                                            </>
-                                        ) : (
-                                            <p className="text-sm"><strong>Description :</strong> {selectedQuote.description}</p>
-                                        )}
+                                        {(() => {
+                                            const raw = String(selectedQuote.description || '');
+                                            const parts = raw.split('|');
+                                            const descriptionPart = (parts[0] || '').replace(/\bLieu\s*:\s*.*$/i, '').trim();
+
+                                            let locationPart = '';
+                                            if (parts.length > 1) {
+                                                locationPart = parts.slice(1).join('|').replace(/\bLieu\s*:/i, '').trim();
+                                            } else {
+                                                const match = raw.match(/\bLieu\s*:\s*(.*)$/i);
+                                                if (match && match[1]) locationPart = match[1].trim();
+                                            }
+
+                                            return (
+                                                <>
+                                                    <p className="text-sm"><strong>Description :</strong> {descriptionPart || raw}</p>
+                                                    {locationPart ? (
+                                                        <p className="text-sm">
+                                                            <strong>Lieu :</strong> {locationPart}
+                                                        </p>
+                                                    ) : null}
+                                                </>
+                                            );
+                                        })()}
                                         <p className="text-sm"><strong>Taux TVA :</strong> {selectedQuote.tvaRate || 0}%</p>
                                         <p className="text-sm font-bold text-lg"><strong>Total TTC :</strong> {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} €</p>
                                         
@@ -1499,34 +1894,31 @@ const ClientPortal: React.FC = () => {
                                     <div className="mt-8 flex justify-between border-t pt-4">
                                         <div className="w-1/2 pr-4 border-r">
                                             <p className="font-bold mb-2">Pour l'Entreprise :</p>
-                                            {selectedQuote.status === 'signed' ? (
-                                                <div className="space-y-2">
+                                            <div className="space-y-2">
+                                                <img src="https://prestaservicesantilles.com/signature.png" alt="Signature entreprise" className="h-12 border border-slate-300 rounded" />
+                                                {selectedQuote.status === 'signed' && (
                                                     <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
                                                         Validé & Signé
                                                     </div>
+                                                )}
+                                                {selectedQuote.signatureDate && (
+                                                    <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signatureDate).toLocaleDateString('fr-FR')}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="w-1/2 pl-4">
+                                            <p className="font-bold mb-2">Pour le Client :</p>
+                                            {selectedQuote.status === 'signed' && selectedQuote.signatureData ? (
+                                                <div className="space-y-2">
+                                                    <img src={selectedQuote.signatureData} alt="Signature client" className="h-16 border border-slate-300 rounded shadow-sm" />
+                                                    <p className="text-xs text-green-600 font-bold">Signature enregistrée</p>
                                                     {selectedQuote.signatureDate && (
                                                         <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signatureDate).toLocaleDateString('fr-FR')}</p>
                                                     )}
                                                 </div>
                                             ) : (
-                                                <div className="text-slate-400 font-bold text-xs uppercase border-2 border-slate-300 p-2 inline-block rounded">
-                                                    En attente de validation
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="w-1/2 pl-4">
-                                            <p className="font-bold mb-2">Pour le Client :</p>
-                                            {selectedQuote.status === 'signed' && selectedQuote.clientSignatureUrl ? (
-                                                <div className="space-y-2">
-                                                    <img src={selectedQuote.clientSignatureUrl} alt="Signature client" className="h-12 border border-slate-300 rounded" />
-                                                    <p className="text-xs text-green-600 font-bold">Signature enregistrée</p>
-                                                    {selectedQuote.signedAt && (
-                                                        <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signedAt).toLocaleDateString('fr-FR')}</p>
-                                                    )}
-                                                </div>
-                                            ) : (
                                                 <div className="border-2 border-slate-300 h-12 rounded flex items-center justify-center text-xs text-slate-400">
-                                                    En attente de signature
+                                                    
                                                 </div>
                                             )}
                                         </div>
@@ -1597,19 +1989,6 @@ const ClientPortal: React.FC = () => {
                                             className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                                         >
                                             Signer et Valider
-                                        </button>
-                                        <button
-                                            onClick={() => handleRefuse(selectedQuote.id)}
-                                            className="w-full py-2 text-red-500 font-bold hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition"
-                                        >
-                                            Refuser
-                                        </button>
-                                        {/* Bouton de téléchargement du contrat intégré */}
-                                        <button
-                                            onClick={handleDownloadContract}
-                                            className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2"
-                                        >
-                                            <Download className="w-4 h-4" /> Télécharger le contrat
                                         </button>
                                     </div>
                                 </div>
@@ -1700,6 +2079,13 @@ const ClientPortal: React.FC = () => {
 
                                             <div className="flex flex-col gap-3">
                                                 <button
+                                                    onClick={handleDownloadContract}
+                                                    className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                                >
+                                                    <Download className="w-4 h-4" />
+                                                    Télécharger le contrat
+                                                </button>
+                                                <button
                                                     onClick={submitSignature}
                                                     disabled={!termsAccepted || !hasSignature}
                                                     className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
@@ -1744,12 +2130,17 @@ const ClientPortal: React.FC = () => {
 
                                     {/* Download Contract Button */}
                                     <button
-                                        onClick={() => {
-                                            const pack = packs.find(p => p.name === client.pack);
-                                            const contract = generateContractFromTemplate(selectedQuote, client, pack);
-                                            if (contract) {
-                                                downloadContract(contract);
-                                                showToast("Contrat téléchargé avec succès");
+                                        onClick={async () => {
+                                            try {
+                                                await handleDownloadContract();
+                                            } catch (e) {
+                                                // Fallback: conserver la logique existante (génération via template)
+                                                const pack = packs.find(p => p.name === client.pack);
+                                                const contract = generateContractFromTemplate(selectedQuote, client, pack);
+                                                if (contract) {
+                                                    downloadContract(contract);
+                                                    showToast("Contrat téléchargé avec succès");
+                                                }
                                             }
                                         }}
                                         className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2 mt-4"
@@ -1789,7 +2180,7 @@ const ClientPortal: React.FC = () => {
                                     <p>Aucune notification</p>
                                 </div>
                             ) : (
-                                notifications.map(n => (
+                                allClientNotifs.map(n => (
                                     <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-4 border-b hover:bg-blue-50 cursor-pointer transition flex items-start gap-3 ${!n.read ? 'bg-blue-50/30' : ''}`}>
                                         <div className={`p-2 rounded-full shrink-0 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-brand-blue/10 text-brand-blue'}`}>
                                             <Bell className="w-4 h-4" />
@@ -1798,6 +2189,54 @@ const ClientPortal: React.FC = () => {
                                             <div className="flex justify-between items-start mb-1">
                                                 <span className="font-bold text-slate-800 text-sm">{n.title}</span>
                                                 <span className="text-xs text-slate-400 whitespace-nowrap ml-2">{new Date(n.date).toLocaleDateString()}</span>
+                                            </div>
+                                            <p className="text-sm text-slate-600">{n.message}</p>
+                                        </div>
+                                        {!n.read && <div className="w-2 h-2 rounded-full bg-brand-blue mt-2"></div>}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showAllNotifsModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm p-4 flex items-center justify-center">
+                    <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                <Bell className="w-5 h-5" />
+                                Notifications
+                            </h3>
+                            <button
+                                onClick={() => setShowAllNotifsModal(false)}
+                                className="p-2 hover:bg-slate-100 rounded-full transition"
+                            >
+                                <X className="w-5 h-5 text-slate-500" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {allClientNotifs.length === 0 ? (
+                                <div className="text-center py-8 text-slate-400">
+                                    <Bell className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                    <p>Aucune notification</p>
+                                </div>
+                            ) : (
+                                allClientNotifs.map(n => (
+                                    <div
+                                        key={n.id}
+                                        onClick={() => handleNotificationClick(n)}
+                                        className={`p-4 border-b hover:bg-blue-50 cursor-pointer transition flex items-start gap-3 ${!n.read ? 'bg-blue-50/30' : ''}`}
+                                    >
+                                        <div className={`p-2 rounded-full shrink-0 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-brand-blue/10 text-brand-blue'}`}>
+                                            <Bell className="w-4 h-4" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="font-bold text-slate-800 text-sm">{n.title}</span>
+                                                <span className="text-xs text-slate-400 whitespace-nowrap ml-2">{formatMartiniqueDate(new Date(n.date))}</span>
                                             </div>
                                             <p className="text-sm text-slate-600">{n.message}</p>
                                         </div>

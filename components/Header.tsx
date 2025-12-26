@@ -45,7 +45,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
     };
   }, [showNotifications]);
 
-  const adminNotifs = notifications.filter(n => n.targetUserType === 'admin' && !n.read);
+  const adminNotifs = notifications
+    .filter(n => n.targetUserType === 'admin' && !n.read)
+    .slice()
+    .sort((a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime());
   const unreadCount = adminNotifs.length;
 
   const handleRefresh = () => {
@@ -65,8 +68,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       if (notif.link && notif.link.startsWith('mission:')) {
           const missionId = notif.link.split(':')[1];
           setSelectedMissionReportId(missionId);
+      } else if (notif.link === 'tab:planning') {
+          navigate('/planning');
       } else if (notif.link === 'tab:messaging') {
           navigate('/secretariat', { state: { tab: 'messaging' } });
+      } else if (notif.link === 'tab:live-videos') {
+          navigate('/secretariat', { state: { tab: 'live-videos' } });
       } else if (notif.link === 'tab:docs') {
           navigate('/invoices', { state: { filter: 'devis' } });
       } else if (notif.link && notif.link.startsWith('document:')) {

@@ -1,9 +1,18 @@
-
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     Calendar, 
+    Clock,
     User, 
+    MapPin,
+    AlertCircle,
     CheckCircle, 
+    X,
+    Plus,
+    Trash2,
+    Edit2,
+    Save,
+    XCircle,
     ChevronRight,
     ChevronLeft,
     Search,
@@ -11,6 +20,7 @@ import {
     Star
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { Mission } from '../types';
 
 const Reservations: React.FC = () => {
@@ -121,7 +131,7 @@ const Reservations: React.FC = () => {
                                 type="date" 
                                 className="w-full p-4 border rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-brand-blue"
                                 value={selectedDate}
-                                min={new Date().toISOString().split('T')[0]}
+                                min={getMartiniqueToday()}
                                 onChange={(e) => setSelectedDate(e.target.value)}
                             />
                             

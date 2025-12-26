@@ -1,8 +1,8 @@
-
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
 import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy } from 'lucide-react';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 const Login: React.FC = () => {
     const { login, companySettings, addClient, addProvider } = useData();
@@ -156,7 +156,7 @@ const Login: React.FC = () => {
                 email: email,
                 pack: "-",
                 status: "active",
-                since: new Date().toISOString().split('T')[0],
+                since: getMartiniqueToday(),
                 packsConsumed: 0,
                 loyaltyHoursAvailable: 0
             });

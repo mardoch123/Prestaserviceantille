@@ -1,7 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import type { Client } from '../types';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { 
   Users, 
   Filter, 
@@ -129,6 +130,43 @@ const Clients: React.FC = () => {
     return result;
   }, [clients, filterStatus, cityFilter, searchQuery]);
 
+  // Filtres par colonne (tableau)
+  const [columnFilters, setColumnFilters] = useState({
+    name: '',
+    contact: '',
+    city: '',
+    status: ''
+  });
+
+  const columnFilteredClients = useMemo(() => {
+    let result = filteredClients;
+
+    if (columnFilters.name) {
+      const q = columnFilters.name.toLowerCase();
+      result = result.filter(c => (c.name || '').toLowerCase().includes(q));
+    }
+
+    if (columnFilters.contact) {
+      const q = columnFilters.contact.toLowerCase();
+      result = result.filter(c =>
+        (c.phone || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q)
+      );
+    }
+
+    if (columnFilters.city) {
+      const q = columnFilters.city.toLowerCase();
+      result = result.filter(c => (c.city || '').toLowerCase().includes(q));
+    }
+
+    if (columnFilters.status) {
+      const q = columnFilters.status.toLowerCase();
+      result = result.filter(c => (c.status || '').toLowerCase().includes(q));
+    }
+
+    return result;
+  }, [filteredClients, columnFilters]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -185,7 +223,7 @@ const Clients: React.FC = () => {
                 email: formData.email,
                 pack: '-',
                 status: 'new',
-                since: new Date().toISOString().split('T')[0],
+                since: getMartiniqueToday(),
                 packsConsumed: 0,
                 loyaltyHoursAvailable: 0
             });
@@ -385,7 +423,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                 <input type="text" placeholder="Rechercher par nom, ville..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all"/>
                 <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
             </div>
-            <div className="text-sm text-slate-500"><strong>{filteredClients.length}</strong> client(s) trouvé(s)</div>
+            <div className="text-sm text-slate-500"><strong>{columnFilteredClients.length}</strong> client(s) trouvé(s)</div>
          </div>
 
          <div className="overflow-x-auto">
@@ -394,7 +432,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                     <tr>
                         <th className="px-6 py-4 w-10">
                             <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700">
-                                {selectedIds.size > 0 && selectedIds.size === filteredClients.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                {selectedIds.size > 0 && selectedIds.size === columnFilteredClients.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
                         </th>
                         <th className="px-6 py-4 font-bold">Nom</th>
@@ -403,10 +441,46 @@ Lien de connexion : https://presta-antilles.app/login`);
                         <th className="px-6 py-4 font-bold text-center">Statut</th>
                         <th className="px-6 py-4 font-bold text-right">Actions</th>
                     </tr>
+                    <tr className="bg-white/60">
+                        <th className="px-6 py-2"></th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.name}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="Filtrer..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.contact}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, contact: e.target.value }))}
+                                placeholder="Tel/Email..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.city}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, city: e.target.value }))}
+                                placeholder="Ville..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.status}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, status: e.target.value }))}
+                                placeholder="Statut..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2"></th>
+                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                    {filteredClients.length > 0 ? (
-                        filteredClients.map(client => (
+                    {columnFilteredClients.length > 0 ? (
+                        columnFilteredClients.map(client => (
                             <tr key={client.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(client.id) ? 'bg-blue-50' : ''}`}>
                                 <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(client.id)} className="text-slate-400 hover:text-brand-blue">

@@ -15,6 +15,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import { toMartiniqueTime } from '../src/utils/martiniqueTime';
 
 // --- Types & Mock Data ---
 
@@ -91,7 +92,7 @@ const Statistics: React.FC = () => {
 
   // Helper for week range
   const getWeekRange = () => {
-      const now = new Date();
+      const now = toMartiniqueTime(new Date());
       const day = now.getDay() || 7; // Get current day number, convert Sun (0) to 7
       if (day !== 1) now.setHours(-24 * (day - 1)); // set to Monday
       const startOfWeek = new Date(now);

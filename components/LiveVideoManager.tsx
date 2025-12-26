@@ -19,6 +19,7 @@ import {
     AlertCircle,
     CheckCircle
 } from 'lucide-react';
+import { formatMartiniqueDateTime } from '../src/utils/martiniqueTime';
 
 const LiveVideoManager: React.FC = () => {
     const {
@@ -251,6 +252,8 @@ const LiveVideoManager: React.FC = () => {
                         filteredRecordings.map(recording => {
                             const client = clients.find(c => c.id === recording.clientId);
                             const provider = providers.find(p => p.id === recording.providerId);
+                            const durationLabel = `${Math.floor((recording.duration || 0) / 60)}min ${Math.floor((recording.duration || 0) % 60)}s`;
+                            const replayUrl = recording.replayUrl || recording.recordingUrl || recording.url;
                             return (
                                 <div key={recording.id} className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition">
                                     <div className="flex items-center justify-between">
@@ -263,15 +266,23 @@ const LiveVideoManager: React.FC = () => {
                                                     {client?.name || 'Client'} ↔ {provider?.firstName || 'Prestataire'} {provider?.lastName || ''}
                                                 </div>
                                                 <div className="text-sm text-slate-500">
-                                                    {new Date(recording.startTime).toLocaleDateString('fr-FR')} à {new Date(recording.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                                    {formatMartiniqueDateTime(recording.startTime)}
                                                 </div>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                                                {recording.duration} min
+                                                {durationLabel}
                                             </span>
-                                            <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                            <button
+                                                onClick={() => {
+                                                    if (replayUrl) {
+                                                        window.open(replayUrl, '_blank', 'noopener,noreferrer');
+                                                    }
+                                                }}
+                                                disabled={!replayUrl}
+                                                className={`text-sm font-medium ${replayUrl ? 'text-blue-600 hover:text-blue-800' : 'text-slate-400 cursor-not-allowed'}`}
+                                            >
                                                 Voir
                                             </button>
                                         </div>

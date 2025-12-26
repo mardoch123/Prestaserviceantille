@@ -1,9 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 const Planning: React.FC = () => {
   const { missions, providers, clients, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
@@ -55,7 +55,7 @@ const Planning: React.FC = () => {
   // Form State - Reminder
   const [reminderForm, setReminderForm] = useState({
       text: '',
-      date: new Date().toISOString().split('T')[0],
+      date: getMartiniqueToday(),
       notifyEmail: true
   });
 
@@ -124,7 +124,7 @@ const Planning: React.FC = () => {
   }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
 
   // Stats Logic
-  const today = new Date().toISOString().split('T')[0];
+  const today = getMartiniqueToday();
   const missionsCountToday = missions.filter(m => m.date === today).length; 
   const missionsCountWeek = filteredMissions.length; 
   const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
@@ -237,7 +237,7 @@ const Planning: React.FC = () => {
           });
           showToast('Rappel ajouté à l\'agenda !');
           setIsReminderModalOpen(false);
-          setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true });
+          setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true });
       } catch (err) {
           console.error(err);
           showToast('Erreur ajout rappel', 'error');
@@ -653,7 +653,7 @@ const Planning: React.FC = () => {
                 </div>
                 <div className="p-2 space-y-2 overflow-y-auto max-h-64 md:max-h-96 md:flex-1">
                     <button 
-                        onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: new Date().toISOString().split('T')[0], notifyEmail: true }); }}
+                        onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true }); }}
                         className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
                     >
                         <Flag className="w-3 h-3" /> Ajouter un Rappel

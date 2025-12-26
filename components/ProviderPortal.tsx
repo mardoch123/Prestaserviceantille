@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
@@ -32,12 +32,14 @@ import {
   FileVideo,
   LinkIcon,
   MessageSquare,
-  Loader
+  Loader,
+  ScanLine
 } from 'lucide-react';
 
 const ProviderPortal: React.FC = () => {
   const { 
     providers, 
+    clients,
     missions, 
     simulatedProviderId, 
     setSimulatedProviderId,
@@ -50,11 +52,12 @@ const ProviderPortal: React.FC = () => {
     startLiveStream,
     stopLiveStream,
     logout,
-    activeStream
+    activeStream,
+    visitScans
   } = useData();
 
   const provider = providers.find(p => p.id === simulatedProviderId);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live' | 'scans'>('dashboard');
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
   // Mobile menu state
@@ -131,6 +134,45 @@ const ProviderPortal: React.FC = () => {
   const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];
   const unreadProviderNotifs = allProviderNotifs.filter(n => !n.read);
   const activeMissions = providerMissions.filter(m => m.status === 'in_progress' || m.status === 'planned');
+
+  // Scan history filters for providers
+  const [scanFilters, setScanFilters] = useState({
+    startDate: '',
+    endDate: '',
+    clientId: '',
+    type: '' as '' | 'entry' | 'exit'
+  });
+
+  const providerScansHistory = useMemo(() => {
+    if (!provider) return [] as any[];
+
+    let filtered = (visitScans || []).filter((s: any) => s.scannerId === provider.id);
+
+    if (scanFilters.clientId) {
+      filtered = filtered.filter((s: any) => s.clientId === scanFilters.clientId);
+    }
+    if (scanFilters.type) {
+      filtered = filtered.filter((s: any) => s.scanType === scanFilters.type);
+    }
+    if (scanFilters.startDate) {
+      filtered = filtered.filter((s: any) => new Date(s.timestamp) >= new Date(scanFilters.startDate));
+    }
+    if (scanFilters.endDate) {
+      const end = new Date(scanFilters.endDate);
+      end.setHours(23, 59, 59, 999);
+      filtered = filtered.filter((s: any) => new Date(s.timestamp) <= end);
+    }
+
+    return filtered
+      .map((scan: any) => {
+        const client = clients.find((c: any) => c.id === scan.clientId);
+        return {
+          ...scan,
+          clientName: client ? client.name : 'Client Inconnu'
+        };
+      })
+      .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [visitScans, provider, scanFilters, clients]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -497,6 +539,14 @@ const ProviderPortal: React.FC = () => {
                            <Wifi className="w-4 h-4" /> Live Vidéo
                        </button>
                        <button 
+                           onClick={() => { setActiveTab('scans'); setShowMobileMenu(false); }}
+                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                               activeTab === 'scans' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+                           }`}
+                       >
+                           <ScanLine className="w-4 h-4" /> Mes scans
+                       </button>
+                       <button 
                            onClick={() => { setActiveTab('leaves'); setShowMobileMenu(false); }}
                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
                                activeTab === 'leaves' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
@@ -532,6 +582,12 @@ const ProviderPortal: React.FC = () => {
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'live' ? 'bg-red-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
                     <Wifi className="w-4 h-4" /> Live Vidéo
+                </button>
+                <button 
+                    onClick={() => setActiveTab('scans')}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'scans' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                    <ScanLine className="w-4 h-4" /> Mes scans
                 </button>
                 <button 
                     onClick={() => setActiveTab('leaves')}
@@ -690,6 +746,108 @@ const ProviderPortal: React.FC = () => {
                        </div>
                    )}
 
+                   {activeTab === 'scans' && (
+                       <div className="space-y-6">
+                           <div className="flex items-start justify-between gap-4 flex-col sm:flex-row">
+                               <div>
+                                   <h2 className="text-2xl font-bold text-slate-800 font-serif">Historique des scans</h2>
+                                   <p className="text-sm text-slate-500">Tous les pointages que vous avez effectués (entrée/sortie), avec filtres.</p>
+                               </div>
+                               <div className="text-sm text-slate-500 font-medium">
+                                   {providerScansHistory.length} scan(s)
+                               </div>
+                           </div>
+
+                           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                   <div>
+                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Date début</label>
+                                       <input
+                                           type="date"
+                                           className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50"
+                                           value={scanFilters.startDate}
+                                           onChange={(e) => setScanFilters(prev => ({ ...prev, startDate: e.target.value }))}
+                                       />
+                                   </div>
+                                   <div>
+                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Date fin</label>
+                                       <input
+                                           type="date"
+                                           className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50"
+                                           value={scanFilters.endDate}
+                                           onChange={(e) => setScanFilters(prev => ({ ...prev, endDate: e.target.value }))}
+                                       />
+                                   </div>
+                                   <div>
+                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Client</label>
+                                       <select
+                                           className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50"
+                                           value={scanFilters.clientId}
+                                           onChange={(e) => setScanFilters(prev => ({ ...prev, clientId: e.target.value }))}
+                                       >
+                                           <option value="">Tous</option>
+                                           {(Array.from(new Set(providerScansHistory.map((s: any) => s.clientId))) as string[]).map((clientId) => {
+                                               const scan = providerScansHistory.find((s: any) => s.clientId === clientId);
+                                               return (
+                                                   <option key={clientId} value={clientId}>
+                                                       {scan?.clientName || clientId}
+                                                   </option>
+                                               );
+                                           })}
+                                       </select>
+                                   </div>
+                                   <div>
+                                       <label className="text-xs font-bold text-slate-500 mb-1 block">Type</label>
+                                       <select
+                                           className="w-full border border-slate-300 rounded-lg p-3 bg-slate-50"
+                                           value={scanFilters.type}
+                                           onChange={(e) => setScanFilters(prev => ({ ...prev, type: e.target.value as any }))}
+                                       >
+                                           <option value="">Tous</option>
+                                           <option value="entry">Entrée</option>
+                                           <option value="exit">Sortie</option>
+                                       </select>
+                                   </div>
+                               </div>
+                           </div>
+
+                           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                               <div className="p-4 border-b bg-slate-50">
+                                   <h3 className="font-bold text-slate-700">Détails des pointages</h3>
+                               </div>
+                               <div className="divide-y">
+                                   {providerScansHistory.length === 0 ? (
+                                       <div className="p-8 text-center text-slate-400">
+                                           <ScanLine className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                           <p>Aucun scan enregistré.</p>
+                                       </div>
+                                   ) : (
+                                       providerScansHistory.map((scan: any) => (
+                                           <div key={scan.id} className="p-4 hover:bg-slate-50 transition">
+                                               <div className="flex items-start justify-between gap-4 flex-col sm:flex-row">
+                                                   <div>
+                                                       <div className="flex items-center gap-2 mb-1">
+                                                           <span className={`text-xs font-bold px-2 py-1 rounded-full ${scan.scanType === 'entry' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{scan.scanType === 'entry' ? 'Entrée' : 'Sortie'}</span>
+                                                           <span className="text-sm font-bold text-slate-800">{scan.clientName}</span>
+                                                       </div>
+                                                       <div className="text-xs text-slate-500">{new Date(scan.timestamp).toLocaleString('fr-FR')}</div>
+                                                       {scan.locationData && (
+                                                           <div className="text-xs text-slate-500 mt-1">Localisation: {typeof scan.locationData === 'string' ? scan.locationData : 'Disponible'}</div>
+                                                       )}
+                                                   </div>
+                                                   <div className="text-xs text-slate-500">
+                                                       <div><span className="font-bold">ID scan:</span> {scan.id}</div>
+                                                       <div><span className="font-bold">ID client:</span> {scan.clientId}</div>
+                                                   </div>
+                                               </div>
+                                           </div>
+                                       ))
+                                   )}
+                               </div>
+                           </div>
+                       </div>
+                   )}
+
                    {activeTab === 'leaves' && (
                        <div className="max-w-2xl mx-auto">
                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
@@ -761,6 +919,10 @@ const ProviderPortal: React.FC = () => {
            <button onClick={() => setActiveTab('live')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'live' ? 'text-red-500' : 'text-slate-400'}`}>
                <Wifi className="w-6 h-6" />
                <span className="text-[10px] font-bold mt-1">Live</span>
+           </button>
+           <button onClick={() => setActiveTab('scans')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'scans' ? 'text-brand-blue' : 'text-slate-400'}`}>
+               <ScanLine className="w-6 h-6" />
+               <span className="text-[10px] font-bold mt-1">Scans</span>
            </button>
            <button onClick={() => setActiveTab('leaves')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'leaves' ? 'text-brand-blue' : 'text-slate-400'}`}>
                <CalendarX className="w-6 h-6" />

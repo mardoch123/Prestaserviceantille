@@ -8,8 +8,14 @@ import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { 
+    getMartiniqueNowISO,
+    getMartiniqueToday,
+    formatMartiniqueDateTime,
+    formatMartiniqueDate,
+    toMartiniqueTime
+} from '../src/utils/martiniqueTime';
 
-// ... rest of the code remains the same ...
 // --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png";
 export const LOGO_SAP = "https://prestaservicesantilles.com/sap.png";
@@ -575,7 +581,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             const [
                 cData, pData, mData, dData, packData, ctData,
-                rData, eData, msgData, notifData, settingsData, vsData, leavesData, gcData
+                rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData
             ] = await Promise.all([
                 fetchTable('clients'),
                 fetchTable('providers'),
@@ -589,6 +595,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('notifications'),
                 fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
                 fetchTable('visit_scans'),
+                fetchTable('video_recordings'),
                 fetchTable('leaves'),
                 fetchTable('generic_contracts')
             ]);
@@ -773,6 +780,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     scannerName: s.scanner_name || s.scannerName,
                     scanType: s.scan_type || s.scanType,
                     locationData: s.location_data
+                })));
+            }
+
+            if (vrData) {
+                const sorted = vrData.sort((a: any, b: any) =>
+                    new Date(b.start_time || b.startTime || b.created_at).getTime() - new Date(a.start_time || a.startTime || a.created_at).getTime()
+                );
+
+                setVideoRecordings(sorted.map((r: any) => ({
+                    id: r.id,
+                    sessionId: r.session_id || r.sessionId,
+                    providerId: r.provider_id || r.providerId,
+                    clientId: r.client_id || r.clientId,
+                    status: (r.status as any) || 'recording',
+                    startTime: r.start_time || r.startTime || r.created_at,
+                    endTime: r.end_time || r.endTime,
+                    recordingUrl: r.recording_url || r.recordingUrl,
+                    replayUrl: r.replay_url || r.replayUrl,
+                    duration: r.duration || 0,
+                    fileSize: r.file_size || r.fileSize || 0,
+                    thumbnailUrl: r.thumbnail_url || r.thumbnailUrl,
+                    accessToken: r.access_token || r.accessToken,
+                    expiresAt: r.expires_at || r.expiresAt,
+                    url: r.url
                 })));
             }
 
@@ -1304,7 +1335,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         console.log("[AddNotification] Creating notification:", { targetUserType, type, title, targetUserId, link });
 
         const id = generateUUID();
-        const now = new Date().toISOString();
+        const now = getMartiniqueNowISO();
 
         // CORRECTION: Utiliser target_user_type (enum NOT NULL) au lieu de target_user_role
         const insertData = {
@@ -1420,6 +1451,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 sourceDocumentId: m.source_document_id
             };
             setMissions(prev => [...prev, newMission]);
+
+            // NOTIF ADMIN: mission créée (toujours)
+            await addNotification(
+                'admin',
+                'info',
+                'Nouvelle Mission',
+                `Mission créée: ${newMission.clientName} | ${newMission.date} ${newMission.startTime}-${newMission.endTime} | Prestataire: ${newMission.providerName || 'À assigner'}.`,
+                undefined,
+                'tab:planning'
+            );
 
             if (newMission.providerId) {
                 await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission le ${newMission.date}.`, newMission.providerId);
@@ -1798,12 +1839,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const m = missions.find(m => m.id === id);
         if (!reason) { alert("Le motif d'annulation est obligatoire."); return; }
 
-        const { error } = await supabase.from('missions').update({ status: 'cancelled', cancellation_reason: reason }).eq('id', id);
+        // IMPORTANT: Une mission annulée par prestataire doit revenir en "non attribué" pour ré-attribution.
+        const { error } = await supabase.from('missions').update({
+            status: 'planned',
+            cancellation_reason: reason,
+            provider_id: null,
+            provider_name: 'À assigner',
+            color: 'gray'
+        }).eq('id', id);
         if (!error) {
-            setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: reason } : mission));
+            setMissions(prev => prev.map(mission => mission.id === id ? {
+                ...mission,
+                status: 'planned',
+                providerId: null,
+                providerName: 'À assigner',
+                color: 'gray',
+                cancellationReason: reason
+            } : mission));
 
             // NOTIF ADMIN (Urgent)
-            await addNotification('admin', 'alert', 'Annulation Prestataire', `Prestataire: ${m?.providerName} | Motif: ${reason}. Créneau libéré.`, undefined, `mission:${id}`);
+            await addNotification(
+                'admin',
+                'alert',
+                'Mission à ré-attribuer',
+                `Annulation prestataire: ${m?.providerName} | Motif: ${reason}. Mission remise en "À assigner".`,
+                undefined,
+                'tab:planning'
+            );
 
             // EMAIL ADMIN
             await sendEmail(companySettings.email, 'URGENT - Annulation Prestataire', 'admin_mission_cancelled', {
@@ -1825,24 +1887,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (m) {
             const isLate = !canCancelMission(m); // isLate means < 48h
             const { error } = await supabase.from('missions').update({
-                status: 'cancelled',
+                // IMPORTANT (demande): une mission annulée doit revenir en "non attribué" pour ré-attribution.
+                status: 'planned',
                 cancellation_reason: 'Annulé par client',
-                late_cancellation: isLate
+                late_cancellation: isLate,
+                provider_id: null,
+                provider_name: 'À assigner',
+                color: 'gray'
             }).eq('id', id);
 
             if (!error) {
-                setMissions(prev => prev.map(mission => mission.id === id ? { ...mission, status: 'cancelled', cancellationReason: 'Annulé par client', lateCancellation: isLate } : mission));
+                setMissions(prev => prev.map(mission => mission.id === id ? {
+                    ...mission,
+                    status: 'planned',
+                    providerId: null,
+                    providerName: 'À assigner',
+                    color: 'gray',
+                    cancellationReason: 'Annulé par client',
+                    lateCancellation: isLate
+                } : mission));
 
                 if (isLate) {
                     await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée moins de 48h à l'avance. Elle est considérée comme réalisée et sera facturée à 50% (Hors SAP).`, m.clientId);
-                    await addNotification('admin', 'alert', 'Annulation Tardive Client', `Le client ${m.clientName} a annulé < 48h. A facturer 50%.`, undefined, `mission:${id}`);
+                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 50%.`, undefined, 'tab:planning');
                     // EMAIL ADMIN
                     await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
                         clientName: m.clientName,
                         date: m.date
                     });
                 } else {
-                    await addNotification('admin', 'info', 'Annulation Client', `Client: ${m.clientName} a annulé le RDV (Délai respecté).`, undefined, `mission:${id}`);
+                    await addNotification('admin', 'info', 'Mission à ré-attribuer', `Client: ${m.clientName} a annulé le RDV (Délai respecté). Mission remise en "À assigner".`, undefined, 'tab:planning');
                     // EMAIL ADMIN
                     await sendEmail(companySettings.email, 'Annulation Client', 'admin_client_cancelled', {
                         clientName: m.clientName,
@@ -1872,6 +1946,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         if (!error) {
             setMissions(prev => prev.map(m => m.id === missionId ? { ...m, providerId, providerName, status: 'planned', color: 'orange' } : m));
+
+            await addNotification(
+                'admin',
+                'info',
+                'Mission attribuée',
+                `Mission attribuée à ${providerName} (${existingMission?.clientName || 'Client'} - ${existingMission?.date || ''} ${existingMission?.startTime || ''}-${existingMission?.endTime || ''}).`,
+                undefined,
+                'tab:planning'
+            );
 
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
 
@@ -1925,7 +2008,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const submitClientReview = async (clientId: string, rating: number, comment: string) => {
         const { error } = await supabase.from('clients').update({ has_left_review: true }).eq('id', clientId);
         if (!error) setClients(prev => prev.map(c => c.id === clientId ? { ...c, hasLeftReview: true } : c));
-        await supabase.from('reviews').insert({ clientId, rating, comment, date: new Date().toISOString() });
+        await supabase.from('reviews').insert({ clientId, rating, comment, date: getMartiniqueNowISO() });
     };
 
     const updateProvider = async (id: string, data: Partial<Provider>) => {
@@ -2123,7 +2206,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
         const missionsToCreate: any[] = [];
         const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
-        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(toMartiniqueTime(new Date()).getFullYear() + 1));
 
         // Use document slots to generate planned missions
         for (const slot of doc.slotsData) {
@@ -2236,7 +2319,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 id: generateUUID(),
                 ref: newRef,
                 status: doc.type === 'Devis' ? 'sent' : 'pending',
-                date: new Date().toISOString().split('T')[0]
+                date: getMartiniqueToday()
             };
 
             await addDocument(newDoc);
@@ -2253,7 +2336,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 ref: quote.ref.replace('DEV', 'FAC') + '-' + Date.now().toString().slice(-4),
                 type: 'Facture',
                 status: 'pending',
-                date: new Date().toISOString().split('T')[0]
+                date: getMartiniqueToday()
             };
             await updateDocumentStatus(quoteId, 'converted');
             await addDocument(invoice);
@@ -2361,7 +2444,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
-        const now = new Date().toISOString();
+        const now = getMartiniqueNowISO();
         console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);
         const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: now }).eq('id', id);
 
@@ -2468,7 +2551,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 ref: `AVOIR-${ref}`,
                 clientId: doc.clientId,
                 clientName: doc.clientName,
-                date: new Date().toISOString().split('T')[0],
+                date: getMartiniqueToday(),
                 type: 'Facture',
                 category: 'pack',
                 description: `Remboursement sur facture ${ref}`,
@@ -2657,7 +2740,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 return;
             }
 
-            const now = new Date().toISOString();
+            const now = getMartiniqueNowISO();
             const dbUpdates = {
                 status: 'pending_validation', // Changed from validation_status to status
                 // VALIDATION: These columns do not exist in DB, so we remove them from the payload
@@ -2720,7 +2803,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 return;
             }
 
-            const now = new Date().toISOString();
+            const now = getMartiniqueNowISO();
             // If rejected, we return to 'draft' status so it can be edited/resubmitted.
             // If validated, it becomes 'active'.
             const newStatus = approved ? 'active' : 'draft';
@@ -2882,7 +2965,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
 
     const replyToClient = async (text: string, clientId: string) => {
-        const now = new Date().toISOString();
+        const now = getMartiniqueNowISO();
         const dbData = {
             id: generateUUID(),
             sender: 'admin',
@@ -2917,7 +3000,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const sendClientMessage = async (text: string, clientId: string) => {
-        const now = new Date().toISOString();
+        const now = getMartiniqueNowISO();
         const dbData = {
             id: generateUUID(),
             sender: 'client',
@@ -3056,7 +3139,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 scanner_id: currentUser.id,
                 scanner_name: currentUser.name,
                 scan_type: newType,
-                timestamp: new Date().toISOString()
+                timestamp: getMartiniqueNowISO()
             };
             
             console.log("[RegisterScan] Inserting scan:", newScan);
@@ -3141,7 +3224,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 scannerId,
                 scannerName,
                 scanType: newType,
-                timestamp: new Date().toISOString()
+                timestamp: getMartiniqueNowISO()
             };
             
             // Ajouter à localStorage
@@ -3242,7 +3325,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             providerId,
             clientId,
             status: 'active',
-            startTime: new Date().toISOString(),
+            startTime: getMartiniqueNowISO(),
             streamUrl: `${recordingsBaseUrl}/stream/${sessionId}`
         };
         setActiveStream(session);
@@ -3256,6 +3339,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             await addNotification('client', 'alert', 'Appel Vidéo en Cours',
                 `${provider.firstName} ${provider.lastName} vous appelle en vidéo. Cliquez pour rejoindre l'appel.`,
                 clientId, 'tab:live');
+
+            // Notification admin pour supervision
+            await addNotification(
+                'admin',
+                'alert',
+                'Appel Vidéo en Cours',
+                `Un appel vidéo est en cours: ${client.name} ↔ ${provider.firstName} ${provider.lastName}. Cliquez pour superviser.`,
+                undefined,
+                'tab:live-videos'
+            );
 
             // Notification par email
             if (client.email) {
@@ -3273,7 +3366,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 provider_id: providerId,
                 client_id: clientId,
                 status: 'recording',
-                start_time: new Date().toISOString(),
+                start_time: getMartiniqueNowISO(),
                 recording_url: undefined, // Sera mis à jour quand l'enregistrement sera disponible
                 replay_url: undefined, // Sera mis à jour quand le replay sera disponible
                 duration: 0,
@@ -3432,7 +3525,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             userId,
             token,
             expiresAt: expiresAt.toISOString(),
-            createdAt: new Date().toISOString(),
+            createdAt: getMartiniqueNowISO(),
             permissions
         };
 
@@ -3608,11 +3701,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             clientId: client.id,
             quoteId: quote.id,
             isGeneric: false,
-            generatedAt: new Date().toISOString(),
+            generatedAt: getMartiniqueNowISO(),
             status: 'active' as const,
             adminSignatureUrl: COMPANY_SIGNATURE_URL,
             clientSignatureUrl: quote.signatureData,
-            validatedAt: new Date().toISOString(),
+            validatedAt: getMartiniqueNowISO(),
             signedAt: quote.signatureDate
         };
     };

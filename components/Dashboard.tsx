@@ -6,6 +6,10 @@ import { TurnoverChart, ClientsChart, MissionsChart } from './Charts';
 import { useData } from '../context/DataContext';
 import AdminVideoSupervisor from './AdminVideoSupervisor';
 import { 
+    getMartiniqueNow,
+    toMartiniqueTime
+} from '../src/utils/dayjsMartinique';
+import { 
     ChevronDown, 
     Euro, 
     FileText, 
@@ -36,8 +40,8 @@ const Dashboard: React.FC = () => {
   const filterDataByTime = (items: any[], dateField: string = 'date') => {
     if (!timeFilter || timeFilter === 'all') return items;
     
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const now = toMartiniqueTime(new Date());
+    const today = new Date(now.year(), now.month(), now.date());
     
     switch (timeFilter) {
       case 'day':
@@ -63,8 +67,8 @@ const Dashboard: React.FC = () => {
         });
       
       case 'month':
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        const monthStart = new Date(now.year(), now.month(), 1);
+        const monthEnd = new Date(now.year(), now.month() + 1, 0, 23, 59, 59, 999);
         
         return items.filter(item => {
           if (!item[dateField]) return false;
@@ -73,8 +77,8 @@ const Dashboard: React.FC = () => {
         });
       
       case 'year':
-        const yearStart = new Date(now.getFullYear(), 0, 1);
-        const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        const yearStart = new Date(now.year(), 0, 1);
+        const yearEnd = new Date(now.year(), 11, 31, 23, 59, 59, 999);
         
         return items.filter(item => {
           if (!item[dateField]) return false;
@@ -117,7 +121,7 @@ const Dashboard: React.FC = () => {
   // 1. Turnover Data (Last 6 months from Documents)
   const turnoverData = useMemo(() => {
     const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
-    const currentMonth = new Date().getMonth();
+    const currentMonth = toMartiniqueTime(new Date()).month();
     const data: { name: string; ca: number; monthIndex: number }[] = [];
 
     // Create last 6 months placeholders

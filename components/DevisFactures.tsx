@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
+import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
@@ -229,7 +229,7 @@ const DevisFactures: React.FC = () => {
                     // Auto generate single slot 6h
                     setInterventionSlots([{
                         id: 'slot-ultime',
-                        date: new Date().toISOString().split('T')[0],
+                        date: getMartiniqueToday(),
                         startTime: '09:00',
                         endTime: '17:00',
                         duration: 6
@@ -239,7 +239,7 @@ const DevisFactures: React.FC = () => {
                     setPackSpecificConfig({ customDays: 1, customTotalHours: 2 });
                     setInterventionSlots([{
                         id: 'slot-custom-0',
-                        date: new Date().toISOString().split('T')[0],
+                        date: getMartiniqueToday(),
                         startTime: '09:00',
                         endTime: '11:00',
                         duration: 2
@@ -303,6 +303,180 @@ const DevisFactures: React.FC = () => {
             }
         }
         setInterventionSlots(newSlots);
+    };
+
+    const isAnyProviderAvailableForSlot = (slot: InterventionSlot): boolean => {
+        if (!slot.date) return false;
+
+        const slotStart = new Date(`${slot.date}T${slot.startTime}`);
+        const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+
+        const conflictingMissions = missions.filter(m => {
+            if (m.status === 'cancelled' || !m.date) return false;
+            const mStart = new Date(`${m.date}T${m.startTime}`);
+            const mEnd = new Date(`${m.date}T${m.endTime}`);
+            return (slotStart < mEnd && slotEnd > mStart);
+        });
+
+        const availableProviders = providers.filter(provider => {
+            const isActive = provider.status === 'Active';
+            if (!isActive) return false;
+
+            const hasLeave = provider.leaves && provider.leaves.some(leave => {
+                const leaveStart = new Date(leave.startDate);
+                const leaveEnd = new Date(leave.endDate);
+                const slotDate = new Date(slot.date);
+                return slotDate >= leaveStart && slotDate <= leaveEnd;
+            });
+
+            if (hasLeave) return false;
+
+            const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
+            if (hasConflict) return false;
+
+            return true;
+        });
+
+        return availableProviders.length > 0;
+    };
+
+    const getPackDays = (pack: any): number => {
+        const frequency = pack.frequency || '';
+        let days = 1;
+
+        if (pack.description && pack.description.includes('(')) {
+            const daysMatch = pack.description.match(/\((\d+)\s*jours?\)/i);
+            if (daysMatch) {
+                days = parseInt(daysMatch[1]);
+            } else {
+                const altDaysMatch = pack.description.match(/\((\d+)\s*jours?/i);
+                if (altDaysMatch) {
+                    days = parseInt(altDaysMatch[1]);
+                } else {
+                    const simpleDaysMatch = pack.description.match(/(\d+)\s*jours?/i);
+                    if (simpleDaysMatch) {
+                        days = parseInt(simpleDaysMatch[1]);
+                    }
+                }
+            }
+        }
+
+        if (days === 1) {
+            if (frequency.includes('Ultime 6')) {
+                days = 1;
+            } else if (frequency.includes('Tranquility')) {
+                days = frequency.includes('4j') ? 4 : 3;
+            } else if (frequency.toLowerCase() === 'regulier') {
+                if (pack.quantity) {
+                    const quantityDays = parseInt(pack.quantity);
+                    if (!isNaN(quantityDays) && quantityDays > 0) {
+                        days = quantityDays;
+                    }
+                }
+            } else if (frequency === 'Hebdomadaire') {
+                days = 1;
+            } else if (frequency === 'Bimensuelle') {
+                days = 2;
+            } else if (frequency === 'Mensuelle') {
+                days = 4;
+            } else if (frequency === 'Ponctuelle') {
+                days = 1;
+            } else {
+                const daysMatch = frequency.match(/(\d+)\s*jours?/i);
+                if (daysMatch) {
+                    days = parseInt(daysMatch[1]);
+                }
+            }
+        }
+
+        return days;
+    };
+
+    const generateInterventionSlotsWithAvailability = () => {
+        const pack = packs.find(p => p.id === selectedPackId);
+        if (!pack) return;
+
+        const maxLookaheadDays = 90;
+        const sessions: Array<{ duration: number; startTime: string; endTime: string }> = [];
+
+        if (pack.name.includes("Tranquility")) {
+            const choice = packSpecificConfig.frequencyChoice || "4j_3h";
+            const days = choice === "4j_3h" ? 4 : 3;
+            const hours = choice === "4j_3h" ? 3 : 4;
+            for (let i = 0; i < days; i++) {
+                sessions.push({
+                    duration: hours,
+                    startTime: '09:00',
+                    endTime: addHoursToTime('09:00', hours)
+                });
+            }
+        } else if (pack.name.includes("Ultime 6")) {
+            sessions.push({ duration: 6, startTime: '09:00', endTime: '15:00' });
+        } else if (pack.name.includes("personnalisé")) {
+            const days = packSpecificConfig.customDays || 1;
+            const totalHours = packSpecificConfig.customTotalHours || 2;
+            const hoursPerDay = totalHours / days;
+            for (let i = 0; i < days; i++) {
+                sessions.push({
+                    duration: hoursPerDay,
+                    startTime: '09:00',
+                    endTime: addHoursToTime('09:00', hoursPerDay)
+                });
+            }
+        } else {
+            const days = getPackDays(pack);
+            const hoursPerDay = Number(pack.hours) || 2;
+            for (let i = 0; i < days; i++) {
+                sessions.push({
+                    duration: hoursPerDay,
+                    startTime: '09:00',
+                    endTime: addHoursToTime('09:00', hoursPerDay)
+                });
+            }
+        }
+
+        const startDateStr = getMartiniqueToday();
+        const startDate = new Date(startDateStr);
+        const newSlots: InterventionSlot[] = [];
+        let cursorDate = new Date(startDate);
+
+        for (let i = 0; i < sessions.length; i++) {
+            let found = false;
+            for (let offset = 0; offset < maxLookaheadDays; offset++) {
+                const candidate = new Date(cursorDate);
+                candidate.setDate(candidate.getDate() + offset);
+                const candidateStr = candidate.toISOString().split('T')[0];
+
+                const candidateSlot: InterventionSlot = {
+                    id: `slot-auto-${i}-${candidateStr}`,
+                    date: candidateStr,
+                    startTime: sessions[i].startTime,
+                    endTime: sessions[i].endTime,
+                    duration: sessions[i].duration
+                };
+
+                if (isAnyProviderAvailableForSlot(candidateSlot)) {
+                    newSlots.push(candidateSlot);
+                    cursorDate = new Date(candidate);
+                    cursorDate.setDate(cursorDate.getDate() + 1);
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                showToast(
+                    `Impossible de générer tous les créneaux : aucun prestataire disponible dans les ${maxLookaheadDays} prochains jours pour la séance ${i + 1}.`,
+                    'warning'
+                );
+                break;
+            }
+        }
+
+        if (newSlots.length > 0) {
+            setInterventionSlots(newSlots);
+            showToast('Créneaux générés selon la disponibilité des prestataires.', 'success');
+        }
     };
 
     const updateSlot = (index: number, field: keyof InterventionSlot, value: string) => {
@@ -419,7 +593,7 @@ const DevisFactures: React.FC = () => {
         }
 
         const lastSlot = interventionSlots[interventionSlots.length - 1];
-        let newDate = new Date().toISOString().split('T')[0];
+        let newDate = getMartiniqueToday();
         if (lastSlot) {
             const d = new Date(lastSlot.date);
             d.setDate(d.getDate() + 1);
@@ -714,12 +888,20 @@ const DevisFactures: React.FC = () => {
                 finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
             }
 
+            // Ajout du nom du pack à la fin de la description (demande UX)
+            if (serviceType === 'pack' && selectedPackId) {
+                const pack = packs.find(p => p.id === selectedPackId);
+                if (pack && !/\bpack\s*:/i.test(finalDescription)) {
+                    finalDescription = `${finalDescription}\nPack: ${pack.name}`;
+                }
+            }
+
             const newDoc: Document = {
                 id: '',
                 ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
                 clientId: selectedClientId,
                 clientName: clientName,
-                date: new Date().toISOString().split('T')[0],
+                date: getMartiniqueToday(),
                 type: modalMode === 'devis' ? 'Devis' : 'Facture',
                 category: serviceType,
                 description: finalDescription,
@@ -749,11 +931,11 @@ const DevisFactures: React.FC = () => {
                             ...contract,
                             status: 'active' as const,
                             validationStatus: 'validated' as const,
-                            validatedAt: new Date().toISOString(),
+                            validatedAt: getMartiniqueNowISO(),
                             validatedBy: currentUser?.id || 'system',
-                            validationDate: new Date().toISOString().split('T')[0],
+                            validationDate: getMartiniqueToday(),
                             clientSignatureUrl: newDoc.signedAt ? 'auto-signed' : undefined,
-                            signedAt: newDoc.signedAt || new Date().toISOString()
+                            signedAt: newDoc.signedAt || getMartiniqueNowISO()
                         };
 
                         await addContract(validatedContract);
@@ -921,10 +1103,10 @@ const DevisFactures: React.FC = () => {
 
     const toggleSelectAll = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (selectedIds.size === filteredDocs.length) {
+        if (selectedIds.size === columnFilteredDocs.length) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredDocs.map(d => d.id)));
+            setSelectedIds(new Set(columnFilteredDocs.map(d => d.id)));
         }
     };
 
@@ -949,6 +1131,52 @@ const DevisFactures: React.FC = () => {
         
         return docs;
     }, [filterStatus, searchQuery, documents, sortOrder]);
+
+    // Filtres par colonne (tableau)
+    const [columnFilters, setColumnFilters] = useState({
+        ref: '',
+        client: '',
+        date: '',
+        type: '',
+        ttc: '',
+        status: ''
+    });
+
+    const columnFilteredDocs = useMemo(() => {
+        let result = filteredDocs;
+
+        if (columnFilters.ref) {
+            const q = columnFilters.ref.toLowerCase();
+            result = result.filter(d => (d.ref || '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.client) {
+            const q = columnFilters.client.toLowerCase();
+            result = result.filter(d => (d.clientName || '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.date) {
+            const q = columnFilters.date.toLowerCase();
+            result = result.filter(d => (d.date || '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.type) {
+            const q = columnFilters.type.toLowerCase();
+            result = result.filter(d => (d.type || '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.ttc) {
+            const q = columnFilters.ttc.toLowerCase();
+            result = result.filter(d => String(d.totalTTC ?? '').toLowerCase().includes(q));
+        }
+
+        if (columnFilters.status) {
+            const q = columnFilters.status.toLowerCase();
+            result = result.filter(d => (d.status || '').toLowerCase().includes(q));
+        }
+
+        return result;
+    }, [filteredDocs, columnFilters]);
 
     // Calculs qui s'adaptent au type de service
     const baseAmount = serviceType === 'custom' ? calculateCustomTotal() : (unitPrice * packQuantity);
@@ -1026,7 +1254,7 @@ const DevisFactures: React.FC = () => {
                         {/* Header mobile avec sélection */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700 flex items-center gap-2">
-                                {selectedIds.size > 0 && selectedIds.size === filteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                {selectedIds.size > 0 && selectedIds.size === columnFilteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                                 <span className="text-xs">Tout sélectionner</span>
                             </button>
                             {selectedIds.size > 0 && (
@@ -1035,8 +1263,8 @@ const DevisFactures: React.FC = () => {
                         </div>
 
                         {/* Cartes des documents */}
-                        {filteredDocs.length > 0 ? (
-                            filteredDocs.map(doc => (
+                        {columnFilteredDocs.length > 0 ? (
+                            columnFilteredDocs.map(doc => (
                                 <div key={doc.id} className={`border rounded-lg p-4 space-y-3 transition-colors ${selectedIds.has(doc.id) ? 'bg-blue-50 border-brand-blue' : 'border-slate-200 hover:bg-cream-50'}`}>
                                     {/* Header de la carte avec sélection et référence */}
                                     <div className="flex items-start justify-between">
@@ -1187,7 +1415,7 @@ const DevisFactures: React.FC = () => {
                             <tr>
                                 <th className="px-6 py-3 w-10">
                                     <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700">
-                                        {selectedIds.size > 0 && selectedIds.size === filteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                        {selectedIds.size > 0 && selectedIds.size === columnFilteredDocs.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                                     </button>
                                 </th>
                                 <th className="px-6 py-3">
@@ -1220,10 +1448,62 @@ const DevisFactures: React.FC = () => {
                                 <th className="px-6 py-3 text-center">Statut (Modifiable)</th>
                                 <th className="px-6 py-3 text-center">Actions</th>
                             </tr>
+                            <tr className="bg-white/60">
+                                <th className="px-6 py-2"></th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.ref}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, ref: e.target.value }))}
+                                        placeholder="Filtrer..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.client}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, client: e.target.value }))}
+                                        placeholder="Client..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.date}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, date: e.target.value }))}
+                                        placeholder="Date..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.type}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, type: e.target.value }))}
+                                        placeholder="Type..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.ttc}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, ttc: e.target.value }))}
+                                        placeholder="TTC..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2">
+                                    <input
+                                        value={columnFilters.status}
+                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, status: e.target.value }))}
+                                        placeholder="Statut..."
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                                    />
+                                </th>
+                                <th className="px-6 py-2"></th>
+                            </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {filteredDocs.length > 0 ? (
-                                filteredDocs.map(doc => (
+                            {columnFilteredDocs.length > 0 ? (
+                                columnFilteredDocs.map(doc => (
                                     <tr key={doc.id} className={`hover:bg-cream-50 transition-colors ${selectedIds.has(doc.id) ? 'bg-blue-50' : ''}`}>
                                         <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                                             <button onClick={(e) => toggleSelection(doc.id, e)} className="text-slate-400 hover:text-brand-blue">
@@ -1567,6 +1847,23 @@ const DevisFactures: React.FC = () => {
 
                                         {/* Specific Use Case Controls based on Pack Name */}
 
+                                        {serviceType === 'pack' && selectedPackId && (
+                                            <div className="bg-green-50 p-4 rounded-lg border border-green-100 mb-4 space-y-3 animate-in fade-in">
+                                                <div className="flex items-center gap-2 text-green-800 font-bold text-sm">
+                                                    <Calendar className="w-4 h-4" /> Génération automatique
+                                                </div>
+                                                <p className="text-xs text-green-700">
+                                                    Génère les jours et dates d'intervention selon le nombre d'heures/jours requis par le pack et la disponibilité des prestataires.
+                                                </p>
+                                                <button
+                                                    onClick={generateInterventionSlotsWithAvailability}
+                                                    className="w-full bg-green-600 text-white py-2 rounded font-bold text-xs hover:bg-green-700"
+                                                >
+                                                    Générer les jours et dates d'intervention
+                                                </button>
+                                            </div>
+                                        )}
+
                                         {/* CAS 1: PACK TRANQUILITY (12h) */}
                                         {packNameIncludes('Tranquility') && (
                                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4 space-y-4 animate-in fade-in">
@@ -1582,7 +1879,7 @@ const DevisFactures: React.FC = () => {
                                                     </select>
                                                 </div>
                                                 <p className="text-xs text-blue-600">Le pack Tranquility compte 12 heures ajustables.</p>
-                                                <button onClick={generateSlots} className="w-full bg-blue-600 text-white py-2 rounded font-bold text-xs hover:bg-blue-700">
+                                                <button onClick={generateInterventionSlotsWithAvailability} className="w-full bg-blue-600 text-white py-2 rounded font-bold text-xs hover:bg-blue-700">
                                                     Générer les créneaux
                                                 </button>
                                             </div>
@@ -1626,7 +1923,7 @@ const DevisFactures: React.FC = () => {
                                                         />
                                                     </div>
                                                 </div>
-                                                <button onClick={generateSlots} className="w-full bg-slate-700 text-white py-2 rounded font-bold text-xs hover:bg-slate-800">
+                                                <button onClick={generateInterventionSlotsWithAvailability} className="w-full bg-slate-700 text-white py-2 rounded font-bold text-xs hover:bg-slate-800">
                                                     Calculer et Générer
                                                 </button>
                                             </div>
@@ -1829,7 +2126,35 @@ const DevisFactures: React.FC = () => {
                             <div className="bg-white p-4 rounded-lg border border-slate-200">
                                 <h4 className="font-bold text-slate-800 mb-3">Détails de la Prestation</h4>
                                 <div className="space-y-2 text-sm">
-                                    <div><span className="text-slate-500">Description : </span><span className="font-medium">{selectedDocument.description}</span></div>
+                                    {(() => {
+                                        const raw = String(selectedDocument.description || '');
+                                        const parts = raw.split('|');
+                                        const descriptionPart = (parts[0] || '').trim();
+
+                                        let locationPart = '';
+                                        if (parts.length > 1) {
+                                            locationPart = parts.slice(1).join('|').replace(/\bLieu\s*:/i, '').trim();
+                                        } else {
+                                            const match = raw.match(/\bLieu\s*:\s*(.*)$/i);
+                                            if (match && match[1]) locationPart = match[1].trim();
+                                        }
+
+                                        return (
+                                            <div>
+                                                <div>
+                                                    <span className="text-slate-500">Description : </span>
+                                                    <span className="font-medium">{descriptionPart || raw}</span>
+                                                </div>
+                                                {locationPart ? (
+                                                    <div className="mt-1">
+                                                        <span className="text-slate-500 font-bold">Lieu : </span>
+                                                        <br />
+                                                        <span className="font-medium">{locationPart}</span>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        );
+                                    })()}
                                     <div><span className="text-slate-500">Prix unitaire HT : </span><span className="font-medium">{selectedDocument.unitPrice ? selectedDocument.unitPrice.toFixed(2) : '0.00'} €</span></div>
                                     <div><span className="text-slate-500">Taux TVA : </span><span className="font-medium">{selectedDocument.tvaRate || 0}%</span></div>
                                 </div>

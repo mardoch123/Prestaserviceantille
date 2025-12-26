@@ -131,6 +131,17 @@ export interface Contract {
     isGeneric?: boolean; // Indique si c'est le contrat générique
     quoteId?: string; // ID du devis associé
     generatedAt?: string; // Date de génération du contrat personnalisé
+    // Champs additionnels pour le PDF ContractPDF
+    createdAt?: string;
+    duration?: string;
+    amount?: number;
+    paymentTerms?: string;
+    object?: string;
+    services?: Array<{
+        name: string;
+        description: string;
+    }>;
+    clientSignature?: string; // Alias pour clientSignatureUrl
 }
 
 export interface GenericContract {

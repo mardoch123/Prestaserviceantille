@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { QrCode, AlertCircle, Camera, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { Loader2, CheckCircle, XCircle, LogIn, Clock, User, MapPin, RefreshCw } from 'lucide-react';
+import { 
+    getMartiniqueToday,
+    formatMartiniqueDateTime
+} from '../src/utils/martiniqueTime';
+import { Loader2, LogIn, RefreshCw } from 'lucide-react';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
 // Ajouter les animations CSS personnalisées
@@ -117,7 +122,7 @@ const ScanPage: React.FC = () => {
                 }
 
                 // Récupérer les scans précédents du client aujourd'hui
-                const today = new Date();
+                const today = new Date(getMartiniqueToday());
                 today.setHours(0, 0, 0, 0);
                 const clientTodayScans = visitScans.filter(scan => 
                     scan.clientId === clientId && 
@@ -146,7 +151,7 @@ const ScanPage: React.FC = () => {
                     setStatus('success');
                     
                     // Récupérer tous les scans du client pour les afficher
-                    const today = new Date();
+                    const today = new Date(getMartiniqueToday());
                     today.setHours(0, 0, 0, 0);
                     const clientTodayScans = visitScans.filter(scan => 
                         scan.clientId === clientId && 
@@ -281,14 +286,7 @@ const ScanPage: React.FC = () => {
                             )}
                         </div>
                         <div className="text-xs text-slate-500 mb-4">
-                            {new Date().toLocaleString('fr-FR', { 
-                                weekday: 'long', 
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric', 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
-                            })}
+                            {formatMartiniqueDateTime(new Date())}
                         </div>
 
                         {/* Historique des scans du jour */}

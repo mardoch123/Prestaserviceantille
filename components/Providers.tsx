@@ -109,6 +109,49 @@ const Providers: React.FC = () => {
     return result;
   }, [providers, filterStatus, searchQuery]);
 
+  // Filtres par colonne (tableau)
+  const [columnFilters, setColumnFilters] = useState({
+    name: '',
+    contact: '',
+    specialty: '',
+    hours: '',
+    status: ''
+  });
+
+  const columnFilteredProviders = useMemo(() => {
+    let result = filteredProviders;
+
+    if (columnFilters.name) {
+      const q = columnFilters.name.toLowerCase();
+      result = result.filter(p => `${p.firstName || ''} ${p.lastName || ''}`.toLowerCase().includes(q));
+    }
+
+    if (columnFilters.contact) {
+      const q = columnFilters.contact.toLowerCase();
+      result = result.filter(p =>
+        (p.phone || '').toLowerCase().includes(q) ||
+        (p.email || '').toLowerCase().includes(q)
+      );
+    }
+
+    if (columnFilters.specialty) {
+      const q = columnFilters.specialty.toLowerCase();
+      result = result.filter(p => (p.specialty || '').toLowerCase().includes(q));
+    }
+
+    if (columnFilters.hours) {
+      const q = columnFilters.hours.toLowerCase();
+      result = result.filter(p => String(p.hoursWorked ?? '').toLowerCase().includes(q));
+    }
+
+    if (columnFilters.status) {
+      const q = columnFilters.status.toLowerCase();
+      result = result.filter(p => (p.status || '').toLowerCase().includes(q));
+    }
+
+    return result;
+  }, [filteredProviders, columnFilters]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -229,10 +272,10 @@ Lien de connexion : https://presta-antilles.app/login`);
   };
 
   const toggleSelectAll = () => {
-      if (selectedIds.size === filteredProviders.length) {
+      if (selectedIds.size === columnFilteredProviders.length) {
           setSelectedIds(new Set());
       } else {
-          setSelectedIds(new Set(filteredProviders.map(p => p.id)));
+          setSelectedIds(new Set(columnFilteredProviders.map(p => p.id)));
       }
   };
 
@@ -333,7 +376,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                     <tr>
                         <th className="px-6 py-4 w-10">
                             <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700">
-                                {selectedIds.size > 0 && selectedIds.size === filteredProviders.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                {selectedIds.size > 0 && selectedIds.size === columnFilteredProviders.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
                         </th>
                         <th className="px-6 py-4 font-bold">Prestataire</th>
@@ -343,10 +386,54 @@ Lien de connexion : https://presta-antilles.app/login`);
                         <th className="px-6 py-4 font-bold text-center">Statut</th>
                         <th className="px-6 py-4 font-bold text-right">Actions</th>
                     </tr>
+                    <tr className="bg-white/60">
+                        <th className="px-6 py-2"></th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.name}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="Filtrer..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.contact}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, contact: e.target.value }))}
+                                placeholder="Tel/Email..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.specialty}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, specialty: e.target.value }))}
+                                placeholder="Spécialité..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.hours}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, hours: e.target.value }))}
+                                placeholder="Heures..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2">
+                            <input
+                                value={columnFilters.status}
+                                onChange={(e) => setColumnFilters(prev => ({ ...prev, status: e.target.value }))}
+                                placeholder="Statut..."
+                                className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
+                            />
+                        </th>
+                        <th className="px-6 py-2"></th>
+                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                    {filteredProviders.length > 0 ? (
-                        filteredProviders.map(p => (
+                    {columnFilteredProviders.length > 0 ? (
+                        columnFilteredProviders.map(p => (
                             <tr key={p.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(p.id) ? 'bg-blue-50' : ''}`}>
                                 <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(p.id)} className="text-slate-400 hover:text-brand-blue">
