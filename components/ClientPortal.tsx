@@ -363,11 +363,6 @@ const ClientPortal: React.FC = () => {
         const clientCompletedMissions = clientMissions.filter(m => m.status === 'completed');
         const hasCompletedPrestation = clientCompletedMissions.length > 0;
 
-        // Si la prestation n'est pas terminée, afficher un message d'avertissement
-        if (!hasCompletedPrestation) {
-            showToast('Le téléchargement de la facture sera disponible après la fin de votre prestation.', 'warning');
-            return;
-        }
 
         // Si la prestation est terminée, permettre le téléchargement direct
         // et proposer de laisser un avis si ce n'est pas déjà fait
