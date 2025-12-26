@@ -906,6 +906,7 @@ const DevisFactures: React.FC = () => {
                 taxCreditEnabled: taxCreditActive,
                 status: modalMode === 'devis' ? 'sent' : 'paid',
                 slotsData: modalMode === 'devis' ? interventionSlots : undefined,
+                packId: serviceType === 'pack' ? selectedPackId : undefined,
             };
 
             await addDocument(newDoc);
@@ -1528,11 +1529,18 @@ const DevisFactures: React.FC = () => {
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>
                                             {doc.packId ? (
-                                                <span className="bg-slate-100 px-2 py-1 rounded text-xs font-medium text-slate-700">
-                                                    {packs.find(p => p.id === doc.packId)?.name || 'Pack inconnu'}
-                                                </span>
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 shadow-sm">
+                                                        {packs.find(p => p.id === doc.packId)?.name || 'Pack inconnu'}
+                                                    </span>
+                                                    {packs.find(p => p.id === doc.packId) && (
+                                                        <span className="text-xs text-slate-500 font-medium">
+                                                            {packs.find(p => p.id === doc.packId)?.priceTTC}€ TTC
+                                                        </span>
+                                                    )}
+                                                </div>
                                             ) : (
-                                                <span className="text-slate-400 text-xs">-</span>
+                                                <span className="text-slate-400 text-xs font-medium italic">Personnalisé</span>
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
