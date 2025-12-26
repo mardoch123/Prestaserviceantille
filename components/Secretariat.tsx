@@ -241,6 +241,9 @@ const Secretariat: React.FC = () => {
     const [editingContractContent, setEditingContractContent] = useState('');
     const [editingContractId, setEditingContractId] = useState<string | null>(null);
 
+    const contractEditorRef = useRef<HTMLDivElement | null>(null);
+    const [useRichContractEditor, setUseRichContractEditor] = useState(true);
+
     // Selection State for Packs
     const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
@@ -879,6 +882,101 @@ const Secretariat: React.FC = () => {
         setEditingContractContent('');
         setEditingContractId(null);
     };
+
+    const stripHtmlToText = (html: string) => {
+        try {
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            return (div.textContent || div.innerText || '').trim();
+        } catch {
+            return (html || '').trim();
+        }
+    };
+
+    const escapeHtml = (value: string) => {
+        return (value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    const toHtmlForContractPreview = (value: string) => {
+        if (!value) return '';
+
+        // Preview volontairement "lecture" : on part sur du texte (HTML -> texte)
+        // pour rendre l'affichage plus aéré et standardisé (sans toucher aux données sauvegardées)
+        const text = stripHtmlToText(value)
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n');
+
+        // Forcer une séparation claire des articles
+        // (insère une ligne vide avant chaque "Article" si besoin)
+        const withArticleBreaks = text
+            .replace(/\n\s*(Article\b)/gi, '\n\n$1')
+            .replace(/\s+(Article\b)/gi, (m, p1) => `\n\n${p1}`);
+
+        const lines = withArticleBreaks.split('\n');
+        const htmlLines = lines.map((line) => {
+            const trimmed = (line || '').trim();
+            if (!trimmed) return '';
+            if (/^article\b/i.test(trimmed)) {
+                return `<strong>${escapeHtml(trimmed)}</strong>`;
+            }
+            return escapeHtml(line);
+        });
+
+        return htmlLines.join('<br/>');
+    };
+
+    const isProbablyHtml = (value: string) => {
+        if (!value) return false;
+        return /<\s*\w+[^>]*>/.test(value);
+    };
+
+    const toHtmlForEditor = (value: string) => {
+        if (!value) return '';
+        if (isProbablyHtml(value)) return value;
+        const escaped = value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        return escaped.replace(/\n/g, '<br/>');
+    };
+
+    const syncEditorFromState = () => {
+        if (!contractEditorRef.current) return;
+        const currentHtml = contractEditorRef.current.innerHTML || '';
+        const desiredHtml = toHtmlForEditor(editingContractContent || '');
+        if (currentHtml !== desiredHtml) {
+            contractEditorRef.current.innerHTML = desiredHtml;
+        }
+    };
+
+    const execEditorCommand = (command: string, value?: string) => {
+        if (!contractEditorRef.current) return;
+        contractEditorRef.current.focus();
+        try {
+            document.execCommand(command, false, value);
+        } catch {
+            // ignore
+        }
+        setEditingContractContent(contractEditorRef.current.innerHTML || '');
+    };
+
+    useEffect(() => {
+        if (!contractEditModalOpen) return;
+        if (!useRichContractEditor) return;
+        const t = window.setTimeout(() => {
+            syncEditorFromState();
+        }, 0);
+        return () => window.clearTimeout(t);
+    }, [contractEditModalOpen, useRichContractEditor, editingContractContent]);
+
+    const contractPreviewHtml = useMemo(() => {
+        return toHtmlForContractPreview(editingContractContent || '');
+    }, [editingContractContent]);
 
     const handleDownloadPDF = (contract: Contract) => {
         // Simulated PDF Download via Print Window
@@ -2268,13 +2366,62 @@ const Secretariat: React.FC = () => {
                                     <Edit className="w-3 h-3" />
                                     Mode Édition
                                 </div>
-                                <textarea
-                                    className="w-full h-96 p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none border-0"
-                                    value={editingContractContent}
-                                    onChange={e => setEditingContractContent(e.target.value)}
-                                    placeholder="Contenu du contrat..."
-                                    autoFocus
-                                />
+                                <div className="absolute top-2 right-2 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setUseRichContractEditor(v => !v)}
+                                        className="px-2 py-1 rounded text-xs font-bold border bg-white text-slate-700 hover:bg-slate-50"
+                                    >
+                                        {useRichContractEditor ? 'Mode simple' : 'Éditeur enrichi'}
+                                    </button>
+                                </div>
+
+                                {useRichContractEditor ? (
+                                    <div className="w-full h-96 p-4 bg-white">
+                                        <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-slate-200">
+                                            <button type="button" onClick={() => execEditorCommand('bold')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm font-bold">B</button>
+                                            <button type="button" onClick={() => execEditorCommand('italic')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm italic">I</button>
+                                            <button type="button" onClick={() => execEditorCommand('underline')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm underline">U</button>
+                                            <div className="w-px h-6 bg-slate-200 mx-1" />
+                                            <button type="button" onClick={() => execEditorCommand('insertUnorderedList')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm">Liste</button>
+                                            <button type="button" onClick={() => execEditorCommand('insertOrderedList')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm">1.2.3.</button>
+                                            <div className="w-px h-6 bg-slate-200 mx-1" />
+                                            <button type="button" onClick={() => execEditorCommand('removeFormat')} className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100 text-sm">Nettoyer</button>
+                                            <div className="flex-1" />
+                                            <div className="text-xs text-slate-500">
+                                                {stripHtmlToText(editingContractContent).length} caractères
+                                            </div>
+                                        </div>
+
+                                        <div
+                                            ref={contractEditorRef}
+                                            className="w-full h-[calc(100%-56px)] overflow-auto outline-none text-sm leading-relaxed"
+                                            contentEditable
+                                            suppressContentEditableWarning
+                                            onInput={() => setEditingContractContent(contractEditorRef.current?.innerHTML || '')}
+                                            onBlur={() => setEditingContractContent(contractEditorRef.current?.innerHTML || '')}
+                                        />
+                                    </div>
+                                ) : (
+                                    <textarea
+                                        className="w-full h-96 p-6 font-mono text-sm leading-relaxed resize-none bg-white outline-none border-0"
+                                        value={editingContractContent}
+                                        onChange={e => setEditingContractContent(e.target.value)}
+                                        placeholder="Contenu du contrat..."
+                                        autoFocus
+                                    />
+                                )}
+
+                                <div className="mt-4 border border-slate-200 rounded-lg bg-white overflow-hidden">
+                                    <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                        <div className="text-xs font-bold text-slate-700">Aperçu (lecture)</div>
+                                        <div className="text-[11px] text-slate-500">Articles mis en gras</div>
+                                    </div>
+                                    <div
+                                        className="p-4 max-h-56 overflow-auto text-sm leading-relaxed text-slate-800"
+                                        dangerouslySetInnerHTML={{ __html: contractPreviewHtml }}
+                                    />
+                                </div>
                             </div>
                         </div>
 

@@ -14,7 +14,7 @@ const getSignatureImage = (signature: string | undefined): string | null => {
   }
   
   // Si c'est une URL, utiliser les constantes base64 disponibles
-  if (signature.includes('prestaservicesantilles.com/signature.png')) {
+  if (signature.includes('https://prestaservicesantilles.com/signature.png')) {
     console.log('Using SIGNATURE_BASE64 for company signature');
     return SIGNATURE_BASE64;
   }
@@ -132,6 +132,43 @@ const formatContractText = (text: string): string => {
     .trim();
 };
 
+const renderContractRichText = (value: string) => {
+  const formatted = formatContractText(value || '');
+  const paragraphs = formatted.split(/\n\n+/g);
+
+  return (
+    <View>
+      {paragraphs.map((para, pIndex) => {
+        const trimmed = (para || '').trim();
+        if (!trimmed) {
+          return <Text key={`p-${pIndex}`}>{'\n'}</Text>;
+        }
+
+        const isArticleParagraph = /^article\b/i.test(trimmed);
+        const segments = trimmed.split(/(Article)/gi);
+
+        return (
+          <Text
+            key={`p-${pIndex}`}
+            style={isArticleParagraph ? [styles.contractParagraph, styles.contractArticleParagraph] : styles.contractParagraph}
+          >
+            {segments.map((seg, sIndex) => {
+              if (/^article$/i.test(seg)) {
+                return (
+                  <Text key={`seg-${pIndex}-${sIndex}`} style={styles.contractWordArticle}>
+                    {seg}
+                  </Text>
+                );
+              }
+              return <Text key={`seg-${pIndex}-${sIndex}`}>{seg}</Text>;
+            })}
+          </Text>
+        );
+      })}
+    </View>
+  );
+};
+
 // Enregistrement de polices personnalisées
 Font.register({
   family: 'Helvetica',
@@ -147,10 +184,27 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 30,
-    borderBottom: 2,
+    borderBottomWidth: 2,
     borderBottomColor: '#1a1a1a',
     borderBottomStyle: 'solid',
     paddingBottom: 20,
+  },
+  headerCard: {
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#F2F7FB',
+    borderWidth: 1,
+    borderColor: '#D7E7F2',
+    borderStyle: 'solid',
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerTextBlock: {
+    flex: 1,
   },
   title: {
     fontSize: 24,
@@ -159,11 +213,20 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#1a1a1a',
   },
+  titleBrand: {
+    color: '#0B5FA5',
+  },
   subtitle: {
     fontSize: 14,
     textAlign: 'center',
     color: '#666',
     marginBottom: 5,
+  },
+  subtitleSmall: {
+    fontSize: 10,
+    textAlign: 'center',
+    color: '#4B5563',
+    marginBottom: 3,
   },
   logo: {
     width: 200,
@@ -171,12 +234,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignSelf: 'center',
   },
+  logoSmall: {
+    width: 74,
+    height: 74,
+  },
   logoPlaceholder: {
     width: 200,
     height: 200,
     marginBottom: 20,
     alignSelf: 'center',
-    border: 1,
+    borderWidth: 1,
     borderColor: '#ccc',
     borderStyle: 'solid',
     alignItems: 'center',
@@ -197,14 +264,41 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#1a1a1a',
   },
+  sectionTitleBrand: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#0B5FA5',
+  },
+  card: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'solid',
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  cardTint: {
+    backgroundColor: '#FBFDFF',
+    borderColor: '#D7E7F2',
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 5,
   },
+  rowTight: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
   label: {
     fontWeight: 'bold',
     color: '#333',
+  },
+  labelBrand: {
+    fontWeight: 'bold',
+    color: '#0B5FA5',
   },
   boldInlineLabel: {
     fontWeight: 'bold',
@@ -212,6 +306,9 @@ const styles = StyleSheet.create({
   },
   value: {
     color: '#666',
+  },
+  valueDark: {
+    color: '#111827',
   },
   table: {
     width: '100%',
@@ -222,13 +319,17 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottom: 1,
+    borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     borderBottomStyle: 'solid',
   },
   tableHeader: {
     backgroundColor: '#f8f9fa',
     fontWeight: 'bold',
+  },
+  tableHeaderBrand: {
+    backgroundColor: '#0B5FA5',
+    color: 'white',
   },
   tableCell: {
     padding: 8,
@@ -239,10 +340,19 @@ const styles = StyleSheet.create({
   },
   totalSection: {
     marginTop: 20,
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#ddd',
     borderTopStyle: 'solid',
     paddingTop: 10,
+  },
+  totalCard: {
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D7E7F2',
+    borderStyle: 'solid',
+    padding: 12,
+    backgroundColor: '#F2F7FB',
   },
   totalRow: {
     flexDirection: 'row',
@@ -254,6 +364,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1a1a1a',
   },
+  grandTotalBrand: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#0B5FA5',
+  },
   signatureSection: {
     marginTop: 50,
   },
@@ -264,16 +379,33 @@ const styles = StyleSheet.create({
   },
   signatureBox: {
     width: '45%',
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#333',
     borderTopStyle: 'solid',
     paddingTop: 5,
+    minHeight: 150,
+  },
+  signatureBoxCard: {
+    width: '45%',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'solid',
+    padding: 10,
+    backgroundColor: '#FFFFFF',
+    minHeight: 170,
   },
   signatureText: {
     fontSize: 10,
     color: '#666',
     textAlign: 'center',
     marginBottom: 20,
+  },
+  signatureCaption: {
+    fontSize: 9,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 4,
   },
   footer: {
     position: 'absolute',
@@ -283,7 +415,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#666',
     textAlign: 'center',
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#ddd',
     borderTopStyle: 'solid',
     paddingTop: 10,
@@ -306,19 +438,57 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc3545',
     color: 'white',
   },
-  htmlImage: {
-    width: 120,
-    height: 60,
+  list: {
+    marginTop: 6,
   },
+  listItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  listBullet: {
+    width: 14,
+    color: '#0B5FA5',
+    fontWeight: 'bold',
+  },
+  listText: {
+    flex: 1,
+    color: '#374151',
+    fontSize: 10,
+  },
+
   signatureImage: {
-    width: 100,
-    height: 50,
+    width: 140,
+    height: 80,
     marginBottom: 5,
   },
   companyStampImage: {
-    width: 120,
-    height: 60,
+    width: 160,
+    height: 90,
     marginBottom: 5,
+  },
+
+  contractContentCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'solid',
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  contractParagraph: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: '#111827',
+    marginBottom: 6,
+  },
+  contractArticleParagraph: {
+    backgroundColor: '#F2F7FB',
+    padding: 6,
+    borderRadius: 6,
+  },
+  contractWordArticle: {
+    fontWeight: 'bold',
   },
 });
 
@@ -335,76 +505,135 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
             console.log('Logo data length:', logo ? logo.length : 'undefined');
             console.log('Logo starts with data:image:', logo ? logo.startsWith('data:image/') : false);
             
-            if (logo && logo.startsWith('data:image/')) {
-              return <Image src={logo} style={styles.logo} />;
-            } else {
-              console.log('Using placeholder logo');
-              return (
-                <View style={styles.logoPlaceholder}>
-                  <Text style={styles.placeholderText}>LOGO</Text>
+            return (
+              <View style={styles.headerCard}>
+                <View style={styles.headerTopRow}>
+                  {logo && logo.startsWith('data:image/') ? (
+                    <Image src={logo} style={[styles.logo, styles.logoSmall]} />
+                  ) : (
+                    <View style={[styles.logoPlaceholder, { width: 74, height: 74, marginBottom: 0 }]}>
+                      <Text style={styles.placeholderText}>LOGO</Text>
+                    </View>
+                  )}
+                  <View style={styles.headerTextBlock}>
+                    <Text style={[styles.title, styles.titleBrand]}>{doc.status === 'signed' ? 'DEVIS SIGNÉ' : 'DEVIS'}</Text>
+                    <Text style={styles.subtitleSmall}>
+                        Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+                        Email : prestaservicesantilles.rh@gmail.com
+                    </Text>
+                    <Text style={styles.subtitleSmall}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
+                  </View>
                 </View>
-              );
-            }
+              </View>
+            );
           } catch (error) {
             console.error('Error rendering logo:', error);
             return (
-              <View style={styles.logoPlaceholder}>
-                <Text style={styles.placeholderText}>LOGO</Text>
+              <View style={styles.headerCard}>
+                <Text style={[styles.title, styles.titleBrand]}>{doc.status === 'signed' ? 'DEVIS SIGNÉ' : 'DEVIS'}</Text>
+        
+                  <Text style={styles.subtitleSmall}>
+                      Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+                      Email : prestaservicesantilles.rh@gmail.com
+                  </Text>
+                <Text style={styles.subtitleSmall}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
               </View>
             );
           }
         })()}
-        <Text style={styles.title}>{doc.status === 'signed' ? 'DEVIS SIGNÉ' : 'DEVIS'}</Text>
-        <Text style={styles.subtitle}>Presta Services Antilles - SIRET: 944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
-        <Text style={styles.subtitle}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
 
       <View style={styles.section}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Référence:</Text>
-          <Text style={styles.value}>{doc.ref}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Date:</Text>
-          <Text style={styles.value}>
-            {formatPDFDate(doc.date)}
-          </Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Statut:</Text>
-          {(() => {
-            const normalizedStatus = typeof doc.status === 'string' ? doc.status.trim().toLowerCase() : '';
-            const effectiveStatus = normalizedStatus || (doc.signed ? 'signed' : '');
-            const label = effectiveStatus === 'signed' ? 'SIGNÉ' : effectiveStatus === 'sent' ? 'ENVOYÉ' : 'BROUILLON';
-            return (
-              <View style={[styles.statusBadge, effectiveStatus === 'signed' ? {} : styles.pendingBadge]}>
-                <Text>{label}</Text>
-              </View>
-            );
-          })()}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informations Client</Text>
-        <View style={styles.row}>
-          <Text style={styles.label}>Nom:</Text>
-          <Text style={styles.value}>{doc.clientName}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Email:</Text>
-          <Text style={styles.value}>{doc.clientEmail}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Téléphone:</Text>
-          <Text style={styles.value}>{doc.clientPhone}</Text>
+        <View style={[styles.card, styles.cardTint]}>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Référence:</Text>
+            <Text style={styles.valueDark}>{doc.ref}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Date:</Text>
+            <Text style={styles.valueDark}>
+              {formatPDFDate(doc.date)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Statut:</Text>
+            {(() => {
+              const normalizedStatus = typeof doc.status === 'string' ? doc.status.trim().toLowerCase() : '';
+              const effectiveStatus = normalizedStatus || (doc.signed ? 'signed' : '');
+              const label = effectiveStatus === 'signed' ? 'SIGNÉ' : effectiveStatus === 'sent' ? 'ENVOYÉ' : 'BROUILLON';
+              return (
+                <View style={[styles.statusBadge, effectiveStatus === 'signed' ? {} : styles.pendingBadge]}>
+                  <Text>{label}</Text>
+                </View>
+              );
+            })()}
+          </View>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Détails du Devis</Text>
+        <Text style={styles.sectionTitleBrand}>Informations Client</Text>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <Text style={styles.label}>Nom:</Text>
+            <Text style={styles.value}>{doc.clientName}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Email:</Text>
+            <Text style={styles.value}>{doc.clientEmail}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Téléphone:</Text>
+            <Text style={styles.value}>{doc.clientPhone}</Text>
+          </View>
+        </View>
+      </View>
+
+      {(() => {
+        const resolvedPackId = doc.packId;
+        const resolvedPackName = doc.packName || (resolvedPackId ? (packs || []).find((p: any) => p.id === resolvedPackId)?.name : '') || '';
+        const slots = Array.isArray(doc.slotsData) ? doc.slotsData : [];
+        if (!resolvedPackName && slots.length === 0) return null;
+
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitleBrand}>Informations Pack</Text>
+            <View style={[styles.card, styles.cardTint]}>
+              {resolvedPackName ? (
+                <View style={styles.row}>
+                  <Text style={styles.labelBrand}>Nom du pack:</Text>
+                  <Text style={styles.valueDark}>{cleanHTML(String(resolvedPackName))}</Text>
+                </View>
+              ) : null}
+
+              {slots.length > 0 ? (
+                <>
+                  <View style={styles.row}>
+                    <Text style={styles.labelBrand}>Jours et heures d'intervention:</Text>
+                    <Text style={styles.valueDark}>{slots.length} jour(s)</Text>
+                  </View>
+                  <View style={styles.list}>
+                    {slots.map((slot: any, index: number) => (
+                      <View key={index} style={styles.listItemRow}>
+                        <Text style={styles.listBullet}>{index + 1}.</Text>
+                        <Text style={styles.listText}>
+                          {cleanHTML(String(slot?.date || ''))} - {cleanHTML(String(slot?.startTime || ''))} à {cleanHTML(String(slot?.endTime || ''))}
+                          {slot?.duration ? ` (${cleanHTML(String(slot.duration))}h)` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+            </View>
+          </View>
+        );
+      })()}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitleBrand}>Détails du Devis</Text>
         <View style={styles.table}>
-          <View style={[styles.tableRow, styles.tableHeader]}>
+          <View style={[styles.tableRow, styles.tableHeader, styles.tableHeaderBrand]}>
             <Text style={styles.tableCell}>Description</Text>
             <Text style={styles.tableCell}>Quantité</Text>
             <Text style={styles.tableCell}>Prix Unit.</Text>
@@ -413,7 +642,28 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           {doc.items?.map((item: any, index: number) => (
             <View key={index} style={styles.tableRow}>
               <Text style={[styles.tableCell, styles.descriptionCell]}>
-                {cleanHTML(item.description || '')}
+                {(() => {
+                  const resolvedPackNameFromId = String(
+                    doc.packId ? (packs || []).find((p: any) => p.id === doc.packId)?.name : ''
+                  );
+                  const resolvedPackNameFromField = String(doc.packName || '').trim();
+                  const fallbackDescription = String(item.description || '');
+                  const haystack = `${String(doc.description || '')}\n${fallbackDescription}`.toLowerCase();
+                  const resolvedPackNameFromText = String(
+                    (packs || []).find((p: any) => {
+                      const n = String(p?.name || '').toLowerCase();
+                      return n && haystack.includes(n);
+                    })?.name || ''
+                  );
+
+                  const finalDesignation =
+                    resolvedPackNameFromField ||
+                    resolvedPackNameFromId ||
+                    resolvedPackNameFromText ||
+                    fallbackDescription;
+
+                  return cleanHTML(String(finalDesignation || ''));
+                })()}
                 {item.location ? (
                   <>
                     {'\n'}
@@ -428,19 +678,27 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           ))}
         </View>
       </View>
+    </Page>
+
+    <Page size="A4" style={styles.page}>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitleBrand}>Récapitulatif</Text>
+      </View>
 
       <View style={styles.totalSection}>
-        <View style={styles.totalRow}>
-          <Text style={styles.label}>Sous-total:</Text>
-          <Text style={styles.value}>{doc.subtotal}€</Text>
-        </View>
-        <View style={styles.totalRow}>
-          <Text style={styles.label}>TVA ({doc.tvaRate || 0}%):</Text>
-          <Text style={styles.value}>{doc.tax}€</Text>
-        </View>
-        <View style={[styles.totalRow, styles.grandTotal]}>
-          <Text style={styles.label}>Total:</Text>
-          <Text>{doc.total}€</Text>
+        <View style={styles.totalCard}>
+          <View style={styles.totalRow}>
+            <Text style={styles.label}>Sous-total:</Text>
+            <Text style={styles.value}>{doc.subtotal}€</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text style={styles.label}>TVA ({doc.tvaRate || 0}%):</Text>
+            <Text style={styles.value}>{doc.tax}€</Text>
+          </View>
+          <View style={[styles.totalRow, styles.grandTotalBrand]}>
+            <Text style={styles.labelBrand}>Total:</Text>
+            <Text>{doc.total}€</Text>
+          </View>
         </View>
       </View>
 
@@ -452,18 +710,18 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       )}
 
       <View style={styles.signatureSection}>
-        <Text style={styles.sectionTitle}>Signatures</Text>
+        <Text style={styles.sectionTitleBrand}>Signatures</Text>
         <View style={styles.signatureRow}>
-          <View style={styles.signatureBox}>
+          <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
-              const companySig = getSignatureImage(doc.companySignature || doc.companyStamp || doc.adminSignature || 'https://prestaservicesantilles.com/signature.png');
+              const companySig = getSignatureImage(doc.companySignature || SIGNATURE_BASE64);
               console.log('Company signature result:', companySig ? 'found' : 'not found');
               if (companySig) {
                 return <Image src={companySig} style={styles.companyStampImage} />;
               } else {
                 return (
-                  <View style={{width: 100, height: 50, border: '1pt solid #ccc', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <View style={{width: 100, height: 50, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
                     <Text style={{fontSize: 8, color: '#999'}}>Signature entreprise</Text>
                   </View>
                 );
@@ -471,7 +729,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
             })()}
             <Text style={styles.value}>Presta Services Antilles</Text>
           </View>
-          <View style={styles.signatureBox}>
+          <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature Client</Text>
             {(() => {
               const clientSig = getSignatureImage(doc.clientSignature || doc.clientSignatureUrl);
@@ -480,7 +738,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                 return <Image src={clientSig} style={styles.signatureImage} />;
               } else {
                 return (
-                  <View style={{width: 120, height: 60, border: '1pt solid #ccc', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <View style={{width: 120, height: 60, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
                     <Text style={{fontSize: 8, color: '#999'}}>Signature client</Text>
                   </View>
                 );
@@ -516,55 +774,62 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           );
         })()}
         <Text style={styles.title}>FACTURE</Text>
-        <Text style={styles.subtitle}>Presta Services Antilles - SIRET: 944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text style={styles.subtitle}>
+            Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+            Email : prestaservicesantilles.rh@gmail.com
+        </Text>
         <Text style={styles.subtitle}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
 
       <View style={styles.section}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Numéro Facture:</Text>
-          <Text style={styles.value}>{doc.ref}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Date d'émission:</Text>
-          <Text style={styles.value}>
-            {formatPDFDate(doc.date)}
-          </Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Date d'échéance:</Text>
-          <Text style={styles.value}>
-            {formatPDFDate(doc.dueDate)}
-          </Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Statut:</Text>
-          <View style={[styles.statusBadge, doc.paid ? styles.paidBadge : styles.pendingBadge]}>
-            <Text>{doc.paid ? 'PAYÉE' : 'EN ATTENTE DE PAIEMENT'}</Text>
+        <View style={[styles.card, styles.cardTint]}>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Numéro Facture:</Text>
+            <Text style={styles.valueDark}>{doc.ref}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Date d'émission:</Text>
+            <Text style={styles.valueDark}>
+              {formatPDFDate(doc.date)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Date d'échéance:</Text>
+            <Text style={styles.valueDark}>
+              {formatPDFDate(doc.dueDate)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.labelBrand}>Statut:</Text>
+            <View style={[styles.statusBadge, doc.paid ? styles.paidBadge : styles.pendingBadge]}>
+              <Text>{doc.paid ? 'PAYÉE' : 'EN ATTENTE DE PAIEMENT'}</Text>
+            </View>
           </View>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informations Client</Text>
-        <View style={styles.row}>
-          <Text style={styles.label}>Nom:</Text>
-          <Text style={styles.value}>{doc.clientName}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Email:</Text>
-          <Text style={styles.value}>{doc.clientEmail}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Téléphone:</Text>
-          <Text style={styles.value}>{doc.clientPhone}</Text>
+        <Text style={styles.sectionTitleBrand}>Informations Client</Text>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <Text style={styles.label}>Nom:</Text>
+            <Text style={styles.value}>{doc.clientName}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Email:</Text>
+            <Text style={styles.value}>{doc.clientEmail}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Téléphone:</Text>
+            <Text style={styles.value}>{doc.clientPhone}</Text>
+          </View>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Détails de la Facture</Text>
+        <Text style={styles.sectionTitleBrand}>Détails de la Facture</Text>
         <View style={styles.table}>
-          <View style={[styles.tableRow, styles.tableHeader]}>
+          <View style={[styles.tableRow, styles.tableHeader, styles.tableHeaderBrand]}>
             <Text style={styles.tableCell}>Description</Text>
             <Text style={styles.tableCell}>Quantité</Text>
             <Text style={styles.tableCell}>Prix Unit.</Text>
@@ -582,18 +847,25 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       </View>
 
       <View style={styles.totalSection}>
-        <View style={styles.totalRow}>
-          <Text style={styles.label}>Sous-total:</Text>
-          <Text style={styles.value}>{doc.subtotal}€</Text>
-        </View>
-        <View style={styles.totalRow}>
-          <Text style={styles.label}>TVA (20%):</Text>
-          <Text style={styles.value}>{doc.tax}€</Text>
-        </View>
-        <View style={[styles.totalRow, styles.grandTotal]}>
-          <Text style={styles.label}>Total à payer:</Text>
-          <Text>{doc.total}€</Text>
-        </View>
+        {(() => {
+          const resolvedTvaRate = typeof doc.tvaRate === 'number' ? doc.tvaRate : (doc.tvaRate ? Number(doc.tvaRate) : 0);
+          return (
+            <View style={styles.totalCard}>
+              <View style={styles.totalRow}>
+                <Text style={styles.label}>Sous-total:</Text>
+                <Text style={styles.value}>{doc.subtotal}€</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.label}>TVA ({resolvedTvaRate || 0}%):</Text>
+                <Text style={styles.value}>{doc.tax}€</Text>
+              </View>
+              <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                <Text style={styles.labelBrand}>Total à payer:</Text>
+                <Text>{doc.total}€</Text>
+              </View>
+            </View>
+          );
+        })()}
       </View>
 
       {doc.paymentInfo && (
@@ -628,7 +900,11 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           );
         })()}
         <Text style={styles.title}>CONTRAT DE SERVICES</Text>
-        <Text style={styles.subtitle}>Presta Services Antilles - SIRET: 944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text style={styles.subtitle}>Contrat de services entre Presta Services Antilles et {doc.clientName}</Text>
+            <Text style={styles.subtitle}>
+            Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+            Email : prestaservicesantilles.rh@gmail.com
+        </Text>
         <Text style={styles.subtitle}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
 
@@ -669,7 +945,9 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       {typeof doc.content === 'string' && doc.content.trim() ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contenu du Contrat</Text>
-          <Text style={styles.value}>{formatContractText(doc.content)}</Text>
+          <View style={styles.contractContentCard}>
+            {renderContractRichText(doc.content)}
+          </View>
         </View>
       ) : null}
 
@@ -697,7 +975,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                 return <Image src={clientSig} style={styles.signatureImage} />;
               } else {
                 return (
-                  <View style={{width: 100, height: 50, border: '1pt solid #ccc', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <View style={{width: 160, height: 90, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 8}}>
                     <Text style={{fontSize: 8, color: '#999'}}>Signature manquante</Text>
                   </View>
                 );
@@ -708,13 +986,13 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           <View style={styles.signatureBox}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
-              const companySig = getSignatureImage(doc.companySignature || doc.companyStamp || doc.adminSignature || 'https://prestaservicesantilles.com/signature.png');
+              const companySig = getSignatureImage(doc.companyStamp || STAMP_SIGNATURE_BASE64 || doc.companySignature || doc.adminSignature || 'https://prestaservicesantilles.com/cachetetsignature.png');
               console.log('Contract company signature result:', companySig ? 'found' : 'not found');
               if (companySig) {
                 return <Image src={companySig} style={styles.companyStampImage} />;
               } else {
                 return (
-                  <View style={{width: 120, height: 60, border: '1pt solid #ccc', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <View style={{width: 180, height: 100, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 8}}>
                     <Text style={{fontSize: 8, color: '#999'}}>Signature manquante</Text>
                   </View>
                 );
@@ -726,7 +1004,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       </View>
 
       <View style={styles.footer}>
-        <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email : prestaservicesantilles.rh@gmail.com</Text>
         <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>

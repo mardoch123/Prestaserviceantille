@@ -8,6 +8,7 @@ import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { 
     getMartiniqueNowISO,
     getMartiniqueToday,
@@ -3900,7 +3901,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         </div>
         <div class="signature-box">
             <h3>Signature Prestataire</h3>
-            <img src="${COMPANY_SIGNATURE_URL || 'https://via.placeholder.com/150x60'}" alt="Signature Prestataire">
+            <img src="${STAMP_SIGNATURE_BASE64 || COMPANY_STAMP_URL || COMPANY_SIGNATURE_URL || 'https://via.placeholder.com/150x60'}" alt="Cachet Prestataire" style="display: block; max-height: 80px; max-width: 100%; margin: 10px auto; border: 1px solid #eee; background: white;">
             <p><small>Fait à La Trinité, Martinique</small></p>
             <p><small>Le ${new Date().toLocaleDateString('fr-FR')}</small></p>
         </div>

@@ -888,6 +888,26 @@ const DevisFactures: React.FC = () => {
                 finalDescription += ` (${interventionSlots.length} jours, Total ${totalHours}h)`;
             }
 
+            let enrichedDescription = finalDescription;
+            const normalized = String(enrichedDescription || '').toLowerCase();
+            const clientLocation = `${(client?.address || '').trim()}${client?.city ? `, ${client.city}` : ''}`.trim();
+            const selectedPack = serviceType === 'pack' ? packs.find(p => p.id === selectedPackId) : undefined;
+            const packName = String(selectedPack?.name || '').trim();
+            const packLocation = String(selectedPack?.location || '').trim();
+            const resolvedLocation = packLocation || clientLocation || 'Domicile Client';
+
+            if (packName && !normalized.includes('pack:')) {
+                enrichedDescription = `Pack: ${packName} | ${enrichedDescription}`;
+            }
+
+            if (interventionSlots.length > 0 && !String(enrichedDescription || '').toLowerCase().includes('durée:')) {
+                enrichedDescription += ` | Durée: ${interventionSlots.length} jour(s), Total ${totalHours}h`;
+            }
+
+            if (resolvedLocation && !String(enrichedDescription || '').toLowerCase().includes('lieu:')) {
+                enrichedDescription += ` | Lieu: ${resolvedLocation}`;
+            }
+
             
             const newDoc: Document = {
                 id: '',
@@ -897,7 +917,7 @@ const DevisFactures: React.FC = () => {
                 date: getMartiniqueToday(),
                 type: modalMode === 'devis' ? 'Devis' : 'Facture',
                 category: serviceType,
-                description: finalDescription,
+                description: enrichedDescription,
                 unitPrice: unitPrice,
                 quantity: packQuantity,
                 tvaRate: tvaRate,
@@ -1140,6 +1160,26 @@ const DevisFactures: React.FC = () => {
     const columnFilteredDocs = useMemo(() => {
         let result = filteredDocs;
 
+        const resolvePackForDocument = (d: any) => {
+            if (!d) return undefined;
+            if (d.packId) {
+                return packs.find(p => p.id === d.packId);
+            }
+            const packNameRaw = String((d.packName || '') as any).trim();
+            if (packNameRaw) {
+                const byName = packs.find(p => p.name === packNameRaw);
+                if (byName) return byName;
+                const byNameLoose = packs.find(p => p.name.toLowerCase() === packNameRaw.toLowerCase());
+                if (byNameLoose) return byNameLoose;
+            }
+            const descriptionRaw = String((d.description || '') as any);
+            if (descriptionRaw) {
+                const byDesc = packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
+                if (byDesc) return byDesc;
+            }
+            return undefined;
+        };
+
         if (columnFilters.ref) {
             const q = columnFilters.ref.toLowerCase();
             result = result.filter(d => (d.ref || '').toLowerCase().includes(q));
@@ -1163,9 +1203,9 @@ const DevisFactures: React.FC = () => {
         if (columnFilters.pack) {
             const q = columnFilters.pack.toLowerCase();
             result = result.filter(d => {
-                if (!d.packId) return false;
-                const pack = packs.find(p => p.id === d.packId);
-                return pack && pack.name.toLowerCase().includes(q);
+                const pack = resolvePackForDocument(d);
+                if (!pack) return false;
+                return pack.name.toLowerCase().includes(q);
             });
         }
 
@@ -1528,20 +1568,35 @@ const DevisFactures: React.FC = () => {
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.date}</td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>
-                                            {doc.packId ? (
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 shadow-sm">
-                                                        {packs.find(p => p.id === doc.packId)?.name || 'Pack inconnu'}
-                                                    </span>
-                                                    {packs.find(p => p.id === doc.packId) && (
-                                                        <span className="text-xs text-slate-500 font-medium">
-                                                            {packs.find(p => p.id === doc.packId)?.priceTTC}€ TTC
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <span className="text-slate-400 text-xs font-medium italic">Personnalisé</span>
-                                            )}
+                                            {(() => {
+                                                const pack = (() => {
+                                                    if (doc.packId) return packs.find(p => p.id === doc.packId);
+                                                    const packNameRaw = String((doc as any).packName || '').trim();
+                                                    if (packNameRaw) {
+                                                        return packs.find(p => p.name === packNameRaw) || packs.find(p => p.name.toLowerCase() === packNameRaw.toLowerCase());
+                                                    }
+                                                    const descriptionRaw = String((doc as any).description || '');
+                                                    if (descriptionRaw) {
+                                                        return packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
+                                                    }
+                                                    return undefined;
+                                                })();
+
+                                                if (pack) {
+                                                    return (
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 shadow-sm">
+                                                                {pack.name}
+                                                            </span>
+                                                            <span className="text-xs text-slate-500 font-medium">
+                                                                {pack.priceTTC}€ TTC
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return <span className="text-slate-400 text-xs font-medium italic">Personnalisé</span>;
+                                            })()}
                                         </td>
                                         <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>

@@ -411,6 +411,17 @@ const ClientPortal: React.FC = () => {
             const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
             const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
 
+            const packNameFromId = doc.packId ? (packs.find((p: any) => p.id === doc.packId)?.name || '') : '';
+            const packNameFromField = String((doc as any).packName || '').trim();
+            const descLower = String(doc.description || '').toLowerCase();
+            const packNameFromText = String(
+                (packs || []).find((p: any) => {
+                    const n = String(p?.name || '').toLowerCase();
+                    return n && descLower.includes(n);
+                })?.name || ''
+            );
+            const packName = packNameFromId || packNameFromField || packNameFromText || '';
+
             // Préparation des données pour le PDF
             const pdfData = {
                 ref: doc.ref,
@@ -430,7 +441,7 @@ const ClientPortal: React.FC = () => {
                 total: doc.totalTTC || 0,
                 items: [
                     {
-                        description: doc.description || 'Service standard',
+                        description: packName || doc.description || 'Service standard',
                         location: doc.location || doc.address || doc.lieu || undefined,
                         quantity: 1,
                         unitPrice: doc.totalHT || 0,
@@ -502,6 +513,23 @@ const ClientPortal: React.FC = () => {
             const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
             const clientSignature = await ensurePngDataUrl(doc.signatureData || null);
 
+            const packNameFromId = doc.packId ? (packs.find((p: any) => p.id === doc.packId)?.name || '') : '';
+            const packNameFromField = String((doc as any).packName || '').trim();
+            const descLower = String(doc.description || '').toLowerCase();
+            const packNameFromText = String(
+                (packs || []).find((p: any) => {
+                    const n = String(p?.name || '').toLowerCase();
+                    return n && descLower.includes(n);
+                })?.name || ''
+            );
+            const packName = packNameFromId || packNameFromField || packNameFromText || '';
+
+            const meta = parseQuoteDescriptionMeta((doc as any).description);
+            const resolvedLocation =
+                String(doc.location || doc.address || doc.lieu || '').trim() ||
+                String(meta.lieu || '').trim() ||
+                undefined;
+
             // Préparation des données pour le PDF
             const pdfData = {
                 ref: doc.ref,
@@ -520,10 +548,12 @@ const ClientPortal: React.FC = () => {
                 tax: doc.totalTTC && doc.totalHT ? (doc.totalTTC - doc.totalHT) : 0,
                 total: doc.totalTTC || 0,
                 notes: doc.description || '',
+                packId: doc.packId,
+                packName,
                 items: [
                     {
-                        description: doc.description || 'Service standard',
-                        location: doc.location || doc.address || doc.lieu || undefined,
+                        description: packName || meta.pack || doc.description || 'Service standard',
+                        location: resolvedLocation,
                         quantity: 1,
                         unitPrice: doc.totalHT || 0,
                         total: doc.totalHT || 0
@@ -777,6 +807,37 @@ const ClientPortal: React.FC = () => {
     };
 
     const selectedQuote = documents.find(d => d.id === selectedQuoteId);
+
+    const parseQuoteDescriptionMeta = (rawValue: any) => {
+        const raw = String(rawValue || '');
+        const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+        const meta: { pack?: string; duree?: string; lieu?: string; description?: string } = {};
+
+        for (const part of parts) {
+            const lower = part.toLowerCase();
+            if (lower.startsWith('pack:')) {
+                meta.pack = part.replace(/^pack\s*:\s*/i, '').trim();
+                continue;
+            }
+            if (lower.startsWith('durée:') || lower.startsWith('duree:')) {
+                meta.duree = part.replace(/^dur[ée|e]\s*:\s*/i, '').trim();
+                continue;
+            }
+            if (lower.startsWith('lieu:')) {
+                meta.lieu = part.replace(/^lieu\s*:\s*/i, '').trim();
+                continue;
+            }
+
+            if (!meta.description) {
+                meta.description = part;
+            } else {
+                meta.description = `${meta.description} | ${part}`;
+            }
+        }
+
+        if (!meta.description) meta.description = raw.trim();
+        return meta;
+    };
 
     const getQuoteContract = (): (Contract | null) => {
         if (!selectedQuote) return null;
@@ -1830,27 +1891,22 @@ const ClientPortal: React.FC = () => {
 
                                     <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
                                         <h5 className="font-bold text-green-800 mb-2">Détails du Devis :</h5>
-                                        {/* Séparer la description et le lieu */}
                                         {(() => {
-                                            const raw = String(selectedQuote.description || '');
-                                            const parts = raw.split('|');
-                                            const descriptionPart = (parts[0] || '').replace(/\bLieu\s*:\s*.*$/i, '').trim();
-
-                                            let locationPart = '';
-                                            if (parts.length > 1) {
-                                                locationPart = parts.slice(1).join('|').replace(/\bLieu\s*:/i, '').trim();
-                                            } else {
-                                                const match = raw.match(/\bLieu\s*:\s*(.*)$/i);
-                                                if (match && match[1]) locationPart = match[1].trim();
-                                            }
+                                            const meta = parseQuoteDescriptionMeta((selectedQuote as any).description);
+                                            const packFromId = (selectedQuote as any).packId ? (packs.find((p: any) => p.id === (selectedQuote as any).packId)?.name || '') : '';
+                                            const packToShow = packFromId || meta.pack || '';
 
                                             return (
                                                 <>
-                                                    <p className="text-sm"><strong>Description :</strong> {descriptionPart || raw}</p>
-                                                    {locationPart ? (
-                                                        <p className="text-sm">
-                                                            <strong>Lieu :</strong> {locationPart}
-                                                        </p>
+                                                    {packToShow ? (
+                                                        <p className="text-sm"><strong>Pack :</strong> {packToShow}</p>
+                                                    ) : null}
+                                                    <p className="text-sm"><strong>Description :</strong> {meta.description || ''}</p>
+                                                    {meta.duree ? (
+                                                        <p className="text-sm"><strong>Durée :</strong> {meta.duree}</p>
+                                                    ) : null}
+                                                    {meta.lieu ? (
+                                                        <p className="text-sm"><strong>Lieu :</strong> {meta.lieu}</p>
                                                     ) : null}
                                                 </>
                                             );
