@@ -3,6 +3,8 @@ import { Page, Text, View, Document, StyleSheet, Image, Font } from '@react-pdf/
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { formatPDFDate } from '../src/utils/dayjsMartinique';
 
+const COMPANY_STAMP_LOCAL_SRC = new URL('../src/assets/images/cachetetsignature.webp', import.meta.url).toString();
+
 // Fonction pour convertir une URL en base64 ou retourner la valeur base64 existante
 const getSignatureImage = (signature: string | undefined): string | null => {
   if (!signature) return null;
@@ -11,6 +13,12 @@ const getSignatureImage = (signature: string | undefined): string | null => {
   if (signature.startsWith('data:image/')) {
     console.log('Using base64 signature');
     return signature;
+  }
+
+  // Si c'est une base64 brute (sans préfixe data:image)
+  if (/^[A-Za-z0-9+/]+=*$/.test(signature) && signature.length > 200) {
+    console.log('Using raw base64 signature');
+    return `data:image/png;base64,${signature}`;
   }
   
   // Si c'est une URL, utiliser les constantes base64 disponibles
@@ -141,7 +149,7 @@ const renderContractRichText = (value: string) => {
       {paragraphs.map((para, pIndex) => {
         const trimmed = (para || '').trim();
         if (!trimmed) {
-          return <Text key={`p-${pIndex}`}>{'\n'}</Text>;
+          return null;
         }
 
         const isArticleParagraph = /^article\b/i.test(trimmed);
@@ -167,6 +175,167 @@ const renderContractRichText = (value: string) => {
       })}
     </View>
   );
+};
+
+const isProbablyHtml = (value: string) => {
+  const v = String(value || '').trim();
+  if (!v) return false;
+  return /<\s*\w+[\s\S]*>/.test(v);
+};
+
+const parseInlineStyle = (styleValue: string): any => {
+  const style: any = {};
+  const raw = String(styleValue || '');
+  raw
+    .split(';')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .forEach(rule => {
+      const idx = rule.indexOf(':');
+      if (idx < 0) return;
+      const key = rule.slice(0, idx).trim().toLowerCase();
+      const val = rule.slice(idx + 1).trim();
+
+      if (key === 'font-weight' && /bold|600|700|800|900/i.test(val)) style.fontWeight = 'bold';
+      if (key === 'font-style' && /italic/i.test(val)) style.fontStyle = 'italic';
+      if (key === 'text-decoration' && /underline/i.test(val)) style.textDecoration = 'underline';
+      if (key === 'color' && val) style.color = val;
+      if (key === 'text-align' && /left|right|center|justify/i.test(val)) style.textAlign = val;
+      if (key === 'font-size') {
+        const num = Number(String(val).replace(/px/i, '').trim());
+        if (!Number.isNaN(num) && num > 0) style.fontSize = Math.min(Math.max(num, 8), 20);
+      }
+    });
+  return style;
+};
+
+const renderContractHtml = (html: string) => {
+  const tokens = String(html || '').split(/(<[^>]+>)/g).filter(Boolean);
+  const blocks: Array<{ segments: Array<{ text: string; style?: any }>; blockStyle?: any }> = [];
+
+  let currentSegments: Array<{ text: string; style?: any }> = [];
+  let currentBlockStyle: any = {};
+  const styleStack: any[] = [{}];
+
+  const pushBlock = () => {
+    const mergedText = currentSegments.map(s => s.text).join('');
+    if (!mergedText.trim()) {
+      currentSegments = [];
+      currentBlockStyle = {};
+      return;
+    }
+    blocks.push({ segments: currentSegments, blockStyle: currentBlockStyle });
+    currentSegments = [];
+    currentBlockStyle = {};
+  };
+
+  const appendText = (text: string) => {
+    const cleaned = cleanHTMLPreserveLineBreaks(String(text || ''));
+    if (!cleaned) return;
+    const active = styleStack[styleStack.length - 1] || {};
+    currentSegments.push({ text: cleaned, style: active });
+  };
+
+  for (const token of tokens) {
+    if (!token.startsWith('<')) {
+      appendText(token);
+      continue;
+    }
+
+    const isClosing = /^<\s*\//.test(token);
+    const tagName = String(token.replace(/<\s*\/?\s*([a-zA-Z0-9]+)[\s\S]*?>/, '$1') || '').toLowerCase();
+    const isSelfClosing = /\/\s*>$/.test(token) || /<\s*br\s*\/?\s*>/i.test(token);
+
+    if (tagName === 'br') {
+      appendText('\n');
+      continue;
+    }
+
+    if (isClosing) {
+      if (tagName === 'p' || tagName === 'div' || tagName === 'li' || tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4') {
+        pushBlock();
+      }
+
+      if (tagName === 'span' || tagName === 'strong' || tagName === 'b' || tagName === 'em' || tagName === 'i' || tagName === 'u') {
+        if (styleStack.length > 1) styleStack.pop();
+      }
+      continue;
+    }
+
+    if (tagName === 'p' || tagName === 'div') {
+      pushBlock();
+      const styleMatch = token.match(/style\s*=\s*"([^"]*)"/i);
+      const blockStyle = styleMatch ? parseInlineStyle(styleMatch[1]) : {};
+      if (blockStyle.textAlign) currentBlockStyle.textAlign = blockStyle.textAlign;
+      continue;
+    }
+
+    if (tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4') {
+      pushBlock();
+      const sizes: Record<string, number> = { h1: 16, h2: 14, h3: 12, h4: 11 };
+      currentBlockStyle = { fontWeight: 'bold', fontSize: sizes[tagName] || 12 };
+      continue;
+    }
+
+    if (tagName === 'ul' || tagName === 'ol') {
+      pushBlock();
+      continue;
+    }
+
+    if (tagName === 'li') {
+      pushBlock();
+      appendText('• ');
+      continue;
+    }
+
+    if (tagName === 'strong' || tagName === 'b') {
+      styleStack.push({ ...(styleStack[styleStack.length - 1] || {}), fontWeight: 'bold' });
+      continue;
+    }
+
+    if (tagName === 'em' || tagName === 'i') {
+      styleStack.push({ ...(styleStack[styleStack.length - 1] || {}), fontStyle: 'italic' });
+      continue;
+    }
+
+    if (tagName === 'u') {
+      styleStack.push({ ...(styleStack[styleStack.length - 1] || {}), textDecoration: 'underline' });
+      continue;
+    }
+
+    if (tagName === 'span') {
+      const styleMatch = token.match(/style\s*=\s*"([^"]*)"/i);
+      const inlineStyle = styleMatch ? parseInlineStyle(styleMatch[1]) : {};
+      const base = styleStack[styleStack.length - 1] || {};
+      styleStack.push({ ...base, ...inlineStyle, textAlign: base.textAlign });
+      continue;
+    }
+
+    if (isSelfClosing) {
+      continue;
+    }
+  }
+
+  pushBlock();
+
+  return (
+    <View>
+      {blocks.map((b, i) => (
+        <Text key={`html-b-${i}`} style={[styles.contractParagraph, b.blockStyle || {}]}>
+          {(b.segments || []).map((s, j) => (
+            <Text key={`html-s-${i}-${j}`} style={s.style || {}}>
+              {s.text}
+            </Text>
+          ))}
+        </Text>
+      ))}
+    </View>
+  );
+};
+
+const renderContractContent = (value: string) => {
+  if (isProbablyHtml(value)) return renderContractHtml(value);
+  return renderContractRichText(value);
 };
 
 // Enregistrement de polices personnalisées
@@ -571,6 +740,39 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         </View>
       </View>
 
+      {(() => {
+        const slots = Array.isArray(doc.slotsData) ? doc.slotsData : [];
+        if (slots.length === 0) return null;
+        const totalHours = slots.reduce((acc: number, s: any) => acc + (Number(s?.duration) || 0), 0);
+
+        return (
+          <View style={styles.section} wrap={false}>
+            <Text style={styles.sectionTitleBrand}>Interventions</Text>
+            <View style={[styles.card, styles.cardTint]}>
+              <View style={styles.row}>
+                <Text style={styles.labelBrand}>Nombre de jours:</Text>
+                <Text style={styles.valueDark}>{slots.length} jour(s)</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.labelBrand}>Total d'heures:</Text>
+                <Text style={styles.valueDark}>{totalHours}h</Text>
+              </View>
+              <View style={styles.list}>
+                {slots.map((slot: any, index: number) => (
+                  <View key={index} style={styles.listItemRow}>
+                    <Text style={styles.listBullet}>{index + 1}.</Text>
+                    <Text style={styles.listText}>
+                      {cleanHTML(String(slot?.date || ''))} - {cleanHTML(String(slot?.startTime || ''))} à {cleanHTML(String(slot?.endTime || ''))}
+                      {slot?.duration ? ` (${cleanHTML(String(slot.duration))}h)` : ''}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        );
+      })()}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitleBrand}>Informations Client</Text>
         <View style={styles.card}>
@@ -611,17 +813,6 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                   <View style={styles.row}>
                     <Text style={styles.labelBrand}>Jours et heures d'intervention:</Text>
                     <Text style={styles.valueDark}>{slots.length} jour(s)</Text>
-                  </View>
-                  <View style={styles.list}>
-                    {slots.map((slot: any, index: number) => (
-                      <View key={index} style={styles.listItemRow}>
-                        <Text style={styles.listBullet}>{index + 1}.</Text>
-                        <Text style={styles.listText}>
-                          {cleanHTML(String(slot?.date || ''))} - {cleanHTML(String(slot?.startTime || ''))} à {cleanHTML(String(slot?.endTime || ''))}
-                          {slot?.duration ? ` (${cleanHTML(String(slot.duration))}h)` : ''}
-                        </Text>
-                      </View>
-                    ))}
                   </View>
                 </>
               ) : null}
@@ -678,14 +869,11 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           ))}
         </View>
       </View>
-    </Page>
-
-    <Page size="A4" style={styles.page}>
       <View style={styles.section}>
         <Text style={styles.sectionTitleBrand}>Récapitulatif</Text>
       </View>
 
-      <View style={styles.totalSection}>
+      <View style={styles.totalSection} wrap={false}>
         <View style={styles.totalCard}>
           <View style={styles.totalRow}>
             <Text style={styles.label}>Sous-total:</Text>
@@ -709,47 +897,51 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         </View>
       )}
 
-      <View style={styles.signatureSection}>
+      <View style={styles.signatureSection} wrap={false}>
         <Text style={styles.sectionTitleBrand}>Signatures</Text>
         <View style={styles.signatureRow}>
           <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
-              const companySig = getSignatureImage(doc.companySignature || SIGNATURE_BASE64);
-              console.log('Company signature result:', companySig ? 'found' : 'not found');
-              if (companySig) {
-                return <Image src={companySig} style={styles.companyStampImage} />;
-              } else {
-                return (
-                  <View style={{width: 100, height: 50, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
-                    <Text style={{fontSize: 8, color: '#999'}}>Signature entreprise</Text>
-                  </View>
-                );
+              const primary = COMPANY_STAMP_LOCAL_SRC;
+              console.log('Company signature result:', primary ? 'found' : 'not found');
+              if (primary) {
+                return <Image src={primary} style={styles.companyStampImage} />;
               }
+              return (
+                <View style={{width: 100, height: 50, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <Text style={{fontSize: 8, color: '#999'}}>Signature entreprise</Text>
+                </View>
+              );
             })()}
             <Text style={styles.value}>Presta Services Antilles</Text>
           </View>
+
           <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature Client</Text>
             {(() => {
-              const clientSig = getSignatureImage(doc.clientSignature || doc.clientSignatureUrl);
+              const clientSig = getSignatureImage(doc.clientSignature || doc.signatureData || doc.clientSignatureUrl);
               console.log('Client signature result:', clientSig ? 'found' : 'not found');
               if (clientSig) {
                 return <Image src={clientSig} style={styles.signatureImage} />;
-              } else {
-                return (
-                  <View style={{width: 120, height: 60, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
-                    <Text style={{fontSize: 8, color: '#999'}}>Signature client</Text>
-                  </View>
-                );
               }
+              return (
+                <View style={{width: 120, height: 60, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <Text style={{fontSize: 8, color: '#999'}}>Signature client</Text>
+                </View>
+              );
             })()}
             <Text style={styles.value}>{doc.clientName}</Text>
+            {(doc.signatureDate || doc.signedAt || doc.date) ? (
+              <Text style={styles.signatureCaption}>
+                Date de signature: {formatPDFDate(doc.signatureDate || doc.signedAt || doc.date)}
+              </Text>
+            ) : null}
           </View>
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.footer} fixed>
         <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
         <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
@@ -826,6 +1018,64 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         </View>
       </View>
 
+      <View style={styles.footer}>
+        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+      </View>
+    </Page>
+
+    <Page size="A4" style={styles.page}>
+      {(() => {
+        const resolvedPackId = doc.packId;
+        const resolvedPackName = doc.packName || (resolvedPackId ? (packs || []).find((p: any) => p.id === resolvedPackId)?.name : '') || '';
+        const slots = Array.isArray(doc.slotsData) ? doc.slotsData : [];
+        if (!resolvedPackName && slots.length === 0) return null;
+
+        const totalHours = slots.reduce((acc: number, s: any) => acc + (Number(s?.duration) || 0), 0);
+
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitleBrand}>Informations Pack</Text>
+            <View style={[styles.card, styles.cardTint]}>
+              {resolvedPackName ? (
+                <View style={styles.row}>
+                  <Text style={styles.labelBrand}>Nom du pack:</Text>
+                  <Text style={styles.valueDark}>{cleanHTML(String(resolvedPackName || ''))}</Text>
+                </View>
+              ) : null}
+
+              {slots.length > 0 ? (
+                <>
+                  <View style={styles.row}>
+                    <Text style={styles.labelBrand}>Nombre de jours:</Text>
+                    <Text style={styles.valueDark}>{slots.length} jour(s)</Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Text style={styles.labelBrand}>Total d'heures:</Text>
+                    <Text style={styles.valueDark}>{totalHours}h</Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Text style={styles.labelBrand}>Jours et heures d'intervention:</Text>
+                    <Text style={styles.valueDark}>{slots.length} jour(s)</Text>
+                  </View>
+                  <View style={styles.list}>
+                    {slots.map((slot: any, index: number) => (
+                      <View key={index} style={styles.listItemRow}>
+                        <Text style={styles.listBullet}>{index + 1}.</Text>
+                        <Text style={styles.listText}>
+                          {cleanHTML(String(slot?.date || ''))} - {cleanHTML(String(slot?.startTime || ''))} à {cleanHTML(String(slot?.endTime || ''))}
+                          {slot?.duration ? ` (${cleanHTML(String(slot.duration))}h)` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+            </View>
+          </View>
+        );
+      })()}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitleBrand}>Détails de la Facture</Text>
         <View style={styles.table}>
@@ -891,21 +1141,29 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         {(() => {
           const resolvedTvaRate = typeof doc.tvaRate === 'number' ? doc.tvaRate : (doc.tvaRate ? Number(doc.tvaRate) : 0);
           const logo = doc.logoBase64 || ((resolvedTvaRate || 0) === 0 ? LOGO_SAP_BASE64 : LOGO_BASE64);
-          return logo && logo.startsWith('data:image/') ? (
-            <Image src={logo} style={styles.logo} />
-          ) : (
-            <View style={styles.logoPlaceholder}>
-              <Text style={styles.placeholderText}>LOGO</Text>
+          return (
+            <View style={styles.headerCard}>
+              <View style={styles.headerTopRow}>
+                {logo && logo.startsWith('data:image/') ? (
+                  <Image src={logo} style={[styles.logo, styles.logoSmall]} />
+                ) : (
+                  <View style={[styles.logoPlaceholder, { width: 74, height: 74, marginBottom: 0 }]}>
+                    <Text style={styles.placeholderText}>LOGO</Text>
+                  </View>
+                )}
+                <View style={styles.headerTextBlock}>
+                  <Text style={[styles.title, styles.titleBrand]}>CONTRAT DE SERVICES</Text>
+                  <Text style={styles.subtitleSmall}>Contrat de services entre Presta Services Antilles et {doc.clientName}</Text>
+                  <Text style={styles.subtitleSmall}>
+                    Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+                    Email : prestaservicesantilles.rh@gmail.com
+                  </Text>
+                  <Text style={styles.subtitleSmall}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
+                </View>
+              </View>
             </View>
           );
         })()}
-        <Text style={styles.title}>CONTRAT DE SERVICES</Text>
-        <Text style={styles.subtitle}>Contrat de services entre Presta Services Antilles et {doc.clientName}</Text>
-            <Text style={styles.subtitle}>
-            Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
-            Email : prestaservicesantilles.rh@gmail.com
-        </Text>
-        <Text style={styles.subtitle}>Téléphone: +596 696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>
 
       <View style={styles.section}>
@@ -916,7 +1174,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         <View style={styles.row}>
           <Text style={styles.label}>Date de signature:</Text>
           <Text style={styles.value}>
-            {formatPDFDate(doc.date)}
+            {formatPDFDate(doc.signatureDate || doc.signedAt || doc.date)}
           </Text>
         </View>
         <View style={styles.row}>
@@ -942,11 +1200,13 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         <Text style={styles.value}>{cleanHTML(doc.object || '')}</Text>
       </View>
 
+      {typeof doc.content === 'string' && doc.content.trim() ? <View break /> : null}
+
       {typeof doc.content === 'string' && doc.content.trim() ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contenu du Contrat</Text>
           <View style={styles.contractContentCard}>
-            {renderContractRichText(doc.content)}
+            {renderContractContent(doc.content)}
           </View>
         </View>
       ) : null}
@@ -963,47 +1223,54 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         </View>
       </View>
 
-      <View style={styles.signatureSection}>
-        <Text style={styles.sectionTitle}>Signatures</Text>
+      <View style={styles.signatureSection} wrap={false}>
+        <Text style={styles.sectionTitleBrand}>Signatures</Text>
         <View style={styles.signatureRow}>
-          <View style={styles.signatureBox}>
+          <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature Client</Text>
             {(() => {
-              const clientSig = getSignatureImage(doc.clientSignature || doc.clientSignatureUrl);
+              const clientSig = getSignatureImage(doc.clientSignature || doc.signatureData || doc.clientSignatureUrl);
               console.log('Contract client signature result:', clientSig ? 'found' : 'not found');
               if (clientSig) {
                 return <Image src={clientSig} style={styles.signatureImage} />;
               } else {
                 return (
-                  <View style={{width: 160, height: 90, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 8}}>
-                    <Text style={{fontSize: 8, color: '#999'}}>Signature manquante</Text>
+                  <View style={{width: 120, height: 60, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                    <Text style={{fontSize: 8, color: '#999'}}>Signature client</Text>
                   </View>
                 );
               }
             })()}
             <Text style={styles.value}>{doc.clientName}</Text>
+            {(doc.signatureDate || doc.signedAt || doc.date) ? (
+              <Text style={styles.signatureCaption}>
+                Date de signature: {formatPDFDate(doc.signatureDate || doc.signedAt || doc.date)}
+              </Text>
+            ) : null}
           </View>
-          <View style={styles.signatureBox}>
+          <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
-              const companySig = getSignatureImage(doc.companyStamp || STAMP_SIGNATURE_BASE64 || doc.companySignature || doc.adminSignature || 'https://prestaservicesantilles.com/cachetetsignature.png');
-              console.log('Contract company signature result:', companySig ? 'found' : 'not found');
-              if (companySig) {
-                return <Image src={companySig} style={styles.companyStampImage} />;
-              } else {
+              const stampImg = COMPANY_STAMP_LOCAL_SRC || getSignatureImage(doc.companyStamp || doc.companyStampUrl || STAMP_SIGNATURE_BASE64);
+              const primary = stampImg;
+              console.log('Company signature result:', primary ? 'found' : 'not found');
+              if (primary) {
                 return (
-                  <View style={{width: 180, height: 100, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 8}}>
-                    <Text style={{fontSize: 8, color: '#999'}}>Signature manquante</Text>
-                  </View>
+                  <Image src={primary} style={styles.companyStampImage} />
                 );
               }
+              return (
+                <View style={{width: 100, height: 50, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
+                  <Text style={{fontSize: 8, color: '#999'}}>Signature entreprise</Text>
+                </View>
+              );
             })()}
             <Text style={styles.value}>Presta Services Antilles</Text>
           </View>
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.footer} fixed>
         <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email : prestaservicesantilles.rh@gmail.com</Text>
         <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
       </View>

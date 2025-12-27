@@ -8,6 +8,7 @@ import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from 
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
+import { downloadHtmlAsPdf } from '../utils/htmlPdf';
 import { 
     getMartiniqueNowISO,
     getMartiniqueToday,
@@ -422,6 +423,15 @@ const ClientPortal: React.FC = () => {
             );
             const packName = packNameFromId || packNameFromField || packNameFromText || '';
 
+            const invoiceSlotsData = (() => {
+                const directSlots = Array.isArray(doc?.slotsData) ? doc.slotsData : [];
+                if (directSlots.length > 0) return directSlots;
+
+                const linkedQuote = documents.find((d: any) => d?.type === 'Devis' && d?.linkedInvoiceId === doc?.id);
+                const quoteSlots = Array.isArray((linkedQuote as any)?.slotsData) ? (linkedQuote as any).slotsData : [];
+                return quoteSlots;
+            })();
+
             // Préparation des données pour le PDF
             const pdfData = {
                 ref: doc.ref,
@@ -439,6 +449,8 @@ const ClientPortal: React.FC = () => {
                 subtotal: doc.totalHT || 0,
                 tax: doc.totalTTC && doc.totalHT ? (doc.totalTTC - doc.totalHT) : 0,
                 total: doc.totalTTC || 0,
+                packId: doc.packId,
+                packName,
                 items: [
                     {
                         description: packName || doc.description || 'Service standard',
@@ -448,8 +460,18 @@ const ClientPortal: React.FC = () => {
                         total: doc.totalHT || 0
                     }
                 ],
+                slotsData: invoiceSlotsData,
                 paymentInfo: 'Paiement par virement bancaire ou chèque. Délai de paiement: 30 jours.'
             };
+
+            const sanitizeFilenamePart = (v: any) =>
+                String(v || '')
+                    .replace(/[\\/:*?"<>|]/g, '_')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+            const refPart = sanitizeFilenamePart(doc?.ref || '');
 
             // Génération du PDF avec react-pdf
             const blob = await pdf(<InvoicePDF doc={pdfData} packs={packs} />).toBlob();
@@ -458,7 +480,7 @@ const ClientPortal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Facture_${doc.ref}.pdf`;
+            link.download = `Facture_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -466,14 +488,14 @@ const ClientPortal: React.FC = () => {
 
             showToast('Facture téléchargée avec succès.');
         } catch (error) {
-            console.error('Erreur lors de la génération du PDF:', error);
-            showToast('Erreur lors du téléchargement de la facture.', 'error');
+            console.error('Erreur lors de la signature:', error);
+            // Ne pas afficher de message d'erreur ici car la notification est déjà gérée dans signQuoteWithData
         }
     };
 
     const handleDownloadSignedQuote = async (doc: any) => {
         showToast('Téléchargement du devis signé...');
-        
+
         const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
             return await new Promise((resolve, reject) => {
                 const img = new Image();
@@ -507,6 +529,15 @@ const ClientPortal: React.FC = () => {
         };
 
         try {
+            const sanitizeFilenamePart = (v: any) =>
+                String(v || '')
+                    .replace(/[\\/:*?"<>|]/g, '_')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+            const refPart = sanitizeFilenamePart(doc?.ref || '');
+
             const tvaRate = doc.tvaRate ?? 8.5;
             const logoBase64 = tvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
             const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
@@ -564,12 +595,12 @@ const ClientPortal: React.FC = () => {
 
             // Génération du PDF avec react-pdf
             const blob = await pdf(<SignedQuotePDF doc={pdfData} packs={packs} />).toBlob();
-            
+
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Devis_Signe_${doc.ref}.pdf`;
+            link.download = `Devis_Signe_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -616,25 +647,52 @@ const ClientPortal: React.FC = () => {
         console.log('Searching contracts for client:', client.id);
         console.log('Available contracts:', contracts.map(c => ({ id: c.id, clientId: c.clientId, status: c.status, name: c.name })));
 
-        // First try to find contract by clientId (new approach)
-        let clientContract = contracts.find(c =>
-            c.clientId === client.id &&
-            (c.status === 'active' || c.status === 'pending_validation')
+        const looksLikeHtml = (s: any) => /<\s*html\b|<\s*body\b|<\s*div\b|<\s*h1\b|<\s*style\b/i.test(String(s || '').trim());
+
+        const pickBestContract = (candidates: any[]) => {
+            const list = (Array.isArray(candidates) ? candidates : []).filter(Boolean);
+            if (list.length === 0) return null;
+
+            // Prefer contracts that actually contain HTML content (same branch as admin download)
+            const htmlFirst = list.sort((a, b) => {
+                const aHtml = looksLikeHtml(a?.content);
+                const bHtml = looksLikeHtml(b?.content);
+                if (aHtml !== bHtml) return aHtml ? -1 : 1;
+
+                const aDate = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
+                const bDate = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
+                if (aDate !== bDate) return bDate - aDate;
+
+                // final fallback on id for stability
+                return String(b?.id || '').localeCompare(String(a?.id || ''));
+            });
+
+            return htmlFirst[0] || null;
+        };
+
+        // First try to find contract(s) by clientId (new approach)
+        let clientContract = pickBestContract(
+            contracts.filter(c =>
+                c.clientId === client.id &&
+                (c.status === 'active' || c.status === 'pending_validation')
+            )
         );
 
         // If not found, try fallback approach by matching client name in contract name
         if (!clientContract) {
             console.log('Contract not found by clientId, trying name matching fallback');
-            clientContract = contracts.find(c =>
-                c.name && c.name.toLowerCase().includes(client.name.toLowerCase()) &&
-                (c.status === 'active' || c.status === 'pending_validation')
+            clientContract = pickBestContract(
+                contracts.filter(c =>
+                    c.name && c.name.toLowerCase().includes(client.name.toLowerCase()) &&
+                    (c.status === 'active' || c.status === 'pending_validation')
+                )
             );
         }
 
         // If still not found, try any contract for this client
         if (!clientContract) {
             console.log('Contract not found by name matching, trying any contract with client info');
-            clientContract = contracts.find(c => {
+            clientContract = pickBestContract(contracts.filter(c => {
                 // Check if contract content contains client information
                 const contentLower = c.content.toLowerCase();
                 const clientNameLower = client.name.toLowerCase();
@@ -642,7 +700,7 @@ const ClientPortal: React.FC = () => {
 
                 return (contentLower.includes(clientNameLower) || contentLower.includes(clientEmailLower)) &&
                     (c.status === 'active' || c.status === 'pending_validation');
-            });
+            }));
         }
 
         console.log('Found contract:', clientContract);
@@ -653,6 +711,15 @@ const ClientPortal: React.FC = () => {
         }
 
         try {
+            const sanitizeFilenamePart = (v: any) =>
+                String(v || '')
+                    .replace(/[\\/:*?"<>|]/g, '_')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+            const contractNamePart = sanitizeFilenamePart(clientContract?.name || clientContract?.id || 'Contrat');
+
             const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
                 return await new Promise((resolve, reject) => {
                     const img = new Image();
@@ -732,6 +799,47 @@ const ClientPortal: React.FC = () => {
                 ]
             };
 
+            const contractHtml = String(clientContract.content || '').trim();
+            const looksLikeHtml = /<\s*html\b|<\s*body\b|<\s*div\b|<\s*h1\b|<\s*style\b/i.test(contractHtml);
+
+            if (looksLikeHtml && contractHtml) {
+                const logoNormalBase64 = await ensurePngDataUrl(LOGO_BASE64);
+                const logoSapBase64 = await ensurePngDataUrl(LOGO_SAP_BASE64);
+                const filename = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
+                await downloadHtmlAsPdf({
+                    html: contractHtml,
+                    filename,
+                    title: clientContract.name || `Contrat_${clientContract.id}`,
+                    zoom: 0.92,
+                    signatureImages: {
+                        client: clientSignatureBase64 || null,
+                        company: companySignatureBase64 || null,
+                        companyStamp: companyStampBase64 || null
+                    },
+                    signatureDates: {
+                        client: (selectedQuote as any)?.signatureDate || (selectedQuote as any)?.signedAt || clientContract.signedAt || clientContract.createdAt || null,
+                        company: clientContract.validatedAt || null
+                    },
+                    imageReplacements: {
+                        [LOGO_NORMAL]: logoNormalBase64,
+                        [LOGO_SAP]: logoSapBase64,
+                        [COMPANY_SIGNATURE_URL]: companySignatureBase64,
+                        [COMPANY_STAMP_URL]: companyStampBase64,
+
+                        // Variantes fréquentes (format/chemins) pour garantir l'affichage logo + cachet
+                        ['https://prestaservicesantilles.com/cachetetsignature.webp']: companyStampBase64,
+                        ['/cachetetsignature.webp']: companyStampBase64,
+                        ['/cachetetsignature.png']: companyStampBase64,
+                        ['/images/logo.png']: logoNormalBase64,
+                        ['images/logo.png']: logoNormalBase64,
+                        ['/sap.png']: logoSapBase64,
+                        ['sap.png']: logoSapBase64
+                    }
+                });
+                showToast('Contrat téléchargé avec succès.');
+                return;
+            }
+
             // Génération du PDF avec react-pdf
             const blob = await pdf(<ContractPDF doc={pdfData} packs={packs} />).toBlob();
             
@@ -739,7 +847,7 @@ const ClientPortal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Contrat_${clientContract.name || clientContract.id}.pdf`;
+            link.download = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -820,7 +928,7 @@ const ClientPortal: React.FC = () => {
                 continue;
             }
             if (lower.startsWith('durée:') || lower.startsWith('duree:')) {
-                meta.duree = part.replace(/^dur[ée|e]\s*:\s*/i, '').trim();
+                meta.duree = part.replace(/^dur(?:ée|e)\s*:\s*/i, '').trim();
                 continue;
             }
             if (lower.startsWith('lieu:')) {
@@ -2057,6 +2165,7 @@ const ClientPortal: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={() => setShowSignatureModal(true)}
+                                        disabled={!termsAccepted}
                                         className="bg-brand-blue text-white px-4 py-3 rounded-full shadow-lg hover:bg-teal-700 transition flex items-center gap-2"
                                     >
                                         <PenTool className="w-4 h-4" />

@@ -925,7 +925,7 @@ const DevisFactures: React.FC = () => {
                 totalTTC: totalTTC,
                 taxCreditEnabled: taxCreditActive,
                 status: modalMode === 'devis' ? 'sent' : 'paid',
-                slotsData: modalMode === 'devis' ? interventionSlots : undefined,
+                slotsData: interventionSlots.length > 0 ? interventionSlots : (modalMode === 'devis' ? interventionSlots : undefined),
                 packId: serviceType === 'pack' ? selectedPackId : undefined,
             };
 

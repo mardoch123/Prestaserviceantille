@@ -1,10 +1,12 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import 'dayjs/locale/fr';
 
 // Extensions des plugins dayjs
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.locale('fr');
 
 // Fuseau horaire de la Martinique
 export const MARTINIQUE_TIMEZONE = 'America/Martinique';

@@ -50,8 +50,9 @@ import {
     formatMartiniqueDate
 } from '../src/utils/martiniqueTime';
 import { ContractPDF } from './PDFComponents';
-import { LOGO_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { pdf } from '@react-pdf/renderer';
+import { downloadHtmlAsPdf } from '../utils/htmlPdf';
 import type { Pack, Contract, Reminder, Message, Expense, Client, Provider, Mission, Document, StreamSession, VideoRecording } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 import LiveVideoManager from './LiveVideoManager';
@@ -505,6 +506,47 @@ const Secretariat: React.FC = () => {
                     }
                 ]
             };
+
+            const contractHtml = String(contract.content || '').trim();
+            const looksLikeHtml = /<\s*html\b|<\s*body\b|<\s*div\b|<\s*h1\b|<\s*style\b/i.test(contractHtml);
+
+            if (looksLikeHtml && contractHtml) {
+                const logoNormalBase64 = await ensurePngDataUrl(LOGO_BASE64);
+                const logoSapBase64 = await ensurePngDataUrl(LOGO_SAP_BASE64);
+                const filename = `Contrat_${contract.name || contract.id}.pdf`;
+                await downloadHtmlAsPdf({
+                    html: contractHtml,
+                    filename,
+                    title: contract.name || `Contrat_${contract.id}`,
+                    zoom: 0.92,
+                    signatureImages: {
+                        client: clientSignatureBase64 || null,
+                        company: companySignatureBase64 || null,
+                        companyStamp: companyStampBase64 || null
+                    },
+                    signatureDates: {
+                        client: contract.signedAt || contract.createdAt || null,
+                        company: contract.validatedAt || null
+                    },
+                    imageReplacements: {
+                        [LOGO_NORMAL]: logoNormalBase64,
+                        [LOGO_SAP]: logoSapBase64,
+                        [COMPANY_SIGNATURE_URL]: companySignatureBase64,
+                        [COMPANY_STAMP_URL]: companyStampBase64,
+
+                        // Variantes fréquentes (format/chemins) pour garantir l'affichage logo + cachet
+                        ['https://prestaservicesantilles.com/cachetetsignature.webp']: companyStampBase64,
+                        ['/cachetetsignature.webp']: companyStampBase64,
+                        ['/cachetetsignature.png']: companyStampBase64,
+                        ['/images/logo.png']: logoNormalBase64,
+                        ['images/logo.png']: logoNormalBase64,
+                        ['/sap.png']: logoSapBase64,
+                        ['sap.png']: logoSapBase64
+                    }
+                });
+                alert('Contrat téléchargé avec succès.');
+                return;
+            }
 
             // Génération du PDF avec react-pdf
             const blob = await pdf(<ContractPDF doc={pdfData} packs={packs} />).toBlob();
@@ -1436,9 +1478,6 @@ const Secretariat: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <button onClick={() => handleDownloadPDF(contract)} className="text-slate-400 hover:text-brand-blue p-1" title="Télécharger PDF">
-                                            <Download className="w-4 h-4" />
-                                        </button>
                                         <button
                                             onClick={() => openContractModal(contract)}
                                             className="text-slate-400 hover:text-brand-blue p-1 border border-transparent hover:border-slate-200 rounded"

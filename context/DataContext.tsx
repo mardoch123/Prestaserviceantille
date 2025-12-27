@@ -729,7 +729,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (gcData) {
                 setGenericContracts(gcData.map((gc: any) => ({
                     ...gc,
-                    isActive: gc.is_active || gc.isActive || true
+                    isActive: typeof gc.is_active === 'boolean' ? gc.is_active : (typeof gc.isActive === 'boolean' ? gc.isActive : false)
                 })));
             }
             if (rData) {
