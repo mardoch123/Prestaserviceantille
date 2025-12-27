@@ -513,7 +513,15 @@ const Secretariat: React.FC = () => {
             if (looksLikeHtml && contractHtml) {
                 const logoNormalBase64 = await ensurePngDataUrl(LOGO_BASE64);
                 const logoSapBase64 = await ensurePngDataUrl(LOGO_SAP_BASE64);
-                const filename = `Contrat_${contract.name || contract.id}.pdf`;
+                const sanitizeFilenamePart = (v: any) =>
+                    String(v || '')
+                        .replace(/[\\/:*?"<>|]/g, '_')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+                const contractNamePart = sanitizeFilenamePart(contract?.name || contract?.id || 'Contrat');
+                const filename = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
                 await downloadHtmlAsPdf({
                     html: contractHtml,
                     filename,
@@ -555,7 +563,17 @@ const Secretariat: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Contrat_${contract.name || contract.id}.pdf`;
+            {
+                const sanitizeFilenamePart = (v: any) =>
+                    String(v || '')
+                        .replace(/[\\/:*?"<>|]/g, '_')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+                const contractNamePart = sanitizeFilenamePart(contract?.name || contract?.id || 'Contrat');
+                link.download = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
+            }
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
