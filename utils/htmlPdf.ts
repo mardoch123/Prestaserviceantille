@@ -21,7 +21,7 @@ type HtmlPdfOptions = {
 
 const buildContractPdfCss = () => `
 @page { size: A4; margin: 0; }
-html, body { background: #fff; }
+html, body { background: #fff; margin: 0; padding: 0; }
 body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 * { box-sizing: border-box; }
 
@@ -31,7 +31,19 @@ body, .pdf-root {
   -webkit-font-smoothing: antialiased;
   letter-spacing: 0.1px;
   word-spacing: 0.2px;
+  font-size: 10px;
 }
+
+/* Force smaller typography even if the contract HTML includes its own CSS. */
+.pdf-root, .pdf-root * {
+  font-size: 10px !important;
+}
+
+/* Keep headings readable while still smaller than before. */
+.pdf-root h1 { font-size: 15px !important; }
+.pdf-root h2 { font-size: 13px !important; }
+.pdf-root h3 { font-size: 12px !important; }
+.pdf-root h4 { font-size: 11px !important; }
 
 .pdf-zoom {
   transform-origin: top left;
@@ -107,6 +119,9 @@ const injectLogoIfMissing = (doc: Document, imageReplacements?: Record<string, s
   const root = doc.querySelector('.pdf-root') as HTMLElement | null;
   if (!root) return;
 
+  const pageCandidates = Array.from(root.querySelectorAll(':scope > div')) as HTMLElement[];
+  const firstPage = pageCandidates.length > 0 ? pageCandidates[0] : root;
+
   const hasLogo = Array.from(root.querySelectorAll('img')).some((img) => {
     const src = String(img.getAttribute('src') || '').toLowerCase();
     const alt = String(img.getAttribute('alt') || '').toLowerCase();
@@ -135,7 +150,7 @@ const injectLogoIfMissing = (doc: Document, imageReplacements?: Record<string, s
   img.style.objectFit = 'contain';
 
   wrapper.appendChild(img);
-  root.insertBefore(wrapper, root.firstChild);
+  firstPage.insertBefore(wrapper, firstPage.firstChild);
 };
 
 const injectSignatureSectionIfMissing = (
@@ -144,13 +159,31 @@ const injectSignatureSectionIfMissing = (
   signatureDates?: HtmlPdfOptions['signatureDates']
 ) => {
   if (!signatureImages) return;
-  const root = (doc.querySelector('.pdf-root') as HTMLElement | null) || doc.body;
-  const hasSignatureBoxes = !!root.querySelector('.signature-box');
+  const pdfRoot = (doc.querySelector('.pdf-root') as HTMLElement | null) || doc.body;
+  const pageCandidates = Array.from(pdfRoot.querySelectorAll(':scope > div')) as HTMLElement[];
+  const lastPage = pageCandidates.length > 0 ? pageCandidates[pageCandidates.length - 1] : pdfRoot;
+
+  const hasSignatureBoxes = !!pdfRoot.querySelector('.signature-box');
   if (hasSignatureBoxes) return;
+
+  const formatSignatureDateTime = (raw: any) => {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return s;
+
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const dd = pad2(d.getDate());
+    const mm = pad2(d.getMonth() + 1);
+    const yyyy = String(d.getFullYear());
+    const hh = pad2(d.getHours());
+    const min = pad2(d.getMinutes());
+    return `${dd}/${mm}/${yyyy} à ${hh}:${min}`;
+  };
 
   const clientSrc = signatureImages.client || '';
   const companySrc = signatureImages.companyStamp || signatureImages.company || '';
-  const clientDate = String(signatureDates?.client || '').trim();
+  const clientDate = formatSignatureDateTime(signatureDates?.client);
   const companyDate = String(signatureDates?.company || '').trim();
 
   const section = doc.createElement('div');
@@ -218,7 +251,57 @@ const injectSignatureSectionIfMissing = (
 
   section.appendChild(makeBox('Signature Client', clientSrc, clientDate));
   section.appendChild(makeBox('Signature Prestataire', companySrc, companyDate));
-  root.appendChild(section);
+  lastPage.appendChild(section);
+};
+
+const forcePageBreakBeforeArticles = (doc: Document, articleNumbers: number[]) => {
+  const root = (doc.querySelector('.pdf-root') as HTMLElement | null) || doc.body;
+  if (!root) return;
+  if (!Array.isArray(articleNumbers) || articleNumbers.length === 0) return;
+
+  const targets = new Set(articleNumbers.map((n) => String(n)));
+  const applied = new Set<string>();
+
+  const blockSelector = 'p,div,section,article,li,h1,h2,h3,h4';
+  const rx = /\barticle\s*(\d+)\b/i;
+
+  const applyBreakOn = (el: HTMLElement | null, n: string) => {
+    if (!el) return;
+    (el.style as any).pageBreakBefore = 'always';
+    (el.style as any).breakBefore = 'page';
+    applied.add(n);
+  };
+
+  // Robust approach: scan text nodes so we detect "Article 4" even if it's inside <span>/<strong>.
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node: Node | null = walker.nextNode();
+  while (node && applied.size < targets.size) {
+    const txt = String(node.nodeValue || '').replace(/\s+/g, ' ').trim();
+    if (txt) {
+      const m = txt.match(rx);
+      if (m && m[1] && targets.has(m[1]) && !applied.has(m[1])) {
+        const parent = (node.parentElement as HTMLElement | null);
+        const block = parent ? (parent.closest(blockSelector) as HTMLElement | null) : null;
+        applyBreakOn(block || parent, m[1]);
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  // Fallback: if not found in text nodes, try the previous block-based approach.
+  if (applied.size < targets.size) {
+    const blocks = Array.from(root.querySelectorAll(blockSelector)) as HTMLElement[];
+    for (const el of blocks) {
+      if (applied.size === targets.size) break;
+      const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const m = text.match(rx);
+      if (!m || !m[1]) continue;
+      const n = m[1];
+      if (!targets.has(n) || applied.has(n)) continue;
+      applyBreakOn(el, n);
+    }
+  }
 };
 
 const isCanvasMostlyWhite = (canvas: HTMLCanvasElement) => {
@@ -230,12 +313,18 @@ const isCanvasMostlyWhite = (canvas: HTMLCanvasElement) => {
 
   const sampleW = Math.min(width, 1200);
   const sx = Math.floor((width - sampleW) / 2);
+  // Sample multiple rows across the canvas INCLUDING the top.
+  // If a page has content only near the top (common for short contract articles),
+  // older sampling could incorrectly classify it as blank.
   const ys = [
-    Math.floor(height * 0.15),
+    Math.floor(height * 0.05),
+    Math.floor(height * 0.12),
+    Math.floor(height * 0.22),
     Math.floor(height * 0.35),
-    Math.floor(height * 0.55),
-    Math.floor(height * 0.75),
-    Math.floor(height * 0.9)
+    Math.floor(height * 0.5),
+    Math.floor(height * 0.65),
+    Math.floor(height * 0.8),
+    Math.floor(height * 0.92)
   ].map((y) => Math.max(0, Math.min(height - 1, y)));
 
   let whiteRows = 0;
@@ -248,7 +337,42 @@ const isCanvasMostlyWhite = (canvas: HTMLCanvasElement) => {
     }
   }
 
-  return whiteRows >= 4;
+  // Be conservative: only treat as blank if almost all sampled rows are white.
+  // This avoids dropping legitimate pages/sections with sparse content.
+  return whiteRows >= Math.max(7, Math.floor(ys.length * 0.9));
+};
+
+const isCanvasDefinitelyBlank = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const width = canvas.width;
+  const height = canvas.height;
+  if (width <= 0 || height <= 0) return false;
+
+  const grid = 6;
+  const threshold = 252;
+  const sampleW = Math.min(width, 800);
+  const sx = Math.floor((width - sampleW) / 2);
+
+  for (let gy = 0; gy < grid; gy++) {
+    const y = Math.max(0, Math.min(height - 1, Math.floor(((gy + 0.5) / grid) * height)));
+    try {
+      const row = ctx.getImageData(sx, y, sampleW, 1).data;
+      const pxCount = Math.floor(row.length / 4);
+      let white = 0;
+      for (let i = 0; i < row.length; i += 4) {
+        const r = row[i];
+        const g = row[i + 1];
+        const b = row[i + 2];
+        if (r >= threshold && g >= threshold && b >= threshold) white++;
+      }
+      if (white / Math.max(1, pxCount) < 0.995) return false;
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 const stripUrlParams = (raw: string) => {
@@ -466,7 +590,7 @@ const injectSignatures = (doc: Document, signatureImages?: HtmlPdfOptions['signa
   }
 };
 
-const isRowMostlyWhite = (data: Uint8ClampedArray, threshold = 248) => {
+const isRowMostlyWhite = (data: Uint8ClampedArray, threshold = 252) => {
   // data is RGBA for sampled pixels; treat pixel as white if RGB are high.
   const pxCount = Math.floor(data.length / 4);
   let white = 0;
@@ -476,7 +600,7 @@ const isRowMostlyWhite = (data: Uint8ClampedArray, threshold = 248) => {
     const b = data[i + 2];
     if (r >= threshold && g >= threshold && b >= threshold) white++;
   }
-  return white / Math.max(1, pxCount) > 0.92;
+  return white / Math.max(1, pxCount) > 0.97;
 };
 
 const findSafeBreakY = (canvas: HTMLCanvasElement, startY: number, targetHeight: number) => {
@@ -571,6 +695,7 @@ ${headStyleTags}
     applyImageReplacements(doc, imageReplacements);
     injectLogoIfMissing(doc, imageReplacements);
     injectSignatureSectionIfMissing(doc, signatureImages, signatureDates);
+    forcePageBreakBeforeArticles(doc, [5]);
     injectSignatures(doc, signatureImages, signatureDates);
     await waitForImages(doc);
 
@@ -607,7 +732,7 @@ ${headStyleTags}
         windowHeight: doc.documentElement.scrollHeight
       });
 
-      if (isCanvasMostlyWhite(canvas)) {
+      if (isCanvasDefinitelyBlank(canvas)) {
         continue;
       }
 
@@ -644,7 +769,7 @@ ${headStyleTags}
 
         ctx.drawImage(canvas, 0, y, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
 
-        if (isCanvasMostlyWhite(sliceCanvas)) {
+        if (isCanvasDefinitelyBlank(sliceCanvas)) {
           y += sliceHeightPx;
           continue;
         }

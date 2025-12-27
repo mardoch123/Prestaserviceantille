@@ -832,6 +832,12 @@ const ClientPortal: React.FC = () => {
                         ['/cachetetsignature.png']: companyStampBase64,
                         ['/images/logo.png']: logoNormalBase64,
                         ['images/logo.png']: logoNormalBase64,
+                        ['/src/assets/images/logo.webp']: logoNormalBase64,
+                        ['src/assets/images/logo.webp']: logoNormalBase64,
+                        ['/assets/images/logo.webp']: logoNormalBase64,
+                        ['assets/images/logo.webp']: logoNormalBase64,
+                        ['/images/logo.webp']: logoNormalBase64,
+                        ['images/logo.webp']: logoNormalBase64,
                         ['/sap.png']: logoSapBase64,
                         ['sap.png']: logoSapBase64
                     }

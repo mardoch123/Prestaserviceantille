@@ -20,6 +20,12 @@ const getSignatureImage = (signature: string | undefined): string | null => {
     console.log('Using raw base64 signature');
     return `data:image/png;base64,${signature}`;
   }
+
+  // Si c'est une URL (ex: supabase storage), on la retourne directement
+  if (/^https?:\/\//i.test(signature)) {
+    console.log('Using URL signature');
+    return signature;
+  }
   
   // Si c'est une URL, utiliser les constantes base64 disponibles
   if (signature.includes('https://prestaservicesantilles.com/signature.png')) {
@@ -159,6 +165,8 @@ const renderContractRichText = (value: string) => {
           <Text
             key={`p-${pIndex}`}
             style={isArticleParagraph ? [styles.contractParagraph, styles.contractArticleParagraph] : styles.contractParagraph}
+            wrap
+            minPresenceAhead={60}
           >
             {segments.map((seg, sIndex) => {
               if (/^article$/i.test(seg)) {
@@ -321,7 +329,7 @@ const renderContractHtml = (html: string) => {
   return (
     <View>
       {blocks.map((b, i) => (
-        <Text key={`html-b-${i}`} style={[styles.contractParagraph, b.blockStyle || {}]}>
+        <Text key={`html-b-${i}`} style={[styles.contractParagraph, b.blockStyle || {}]} wrap minPresenceAhead={60}>
           {(b.segments || []).map((s, j) => (
             <Text key={`html-s-${i}-${j}`} style={s.style || {}}>
               {s.text}
@@ -821,6 +829,14 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         );
       })()}
 
+      <View style={styles.footer} fixed>
+        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+      </View>
+    </Page>
+
+    <Page size="A4" style={styles.page}>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitleBrand}>Détails du Devis</Text>
         <View style={styles.table}>
@@ -903,8 +919,17 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           <View style={styles.signatureBoxCard}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
+              const companySig = getSignatureImage(doc.companySignature || doc.companySignatureUrl || SIGNATURE_BASE64);
               const primary = COMPANY_STAMP_LOCAL_SRC;
               console.log('Company signature result:', primary ? 'found' : 'not found');
+              if (companySig) {
+                return (
+                  <>
+                    <Image src={companySig} style={styles.signatureImage} />
+                    {primary ? <Image src={primary} style={styles.companyStampImage} /> : null}
+                  </>
+                );
+              }
               if (primary) {
                 return <Image src={primary} style={styles.companyStampImage} />;
               }
@@ -1248,16 +1273,13 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
               </Text>
             ) : null}
           </View>
-          <View style={styles.signatureBoxCard}>
+          <View style={styles.signatureBoxCard} minPresenceAhead={220}>
             <Text style={styles.signatureText}>Signature PrestaService</Text>
             {(() => {
-              const stampImg = COMPANY_STAMP_LOCAL_SRC || getSignatureImage(doc.companyStamp || doc.companyStampUrl || STAMP_SIGNATURE_BASE64);
-              const primary = stampImg;
+              const primary = COMPANY_STAMP_LOCAL_SRC;
               console.log('Company signature result:', primary ? 'found' : 'not found');
               if (primary) {
-                return (
-                  <Image src={primary} style={styles.companyStampImage} />
-                );
+                return <Image src={primary} style={styles.companyStampImage} />;
               }
               return (
                 <View style={{width: 100, height: 50, borderWidth: 1, borderColor: '#ccc', borderStyle: 'solid', alignItems: 'center', justifyContent: 'center', marginTop: 5}}>
