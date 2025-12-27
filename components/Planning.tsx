@@ -589,9 +589,9 @@ const Planning: React.FC = () => {
                 <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold text-slate-800 py-2">
                     {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(d => <div key={d}>{d}</div>)}
                 </div>
-                <div className="grid grid-cols-6 flex-1 min-h-[400px]">
+                <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
                      {[0,1,2,3,4,5].map(colIndex => (
-                        <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30 space-y-2">
+                        <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30 space-y-2 h-full overflow-y-auto">
                             {/* Reminders for this day */}
                             {filteredReminders
                                 .filter(r => getDayIndex(r.date) === colIndex && !r.completed)
