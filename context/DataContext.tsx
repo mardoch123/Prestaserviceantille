@@ -2660,10 +2660,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const deletePacks = async (ids: string[]) => {
-        const { error } = await supabase.from('packs').delete().in('id', ids);
-        if (!error) {
+        if (!Array.isArray(ids) || ids.length === 0) return;
+
+        if (!isSupabaseConfigured) {
             setPacks(prev => prev.filter(p => !ids.includes(p.id)));
+            return;
         }
+
+        const { error } = await supabase.from('packs').delete().in('id', ids);
+        if (error) {
+            console.error('Erreur deletePacks:', error);
+            const anyErr = error as any;
+            const msg = String(anyErr?.message || '');
+            const code = String(anyErr?.code || '');
+            if (code === '42703' && msg.toLowerCase().includes('updated_at')) {
+                throw new Error(
+                    "Suppression impossible (configuration base Supabase): la fonction/trigger 'set_updated_at' sur la table packs est invalide. Corrige la fonction côté Supabase (SQL Editor) puis réessaie."
+                );
+            }
+            throw new Error(msg || 'Erreur lors de la suppression des packs');
+        }
+
+        setPacks(prev => prev.filter(p => !ids.includes(p.id)));
     };
 
     const addContract = async (contract: Contract) => {

@@ -407,8 +407,12 @@ const ClientPortal: React.FC = () => {
         };
 
         try {
-            const tvaRate = doc.tvaRate ?? 8.5;
-            const logoBase64 = tvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const resolvedTvaRate = (() => {
+                const raw = (doc as any)?.tvaRate;
+                const n = typeof raw === 'number' ? raw : Number(raw);
+                return Number.isFinite(n) ? n : 0;
+            })();
+            const logoBase64 = resolvedTvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
             const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
             const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
 
@@ -439,7 +443,7 @@ const ClientPortal: React.FC = () => {
                 dueDate: doc.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 jours après
                 paid: doc.status === 'paid',
                 status: doc.status,
-                tvaRate,
+                tvaRate: resolvedTvaRate,
                 clientName: client.name,
                 clientEmail: client.email,
                 clientPhone: client.phone,
@@ -538,8 +542,12 @@ const ClientPortal: React.FC = () => {
             const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
             const refPart = sanitizeFilenamePart(doc?.ref || '');
 
-            const tvaRate = doc.tvaRate ?? 8.5;
-            const logoBase64 = tvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const resolvedTvaRate = (() => {
+                const raw = (doc as any)?.tvaRate;
+                const n = typeof raw === 'number' ? raw : Number(raw);
+                return Number.isFinite(n) ? n : 0;
+            })();
+            const logoBase64 = resolvedTvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
             const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
             const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
             const clientSignature = await ensurePngDataUrl(doc.signatureData || null);
@@ -567,7 +575,7 @@ const ClientPortal: React.FC = () => {
                 date: doc.date,
                 signed: doc.status === 'signed',
                 status: doc.status,
-                tvaRate,
+                tvaRate: resolvedTvaRate,
                 clientName: client.name,
                 clientEmail: client.email,
                 clientPhone: client.phone,
@@ -641,7 +649,7 @@ const ClientPortal: React.FC = () => {
         return 0;
     };
 
-    const handleDownloadContract = async () => {
+    const handleDownloadContract = async (quoteDoc?: any) => {
         showToast('Téléchargement du contrat signé...');
 
         console.log('Searching contracts for client:', client.id);
@@ -670,15 +678,29 @@ const ClientPortal: React.FC = () => {
             return htmlFirst[0] || null;
         };
 
-        // First try to find contract(s) by clientId (new approach)
-        let clientContract = pickBestContract(
-            contracts.filter(c =>
-                c.clientId === client.id &&
-                (c.status === 'active' || c.status === 'pending_validation')
-            )
-        );
+        // 1) If we know which quote the user clicked, bind the contract to that quote.
+        const quoteId = quoteDoc?.id;
+        let clientContract = quoteId
+            ? pickBestContract(
+                  contracts.filter(
+                      (c: any) =>
+                          String(c?.quoteId || '') === String(quoteId) &&
+                          (c.status === 'active' || c.status === 'pending_validation' || c.status === 'draft')
+                  )
+              )
+            : null;
 
-        // If not found, try fallback approach by matching client name in contract name
+        // 2) Fallback: contract(s) by clientId
+        if (!clientContract) {
+            clientContract = pickBestContract(
+                contracts.filter(c =>
+                    c.clientId === client.id &&
+                    (c.status === 'active' || c.status === 'pending_validation')
+                )
+            );
+        }
+
+        // 3) Last fallback: match client name in contract name
         if (!clientContract) {
             console.log('Contract not found by clientId, trying name matching fallback');
             clientContract = pickBestContract(
@@ -780,7 +802,32 @@ const ClientPortal: React.FC = () => {
                 clientSignature: clientSignatureBase64,
                 companySignature: companySignatureBase64,
                 companyStamp: companyStampBase64,
-                logoBase64,
+                tvaRate: (() => {
+                    const fromSelectedQuote = (selectedQuote as any)?.tvaRate;
+                    if (typeof fromSelectedQuote !== 'undefined' && fromSelectedQuote !== null) {
+                        const n = typeof fromSelectedQuote === 'number' ? fromSelectedQuote : Number(fromSelectedQuote);
+                        if (Number.isFinite(n)) return n;
+                    }
+
+                    const fromQuoteId = (clientContract as any)?.quoteId;
+                    if (fromQuoteId) {
+                        const linked = documents.find((d: any) => String(d?.id) === String(fromQuoteId));
+                        const raw = (linked as any)?.tvaRate;
+                        const n = typeof raw === 'number' ? raw : Number(raw);
+                        if (Number.isFinite(n)) return n;
+                    }
+
+                    // fallback: contract.isSap flag if available
+                    if ((clientContract as any)?.isSap) return 0;
+                    return 0;
+                })(),
+                logoBase64: (() => {
+                    // If TVA=0 => SAP, else normal
+                    const raw = (selectedQuote as any)?.tvaRate;
+                    const n = typeof raw === 'number' ? raw : Number(raw);
+                    const effective = Number.isFinite(n) ? n : ((clientContract as any)?.isSap ? 0 : 0);
+                    return effective === 0 ? LOGO_SAP_BASE64 : (logoBase64 as any);
+                })(),
                 content: clientContract.content || '',
 
                 companySignatureUrl: COMPANY_SIGNATURE_URL,
@@ -805,6 +852,12 @@ const ClientPortal: React.FC = () => {
             if (looksLikeHtml && contractHtml) {
                 const logoNormalBase64 = await ensurePngDataUrl(LOGO_BASE64);
                 const logoSapBase64 = await ensurePngDataUrl(LOGO_SAP_BASE64);
+                const effectiveTvaRate = (() => {
+                    const raw = (pdfData as any).tvaRate;
+                    const n = typeof raw === 'number' ? raw : Number(raw);
+                    return Number.isFinite(n) ? n : 0;
+                })();
+                const selectedLogoBase64 = effectiveTvaRate === 0 ? logoSapBase64 : logoNormalBase64;
                 const filename = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
                 await downloadHtmlAsPdf({
                     html: contractHtml,
@@ -821,6 +874,8 @@ const ClientPortal: React.FC = () => {
                         company: clientContract.validatedAt || null
                     },
                     imageReplacements: {
+                        // Provide a generic 'logo' entry so injectLogoIfMissing picks the correct one
+                        ['logo']: selectedLogoBase64,
                         [LOGO_NORMAL]: logoNormalBase64,
                         [LOGO_SAP]: logoSapBase64,
                         [COMPANY_SIGNATURE_URL]: companySignatureBase64,
@@ -1535,7 +1590,7 @@ const ClientPortal: React.FC = () => {
                                                                 {doc.status === 'signed' && (
                                                                     <button
                                                                         onClick={() => {
-                                                                            handleDownloadContract();
+                                                                            handleDownloadContract(doc);
                                                                             setActiveDropdown(null);
                                                                         }}
                                                                         className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3 border-b border-slate-100"
@@ -1580,7 +1635,7 @@ const ClientPortal: React.FC = () => {
                                                                 {doc.status !== 'signed' && (
                                                                     <button
                                                                         onClick={() => {
-                                                                            handleDownloadContract();
+                                                                            handleDownloadContract(doc);
                                                                             setActiveDropdown(null);
                                                                         }}
                                                                         className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition flex items-center gap-3 border-b border-slate-100"
@@ -2163,7 +2218,7 @@ const ClientPortal: React.FC = () => {
                             {selectedQuote.status === 'sent' && (
                                 <div className="md:hidden fixed bottom-24 right-4 z-40 flex flex-col gap-2">
                                     <button
-                                        onClick={handleDownloadContract}
+                                        onClick={() => handleDownloadContract(selectedQuote)}
                                         className="bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-700 transition flex items-center gap-2"
                                     >
                                         <Download className="w-4 h-4" />
@@ -2184,7 +2239,7 @@ const ClientPortal: React.FC = () => {
                             {selectedQuote.status === 'signed' && (
                                 <div className="md:hidden fixed bottom-24 right-4 z-40">
                                     <button
-                                        onClick={handleDownloadContract}
+                                        onClick={() => handleDownloadContract(selectedQuote)}
                                         className="bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-700 transition flex items-center gap-2"
                                     >
                                         <Download className="w-4 h-4" />
@@ -2245,7 +2300,7 @@ const ClientPortal: React.FC = () => {
 
                                             <div className="flex flex-col gap-3">
                                                 <button
-                                                    onClick={handleDownloadContract}
+                                                    onClick={() => handleDownloadContract(selectedQuote)}
                                                     className="w-full py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2"
                                                 >
                                                     <Download className="w-4 h-4" />
@@ -2298,13 +2353,13 @@ const ClientPortal: React.FC = () => {
                                     <button
                                         onClick={async () => {
                                             try {
-                                                await handleDownloadContract();
+                                                await handleDownloadContract(selectedQuote);
                                             } catch (e) {
                                                 // Fallback: conserver la logique existante (génération via template)
                                                 const pack = packs.find(p => p.name === client.pack);
-                                                const contract = generateContractFromTemplate(selectedQuote, client, pack);
-                                                if (contract) {
-                                                    downloadContract(contract);
+                                                const newContract = generateContractFromTemplate(selectedQuote, client, pack);
+                                                if (newContract) {
+                                                    downloadContract(newContract);
                                                     showToast("Contrat téléchargé avec succès");
                                                 }
                                             }

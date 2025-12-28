@@ -470,7 +470,18 @@ const Secretariat: React.FC = () => {
                 return 0;
             };
 
-            const logoBase64 = await ensurePngDataUrl(LOGO_BASE64);
+            const resolvedTvaRate = (() => {
+                if (contract.quoteId) {
+                    const linked = documents.find((d: any) => String(d?.id) === String(contract.quoteId));
+                    const raw = (linked as any)?.tvaRate;
+                    const n = typeof raw === 'number' ? raw : Number(raw);
+                    if (Number.isFinite(n)) return n;
+                }
+                if (typeof (contract as any).isSap === 'boolean') return (contract as any).isSap ? 0 : 0;
+                return 0;
+            })();
+
+            const logoBase64 = resolvedTvaRate === 0 ? await ensurePngDataUrl(LOGO_SAP_BASE64) : await ensurePngDataUrl(LOGO_BASE64);
             const companySignatureBase64 = await ensurePngDataUrl(SIGNATURE_BASE64);
             const companyStampBase64 = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
             const clientSignatureBase64 = await ensurePngDataUrl(clientSignature);
@@ -490,12 +501,13 @@ const Secretariat: React.FC = () => {
                 clientSignature: clientSignatureBase64,
                 companySignature: companySignatureBase64,
                 companyStamp: companyStampBase64,
+                tvaRate: resolvedTvaRate,
                 logoBase64,
                 content: contract.content || '',
 
                 companySignatureUrl: COMPANY_SIGNATURE_URL,
                 companyStampUrl: COMPANY_STAMP_URL,
-                logoUrl: LOGO_NORMAL,
+                logoUrl: resolvedTvaRate === 0 ? LOGO_SAP : LOGO_NORMAL,
                 total: linkedQuoteTotal || contract.amount || getContractAmountFromContent(contract.content || '') || 0,
                 paymentTerms: contract.paymentTerms || 'Selon conditions générales de vente',
                 object: contract.object || 'Contrat de services entre Presta Services Antilles et le client',
@@ -513,6 +525,7 @@ const Secretariat: React.FC = () => {
             if (looksLikeHtml && contractHtml) {
                 const logoNormalBase64 = await ensurePngDataUrl(LOGO_BASE64);
                 const logoSapBase64 = await ensurePngDataUrl(LOGO_SAP_BASE64);
+                const selectedLogoBase64 = resolvedTvaRate === 0 ? logoSapBase64 : logoNormalBase64;
                 const sanitizeFilenamePart = (v: any) =>
                     String(v || '')
                         .replace(/[\\/:*?"<>|]/g, '_')
@@ -537,6 +550,8 @@ const Secretariat: React.FC = () => {
                         company: contract.validatedAt || null
                     },
                     imageReplacements: {
+                        // Provide a generic 'logo' entry so injectLogoIfMissing picks the correct one
+                        ['logo']: selectedLogoBase64,
                         [LOGO_NORMAL]: logoNormalBase64,
                         [LOGO_SAP]: logoSapBase64,
                         [COMPANY_SIGNATURE_URL]: companySignatureBase64,
@@ -755,10 +770,15 @@ const Secretariat: React.FC = () => {
     };
 
     const executeDeletePacks = async () => {
-        await deletePacks(Array.from(selectedPackIds));
-        setSelectedPackIds(new Set());
-        setDeleteConfirmOpen(false);
-        showToast('Packs supprimés avec succès.');
+        try {
+            await deletePacks(Array.from(selectedPackIds));
+            setSelectedPackIds(new Set());
+            setDeleteConfirmOpen(false);
+            showToast('Packs supprimés avec succès.');
+        } catch (e: any) {
+            console.error('[executeDeletePacks] delete failed:', e);
+            showToast(e?.message || 'Erreur lors de la suppression des packs.', 'error');
+        }
     };
 
     const confirmDeleteContracts = () => {
