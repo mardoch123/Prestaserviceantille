@@ -498,7 +498,7 @@ const ClientPortal: React.FC = () => {
     };
 
     const handleDownloadSignedQuote = async (doc: any) => {
-        showToast('Téléchargement du devis signé...');
+        showToast('Téléchargement du devis...');
 
         const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
             return await new Promise((resolve, reject) => {
@@ -650,7 +650,7 @@ const ClientPortal: React.FC = () => {
     };
 
     const handleDownloadContract = async (quoteDoc?: any) => {
-        showToast('Téléchargement du contrat signé...');
+        showToast('Téléchargement du contrat...');
 
         console.log('Searching contracts for client:', client.id);
         console.log('Available contracts:', contracts.map(c => ({ id: c.id, clientId: c.clientId, status: c.status, name: c.name })));
@@ -1545,7 +1545,24 @@ const ClientPortal: React.FC = () => {
                                                         </span>
                                                     )}
                                                     <div className="text-xs text-slate-500 mt-1">
-                                                    {doc.date}
+                                                    {(() => {
+                                                        const ts = (doc as any)?.created_at || (doc as any)?.createdAt || doc.date;
+                                                        if (!ts) return doc.date;
+
+                                                        // Éviter les décalages quand doc.date est un simple YYYY-MM-DD (interprété en UTC par Date)
+                                                        const rawDate = String((doc as any)?.date || '').trim();
+                                                        const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+                                                            ? rawDate.split('-').reverse().join('/')
+                                                            : formatMartiniqueDate(ts);
+
+                                                        const timeStr = formatMartiniqueDateTime(ts, { hour: '2-digit', minute: '2-digit' });
+                                                        return (
+                                                            <>
+                                                                {dateStr}
+                                                                {timeStr ? <span className="ml-1">à {timeStr}</span> : null}
+                                                            </>
+                                                        );
+                                                    })()}
                                                     {doc.slotsData && doc.slotsData.length > 0 && (
                                                         <span className="block text-xs text-blue-600 font-medium mt-1">
                                                             {doc.slotsData.map((slot: any) => `${slot.startTime}-${slot.endTime}`).join(', ')}

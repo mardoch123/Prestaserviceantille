@@ -29,17 +29,26 @@ export const formatMartiniqueDateTime = (
 ): string => {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   
-  const defaultOptions: Intl.DateTimeFormatOptions = {
+  const baseOptions: Intl.DateTimeFormatOptions = {
     timeZone: MARTINIQUE_TIMEZONE,
+    hour12: false
+  };
+
+  const defaultOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false
   };
-  
-  return dateObj.toLocaleString('fr-FR', { ...defaultOptions, ...options });
+
+  // Si des options sont fournies, on utilise uniquement ces options (en conservant le timeZone)
+  // afin d'éviter d'ajouter implicitement date/heure non désirées.
+  const finalOptions = options
+    ? { ...baseOptions, ...options }
+    : { ...baseOptions, ...defaultOptions };
+
+  return dateObj.toLocaleString('fr-FR', finalOptions);
 };
 
 /**

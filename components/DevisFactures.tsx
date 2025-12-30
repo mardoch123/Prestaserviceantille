@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
+import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
@@ -81,6 +83,39 @@ const DevisFactures: React.FC = () => {
         unitPrice: number;
         quantity: number;
     }>>([]);
+
+    const getNowMartinique = (): Date => new Date();
+
+    const getTodayMartiniqueStr = (): string => getMartiniqueToday();
+
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+
+    const roundUpToNext5Minutes = (d: Date): Date => {
+        // IMPORTANT: le navigateur peut être dans un autre fuseau. On calcule en Martinique via dayjs.tz.
+        const base = dayjs(d).tz(MARTINIQUE_TIMEZONE).second(0).millisecond(0);
+        const minutes = base.minute();
+        const rounded = Math.ceil(minutes / 5) * 5;
+        const next = rounded === 60 ? base.add(1, 'hour').minute(0) : base.minute(rounded);
+        return next.toDate();
+    };
+
+    const toHHMM = (d: Date): string => dayjs(d).tz(MARTINIQUE_TIMEZONE).format('HH:mm');
+
+    const isDateTodayMartinique = (dateStr: string): boolean => {
+        return String(dateStr || '') === getTodayMartiniqueStr();
+    };
+
+    const getMinStartTimeForSlot = (slotDate: string): string | undefined => {
+        if (!slotDate) return undefined;
+        if (!isDateTodayMartinique(slotDate)) return undefined;
+        return toHHMM(roundUpToNext5Minutes(getNowMartinique()));
+    };
+
+    const isSlotStartInPast = (slotDate: string, startTime: string): boolean => {
+        if (!slotDate || !startTime) return false;
+        const slotStart = dayjs.tz(`${slotDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        return slotStart.isBefore(getMartiniqueNowDayjs());
+    };
 
     const selectedClient = clients.find(c => c.id === selectedClientId);
 
@@ -255,7 +290,14 @@ const DevisFactures: React.FC = () => {
         if (!pack) return;
 
         const newSlots: InterventionSlot[] = [];
-        const baseDate = new Date(); // Start from today or logic
+        const baseDate = (() => {
+            const d = new Date(getTodayMartiniqueStr());
+            const defaultStart = '09:00';
+            if (isSlotStartInPast(getTodayMartiniqueStr(), defaultStart)) {
+                d.setDate(d.getDate() + 1);
+            }
+            return d;
+        })();
 
         if (pack.name.includes("Tranquility")) {
             // Logic for Tranquility: 12h total
@@ -435,10 +477,15 @@ const DevisFactures: React.FC = () => {
             }
         }
 
-        const startDateStr = getMartiniqueToday();
+        const startDateStr = getTodayMartiniqueStr();
         const startDate = new Date(startDateStr);
         const newSlots: InterventionSlot[] = [];
         let cursorDate = new Date(startDate);
+
+        // Si l'horaire par défaut est déjà passé pour aujourd'hui, commencer au lendemain
+        if (sessions.length > 0 && sessions[0]?.startTime && isSlotStartInPast(startDateStr, sessions[0].startTime)) {
+            cursorDate.setDate(cursorDate.getDate() + 1);
+        }
 
         for (let i = 0; i < sessions.length; i++) {
             let found = false;
@@ -446,6 +493,11 @@ const DevisFactures: React.FC = () => {
                 const candidate = new Date(cursorDate);
                 candidate.setDate(candidate.getDate() + offset);
                 const candidateStr = candidate.toISOString().split('T')[0];
+
+                // Ne jamais proposer un créneau dans le passé (cas: aujourd'hui mais heure déjà passée)
+                if (candidateStr === getTodayMartiniqueStr() && isSlotStartInPast(candidateStr, sessions[i].startTime)) {
+                    continue;
+                }
 
                 const candidateSlot: InterventionSlot = {
                     id: `slot-auto-${i}-${candidateStr}`,
@@ -482,6 +534,31 @@ const DevisFactures: React.FC = () => {
     const updateSlot = (index: number, field: keyof InterventionSlot, value: string) => {
         const newSlots = [...interventionSlots];
         const currentSlot = newSlots[index];
+
+        if (field === 'date') {
+            const nextDate = value;
+            if (nextDate && nextDate < getTodayMartiniqueStr()) {
+                showToast("La date doit être aujourd'hui ou une date future.", 'warning');
+                return;
+            }
+            const minStart = getMinStartTimeForSlot(nextDate);
+            if (minStart && currentSlot.startTime && currentSlot.startTime < minStart) {
+                const nextStart = minStart;
+                const nextEnd = addHoursToTime(nextStart, currentSlot.duration);
+                newSlots[index] = { ...currentSlot, date: nextDate, startTime: nextStart, endTime: nextEnd };
+                setInterventionSlots(newSlots);
+                showToast("Heure ajustée car la date sélectionnée est aujourd'hui.", 'warning');
+                return;
+            }
+        }
+
+        if (field === 'startTime' && currentSlot.date) {
+            const minStart = getMinStartTimeForSlot(currentSlot.date);
+            if (minStart && value && value < minStart) {
+                showToast("Impossible de choisir une heure passée pour aujourd'hui. Choisissez une heure future ou une date ultérieure.", 'warning');
+                return;
+            }
+        }
 
         if (field === 'startTime') {
             // Garder la durée constante si possible, décaler l'heure de fin
@@ -569,6 +646,11 @@ const DevisFactures: React.FC = () => {
             }
         } else {
             newSlots[index] = { ...currentSlot, [field]: value };
+        }
+
+        if (newSlots[index]?.date && newSlots[index]?.startTime && isSlotStartInPast(newSlots[index].date, newSlots[index].startTime)) {
+            showToast("Créneau invalide : l'heure doit être supérieure à l'heure actuelle ou la date doit être ultérieure.", 'warning');
+            return;
         }
         setInterventionSlots(newSlots);
     };
@@ -848,6 +930,24 @@ const DevisFactures: React.FC = () => {
                     showToast(availabilityCheck.message, 'warning');
                     setIsSubmitting(false);
                     return;
+                }
+
+                // Validation stricte date/heure (Martinique):
+                // - aucune date passée
+                // - si date = aujourd'hui, aucune heure passée
+                const todayStr = getTodayMartiniqueStr();
+                for (const slot of interventionSlots) {
+                    if (!slot?.date) continue;
+                    if (slot.date < todayStr) {
+                        showToast("Impossible de choisir une date antérieure à aujourd'hui (Martinique).", 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (slot?.startTime && isSlotStartInPast(slot.date, slot.startTime)) {
+                        showToast("Impossible de choisir une heure antérieure à l'heure actuelle (Martinique).", 'warning');
+                        setIsSubmitting(false);
+                        return;
+                    }
                 }
             }
 
@@ -1893,18 +1993,21 @@ const DevisFactures: React.FC = () => {
                                                                         <input
                                                                             type="date"
                                                                             className="p-2 border border-slate-200 rounded text-sm"
+                                                                            min={getTodayMartiniqueStr()}
                                                                             value={slot.date}
                                                                             onChange={(e) => updateSlot(index, 'date', e.target.value)}
                                                                         />
                                                                         <input
                                                                             type="time"
                                                                             className="p-2 border border-slate-200 rounded text-sm"
+                                                                            min={getMinStartTimeForSlot(slot.date)}
                                                                             value={slot.startTime}
                                                                             onChange={(e) => updateSlot(index, 'startTime', e.target.value)}
                                                                         />
                                                                         <input
                                                                             type="time"
                                                                             className="p-2 border border-slate-200 rounded text-sm"
+                                                                            min={getMinStartTimeForSlot(slot.date)}
                                                                             value={slot.endTime}
                                                                             onChange={(e) => updateSlot(index, 'endTime', e.target.value)}
                                                                         />
@@ -2025,11 +2128,11 @@ const DevisFactures: React.FC = () => {
                                                     interventionSlots.map((slot, index) => (
                                                         <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50">
                                                             <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
-                                                            <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value)} />
+                                                            <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value)} />
                                                             <div className="flex items-center gap-1">
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value)} />
+                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value)} />
                                                                 <span className="text-slate-400 text-xs">à</span>
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value)} />
+                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value)} />
                                                             </div>
                                                             <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
                                                             <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>

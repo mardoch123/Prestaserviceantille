@@ -42,9 +42,19 @@ export const PDF_DATETIME_FORMAT = 'DD MMMM YYYY à HH:mm';
 
 // Fonctions spécifiques pour les PDFs
 export const formatPDFDate = (date: Date | string | number): string => {
-  return dayjs(date).tz(MARTINIQUE_TIMEZONE).format(PDF_DATE_FORMAT);
+  const formatted = dayjs(date).tz(MARTINIQUE_TIMEZONE).format(PDF_DATE_FORMAT);
+  return formatted.replace(/(\d{2}\s+)([^\s]+)/, (_m, p1, month) => {
+    const m = String(month || '');
+    if (!m) return `${p1}${m}`;
+    return `${p1}${m.charAt(0).toUpperCase()}${m.slice(1)}`;
+  });
 };
 
 export const formatPDFDateTime = (date: Date | string | number): string => {
-  return dayjs(date).tz(MARTINIQUE_TIMEZONE).format(PDF_DATETIME_FORMAT);
+  const formatted = dayjs(date).tz(MARTINIQUE_TIMEZONE).format(PDF_DATETIME_FORMAT);
+  return formatted.replace(/(\d{2}\s+)([^\s]+)/, (_m, p1, month) => {
+    const m = String(month || '');
+    if (!m) return `${p1}${m}`;
+    return `${p1}${m.charAt(0).toUpperCase()}${m.slice(1)}`;
+  });
 };
