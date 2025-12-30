@@ -448,6 +448,7 @@ const styles = StyleSheet.create({
   titleQuote: {
     fontSize: 13,
     marginBottom: 3,
+    textAlign: 'right',
   },
   titleBrand: {
     color: '#0B5FA5',
@@ -472,6 +473,11 @@ const styles = StyleSheet.create({
   subtitleSmallQuote: {
     fontSize: 7.2,
     marginBottom: 2,
+    textAlign: 'right',
+  },
+
+  headerTextBlockQuote: {
+    alignItems: 'flex-end',
   },
   logo: {
     width: 140,
@@ -889,6 +895,7 @@ const styles = StyleSheet.create({
     width: 110,
     height: 60,
     objectFit: 'contain',
+    alignSelf: 'center',
   },
   companyStampImage: {
     width: 160,
@@ -959,7 +966,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                       <Text style={styles.placeholderText}>LOGO</Text>
                     </View>
                   )}
-                  <View style={styles.headerTextBlock}>
+                  <View style={[styles.headerTextBlock, styles.headerTextBlockQuote]}>
                     <Text style={[styles.title, styles.titleBrand, styles.titleQuote]}>{doc.status === 'signed' ? 'DEVIS SIGNÉ' : 'DEVIS'}</Text>
                     <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>
                         Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}

@@ -1644,7 +1644,7 @@ const ClientPortal: React.FC = () => {
                                                                     >
                                                                         <FileSignature className="w-4 h-4 text-purple-600" /> 
                                                                         <div>
-                                                                            <div className="font-medium">Télécharger devis signé</div>
+                                                                            <div className="font-medium">Télécharger devis</div>
                                                                             <div className="text-xs text-slate-500">Avec signatures</div>
                                                                         </div>
                                                                     </button>
@@ -2012,7 +2012,7 @@ const ClientPortal: React.FC = () => {
                                             onClick={() => handleDownloadSignedQuote(selectedQuote)}
                                             className="px-3 py-2 text-purple-600 font-bold hover:bg-purple-50 rounded-xl border border-transparent hover:border-purple-100 transition text-sm"
                                         >
-                                            Télécharger devis signé
+                                            Télécharger devis
                                         </button>
                                         <button
                                             onClick={handleDownloadContract}
