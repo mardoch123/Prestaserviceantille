@@ -50,7 +50,7 @@ const PROVIDER_SPECIALTIES = [
 ];
 
 const Providers: React.FC = () => {
-  const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword } = useData();
+  const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -286,10 +286,27 @@ Lien de connexion : https://presta-antilles.app/login`);
   };
 
   const executeBulkDelete = async () => {
-      await deleteProviders(Array.from(selectedIds));
-      setSelectedIds(new Set());
-      setDeleteConfirmOpen(false);
-      showToast('Prestataires supprimés avec succès.');
+      try {
+          const ids = Array.from(selectedIds);
+          await deleteProviders(ids);
+          if (typeof refreshData === 'function') {
+              await refreshData();
+          }
+          setSelectedIds(new Set());
+          setDeleteConfirmOpen(false);
+          showToast('Prestataires supprimés avec succès.');
+      } catch (e: any) {
+          console.error('[Providers] Bulk delete failed:', e);
+          const msg = String(e?.message || '').toLowerCase();
+          const code = e?.code;
+          if (code === '23503' || msg.includes('foreign key') || msg.includes('clé étrang') || msg.includes('contrainte')) {
+              showToast("Suppression impossible: ce prestataire est encore lié à des missions/absences. Supprime d'abord ses éléments liés.", 'error');
+          } else if (code === '409' || String(code) === '409' || msg.includes('409')) {
+              showToast("Suppression impossible (conflit). Le prestataire est probablement encore référencé.", 'error');
+          } else {
+              showToast("Erreur lors de la suppression des prestataires.", 'error');
+          }
+      }
   };
 
   return (

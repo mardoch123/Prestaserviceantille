@@ -300,10 +300,35 @@ Lien de connexion : https://presta-antilles.app/login`);
   };
 
   const executeBulkDelete = async () => {
-      await deleteClients(Array.from(selectedIds));
-      setSelectedIds(new Set());
-      setDeleteConfirmOpen(false);
-      showToast('Clients supprimés avec succès.');
+      try {
+          const ids = Array.from(selectedIds);
+          await deleteClients(ids);
+          await refreshData();
+          setSelectedIds(new Set());
+          setDeleteConfirmOpen(false);
+          showToast('Clients supprimés avec succès.');
+      } catch (e: any) {
+          console.error('[Clients] Bulk delete failed:', e);
+          const msg = String(e?.message || '').toLowerCase();
+          const code = e?.code;
+          const referencedTable = (() => {
+              const details = String(e?.details || '');
+              const m = details.match(/referenced from table "([^"]+)"/i);
+              return m?.[1] || '';
+          })();
+          if (code === '23503' || msg.includes('foreign key') || msg.includes('clé étrang') || msg.includes('contrainte')) {
+              showToast(
+                  referencedTable
+                      ? `Suppression impossible: ce client est encore référencé dans "${referencedTable}". Supprime d'abord les éléments liés.`
+                      : "Suppression impossible: ce client est encore lié à des missions/documents/contrats. Supprime d'abord ses éléments liés.",
+                  'error'
+              );
+          } else if (code === '409' || String(code) === '409' || msg.includes('409')) {
+              showToast("Suppression impossible (conflit). Le client est probablement encore référencé.", 'error');
+          } else {
+              showToast("Erreur lors de la suppression des clients.", 'error');
+          }
+      }
   };
 
   // Fonction pour récupérer le pack actif du client

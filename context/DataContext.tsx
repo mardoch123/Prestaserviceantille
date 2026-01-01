@@ -1993,9 +1993,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const deleteClients = async (ids: string[]) => {
         const { error } = await supabase.from('clients').delete().in('id', ids);
-        if (!error) {
-            setClients(prev => prev.filter(c => !ids.includes(c.id)));
+        if (error) {
+            console.error('[deleteClients] Supabase error:', error);
+            throw error;
         }
+
+        // Best-effort verification: confirm the rows are actually gone from DB
+        try {
+            const { data: remaining, error: verifyError } = await supabase
+                .from('clients')
+                .select('id')
+                .in('id', ids);
+            if (!verifyError && Array.isArray(remaining) && remaining.length > 0) {
+                throw new Error('Suppression incomplète: certains clients existent encore en base.');
+            }
+        } catch (e) {
+            console.warn('[deleteClients] Verification skipped/failed:', e);
+        }
+
+        setClients(prev => prev.filter(c => !ids.includes(c.id)));
     };
 
     const addLoyaltyHours = async (clientId: string, hours: number) => {
@@ -2029,9 +2045,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const deleteProviders = async (ids: string[]) => {
         const { error } = await supabase.from('providers').delete().in('id', ids);
-        if (!error) {
-            setProviders(prev => prev.filter(p => !ids.includes(p.id)));
+        if (error) {
+            console.error('[deleteProviders] Supabase error:', error);
+            throw error;
         }
+
+        // Best-effort verification: confirm the rows are actually gone from DB
+        try {
+            const { data: remaining, error: verifyError } = await supabase
+                .from('providers')
+                .select('id')
+                .in('id', ids);
+            if (!verifyError && Array.isArray(remaining) && remaining.length > 0) {
+                throw new Error('Suppression incomplète: certains prestataires existent encore en base.');
+            }
+        } catch (e) {
+            console.warn('[deleteProviders] Verification skipped/failed:', e);
+        }
+
+        setProviders(prev => prev.filter(p => !ids.includes(p.id)));
     };
 
     const addLeave = async (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => {
