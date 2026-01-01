@@ -6,6 +6,8 @@ const EMAILJS_SERVICE_ID = "service_fuz4xun";
 const EMAILJS_TEMPLATE_ID = "template_rbhwm3n";
 const EMAILJS_PUBLIC_KEY = "IjPFArfcYyNDZTQSS";
 
+const EMAIL_BRAND_NAME = 'Presta Services Antilles';
+
 /**
  * Professional Email Service using EmailJS with Preconfigured Templates
  * 
@@ -47,19 +49,13 @@ export const sendEmailViaEmailJS = async (
         // Generate complete email from preconfigured template
         const emailTemplate = generateEmailTemplate(templateType, context);
 
-        // Extract recipient name from context
-        const recipientName = context.name
-            || context.clientName
-            || context.providerName
-            || context.to_name
-            || context.name
-            || 'Cher client';
+        const normalizedSubject = `${EMAIL_BRAND_NAME} - ${String(emailTemplate.subject || subject || '').trim()}`.trim();
 
         // Prepare simplified template parameters (ONLY 4 variables)
         const templateParams = {
             to_email: to,
-            name: recipientName,
-            subject: emailTemplate.subject,
+            name: EMAIL_BRAND_NAME,
+            subject: normalizedSubject,
             message: emailTemplate.message
         };
 
@@ -67,8 +63,8 @@ export const sendEmailViaEmailJS = async (
         console.log(`[EmailJS] Sending email:`, {
             type: templateType,
             to: to,
-            subject: emailTemplate.subject,
-            name: recipientName
+            subject: normalizedSubject,
+            name: EMAIL_BRAND_NAME
         });
 
         // Send email via EmailJS

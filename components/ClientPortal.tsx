@@ -444,6 +444,7 @@ const ClientPortal: React.FC = () => {
                 paid: doc.status === 'paid',
                 status: doc.status,
                 tvaRate: resolvedTvaRate,
+                taxCreditEnabled: !!(doc.hasTaxCredit || doc.taxCreditEnabled),
                 clientName: client.name,
                 clientEmail: client.email,
                 clientPhone: client.phone,
@@ -576,6 +577,7 @@ const ClientPortal: React.FC = () => {
                 signed: doc.status === 'signed',
                 status: doc.status,
                 tvaRate: resolvedTvaRate,
+                taxCreditEnabled: !!(doc.hasTaxCredit || doc.taxCreditEnabled),
                 clientName: client.name,
                 clientEmail: client.email,
                 clientPhone: client.phone,
@@ -608,7 +610,7 @@ const ClientPortal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Devis_Signe_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
+            link.download = `Devis_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -652,6 +654,24 @@ const ClientPortal: React.FC = () => {
     const handleDownloadContract = async (quoteDoc?: any) => {
         showToast('Téléchargement du contrat...');
 
+        // IMPORTANT: certains boutons appelaient onClick={handleDownloadContract} (donc React passe l'event).
+        // On sécurise: si l'argument ressemble à un event et n'a pas d'id de devis, on l'ignore.
+        const normalizedQuoteDoc = (() => {
+            if (!quoteDoc) return undefined;
+            const maybeEvent =
+                typeof quoteDoc === 'object' &&
+                (typeof quoteDoc.preventDefault === 'function' ||
+                    (quoteDoc as any)?.nativeEvent ||
+                    (quoteDoc as any)?.currentTarget ||
+                    (quoteDoc as any)?.target);
+
+            if (maybeEvent && !(quoteDoc as any)?.id) return undefined;
+            return quoteDoc;
+        })();
+
+        const quoteForDownload = normalizedQuoteDoc || selectedQuote;
+        const hasStrictQuoteContext = !!(normalizedQuoteDoc?.id || normalizedQuoteDoc?.ref);
+
         console.log('Searching contracts for client:', client.id);
         console.log('Available contracts:', contracts.map(c => ({ id: c.id, clientId: c.clientId, status: c.status, name: c.name })));
 
@@ -661,14 +681,26 @@ const ClientPortal: React.FC = () => {
             const list = (Array.isArray(candidates) ? candidates : []).filter(Boolean);
             if (list.length === 0) return null;
 
+            const getBestDate = (c: any) => {
+                const raw =
+                    c?.updatedAt || c?.updated_at ||
+                    c?.validatedAt || c?.validated_at ||
+                    c?.signedAt || c?.signed_at ||
+                    c?.createdAt || c?.created_at ||
+                    c?.validationDate || c?.validation_date ||
+                    0;
+                const ts = new Date(raw || 0).getTime();
+                return Number.isFinite(ts) ? ts : 0;
+            };
+
             // Prefer contracts that actually contain HTML content (same branch as admin download)
             const htmlFirst = list.sort((a, b) => {
                 const aHtml = looksLikeHtml(a?.content);
                 const bHtml = looksLikeHtml(b?.content);
                 if (aHtml !== bHtml) return aHtml ? -1 : 1;
 
-                const aDate = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
-                const bDate = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
+                const aDate = getBestDate(a);
+                const bDate = getBestDate(b);
                 if (aDate !== bDate) return bDate - aDate;
 
                 // final fallback on id for stability
@@ -679,19 +711,61 @@ const ClientPortal: React.FC = () => {
         };
 
         // 1) If we know which quote the user clicked, bind the contract to that quote.
-        const quoteId = quoteDoc?.id;
+        const quoteId = normalizedQuoteDoc?.id;
+        const quoteRef = normalizedQuoteDoc?.ref;
+
         let clientContract = quoteId
             ? pickBestContract(
-                  contracts.filter(
-                      (c: any) =>
-                          String(c?.quoteId || '') === String(quoteId) &&
-                          (c.status === 'active' || c.status === 'pending_validation' || c.status === 'draft')
-                  )
-              )
+                contracts.filter(
+                    (c: any) =>
+                        String(c?.quoteId || c?.quote_id || '') === String(quoteId) &&
+                        (c.status === 'active' || c.status === 'pending_validation' || c.status === 'draft')
+                )
+            )
             : null;
 
-        // 2) Fallback: contract(s) by clientId
-        if (!clientContract) {
+        // 1bis) si le contrat est bien lié au devis mais a un statut différent, on retente sans filtre de statut
+        if (!clientContract && quoteId) {
+            clientContract = pickBestContract(
+                contracts.filter((c: any) => String(c?.quoteId || c?.quote_id || '') === String(quoteId))
+            );
+        }
+
+        // 2) Fallback par référence de devis (utile si quoteId n'a pas été sauvegardé sur des anciens contrats)
+        if (!clientContract && quoteRef) {
+            clientContract = pickBestContract(
+                contracts.filter((c: any) => {
+                    const name = String(c?.name || '');
+                    const content = String(c?.content || '');
+                    return (
+                        (name.includes(String(quoteRef)) || content.includes(String(quoteRef)))
+                    );
+                })
+            );
+        }
+
+        // IMPORTANT: si on télécharge depuis un devis, on ne doit JAMAIS retomber sur un autre contrat du client.
+        // Si aucun contrat lié au devis n'est trouvé, on génère un contrat depuis le template pour CE devis.
+        if (!clientContract && hasStrictQuoteContext && quoteForDownload) {
+            console.log('[ContractDownload] Aucun contrat DB lié au devis. Génération via template.', {
+                quoteId: (quoteForDownload as any)?.id,
+                quoteRef: (quoteForDownload as any)?.ref
+            });
+            const pack = (quoteForDownload as any)?.packId
+                ? packs.find((p: any) => p.id === (quoteForDownload as any).packId)
+                : packs.find((p: any) => p.name === client.pack);
+
+            const generated = generateContractFromTemplate(quoteForDownload, client, pack);
+            if (generated) {
+                await downloadContract(generated);
+                showToast('Contrat téléchargé avec succès.');
+                return;
+            }
+        }
+
+        // Mode non-strict (ex: bouton générique) : on autorise les fallbacks existants
+        if (!clientContract && !hasStrictQuoteContext) {
+            // Fallback: contract(s) by clientId
             clientContract = pickBestContract(
                 contracts.filter(c =>
                     c.clientId === client.id &&
@@ -700,8 +774,7 @@ const ClientPortal: React.FC = () => {
             );
         }
 
-        // 3) Last fallback: match client name in contract name
-        if (!clientContract) {
+        if (!clientContract && !hasStrictQuoteContext) {
             console.log('Contract not found by clientId, trying name matching fallback');
             clientContract = pickBestContract(
                 contracts.filter(c =>
@@ -711,12 +784,10 @@ const ClientPortal: React.FC = () => {
             );
         }
 
-        // If still not found, try any contract for this client
-        if (!clientContract) {
+        if (!clientContract && !hasStrictQuoteContext) {
             console.log('Contract not found by name matching, trying any contract with client info');
             clientContract = pickBestContract(contracts.filter(c => {
-                // Check if contract content contains client information
-                const contentLower = c.content.toLowerCase();
+                const contentLower = String(c.content || '').toLowerCase();
                 const clientNameLower = client.name.toLowerCase();
                 const clientEmailLower = client.email.toLowerCase();
 
@@ -725,7 +796,12 @@ const ClientPortal: React.FC = () => {
             }));
         }
 
-        console.log('Found contract:', clientContract);
+        console.log('[ContractDownload] Found contract:', {
+            requestedQuoteId: quoteId,
+            requestedQuoteRef: quoteRef,
+            contractId: clientContract?.id,
+            contractQuoteId: (clientContract as any)?.quoteId || (clientContract as any)?.quote_id
+        });
 
         if (!clientContract) {
             showToast('Aucun contrat trouvé pour votre compte. Les contrats sont créés automatiquement lors de la signature d\'un devis.', 'warning');
@@ -741,6 +817,7 @@ const ClientPortal: React.FC = () => {
 
             const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
             const contractNamePart = sanitizeFilenamePart(clientContract?.name || clientContract?.id || 'Contrat');
+            const quoteRefPart = sanitizeFilenamePart((quoteForDownload as any)?.ref || '');
 
             const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
                 return await new Promise((resolve, reject) => {
@@ -781,7 +858,7 @@ const ClientPortal: React.FC = () => {
             // On garde la logique existante mais on ajoute un fallback robuste.
             let clientSignatureSource: any = clientContract.clientSignatureUrl || null;
             if (!clientSignatureSource) {
-                clientSignatureSource = (selectedQuote as any)?.signatureData || (selectedQuote as any)?.clientSignatureUrl || null;
+                clientSignatureSource = (quoteForDownload as any)?.signatureData || (quoteForDownload as any)?.clientSignatureUrl || null;
             }
             if (!clientSignatureSource) {
                 const signedDocs = documents
@@ -803,7 +880,7 @@ const ClientPortal: React.FC = () => {
                 companySignature: companySignatureBase64,
                 companyStamp: companyStampBase64,
                 tvaRate: (() => {
-                    const fromSelectedQuote = (selectedQuote as any)?.tvaRate;
+                    const fromSelectedQuote = (quoteForDownload as any)?.tvaRate;
                     if (typeof fromSelectedQuote !== 'undefined' && fromSelectedQuote !== null) {
                         const n = typeof fromSelectedQuote === 'number' ? fromSelectedQuote : Number(fromSelectedQuote);
                         if (Number.isFinite(n)) return n;
@@ -823,7 +900,7 @@ const ClientPortal: React.FC = () => {
                 })(),
                 logoBase64: (() => {
                     // If TVA=0 => SAP, else normal
-                    const raw = (selectedQuote as any)?.tvaRate;
+                    const raw = (quoteForDownload as any)?.tvaRate;
                     const n = typeof raw === 'number' ? raw : Number(raw);
                     const effective = Number.isFinite(n) ? n : ((clientContract as any)?.isSap ? 0 : 0);
                     return effective === 0 ? LOGO_SAP_BASE64 : (logoBase64 as any);
@@ -858,7 +935,9 @@ const ClientPortal: React.FC = () => {
                     return Number.isFinite(n) ? n : 0;
                 })();
                 const selectedLogoBase64 = effectiveTvaRate === 0 ? logoSapBase64 : logoNormalBase64;
-                const filename = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
+                const filename = hasStrictQuoteContext && quoteRefPart
+                    ? `Contrat_${clientNamePart}_Devis_${quoteRefPart}.pdf`
+                    : `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
                 await downloadHtmlAsPdf({
                     html: contractHtml,
                     filename,
@@ -870,7 +949,7 @@ const ClientPortal: React.FC = () => {
                         companyStamp: companyStampBase64 || null
                     },
                     signatureDates: {
-                        client: (selectedQuote as any)?.signatureDate || (selectedQuote as any)?.signedAt || clientContract.signedAt || clientContract.createdAt || null,
+                        client: (quoteForDownload as any)?.signatureDate || (quoteForDownload as any)?.signedAt || clientContract.signedAt || clientContract.createdAt || null,
                         company: clientContract.validatedAt || null
                     },
                     imageReplacements: {
@@ -908,7 +987,9 @@ const ClientPortal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
+            link.download = hasStrictQuoteContext && quoteRefPart
+                ? `Contrat_${clientNamePart}_Devis_${quoteRefPart}.pdf`
+                : `Contrat_${clientNamePart}_${contractNamePart}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1563,11 +1644,23 @@ const ClientPortal: React.FC = () => {
                                                             </>
                                                         );
                                                     })()}
-                                                    {doc.slotsData && doc.slotsData.length > 0 && (
-                                                        <span className="block text-xs text-blue-600 font-medium mt-1">
-                                                            {doc.slotsData.map((slot: any) => `${slot.startTime}-${slot.endTime}`).join(', ')}
-                                                        </span>
-                                                    )}
+                                                    {(() => {
+                                                        const packFromId = (doc as any).packId
+                                                            ? (packs.find((p: any) => p.id === (doc as any).packId)?.name || '')
+                                                            : '';
+                                                        const meta = parseQuoteDescriptionMeta((doc as any).description);
+                                                        const packName = packFromId || meta.pack || '';
+                                                        const isCustom = (doc as any)?.category === 'custom';
+                                                        const label = packName || (isCustom ? 'Sur mesure' : '');
+
+                                                        if (!label) return null;
+
+                                                        return (
+                                                            <span className="block text-xs text-blue-600 font-medium mt-1">
+                                                                {label}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                 </div>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${doc.type === 'Devis' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
@@ -1993,7 +2086,7 @@ const ClientPortal: React.FC = () => {
                                 {selectedQuote.status === 'sent' && (
                                     <>
                                         <button
-                                            onClick={handleDownloadContract}
+                                            onClick={() => handleDownloadContract(selectedQuote)}
                                             className="px-3 py-2 text-green-600 font-bold hover:bg-green-50 rounded-xl border border-transparent hover:border-green-100 transition text-sm"
                                         >
                                             Télécharger contrat
@@ -2015,7 +2108,7 @@ const ClientPortal: React.FC = () => {
                                             Télécharger devis
                                         </button>
                                         <button
-                                            onClick={handleDownloadContract}
+                                            onClick={() => handleDownloadContract(selectedQuote)}
                                             className="px-3 py-2 text-green-600 font-bold hover:bg-green-50 rounded-xl border border-transparent hover:border-green-100 transition text-sm"
                                         >
                                             Télécharger contrat
@@ -2173,7 +2266,21 @@ const ClientPortal: React.FC = () => {
                                             />
                                             <span className="text-sm font-bold text-slate-700">
                                                 Je reconnais avoir pris connaissance des conditions générales de vente et j'accepte les termes du contrat.
-                                                Je m'engage à régler le montant de {selectedQuote.totalTTC ? selectedQuote.totalTTC.toFixed(2) : '0.00'} € TTC.
+                                                {(() => {
+                                                    const total = Number(selectedQuote.totalTTC || 0);
+                                                    const creditActive = !!((selectedQuote as any).hasTaxCredit || (selectedQuote as any).taxCreditEnabled);
+                                                    const toPay = creditActive ? total * 0.5 : total;
+                                                    return (
+                                                        <>
+                                                            Je m'engage à régler le montant de {toPay.toFixed(2)} € TTC.
+                                                            {creditActive ? (
+                                                                <span className="block text-green-700 font-bold mt-1">
+                                                                    Crédit d'impôt activé (-50%) : reste à charge {toPay.toFixed(2)} €
+                                                                </span>
+                                                            ) : null}
+                                                        </>
+                                                    );
+                                                })()}
                                                 {selectedQuote.status === 'signed' && (
                                                     <span className="block text-green-600 font-bold mt-1">✓ Conditions acceptées et signées</span>
                                                 )}
@@ -2286,6 +2393,22 @@ const ClientPortal: React.FC = () => {
                                             <p className="text-sm text-slate-600">
                                                 Veuillez signer dans le cadre ci-dessous pour valider le devis.
                                             </p>
+
+                                            <div className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                                                {(() => {
+                                                    const total = Number((selectedQuote as any)?.totalTTC || 0);
+                                                    const creditActive = !!((selectedQuote as any)?.hasTaxCredit || (selectedQuote as any)?.taxCreditEnabled);
+                                                    const toPay = creditActive ? total * 0.5 : total;
+                                                    return (
+                                                        <>
+                                                            Montant à régler : {toPay.toFixed(2)} € TTC
+                                                            {creditActive ? (
+                                                                <span className="block text-xs text-green-700 mt-1">Crédit d'impôt activé (-50%)</span>
+                                                            ) : null}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
 
                                             <div className="border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 relative touch-none min-h-[300px]">
                                                 <canvas

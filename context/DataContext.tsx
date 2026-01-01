@@ -720,6 +720,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     ...c,
                     packId: c.pack_id || c.packId,
                     clientId: c.client_id || c.clientId,
+                    quoteId: c.quote_id || c.quoteId,
                     isSap: c.is_sap || c.isSap,
                     validationDate: c.validation_date || c.validationDate,
                     clientSignatureUrl: c.client_signature_url,
@@ -2688,6 +2689,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const finalId = generateUUID();
         const packId = (!contract.packId || contract.packId === "") ? null : contract.packId;
         const clientId = (!contract.clientId || contract.clientId === "") ? null : contract.clientId;
+        const quoteId = (!contract.quoteId || contract.quoteId === "") ? null : contract.quoteId;
         console.log('Adding contract with clientId:', clientId);
         const dbData = {
             id: finalId,
@@ -2695,6 +2697,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             content: contract.content,
             pack_id: packId,
             client_id: clientId,
+            quote_id: quoteId,
             status: contract.status,
             is_sap: contract.isSap,
             validation_date: contract.validationDate,
@@ -2720,7 +2723,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         packId: data2[0].pack_id,
                         isSap: data2[0].is_sap,
                         validationDate: data2[0].validation_date,
-                        clientId: contract.clientId // Keep clientId in local state even if not in DB
+                        clientId: contract.clientId, // Keep clientId in local state even if not in DB
+                        quoteId: contract.quoteId
+                    }]);
+                }
+            } else if (error.message.includes('quote_id')) {
+                console.log('quote_id column might not exist, trying without it');
+                const dbDataWithoutQuoteId: any = { ...dbData };
+                delete (dbDataWithoutQuoteId as any).quote_id;
+                const { data: data2, error: error2 } = await supabase.from('contracts').insert(dbDataWithoutQuoteId).select();
+                if (error2) {
+                    throw new Error("Erreur lors de la sauvegarde du contrat: " + error2.message);
+                }
+                if (data2) {
+                    setContracts(prev => [...prev, {
+                        ...data2[0],
+                        packId: data2[0].pack_id,
+                        isSap: data2[0].is_sap,
+                        validationDate: data2[0].validation_date,
+                        clientId: contract.clientId,
+                        quoteId: contract.quoteId
                     }]);
                 }
             } else {
@@ -2731,6 +2753,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setContracts(prev => [...prev, {
                 ...data[0],
                 packId: data[0].pack_id,
+                quoteId: data[0].quote_id || contract.quoteId,
                 isSap: data[0].is_sap,
                 validationDate: data[0].validation_date
             }]);
@@ -2741,6 +2764,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const dbUpdates: any = { ...updates };
         if (updates.packId) { dbUpdates.pack_id = updates.packId; delete dbUpdates.packId; }
         if (updates.clientId) { dbUpdates.client_id = updates.clientId; delete dbUpdates.clientId; }
+        if (updates.quoteId) { dbUpdates.quote_id = updates.quoteId; delete dbUpdates.quoteId; }
         if (updates.validationDate) { dbUpdates.validation_date = updates.validationDate; delete dbUpdates.validationDate; }
         if (updates.isSap !== undefined) { dbUpdates.is_sap = updates.isSap; delete updates.isSap; }
         if (updates.adminSignatureUrl) { dbUpdates.admin_signature_url = updates.adminSignatureUrl; delete dbUpdates.adminSignatureUrl; }
@@ -3692,13 +3716,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const genericContract = genericContracts.find(gc => gc.isActive);
         if (!genericContract) return null;
 
+        const isCustomQuote = (quote as any)?.category === 'custom';
+        const quoteDetails = isCustomQuote
+            ? `${quote.type} - Prestation sur mesure`
+            : `${quote.type} - ${pack?.name || 'Prestation personnalisée'}`;
+
+        const taxCreditActive = !!((quote as any)?.hasTaxCredit || (quote as any)?.taxCreditEnabled);
+        const totalTTC = Number((quote as any)?.totalTTC || 0);
+        const creditAmount = taxCreditActive ? totalTTC * 0.5 : 0;
+        const toPay = taxCreditActive ? totalTTC - creditAmount : totalTTC;
+        const totalAmountText = taxCreditActive
+            ? `${totalTTC.toFixed(2)} € TTC (Crédit d'impôt -50% : reste à charge ${toPay.toFixed(2)} €)`
+            : `${totalTTC.toFixed(2)} € TTC`;
+
         const replacements = {
             '{{CLIENT_NAME}}': client.name,
             '{{CLIENT_ADDRESS}}': client.address || 'Non spécifiée',
             '{{CLIENT_PHONE}}': client.phone || 'Non spécifié',
             '{{CLIENT_EMAIL}}': client.email,
-            '{{QUOTE_DETAILS}}': `${quote.type} - ${pack?.name || 'Prestation personnalisée'}`,
-            '{{TOTAL_AMOUNT}}': `${quote.totalTTC.toFixed(2)} € TTC`,
+            '{{QUOTE_DETAILS}}': quoteDetails,
+            '{{TOTAL_AMOUNT}}': totalAmountText,
             '{{SERVICE_TYPE}}': pack?.isSap ? 'SAP' : 'Non-SAP',
             '{{CONTRACT_LOCATION}}': 'La Trinité, Martinique',
             '{{CONTRACT_DATE}}': new Date().toLocaleDateString('fr-FR'),

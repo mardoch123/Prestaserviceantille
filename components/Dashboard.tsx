@@ -34,6 +34,8 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { missions, documents, clients, providers, activeStream, currentUser } = useData();
 
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
   // --- DATA CALCULATION FOR CHARTS ---
 
   // Fonction pour filtrer les données selon le filtre temporel
@@ -236,14 +238,16 @@ const Dashboard: React.FC = () => {
       case DashboardViewMode.COMMERCIAL:
         return (
           <>
-            <StatCard 
-              title="Chiffre d'affaire" 
-              value={`${totalRevenue.toFixed(0)}€`}
-              subtext="Encaissé (Global)" 
-              bgColor="bg-slate-100" 
-              icon={Euro}
-              onClick={() => goToStats('all')} 
-            />
+            {isSuperAdmin && (
+              <StatCard 
+                title="Chiffre d'affaire" 
+                value={`${totalRevenue.toFixed(0)}€`}
+                subtext="Encaissé (Global)" 
+                bgColor="bg-slate-100" 
+                icon={Euro}
+                onClick={() => goToStats('all')} 
+              />
+            )}
             <StatCard 
               title="Devis envoyés" 
               value={sentQuotes}
@@ -352,28 +356,36 @@ const Dashboard: React.FC = () => {
       case DashboardViewMode.FINANCIAL:
         return (
           <>
-            <StatCard 
-              title="Recette à encaisser" 
-              value={`${pendingRevenue.toFixed(0)}€`} 
-              subtext="Factures en attente + Devis signés"
-              bgColor="bg-slate-100" 
-              icon={Wallet}
-              onClick={() => goToFinancials('pending')}
-            />
-            <StatCard 
-              title="Recette encaissée" 
-              value={`${totalRevenue.toFixed(0)}€`} 
-              bgColor="bg-slate-100" 
-              icon={Euro}
-              onClick={() => goToFinancials('paid')}
-            />
-            <StatCard 
-              title="Remboursements" 
-              value="0€" 
-              bgColor="bg-slate-100" 
-              icon={Euro}
-              onClick={() => goToFinancials('refund')}
-            />
+            {isSuperAdmin ? (
+              <>
+                <StatCard 
+                  title="Recette à encaisser" 
+                  value={`${pendingRevenue.toFixed(0)}€`} 
+                  subtext="Factures en attente + Devis signés"
+                  bgColor="bg-slate-100" 
+                  icon={Wallet}
+                  onClick={() => goToFinancials('pending')}
+                />
+                <StatCard 
+                  title="Recette encaissée" 
+                  value={`${totalRevenue.toFixed(0)}€`} 
+                  bgColor="bg-slate-100" 
+                  icon={Euro}
+                  onClick={() => goToFinancials('paid')}
+                />
+                <StatCard 
+                  title="Remboursements" 
+                  value="0€" 
+                  bgColor="bg-slate-100" 
+                  icon={Euro}
+                  onClick={() => goToFinancials('refund')}
+                />
+              </>
+            ) : (
+              <div className="col-span-full bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600 font-semibold">
+                Accès réservé au Super Admin.
+              </div>
+            )}
           </>
         );
       default:
@@ -442,7 +454,13 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8 min-h-[200px] lg:h-48">
             <div className="flex flex-col items-center">
                 <div className="w-full h-32 lg:h-40">
-                    <TurnoverChart data={turnoverData} />
+                    {isSuperAdmin ? (
+                      <TurnoverChart data={turnoverData} />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-white border border-slate-200 rounded-xl text-xs text-slate-500 font-bold">
+                        Accès CA réservé au Super Admin
+                      </div>
+                    )}
                 </div>
                 <span className="text-xs text-slate-500 italic mt-2">Évolution CA (6 derniers mois)</span>
             </div>

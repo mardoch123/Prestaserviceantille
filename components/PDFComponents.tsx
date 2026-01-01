@@ -898,8 +898,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   companyStampImage: {
-    width: 160,
-    height: 90,
+    width: 190,
+    height: 110,
     marginBottom: 5,
     objectFit: 'contain',
   },
@@ -1134,10 +1134,33 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
             <Text style={styles.label}>TVA ({doc.tvaRate || 0}%):</Text>
             <Text style={styles.value}>{doc.tax}€</Text>
           </View>
-          <View style={[styles.totalRow, styles.grandTotalBrand]}>
-            <Text style={styles.labelBrand}>Total:</Text>
-            <Text>{doc.total}€</Text>
-          </View>
+          {(() => {
+            const total = Number((doc as any).total || 0);
+            const creditActive = !!((doc as any).taxCreditEnabled || (doc as any).hasTaxCredit);
+            const creditAmount = creditActive ? total * 0.5 : 0;
+            const toPay = creditActive ? total - creditAmount : total;
+
+            return (
+              <>
+                <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                  <Text style={styles.labelBrand}>Total:</Text>
+                  <Text>{total}€</Text>
+                </View>
+                {creditActive ? (
+                  <>
+                    <View style={styles.totalRow}>
+                      <Text style={styles.label}>Crédit d'impôt (50%):</Text>
+                      <Text style={styles.value}>-{creditAmount.toFixed(2)}€</Text>
+                    </View>
+                    <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                      <Text style={styles.labelBrand}>Reste à charge:</Text>
+                      <Text>{toPay.toFixed(2)}€</Text>
+                    </View>
+                  </>
+                ) : null}
+              </>
+            );
+          })()}
         </View>
       </View>
 
@@ -1342,6 +1365,10 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       <View style={[styles.totalSection, styles.totalSectionInvoice]}>
         {(() => {
           const resolvedTvaRate = typeof doc.tvaRate === 'number' ? doc.tvaRate : (doc.tvaRate ? Number(doc.tvaRate) : 0);
+          const total = Number((doc as any).total || 0);
+          const creditActive = !!((doc as any).taxCreditEnabled || (doc as any).hasTaxCredit);
+          const creditAmount = creditActive ? total * 0.5 : 0;
+          const toPay = creditActive ? total - creditAmount : total;
           return (
             <View style={[styles.totalCard, styles.totalCardInvoice]}>
               <View style={[styles.totalRow, styles.totalRowInvoice, styles.rowInvoice]}>
@@ -1353,9 +1380,26 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                 <Text style={styles.value}>{doc.tax}€</Text>
               </View>
               <View style={[styles.totalRow, styles.grandTotalBrand]}>
-                <Text style={styles.labelBrand}>Total à payer:</Text>
-                <Text>{doc.total}€</Text>
+                <Text style={styles.labelBrand}>Total:</Text>
+                <Text>{total}€</Text>
               </View>
+              {creditActive ? (
+                <>
+                  <View style={[styles.totalRow, styles.totalRowInvoice, styles.rowInvoice]}>
+                    <Text style={styles.label}>Crédit d'impôt (50%):</Text>
+                    <Text style={styles.value}>-{creditAmount.toFixed(2)}€</Text>
+                  </View>
+                  <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                    <Text style={styles.labelBrand}>Total à payer:</Text>
+                    <Text>{toPay.toFixed(2)}€</Text>
+                  </View>
+                </>
+              ) : (
+                <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                  <Text style={styles.labelBrand}>Total à payer:</Text>
+                  <Text>{total}€</Text>
+                </View>
+              )}
             </View>
           );
         })()}
@@ -1477,6 +1521,25 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
           <Text style={styles.label}>Montant total:</Text>
           <Text style={styles.value}>{doc.total}€</Text>
         </View>
+        {(() => {
+          const total = Number((doc as any).total || 0);
+          const creditActive = !!((doc as any).taxCreditEnabled || (doc as any).hasTaxCredit);
+          if (!creditActive) return null;
+          const creditAmount = total * 0.5;
+          const toPay = total - creditAmount;
+          return (
+            <>
+              <View style={styles.row}>
+                <Text style={styles.label}>Crédit d'impôt (50%):</Text>
+                <Text style={styles.value}>-{creditAmount.toFixed(2)}€</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Reste à charge:</Text>
+                <Text style={styles.value}>{toPay.toFixed(2)}€</Text>
+              </View>
+            </>
+          );
+        })()}
         <View style={styles.row}>
           <Text style={styles.label}>Modalités de paiement:</Text>
           <Text style={styles.value}>{cleanHTML(doc.paymentTerms || '')}</Text>
