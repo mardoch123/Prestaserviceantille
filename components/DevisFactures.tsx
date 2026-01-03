@@ -1367,9 +1367,18 @@ const DevisFactures: React.FC = () => {
                 <div><h2 className="text-3xl font-serif font-bold text-slate-800">Devis/Factures</h2><p className="text-sm text-slate-500 mt-1">Gestion commerciale et facturation</p></div>
                 <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
                     <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
-                        <option value="all">Tous les documents</option><option value="sent">Devis envoyés</option><option value="signed">Devis signés</option><option value="converted">Facturés</option><option value="paid">Payées</option>
-                    </select>
+                    <SearchableSelect
+                        options={[
+                            { value: 'all', label: 'Tous les documents' },
+                            { value: 'sent', label: 'Devis envoyés' },
+                            { value: 'signed', label: 'Devis signés' },
+                            { value: 'converted', label: 'Facturés' },
+                            { value: 'paid', label: 'Payées' }
+                        ]}
+                        value={filterStatus}
+                        onChange={(value) => setFilterStatus(value)}
+                        className="min-w-[220px]"
+                    />
                 </div>
             </div>
 
@@ -1441,36 +1450,37 @@ const DevisFactures: React.FC = () => {
                                             <div className="text-lg font-bold text-slate-900">{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</div>
                                         </div>
                                         <div className="text-center">
-                                            <select
-                                                value={doc.status}
-                                                onChange={(e) => handleStatusChange(doc.id, e.target.value, e)}
-                                                className={`appearance-none cursor-pointer text-xs font-bold px-3 py-1 pr-6 rounded-full outline-none border transition-all
-                            ${doc.status === 'signed' ? 'bg-green-100 text-green-800 border-green-200' : ''}
-                            ${doc.status === 'sent' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
-                            ${doc.status === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : ''}
-                            ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
-                            ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
-                            ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
-                          `}
-                                            >
-                                                {doc.type === 'Devis' && (
-                                                    <>
-                                                        <option value="sent">Envoyé</option>
-                                                        <option value="signed">Signé</option>
-                                                        <option value="rejected">Refusé</option>
-                                                        <option value="converted">Facturé</option>
-                                                        <option value="expired">Expiré</option>
-                                                    </>
-                                                )}
-                                                {doc.type === 'Facture' && (
-                                                    <>
-                                                        <option value="pending">En attente</option>
-                                                        <option value="paid">Payée</option>
-                                                        <option value="rejected">Annulée</option>
-                                                    </>
-                                                )}
-                                            </select>
+                                            <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                                                <SearchableSelect
+                                                    options={doc.type === 'Devis'
+                                                        ? [
+                                                            { value: 'sent', label: 'Envoyé' },
+                                                            { value: 'signed', label: 'Signé' },
+                                                            { value: 'rejected', label: 'Refusé' },
+                                                            { value: 'converted', label: 'Facturé' },
+                                                            { value: 'expired', label: 'Expiré' }
+                                                        ]
+                                                        : [
+                                                            { value: 'pending', label: 'En attente' },
+                                                            { value: 'paid', label: 'Payée' },
+                                                            { value: 'rejected', label: 'Annulée' }
+                                                        ]}
+                                                    value={doc.status}
+                                                    onChange={(value) => {
+                                                        updateDocumentStatus(doc.id, value);
+                                                        showToast('Statut mis à jour manuellement.');
+                                                    }}
+                                                    isClearable={false}
+                                                    className="min-w-[150px]"
+                                                    triggerClassName={`${doc.status === 'signed' ? 'bg-green-100 text-green-800 border-green-200' : ''}
+                                                        ${doc.status === 'sent' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
+                                                        ${doc.status === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                                                        ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
+                                                        ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
+                                                        ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                                                        ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}`}
+                                                />
+                                            </div>
                                             {doc.reminderSent && (
                                                 <div className="mt-1">
                                                     <span className="text-[10px] text-orange-600 font-bold flex items-center justify-center gap-1 bg-orange-50 px-1 rounded border border-orange-200 w-fit">
@@ -1701,37 +1711,37 @@ const DevisFactures: React.FC = () => {
                                         <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
-                                                <select
-                                                    value={doc.status}
-                                                    onChange={(e) => handleStatusChange(doc.id, e.target.value, e)}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className={`appearance-none cursor-pointer text-xs font-bold px-3 py-1 pr-6 rounded-full outline-none border transition-all
-                                            ${doc.status === 'signed' ? 'bg-green-100 text-green-800 border-green-200' : ''}
-                                            ${doc.status === 'sent' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
-                                            ${doc.status === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : ''}
-                                            ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
-                                            ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
-                                            ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                            ${doc.status === 'rejected' ? 'bg-red-5 text-red-800 border-red-100' : ''}
-                                        `}
-                                                >
-                                                    {doc.type === 'Devis' && (
-                                                        <>
-                                                            <option value="sent">Envoyé</option>
-                                                            <option value="signed">Signé</option>
-                                                            <option value="rejected">Refusé</option>
-                                                            <option value="converted">Facturé</option>
-                                                            <option value="expired">Expiré</option>
-                                                        </>
-                                                    )}
-                                                    {doc.type === 'Facture' && (
-                                                        <>
-                                                            <option value="pending">En attente</option>
-                                                            <option value="paid">Payée</option>
-                                                            <option value="rejected">Annulée</option>
-                                                        </>
-                                                    )}
-                                                </select>
+                                                <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                                                    <SearchableSelect
+                                                        options={doc.type === 'Devis'
+                                                            ? [
+                                                                { value: 'sent', label: 'Envoyé' },
+                                                                { value: 'signed', label: 'Signé' },
+                                                                { value: 'rejected', label: 'Refusé' },
+                                                                { value: 'converted', label: 'Facturé' },
+                                                                { value: 'expired', label: 'Expiré' }
+                                                            ]
+                                                            : [
+                                                                { value: 'pending', label: 'En attente' },
+                                                                { value: 'paid', label: 'Payée' },
+                                                                { value: 'rejected', label: 'Annulée' }
+                                                            ]}
+                                                        value={doc.status}
+                                                        onChange={(value) => {
+                                                            updateDocumentStatus(doc.id, value);
+                                                            showToast('Statut mis à jour manuellement.');
+                                                        }}
+                                                        isClearable={false}
+                                                        className="min-w-[150px]"
+                                                        triggerClassName={`${doc.status === 'signed' ? 'bg-green-100 text-green-800 border-green-200' : ''}
+                                                            ${doc.status === 'sent' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
+                                                            ${doc.status === 'expired' ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                                                            ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
+                                                            ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
+                                                            ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                                                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}`}
+                                                    />
+                                                </div>
                                             </div>
 
                                             {doc.reminderSent && (

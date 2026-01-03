@@ -1613,7 +1613,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         name: clientData.name,
                         login: clientData.email,
                         password: password,
-                        link: 'https://outremerfermetures.com/login'
+                        link: 'https://www.prestaservicesantilles.com/'
                     });
 
                 } catch (e) {
@@ -1668,7 +1668,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         name: providerData.firstName,
                         login: providerData.email,
                         password: password,
-                        link: 'https://outremerfermetures.com/login'
+                        link: 'https://www.prestaservicesantilles.com/'
                     });
                     console.log("Email de bienvenue envoyé au prestataire:", providerData.email);
                 } catch (e) {
@@ -2853,7 +2853,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     contractRef: contract.id,
                     clientName: clientName,
                     secretaryName: secretaryName,
-                    link: 'https://outremerfermetures.com/login'
+                    link: 'https://www.prestaservicesantilles.com/'
                 }
             );
 

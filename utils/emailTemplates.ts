@@ -72,7 +72,7 @@ Vous pouvez vous connecter dès maintenant à votre espace client pour :
 - Gérer vos informations personnelles
 - Contacter notre équipe
 
-Accédez à votre espace ici : ${context.link || 'https://outremerfermetures.com/login'}
+Accédez à votre espace ici : ${context.link || 'https://www.prestaservicesantilles.com/'}
 
 Conseil de sécurité : Nous vous recommandons de changer votre mot de passe lors de votre première connexion.`
                 )
@@ -98,7 +98,7 @@ Depuis votre espace prestataire, vous pourrez :
 - Gérer vos congés et disponibilités
 - Suivre vos heures de travail
 
-Accédez à votre espace ici : ${context.link || 'https://outremerfermetures.com/login'}
+Accédez à votre espace ici : ${context.link || 'https://www.prestaservicesantilles.com/'}
 
 Important : Pensez à changer votre mot de passe lors de votre première connexion.`
                 )
@@ -138,7 +138,7 @@ DÉTAILS :
 - Mission ID : ${context.missionId || 'N/A'}
 
 Connectez-vous à votre espace prestataire pour consulter tous les détails de cette mission :
-https://outremerfermetures.com/login`
+https://www.prestaservicesantilles.com/`
                 )
             };
 
@@ -161,7 +161,7 @@ REMARQUES :
 ${context.remark || 'R.A.S - Aucune remarque particulière'}
 
 Les photos et le rapport complet sont disponibles dans votre espace client :
-https://outremerfermetures.com/login`
+https://www.prestaservicesantilles.com/`
                 )
             };
 
@@ -255,7 +255,7 @@ Un nouveau document est disponible dans votre espace client.
 - Référence : ${context.ref || context.reference || 'N/A'}
 
 Connectez-vous pour le consulter et le télécharger :
-https://outremerfermetures.com/login`
+https://www.prestaservicesantilles.com/`
                 )
             };
 
@@ -272,7 +272,7 @@ Le statut d'un de vos documents a été mis à jour.
 - Nouveau statut : ${context.status || 'Mis à jour'}
 
 Connectez-vous pour voir les détails :
-https://outremerfermetures.com/login`
+https://www.prestaservicesantilles.com/`
                 )
             };
 
@@ -327,7 +327,7 @@ POUR VOTRE SÉCURITÉ :
 - Changez ce mot de passe temporaire dès votre première connexion
 - Ne partagez jamais votre mot de passe
 
-Se connecter : https://outremerfermetures.com/login`
+Se connecter : https://www.prestaservicesantilles.com/`
                 )
             };
 
@@ -411,7 +411,7 @@ Le contrat est maintenant actif et peut être utilisé.`
 
 ${context.message || 'Vous avez reçu une notification.'}
 
-Connectez-vous à votre espace pour plus de détails sur https://outremerfermetures.com/login`
+Connectez-vous à votre espace pour plus de détails sur https://www.prestaservicesantilles.com/`
                 )
             };
     }

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Client } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
+import SearchableSelect from './SearchableSelect';
 import { 
   Users, 
   Filter, 
@@ -424,18 +425,29 @@ Lien de connexion : https://presta-antilles.app/login`);
            <div className="flex items-center gap-3">
                <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
                 <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
-                    <option value="all">Tous les clients</option><option value="active">Clients Actifs</option><option value="new">Nouveaux Clients</option><option value="prospect">Prospects</option>
-                </select>
+                <SearchableSelect
+                    options={[
+                        { value: 'all', label: 'Tous les clients' },
+                        { value: 'active', label: 'Clients Actifs' },
+                        { value: 'new', label: 'Nouveaux Clients' },
+                        { value: 'prospect', label: 'Prospects' }
+                    ]}
+                    value={filterStatus}
+                    onChange={(value) => setFilterStatus(value)}
+                    className="min-w-[220px]"
+                />
               </div>
               <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
                 <MapPin className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer">
-                    <option value="">Toutes les villes</option>
-                    {martiniqueDepartments.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                </select>
+                <SearchableSelect
+                    options={[
+                        { value: '', label: 'Toutes les villes' },
+                        ...martiniqueDepartments.map(dept => ({ value: dept, label: dept }))
+                    ]}
+                    value={cityFilter}
+                    onChange={(value) => setCityFilter(value)}
+                    className="min-w-[220px]"
+                />
               </div>
               <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
             </div>
@@ -583,12 +595,18 @@ Lien de connexion : https://presta-antilles.app/login`);
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Adresse</label>
                              <input type="text" name="address" value={formData.address} onChange={handleInputChange} placeholder="Numéro et voie" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg mb-2"/>
-                             <select required name="city" value={formData.city} onChange={handleInputChange} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                             <select required name="city" value={formData.city} onChange={() => {}} className="sr-only" tabIndex={-1}>
                             <option value="">Sélectionner une ville...</option>
                             {martiniqueDepartments.map(dept => (
                                 <option key={dept} value={dept}>{dept}</option>
                             ))}
                         </select>
+                             <SearchableSelect
+                                options={martiniqueDepartments.map(dept => ({ value: dept, label: dept }))}
+                                value={formData.city}
+                                onChange={(value) => setFormData((prev: any) => ({ ...prev, city: value }))}
+                                placeholder="Sélectionner une ville..."
+                             />
                         </div>
                     </div>
                     <div className="pt-4 flex justify-end gap-3">

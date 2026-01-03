@@ -15,6 +15,9 @@ interface SearchableSelectProps {
     label?: string;
     className?: string;
     disabled?: boolean;
+    isClearable?: boolean;
+    triggerClassName?: string;
+    dropdownClassName?: string;
 }
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -24,7 +27,10 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     placeholder = 'Sélectionner...',
     label,
     className = '',
-    disabled = false
+    disabled = false,
+    isClearable = true,
+    triggerClassName = '',
+    dropdownClassName = ''
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -135,7 +141,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     : isOpen
                         ? 'border-brand-blue ring-1 ring-brand-blue'
                         : 'border-slate-200 hover:border-slate-300'
-                    }`}
+                    } ${triggerClassName}`}
                 onClick={handleToggle}
             >
                 <div className="flex items-center p-2 pr-8">
@@ -160,7 +166,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
                     {isOpen ? (
                         <Search className="w-4 h-4 text-slate-400" />
-                    ) : value ? (
+                    ) : value && isClearable ? (
                         <button
                             onClick={handleClear}
                             className="pointer-events-auto p-1 hover:bg-slate-200 rounded transition"
@@ -175,7 +181,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
             </div>
 
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                <div className={`absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto ${dropdownClassName}`}>
                     {filteredOptions.length === 0 ? (
                         <div className="p-3 text-sm text-slate-400 text-center">
                             Aucun résultat trouvé

@@ -4,9 +4,10 @@ import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
+import SearchableSelect from './SearchableSelect';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
   const navigate = useNavigate();
 
   // Filter State
@@ -122,6 +123,62 @@ const Planning: React.FC = () => {
       
       return { filteredMissions: fMissions, filteredReminders: fReminders };
   }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
+
+  const filteredProvisionalMissions = useMemo(() => {
+      let startStr, endStr;
+      
+      if (customDateRange && startDate && endDate) {
+          startStr = startDate;
+          endStr = endDate;
+      } else {
+          startStr = weekStart.toISOString().split('T')[0];
+          endStr = weekEnd.toISOString().split('T')[0];
+      }
+
+      const provisional = (documents || [])
+          .filter(d => d.type === 'Devis')
+          .filter(d => d.status !== 'signed')
+          .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
+          .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
+              id: `provisional-${d.id}-${index}-${slot?.date || 'no-date'}-${slot?.startTime || 'no-start'}`,
+              date: slot?.date,
+              startTime: slot?.startTime,
+              endTime: slot?.endTime,
+              duration: typeof slot?.duration === 'number' ? slot.duration : 0,
+              clientId: d.clientId,
+              clientName: d.clientName,
+              providerName: 'À assigner',
+              status: 'planned' as const,
+              sourceDocumentId: d.id
+          })))
+          .filter(item => !!item.date)
+          .filter(item => item.date >= startStr && item.date <= endStr);
+
+      let fProvisional = provisional;
+
+      if (selectedProvider !== 'all') {
+          fProvisional = fProvisional.filter(item => item.providerName === selectedProvider);
+      }
+
+      if (selectedClient !== 'all') {
+          fProvisional = fProvisional.filter(item => item.clientName === selectedClient);
+      }
+
+      if (selectedStatus !== 'all') {
+          fProvisional = fProvisional.filter(item => item.status === selectedStatus);
+      }
+
+      if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          fProvisional = fProvisional.filter(item =>
+              item.clientName.toLowerCase().includes(query) ||
+              item.providerName.toLowerCase().includes(query) ||
+              item.date.includes(query)
+          );
+      }
+
+      return fProvisional;
+  }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
 
   // Stats Logic
   const today = getMartiniqueToday();
@@ -335,11 +392,19 @@ const Planning: React.FC = () => {
   const [selectedMissionDetails, setSelectedMissionDetails] = useState<Mission | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
+  const [isProvisionalDetailsModalOpen, setIsProvisionalDetailsModalOpen] = useState(false);
+
   const handleMissionClick = (mission: Mission, e: React.MouseEvent) => {
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
           // Simple click = show details
           setSelectedMissionDetails(mission);
           setIsDetailsModalOpen(true);
+      }
+  };
+
+  const handleProvisionalMissionClick = (e: React.MouseEvent) => {
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          setIsProvisionalDetailsModalOpen(true);
       }
   };
   
@@ -479,54 +544,44 @@ const Planning: React.FC = () => {
                
                <span className="text-brand-blue italic text-sm font-bold">Prestataire :</span>
                <div className="relative w-64">
-                    <select 
+                    <SearchableSelect
+                        options={[
+                            { value: 'all', label: 'Tous les prestataires' },
+                            ...providers.filter(p => p.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
+                        ]}
                         value={selectedProvider}
-                        onChange={(e) => setSelectedProvider(e.target.value)}
-                        className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
-                    >
-                        <option value="all">Tous les prestataires</option>
-                        {providers.filter(p => p.status === 'Active').map(p => (
-                            <option key={p.id} value={`${p.firstName} ${p.lastName}`}>{p.firstName} {p.lastName}</option>
-                        ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
-                        <span className="text-xs">▼</span>
-                    </div>
+                        onChange={(value) => setSelectedProvider(value)}
+                        className="w-full"
+                    />
                </div>
                
                <span className="text-brand-blue italic text-sm font-bold">Client :</span>
                <div className="relative w-48">
-                    <select 
+                    <SearchableSelect
+                        options={[
+                            { value: 'all', label: 'Tous les clients' },
+                            ...clients.map(c => ({ value: c.name, label: c.name }))
+                        ]}
                         value={selectedClient}
-                        onChange={(e) => setSelectedClient(e.target.value)}
-                        className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
-                    >
-                        <option value="all">Tous les clients</option>
-                        {clients.map(c => (
-                            <option key={c.id} value={c.name}>{c.name}</option>
-                        ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
-                        <span className="text-xs">▼</span>
-                    </div>
+                        onChange={(value) => setSelectedClient(value)}
+                        className="w-full"
+                    />
                </div>
                
                <span className="text-brand-blue italic text-sm font-bold">Statut :</span>
                <div className="relative w-36">
-                    <select 
+                    <SearchableSelect
+                        options={[
+                            { value: 'all', label: 'Tous' },
+                            { value: 'planned', label: 'Prévues' },
+                            { value: 'in_progress', label: 'En cours' },
+                            { value: 'completed', label: 'Terminées' },
+                            { value: 'cancelled', label: 'Annulées' }
+                        ]}
                         value={selectedStatus}
-                        onChange={(e) => setSelectedStatus(e.target.value)}
-                        className="w-full appearance-none bg-slate-100 border border-slate-400 rounded px-3 py-1 text-sm font-bold text-slate-700 cursor-pointer focus:outline-none"
-                    >
-                        <option value="all">Tous</option>
-                        <option value="planned">Prévues</option>
-                        <option value="in_progress">En cours</option>
-                        <option value="completed">Terminées</option>
-                        <option value="cancelled">Annulées</option>
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
-                        <span className="text-xs">▼</span>
-                    </div>
+                        onChange={(value) => setSelectedStatus(value)}
+                        className="w-full"
+                    />
                </div>
                
                <button
@@ -607,6 +662,23 @@ const Planning: React.FC = () => {
                             }
 
                             {/* Missions for this day */}
+                            {filteredProvisionalMissions
+                                .filter(item => getDayIndex(item.date) === colIndex)
+                                .map(item => (
+                                    <div
+                                        key={item.id}
+                                        className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
+                                        onClick={(e) => handleProvisionalMissionClick(e)}
+                                    >
+                                        <div className="flex justify-between">
+                                            <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
+                                            <span className="text-[9px] text-orange-700">{new Date(item.date).getDate()}</span>
+                                        </div>
+                                        <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
+                                    </div>
+                                ))
+                            }
                             {filteredMissions
                                 .filter(item => getDayIndex(item.date) === colIndex)
                                 .filter(item => item.status !== 'cancelled')
@@ -714,18 +786,25 @@ const Planning: React.FC = () => {
                 <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[80vh]">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">Client</label>
-                        <select 
+                        <select
                             required
                             name="clientId"
                             value={missionForm.clientId}
-                            onChange={handleFormChange}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                            onChange={() => {}}
+                            className="sr-only"
+                            tabIndex={-1}
                         >
                             <option value="">Sélectionner...</option>
                             {clients.map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
+                        <SearchableSelect
+                            options={clients.map(c => ({ value: c.id, label: c.name }))}
+                            value={missionForm.clientId}
+                            onChange={(value) => setMissionForm(prev => ({ ...prev, clientId: value }))}
+                            placeholder="Sélectionner..."
+                        />
                     </div>
 
                     {/* Date Logic */}
@@ -786,11 +865,12 @@ const Planning: React.FC = () => {
                     <div className="grid grid-cols-1 gap-4">
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Prestataire</label>
-                             <select 
+                             <select
                                 name="providerId"
                                 value={missionForm.providerId}
-                                onChange={handleFormChange}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                onChange={() => {}}
+                                className="sr-only"
+                                tabIndex={-1}
                              >
                                 <option value="">(À assigner plus tard)</option>
                                 {providers.map(p => {
@@ -802,6 +882,22 @@ const Planning: React.FC = () => {
                                     );
                                 })}
                              </select>
+                             <SearchableSelect
+                                options={[
+                                    { value: '', label: '(À assigner plus tard)' },
+                                    ...providers.map(p => {
+                                        const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
+                                        return {
+                                            value: p.id,
+                                            label: `${p.firstName} ${p.lastName}${!available ? ' (Congés/Indisp.)' : ''}`,
+                                            disabled: !available
+                                        };
+                                    })
+                                ]}
+                                value={missionForm.providerId}
+                                onChange={(value) => setMissionForm(prev => ({ ...prev, providerId: value }))}
+                                placeholder="(À assigner plus tard)"
+                             />
                         </div>
                     </div>
 
@@ -826,17 +922,28 @@ const Planning: React.FC = () => {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Type</label>
-                                <select 
+                                <select
                                     name="recurrence"
                                     value={missionForm.recurrence}
-                                    onChange={handleFormChange}
-                                    className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm outline-none"
+                                    onChange={() => {}}
+                                    className="sr-only"
+                                    tabIndex={-1}
                                 >
                                     <option value="none">Ponctuel (1 fois)</option>
                                     <option value="weekly">Hebdomadaire (Tous les 7 jours)</option>
                                     <option value="biweekly">Bimensuel (Tous les 14 jours)</option>
                                     <option value="monthly">Mensuel (Même date)</option>
                                 </select>
+                                <SearchableSelect
+                                    options={[
+                                        { value: 'none', label: 'Ponctuel (1 fois)' },
+                                        { value: 'weekly', label: 'Hebdomadaire (Tous les 7 jours)' },
+                                        { value: 'biweekly', label: 'Bimensuel (Tous les 14 jours)' },
+                                        { value: 'monthly', label: 'Mensuel (Même date)' }
+                                    ]}
+                                    value={missionForm.recurrence}
+                                    onChange={(value) => setMissionForm(prev => ({ ...prev, recurrence: value }))}
+                                />
                             </div>
                             {missionForm.recurrence !== 'none' && (
                                 <div>
@@ -1035,6 +1142,24 @@ const Planning: React.FC = () => {
                             Supprimer
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {isProvisionalDetailsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Statut</h3>
+                    </div>
+                    <button onClick={() => setIsProvisionalDetailsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-sm font-bold text-orange-700">En attente de validation par le client</p>
                 </div>
             </div>
         </div>
