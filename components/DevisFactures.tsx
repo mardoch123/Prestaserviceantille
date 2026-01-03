@@ -30,7 +30,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser } = useData();
+    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -1147,6 +1147,18 @@ const DevisFactures: React.FC = () => {
         showToast('Relance envoyée (Notification + Email).');
     };
 
+    const handleManualSignatureReminder = async (docId: string, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            await sendQuoteSignatureReminder(docId);
+            showToast('Rappel signature devis envoyé.', 'success');
+        } catch (err) {
+            console.error('[DevisFactures] Signature reminder failed:', err);
+            showToast('Erreur envoi rappel signature devis.', 'error');
+        }
+    };
+
     const confirmDelete = (id: string, ref: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
@@ -1796,6 +1808,17 @@ const DevisFactures: React.FC = () => {
                                                         title="Forcer une relance maintenant"
                                                     >
                                                         <Zap className="w-4 h-4 pointer-events-none" />
+                                                    </button>
+                                                )}
+
+                                                {/* SIGNATURE REMINDER BUTTON */}
+                                                {doc.type === 'Devis' && doc.status === 'sent' && (
+                                                    <button
+                                                        onClick={(e) => handleManualSignatureReminder(doc.id, e)}
+                                                        className="text-slate-400 hover:text-teal-600 p-1 hover:bg-teal-50 rounded transition"
+                                                        title="Envoyer rappel signature devis (avec identifiants + temps restant)"
+                                                    >
+                                                        <Clock className="w-4 h-4 pointer-events-none" />
                                                     </button>
                                                 )}
 

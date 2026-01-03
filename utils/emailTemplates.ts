@@ -259,6 +259,27 @@ https://www.prestaservicesantilles.com/`
                 )
             };
 
+        case 'quote_signature_reminder':
+            return {
+                subject: `Rappel - Signature de votre devis ${context.quoteRef || context.ref || 'N/A'}`,
+                message: createTextEmail(
+                    'Rappel signature devis',
+                    `Bonjour ${context.clientName || context.name || 'Client'},
+
+Un rappel concernant votre devis ${context.quoteRef || context.ref || 'N/A'}.
+
+Temps restant avant expiration : ${context.remainingText || 'N/A'}
+
+VOS IDENTIFIANTS DE CONNEXION :
+- Email : ${context.login || context.email || 'N/A'}
+- Mot de passe : ${context.password ? context.password : 'Déjà communiqué dans un mail précédent.'}
+
+Accédez à votre espace ici : ${context.link || 'https://www.prestaservicesantilles.com/'}
+
+Si vous avez déjà signé votre devis, vous pouvez ignorer ce message.`
+                )
+            };
+
         case 'document_status_update':
             return {
                 subject: context.subject || `Mise à jour de document`,

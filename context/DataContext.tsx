@@ -99,6 +99,7 @@ interface DataContextType {
     convertQuoteToInvoice: (quoteId: string) => Promise<void>;
     markInvoicePaid: (id: string) => Promise<void>;
     sendDocumentReminder: (id: string) => Promise<void>;
+    sendQuoteSignatureReminder: (docId: string) => Promise<void>;
     signQuoteWithData: (id: string, signatureData: string) => Promise<void>;
     refuseQuote: (id: string) => Promise<void>;
     requestInvoice: (docId: string) => Promise<void>;
@@ -624,6 +625,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         packsConsumed: c.packs_consumed || 0,
                         loyaltyHoursAvailable: c.loyalty_hours_available || 0,
                         hasLeftReview: c.has_left_review,
+                        initialPassword: c.initial_password,
                         pack: packName && packName !== '-' ? packName : null
                     };
                 });
@@ -1591,6 +1593,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (data && data.length > 0) {
                 const newClient = data[0];
 
+                // Best-effort: persist initial password if the column exists
+                try {
+                    await supabase
+                        .from('clients')
+                        .update({ initial_password: password })
+                        .eq('id', newClient.id);
+                } catch (e) {
+                    console.warn('[addClient] Unable to persist initial_password (ignored):', e);
+                }
+
                 // Then try to create the Auth User via Edge Function
                 try {
                     const { error: fnError } = await supabase.functions.invoke('create-user', {
@@ -1625,6 +1637,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     packsConsumed: newClient.packs_consumed,
                     loyaltyHoursAvailable: newClient.loyalty_hours_available,
                     hasLeftReview: newClient.has_left_review,
+                    initialPassword: password,
                 }]);
 
                 return password;
@@ -2386,9 +2399,84 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) setDocuments(prev => prev.map(d => d.id === id ? { ...d, reminderSent: true } : d));
     };
 
+    const sendQuoteSignatureReminder = async (docId: string) => {
+        const formatRemainingMs = (ms: number): string => {
+            const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            if (hours <= 0) return `${minutes} min`;
+            if (minutes <= 0) return `${hours} h`;
+            return `${hours} h ${minutes} min`;
+        };
+
+        const { data: doc, error: docError } = await supabase
+            .from('documents')
+            .select('id, ref, status, type, created_at, client_id, client_name')
+            .eq('id', docId)
+            .maybeSingle();
+
+        if (docError) throw docError;
+        if (!doc) throw new Error('Document introuvable');
+
+        if (String((doc as any).type) !== 'Devis') {
+            throw new Error('Ce rappel est disponible uniquement pour les devis');
+        }
+
+        if (String((doc as any).status) === 'signed') {
+            throw new Error('Devis déjà signé');
+        }
+
+        const clientId = String((doc as any).client_id || '');
+        if (!clientId) throw new Error('Client manquant sur le devis');
+
+        let client: any = null;
+        let clientError: any = null;
+        {
+            const res = await supabase
+                .from('clients')
+                .select('id, name, email, initial_password')
+                .eq('id', clientId)
+                .maybeSingle();
+            client = res.data;
+            clientError = res.error;
+        }
+
+        if (clientError?.code === '42703') {
+            const res = await supabase
+                .from('clients')
+                .select('id, name, email')
+                .eq('id', clientId)
+                .maybeSingle();
+            client = res.data;
+            clientError = res.error;
+        }
+
+        if (clientError) throw clientError;
+        if (!client?.email) throw new Error('Email client manquant');
+
+        const createdAtRaw = (doc as any).created_at;
+        const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
+        if (!Number.isFinite(createdAtMs)) throw new Error('Date de création du devis manquante');
+
+        const expirationMs = 24 * 60 * 60 * 1000;
+        const expiresAtMs = createdAtMs + expirationMs;
+        const remainingMs = expiresAtMs - Date.now();
+        if (remainingMs <= 0) throw new Error('Devis expiré');
+
+        await sendEmail(client.email, `Rappel - Signature de votre devis ${(doc as any).ref || docId}`, 'quote_signature_reminder', {
+            clientName: client.name || (doc as any).client_name || 'Client',
+            quoteRef: (doc as any).ref || docId,
+            remainingText: formatRemainingMs(remainingMs),
+            login: client.email,
+            password: (client as any).initial_password ? String((client as any).initial_password) : undefined,
+            link: 'https://presta-antilles.app/login'
+        });
+    };
+
     const signQuoteWithData = async (id: string, signatureData: string) => {
         // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
         const docToSign = documents.find(d => d.id === id);
+        // ...
         if (docToSign && docToSign.slotsData) {
             const conflictingSlots = [];
             const availableProvidersForSlots = [];
@@ -4060,26 +4148,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         } catch (error: any) {
             console.error('Error generating contract document:', error);
-            throw new Error('Erreur lors de la génération du document: ' + error.message);
         }
     };
 
     return (
         <DataContext.Provider value={{
             companySettings, updateCompanySettings,
+
             missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, deleteMissions,
+
             clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+
             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
-            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+
+            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+
             packs, addPack, updatePack, deletePacks,
-            contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate,
-            genericContracts,
-            generateContractFromTemplate, downloadContract,
+
+            contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
+
             reminders, addReminder, toggleReminder,
+
             expenses, addExpense, updateExpense,
+
             messages, replyToClient, sendClientMessage,
+
             notifications, markNotificationRead, addNotification,
+
             visitScans, registerScan,
+
             alertPopup, setAlertPopup,
             currentUser, login, logout,
             simulatedClientId, setSimulatedClientId,
