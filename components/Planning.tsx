@@ -425,8 +425,8 @@ const Planning: React.FC = () => {
   const missionToAssign = missions.find(m => m.id === selectedMissionId);
 
   const getDayIndex = (dateStr: string) => {
-      const d = new Date(dateStr);
-      const day = d.getDay(); 
+      const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const day = d.day();
       return day === 0 ? 5 : day - 1; // Correct mapping for Monday start
   };
 
@@ -681,7 +681,7 @@ const Planning: React.FC = () => {
                                     >
                                         <div className="flex justify-between">
                                             <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
-                                            <span className="text-[9px] text-orange-700">{new Date(item.date).getDate()}</span>
+                                            <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
                                         <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
                                         <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
@@ -715,7 +715,7 @@ const Planning: React.FC = () => {
                                         )}
                                         <div className="flex justify-between">
                                             <p className="font-bold text-slate-800 pr-4 truncate">{item.clientName}</p>
-                                            <span className="text-[9px] text-slate-500">{new Date(item.date).getDate()}</span>
+                                            <span className="text-[9px] text-slate-500">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
                                         <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
                                         <p className="text-[9px] italic text-slate-500 truncate">{item.providerName}</p>

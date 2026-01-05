@@ -27,7 +27,13 @@ export const formatMartiniqueDateTime = (
   date: Date | string, 
   options?: Intl.DateTimeFormatOptions
 ): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = (() => {
+    if (typeof date !== 'string') return date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return dayjs.tz(date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).toDate();
+    }
+    return new Date(date);
+  })();
   
   const baseOptions: Intl.DateTimeFormatOptions = {
     timeZone: MARTINIQUE_TIMEZONE,
@@ -98,7 +104,13 @@ export const getMartiniqueToday = (): string => {
  * @returns boolean
  */
 export const isTodayInMartinique = (date: Date | string): boolean => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = (() => {
+    if (typeof date !== 'string') return date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return dayjs.tz(date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).toDate();
+    }
+    return new Date(date);
+  })();
   const martiniqueDate = formatMartiniqueDate(dateObj);
   const today = getMartiniqueToday();
   return martiniqueDate === today;
@@ -111,6 +123,12 @@ export const isTodayInMartinique = (date: Date | string): boolean => {
  * @returns Nouvelle date
  */
 export const addHoursInMartinique = (date: Date | string, hours: number): Date => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = (() => {
+    if (typeof date !== 'string') return date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return dayjs.tz(date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).toDate();
+    }
+    return new Date(date);
+  })();
   return dayjs(dateObj).tz(MARTINIQUE_TIMEZONE).add(hours, 'hour').toDate();
 };

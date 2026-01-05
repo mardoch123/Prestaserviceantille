@@ -2489,15 +2489,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             for (const slot of docToSign.slotsData) {
                 if (!slot.date) continue;
                 
-                const slotStart = new Date(`${slot.date}T${slot.startTime}`);
-                const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+                const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                 
                 // Vérifier s'il y a des missions en conflit
                 const conflictingMissions = missions.filter(m => {
                     if (m.status === 'cancelled' || !m.date) return false;
-                    const mStart = new Date(`${m.date}T${m.startTime}`);
-                    const mEnd = new Date(`${m.date}T${m.endTime}`);
-                    return (slotStart < mEnd && slotEnd > mStart);
+                    const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                    const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                    return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
                 });
                 
                 if (conflictingMissions.length > 0) {
@@ -2520,9 +2520,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         // Vérifier si le prestataire a déjà une mission à ce créneau
                         const hasOtherMission = missions.some(m => {
                             if (m.status === 'cancelled' || !m.date || m.providerId !== provider.id) return false;
-                            const mStart = new Date(`${m.date}T${m.startTime}`);
-                            const mEnd = new Date(`${m.date}T${m.endTime}`);
-                            return (slotStart < mEnd && slotEnd > mStart);
+                            const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                            const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                            return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
                         });
                         
                         return !hasOtherMission;

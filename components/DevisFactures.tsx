@@ -121,6 +121,22 @@ const DevisFactures: React.FC = () => {
         return slotStart.isBefore(getMartiniqueNowDayjs());
     };
 
+    const toMartiniqueDayStart = (dateStr: string) => {
+        if (!dateStr) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            return dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+        }
+        return dayjs.tz(dateStr, MARTINIQUE_TIMEZONE).startOf('day');
+    };
+
+    const toMartiniqueDayEnd = (dateStr: string) => {
+        if (!dateStr) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            return dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).endOf('day');
+        }
+        return dayjs.tz(dateStr, MARTINIQUE_TIMEZONE).endOf('day');
+    };
+
     const selectedClient = clients.find(c => c.id === selectedClientId);
 
     useEffect(() => {
@@ -353,14 +369,14 @@ const DevisFactures: React.FC = () => {
     const isAnyProviderAvailableForSlot = (slot: InterventionSlot): boolean => {
         if (!slot.date) return false;
 
-        const slotStart = new Date(`${slot.date}T${slot.startTime}`);
-        const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+        const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
 
         const conflictingMissions = missions.filter(m => {
             if (m.status === 'cancelled' || !m.date) return false;
-            const mStart = new Date(`${m.date}T${m.startTime}`);
-            const mEnd = new Date(`${m.date}T${m.endTime}`);
-            return (slotStart < mEnd && slotEnd > mStart);
+            const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
         });
 
         const availableProviders = providers.filter(provider => {
@@ -368,10 +384,11 @@ const DevisFactures: React.FC = () => {
             if (!isActive) return false;
 
             const hasLeave = provider.leaves && provider.leaves.some(leave => {
-                const leaveStart = new Date(leave.startDate);
-                const leaveEnd = new Date(leave.endDate);
-                const slotDate = new Date(slot.date);
-                return slotDate >= leaveStart && slotDate <= leaveEnd;
+                const leaveStart = toMartiniqueDayStart(leave.startDate);
+                const leaveEnd = toMartiniqueDayEnd(leave.endDate);
+                const slotDate = toMartiniqueDayStart(slot.date);
+                if (!leaveStart || !leaveEnd || !slotDate) return false;
+                return slotDate.valueOf() >= leaveStart.valueOf() && slotDate.valueOf() <= leaveEnd.valueOf();
             });
 
             if (hasLeave) return false;
@@ -794,15 +811,15 @@ const DevisFactures: React.FC = () => {
         for (const slot of interventionSlots) {
             if (!slot.date) continue;
 
-            const slotStart = new Date(`${slot.date}T${slot.startTime}`);
-            const slotEnd = new Date(`${slot.date}T${slot.endTime}`);
+            const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
 
             // Vérifier les missions existantes pour ce créneau
             const conflictingMissions = missions.filter(m => {
                 if (m.status === 'cancelled' || !m.date) return false;
-                const mStart = new Date(`${m.date}T${m.startTime}`);
-                const mEnd = new Date(`${m.date}T${m.endTime}`);
-                return (slotStart < mEnd && slotEnd > mStart);
+                const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
             });
 
             // Compter les prestataires disponibles pour ce créneau
@@ -816,10 +833,11 @@ const DevisFactures: React.FC = () => {
 
                 // Vérifier si le prestataire a des congés à cette date
                 const hasLeave = provider.leaves && provider.leaves.some(leave => {
-                    const leaveStart = new Date(leave.startDate);
-                    const leaveEnd = new Date(leave.endDate);
-                    const slotDate = new Date(slot.date);
-                    return slotDate >= leaveStart && slotDate <= leaveEnd;
+                    const leaveStart = toMartiniqueDayStart(leave.startDate);
+                    const leaveEnd = toMartiniqueDayEnd(leave.endDate);
+                    const slotDate = toMartiniqueDayStart(slot.date);
+                    if (!leaveStart || !leaveEnd || !slotDate) return false;
+                    return slotDate.valueOf() >= leaveStart.valueOf() && slotDate.valueOf() <= leaveEnd.valueOf();
                 });
 
                 if (hasLeave) {

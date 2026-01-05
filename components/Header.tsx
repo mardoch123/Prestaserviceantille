@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
+import { MARTINIQUE_TIMEZONE } from '../src/utils/martiniqueTime';
 
 interface HeaderProps {
     onMenuClick: () => void;
@@ -25,6 +26,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
+  const [martiniqueClock, setMartiniqueClock] = useState('');
   const navigate = useNavigate();
   const notificationRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +46,27 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showNotifications]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'admin') return;
+
+    const getTime = () => {
+      return new Date().toLocaleTimeString('fr-FR', {
+        timeZone: MARTINIQUE_TIMEZONE,
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    };
+
+    setMartiniqueClock(getTime());
+    const intervalId = window.setInterval(() => {
+      setMartiniqueClock(getTime());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentUser?.role]);
 
   const adminNotifs = notifications
     .filter(n => n.targetUserType === 'admin' && !n.read)
@@ -116,6 +139,19 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">
+        {currentUser?.role === 'admin' && (
+          <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1">
+            <span>Heure Martinique :</span>
+            <span className="font-mono text-slate-700">{martiniqueClock}</span>
+          </div>
+        )}
+
+        {currentUser?.role === 'admin' && (
+          <div className="sm:hidden flex items-center text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+            <span className="font-mono text-slate-700">{martiniqueClock}</span>
+          </div>
+        )}
+
         {/* Bouton d'actualisation pour mobile */}
         <button 
             onClick={handleRefresh}

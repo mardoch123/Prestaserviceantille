@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
@@ -15,7 +14,13 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { getMartiniqueToday, toMartiniqueTime } from '../src/utils/martiniqueTime';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+import { getMartiniqueToday, MARTINIQUE_TIMEZONE } from '../src/utils/martiniqueTime';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 // --- Types & Mock Data ---
 
@@ -92,19 +97,16 @@ const Statistics: React.FC = () => {
 
   // Helper for week range
   const getWeekRange = () => {
-      const now = toMartiniqueTime(new Date());
-      const day = now.getDay() || 7; // Get current day number, convert Sun (0) to 7
-      if (day !== 1) now.setHours(-24 * (day - 1)); // set to Monday
-      const startOfWeek = new Date(now);
-      const endOfWeek = new Date(now);
-      endOfWeek.setDate(endOfWeek.getDate() + 6);
-      return { start: startOfWeek, end: endOfWeek };
+      const now = dayjs().tz(MARTINIQUE_TIMEZONE);
+      const day = now.day() === 0 ? 7 : now.day();
+      const start = now.startOf('day').subtract(day - 1, 'day');
+      const end = start.add(6, 'day').endOf('day');
+      return { start, end };
   };
 
   // Filter Logic
   const filteredData = useMemo(() => {
     let data = missions; 
-    const now = new Date();
 
     // 1. Time Filter (Global)
     if (timeFilter === 'day') {
@@ -112,23 +114,21 @@ const Statistics: React.FC = () => {
         data = data.filter(m => m.date === todayStr);
     } else if (timeFilter === 'week') {
         const { start, end } = getWeekRange();
-        // Reset hours for comparison
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
         data = data.filter(m => {
-            const mDate = new Date(m.date);
-            return mDate >= start && mDate <= end;
+            const mDate = dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            return mDate.valueOf() >= start.valueOf() && mDate.valueOf() <= end.valueOf();
         });
     } else if (timeFilter === 'month') {
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
+        const nowM = dayjs().tz(MARTINIQUE_TIMEZONE);
+        const currentMonth = nowM.month();
+        const currentYear = nowM.year();
         data = data.filter(m => {
-            const mDate = new Date(m.date);
-            return mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+            const mDate = dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            return mDate.month() === currentMonth && mDate.year() === currentYear;
         });
     } else if (timeFilter === 'year') {
-        const currentYear = now.getFullYear();
-        data = data.filter(m => new Date(m.date).getFullYear() === currentYear);
+        const currentYear = dayjs().tz(MARTINIQUE_TIMEZONE).year();
+        data = data.filter(m => dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).year() === currentYear);
     }
 
     // 2. Status Card Filter
@@ -173,19 +173,25 @@ const Statistics: React.FC = () => {
   const stats = useMemo(() => {
     // We compute stats on the data filtered by TIME only, ignoring column filters for the cards context
     let baseData = missions;
-    const now = new Date();
     
     if (timeFilter === 'day') {
         const todayStr = getMartiniqueToday();
         baseData = baseData.filter(m => m.date === todayStr);
     } else if (timeFilter === 'week') {
         const { start, end } = getWeekRange();
-        start.setHours(0,0,0,0); end.setHours(23,59,59,999);
-        baseData = baseData.filter(m => { const d = new Date(m.date); return d >= start && d <= end; });
+        baseData = baseData.filter(m => {
+            const d = dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            return d.valueOf() >= start.valueOf() && d.valueOf() <= end.valueOf();
+        });
     } else if (timeFilter === 'month') {
-        baseData = baseData.filter(m => new Date(m.date).getMonth() === now.getMonth() && new Date(m.date).getFullYear() === now.getFullYear());
+        const nowM = dayjs().tz(MARTINIQUE_TIMEZONE);
+        baseData = baseData.filter(m => {
+            const d = dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            return d.month() === nowM.month() && d.year() === nowM.year();
+        });
     } else if (timeFilter === 'year') {
-        baseData = baseData.filter(m => new Date(m.date).getFullYear() === now.getFullYear());
+        const nowM = dayjs().tz(MARTINIQUE_TIMEZONE);
+        baseData = baseData.filter(m => dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).year() === nowM.year());
     }
 
     return {
