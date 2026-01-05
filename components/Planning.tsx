@@ -393,6 +393,8 @@ const Planning: React.FC = () => {
 
   const [isProvisionalDetailsModalOpen, setIsProvisionalDetailsModalOpen] = useState(false);
 
+  const detailClient = selectedMissionDetails?.clientId ? clients.find(c => c.id === selectedMissionDetails.clientId) : undefined;
+
   const handleMissionClick = (mission: Mission, e: React.MouseEvent) => {
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
           // Simple click = show details
@@ -1195,14 +1197,94 @@ const Planning: React.FC = () => {
                         <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                             <User className="w-4 h-4" /> Client
                         </h4>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                             <div>
-                                <span className="text-slate-500">Nom:</span>
-                                <p className="font-semibold">{selectedMissionDetails.clientName}</p>
+                                <span className="text-slate-500">Nom complet:</span>
+                                <p className="font-semibold">{detailClient?.name || selectedMissionDetails.clientName || '—'}</p>
                             </div>
                             <div>
-                                <span className="text-slate-500">Date:</span>
-                                <p className="font-semibold">{new Date(selectedMissionDetails.date).toLocaleDateString('fr-FR')}</p>
+                                <span className="text-slate-500">Prénom:</span>
+                                <p className="font-semibold">{(() => {
+                                    const n = (detailClient?.name || selectedMissionDetails.clientName || '').trim();
+                                    if (!n) return '—';
+                                    const parts = n.split(' ').filter(Boolean);
+                                    if (parts.length <= 1) return n;
+                                    parts.pop();
+                                    return parts.join(' ') || '—';
+                                })()}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Nom:</span>
+                                <p className="font-semibold">{(() => {
+                                    const n = (detailClient?.name || selectedMissionDetails.clientName || '').trim();
+                                    if (!n) return '—';
+                                    const parts = n.split(' ').filter(Boolean);
+                                    if (parts.length <= 1) return n;
+                                    return parts[parts.length - 1] || '—';
+                                })()}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">ID client:</span>
+                                <p className="font-semibold text-xs">{detailClient?.id || selectedMissionDetails.clientId || '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Téléphone:</span>
+                                <p className="font-semibold">{detailClient?.phone || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Email:</span>
+                                <p className="font-semibold">{detailClient?.email || '—'}</p>
+                            </div>
+
+                            <div className="sm:col-span-2">
+                                <span className="text-slate-500">Adresse:</span>
+                                <p className="font-semibold">{detailClient?.address || '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Ville:</span>
+                                <p className="font-semibold">{detailClient?.city || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Pack:</span>
+                                <p className="font-semibold">{detailClient?.pack || '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Statut client:</span>
+                                <p className="font-semibold">{detailClient?.status || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Client depuis:</span>
+                                <p className="font-semibold">{detailClient?.since || '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Packs consommés:</span>
+                                <p className="font-semibold">{typeof detailClient?.packsConsumed === 'number' ? detailClient.packsConsumed : '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Heures fidélité:</span>
+                                <p className="font-semibold">{typeof detailClient?.loyaltyHoursAvailable === 'number' ? detailClient.loyaltyHoursAvailable : '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Avis laissé:</span>
+                                <p className="font-semibold">{detailClient?.hasLeftReview === true ? 'Oui' : detailClient?.hasLeftReview === false ? 'Non' : '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Mot de passe initial:</span>
+                                <p className="font-semibold">{detailClient?.initialPassword ? String(detailClient.initialPassword) : '—'}</p>
+                            </div>
+
+                            <div>
+                                <span className="text-slate-500">Date mission:</span>
+                                <p className="font-semibold">{dayjs.tz(selectedMissionDetails.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY')}</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">Horaires:</span>
+                                <p className="font-semibold">{selectedMissionDetails.startTime} - {selectedMissionDetails.endTime}</p>
                             </div>
                         </div>
                     </div>
