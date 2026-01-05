@@ -138,6 +138,7 @@ const DevisFactures: React.FC = () => {
     };
 
     const selectedClient = clients.find(c => c.id === selectedClientId);
+    const detailClient = selectedDocument ? clients.find(c => c.id === selectedDocument.clientId) : undefined;
 
     useEffect(() => {
         if (location.state) {
@@ -2353,8 +2354,47 @@ const DevisFactures: React.FC = () => {
                             {/* Client Information */}
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <h4 className="font-bold text-slate-800 mb-3">Informations Client</h4>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div><span className="text-slate-500">Nom : </span><span className="font-medium">{selectedDocument.clientName}</span></div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                                    <div><span className="text-slate-500">Nom complet : </span><span className="font-medium">{detailClient?.name || selectedDocument.clientName || '—'}</span></div>
+                                    <div><span className="text-slate-500">Prénom : </span><span className="font-medium">{(() => {
+                                        const n = (detailClient?.name || selectedDocument.clientName || '').trim();
+                                        if (!n) return '—';
+                                        const parts = n.split(' ').filter(Boolean);
+                                        if (parts.length <= 1) return n;
+                                        parts.pop();
+                                        return parts.join(' ') || '—';
+                                    })()}</span></div>
+                                    <div><span className="text-slate-500">Nom : </span><span className="font-medium">{(() => {
+                                        const n = (detailClient?.name || selectedDocument.clientName || '').trim();
+                                        if (!n) return '—';
+                                        const parts = n.split(' ').filter(Boolean);
+                                        if (parts.length <= 1) return n;
+                                        return parts[parts.length - 1] || '—';
+                                    })()}</span></div>
+                                    <div><span className="text-slate-500">ID client : </span><span className="font-medium">{detailClient?.id || selectedDocument.clientId || '—'}</span></div>
+
+                                    <div><span className="text-slate-500">Téléphone : </span><span className="font-medium">{detailClient?.phone || '—'}</span></div>
+                                    <div><span className="text-slate-500">Email : </span><span className="font-medium">{detailClient?.email || '—'}</span></div>
+
+                                    <div className="sm:col-span-2"><span className="text-slate-500">Adresse : </span><span className="font-medium">{detailClient?.address || '—'}</span></div>
+                                    <div><span className="text-slate-500">Ville : </span><span className="font-medium">{detailClient?.city || '—'}</span></div>
+                                    <div><span className="text-slate-500">Pack : </span><span className="font-medium">{detailClient?.pack || '—'}</span></div>
+
+                                    <div><span className="text-slate-500">Statut client : </span><span className="font-medium">{detailClient?.status || '—'}</span></div>
+                                    <div><span className="text-slate-500">Client depuis : </span><span className="font-medium">{detailClient?.since || '—'}</span></div>
+
+                                    <div><span className="text-slate-500">Packs consommés : </span><span className="font-medium">{typeof detailClient?.packsConsumed === 'number' ? detailClient.packsConsumed : '—'}</span></div>
+                                    <div><span className="text-slate-500">Heures fidélité : </span><span className="font-medium">{typeof detailClient?.loyaltyHoursAvailable === 'number' ? detailClient.loyaltyHoursAvailable : '—'}</span></div>
+
+                                    <div><span className="text-slate-500">Avis laissé : </span><span className="font-medium">{detailClient?.hasLeftReview === true ? 'Oui' : detailClient?.hasLeftReview === false ? 'Non' : '—'}</span></div>
+                                    <div><span className="text-slate-500">Mot de passe initial : </span><span className="font-medium">{detailClient?.initialPassword ? String(detailClient.initialPassword) : '—'}</span></div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                                <h4 className="font-bold text-slate-800 mb-3">Informations {selectedDocument.type}</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                                    <div><span className="text-slate-500">Référence : </span><span className="font-medium">{selectedDocument.ref}</span></div>
                                     <div><span className="text-slate-500">Date : </span><span className="font-medium">{selectedDocument.date}</span></div>
                                     <div><span className="text-slate-500">Statut : </span><span className={`font-medium ${selectedDocument.status === 'signed' ? 'text-green-600' : selectedDocument.status === 'sent' ? 'text-orange-600' : 'text-red-600'}`}>{selectedDocument.status}</span></div>
                                     <div><span className="text-slate-500">Type : </span><span className="font-medium">{selectedDocument.type}</span></div>
