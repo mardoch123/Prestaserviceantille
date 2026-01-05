@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
+import dayjs from 'dayjs';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
+import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import SearchableSelect from './SearchableSelect';
 
 const Planning: React.FC = () => {
@@ -62,31 +64,28 @@ const Planning: React.FC = () => {
 
   // Calculate Week Date Range
   const getWeekRange = (offset: number) => {
-      const curr = new Date(); 
-      const day = curr.getDay() || 7; 
-      const first = curr.getDate() - day + 1 + (offset * 7);
-      
-      const firstDay = new Date(curr.setDate(first));
-      const lastDay = new Date(curr.setDate(first + 6));
-      
-      return { start: firstDay, end: lastDay };
+      const now = getMartiniqueNowDayjs();
+      const day = now.day() === 0 ? 7 : now.day();
+      const start = now.startOf('day').subtract(day - 1, 'day').add(offset * 7, 'day');
+      const end = start.add(6, 'day');
+      return { start, end };
   };
 
   const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
 
   // Format date range for display
-  const dateRangeString = `Du ${weekStart.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} au ${weekEnd.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
+  const dateRangeString = `Semaine du ${weekStart.format('DD/MM/YYYY')} au ${weekEnd.format('DD/MM/YYYY')}`;
 
   // Filter Logic (Missions & Reminders)
   const { filteredMissions, filteredReminders } = useMemo(() => {
-      let startStr, endStr;
+      let startStr: string, endStr: string;
       
       if (customDateRange && startDate && endDate) {
           startStr = startDate;
           endStr = endDate;
       } else {
-          startStr = weekStart.toISOString().split('T')[0];
-          endStr = weekEnd.toISOString().split('T')[0];
+          startStr = weekStart.format('YYYY-MM-DD');
+          endStr = weekEnd.format('YYYY-MM-DD');
       }
       
       // Missions
@@ -131,8 +130,8 @@ const Planning: React.FC = () => {
           startStr = startDate;
           endStr = endDate;
       } else {
-          startStr = weekStart.toISOString().split('T')[0];
-          endStr = weekEnd.toISOString().split('T')[0];
+          startStr = weekStart.format('YYYY-MM-DD');
+          endStr = weekEnd.format('YYYY-MM-DD');
       }
 
       const provisional = (documents || [])
@@ -204,9 +203,9 @@ const Planning: React.FC = () => {
   };
 
   const calculateDuration = (startDate: string, startTime: string, endDate: string, endTime: string) => {
-      const start = new Date(`${startDate}T${startTime}`);
-      const end = new Date(`${endDate}T${endTime}`);
-      const diffMs = end.getTime() - start.getTime();
+      const start = dayjs.tz(`${startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+      const end = dayjs.tz(`${endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+      const diffMs = end.valueOf() - start.valueOf();
       return diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
   };
 
@@ -230,23 +229,23 @@ const Planning: React.FC = () => {
           if (!client) { throw new Error("Client invalide"); }
 
           // Recurrence Logic
-          const startDateObj = new Date(missionForm.date);
-          if(isNaN(startDateObj.getTime())) { throw new Error("Date invalide"); }
+          const startDateObj = dayjs.tz(missionForm.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+          if (!startDateObj.isValid()) { throw new Error("Date invalide"); }
 
           const count = missionForm.recurrence === 'none' ? 1 : parseInt(missionForm.occurrences.toString()) || 1;
           
           for (let i = 0; i < count; i++) {
-              const currentDate = new Date(startDateObj);
-              
+              let currentDate = startDateObj;
+
               if (missionForm.recurrence === 'weekly') {
-                  currentDate.setDate(startDateObj.getDate() + (i * 7));
+                  currentDate = startDateObj.add(i * 7, 'day');
               } else if (missionForm.recurrence === 'biweekly') {
-                  currentDate.setDate(startDateObj.getDate() + (i * 14));
+                  currentDate = startDateObj.add(i * 14, 'day');
               } else if (missionForm.recurrence === 'monthly') {
-                  currentDate.setMonth(startDateObj.getMonth() + i);
+                  currentDate = startDateObj.add(i, 'month');
               }
 
-              const dateStr = currentDate.toISOString().split('T')[0];
+              const dateStr = currentDate.format('YYYY-MM-DD');
 
               await addMission({
                   id: '', // Context will handle ID generation (or UUID)
@@ -466,8 +465,8 @@ const Planning: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex justify-between items-end mb-6">
-           <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-end mb-6">
+           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                <h2 className="text-3xl font-serif font-bold text-slate-800">Planning</h2>
                {selectedMissionIds.size > 0 && (
                    <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
@@ -477,7 +476,7 @@ const Planning: React.FC = () => {
            </div>
            
            {/* Date Range Display */}
-           <div className="hidden md:block bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600">
+           <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600 md:self-auto">
                {dateRangeString}
            </div>
       </div>
@@ -514,74 +513,83 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Filters & Navigation */}
-       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-           <div className="flex items-center gap-4">
+       <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-center lg:justify-between">
+           <div className="w-full lg:w-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
-                <div className="flex items-center gap-1 bg-slate-200/50 p-1 rounded-full">
-                    <button onClick={handlePrevWeek} className="bg-[#006699] text-white px-4 py-1 rounded-full text-sm font-bold flex items-center gap-1 hover:bg-blue-800">
+                <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-200/50 p-2 sm:p-1 rounded-2xl sm:rounded-full">
+                    <button onClick={handlePrevWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
                         <ChevronLeft className="w-3 h-3" /> Précédente
                     </button>
-                    <button onClick={handleCurrentWeek} className="bg-[#66BB44] text-white px-4 py-1 rounded-full text-sm font-bold shadow-sm mx-2 hover:bg-green-600">
+                    <button onClick={handleCurrentWeek} className="w-full sm:w-auto bg-[#66BB44] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold shadow-sm hover:bg-green-600">
                         En cours
                     </button>
-                    <button onClick={handleNextWeek} className="bg-[#006699] text-white px-4 py-1 rounded-full text-sm font-bold flex items-center gap-1 hover:bg-blue-800">
+                    <button onClick={handleNextWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
                          Suivante <ChevronRight className="w-3 h-3" />
                     </button>
                 </div>
            </div>
 
-           <div className="flex items-center gap-2">
-               <div className="relative">
+           <div className="w-full flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2">
+               <div className="relative w-full sm:w-48">
                    <input 
                       type="text"
                       placeholder="Rechercher..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-48 border border-slate-300 rounded px-3 py-1 text-sm focus:outline-none focus:border-brand-blue"
+                      className="w-full border border-slate-300 rounded px-3 py-2 sm:py-1 text-sm focus:outline-none focus:border-brand-blue"
                    />
-                   <Search className="w-3 h-3 text-slate-400 absolute right-3 top-2" />
+                   <Search className="w-3 h-3 text-slate-400 absolute right-3 top-3 sm:top-2" />
                </div>
                
-               <span className="text-brand-blue italic text-sm font-bold">Prestataire :</span>
-               <div className="relative w-64">
-                    <SearchableSelect
-                        options={[
-                            { value: 'all', label: 'Tous les prestataires' },
-                            ...providers.filter(p => p.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
-                        ]}
-                        value={selectedProvider}
-                        onChange={(value) => setSelectedProvider(value)}
-                        className="w-full"
-                    />
+               <div className="w-full sm:w-64">
+                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Prestataire :</div>
+                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Prestataire :</div>
+                    <div className="relative w-full">
+                        <SearchableSelect
+                            options={[
+                                { value: 'all', label: 'Tous les prestataires' },
+                                ...providers.filter(p => p.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
+                            ]}
+                            value={selectedProvider}
+                            onChange={(value) => setSelectedProvider(value)}
+                            className="w-full"
+                        />
+                    </div>
                </div>
                
-               <span className="text-brand-blue italic text-sm font-bold">Client :</span>
-               <div className="relative w-48">
-                    <SearchableSelect
-                        options={[
-                            { value: 'all', label: 'Tous les clients' },
-                            ...clients.map(c => ({ value: c.name, label: c.name }))
-                        ]}
-                        value={selectedClient}
-                        onChange={(value) => setSelectedClient(value)}
-                        className="w-full"
-                    />
+               <div className="w-full sm:w-48">
+                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Client :</div>
+                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Client :</div>
+                    <div className="relative w-full">
+                        <SearchableSelect
+                            options={[
+                                { value: 'all', label: 'Tous les clients' },
+                                ...clients.map(c => ({ value: c.name, label: c.name }))
+                            ]}
+                            value={selectedClient}
+                            onChange={(value) => setSelectedClient(value)}
+                            className="w-full"
+                        />
+                    </div>
                </div>
                
-               <span className="text-brand-blue italic text-sm font-bold">Statut :</span>
-               <div className="relative w-36">
-                    <SearchableSelect
-                        options={[
-                            { value: 'all', label: 'Tous' },
-                            { value: 'planned', label: 'Prévues' },
-                            { value: 'in_progress', label: 'En cours' },
-                            { value: 'completed', label: 'Terminées' },
-                            { value: 'cancelled', label: 'Annulées' }
-                        ]}
-                        value={selectedStatus}
-                        onChange={(value) => setSelectedStatus(value)}
-                        className="w-full"
-                    />
+               <div className="w-full sm:w-36">
+                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Statut :</div>
+                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Statut :</div>
+                    <div className="relative w-full">
+                        <SearchableSelect
+                            options={[
+                                { value: 'all', label: 'Tous' },
+                                { value: 'planned', label: 'Prévues' },
+                                { value: 'in_progress', label: 'En cours' },
+                                { value: 'completed', label: 'Terminées' },
+                                { value: 'cancelled', label: 'Annulées' }
+                            ]}
+                            value={selectedStatus}
+                            onChange={(value) => setSelectedStatus(value)}
+                            className="w-full"
+                        />
+                    </div>
                </div>
                
                <button
@@ -592,7 +600,7 @@ const Planning: React.FC = () => {
                            setEndDate('');
                        }
                    }}
-                   className={`px-3 py-1 rounded text-sm font-bold transition ${
+                   className={`w-full sm:w-auto px-3 py-2 sm:py-1 rounded text-sm font-bold transition ${
                        customDateRange 
                            ? 'bg-brand-blue text-white' 
                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -603,19 +611,19 @@ const Planning: React.FC = () => {
                </button>
                
                {customDateRange && (
-                   <div className="flex items-center gap-2 bg-slate-100 rounded px-3 py-1">
+                   <div className="w-full flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 bg-slate-100 rounded px-3 py-2 sm:py-1">
                        <input
                            type="date"
                            value={startDate}
                            onChange={(e) => setStartDate(e.target.value)}
-                           className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-brand-blue"
+                           className="w-full sm:w-auto text-sm border border-slate-300 rounded px-2 py-2 sm:py-1 focus:outline-none focus:border-brand-blue"
                        />
-                       <span className="text-xs text-slate-500">au</span>
+                       <span className="text-xs text-slate-500 text-center sm:text-left">au</span>
                        <input
                            type="date"
                            value={endDate}
                            onChange={(e) => setEndDate(e.target.value)}
-                           className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-brand-blue"
+                           className="w-full sm:w-auto text-sm border border-slate-300 rounded px-2 py-2 sm:py-1 focus:outline-none focus:border-brand-blue"
                        />
                    </div>
                )}
@@ -630,7 +638,7 @@ const Planning: React.FC = () => {
                        setStartDate('');
                        setEndDate('');
                    }}
-                   className="px-3 py-1 bg-slate-100 text-slate-700 rounded text-sm font-bold hover:bg-slate-200 transition"
+                   className="w-full sm:w-auto px-3 py-2 sm:py-1 bg-slate-100 text-slate-700 rounded text-sm font-bold hover:bg-slate-200 transition"
                >
                    <RotateCcw className="w-3 h-3 inline mr-1" />
                    Reset
@@ -639,12 +647,13 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Main Grid */}
-       <div className="flex-1 flex gap-6 min-h-[400px]">
-            <div className="flex-1 bg-white shadow-sm border border-slate-200 flex flex-col">
-                <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold text-slate-800 py-2">
-                    {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(d => <div key={d}>{d}</div>)}
-                </div>
-                <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
+       <div className="flex-1 flex flex-col gap-4 lg:flex-row lg:gap-6 min-h-[400px]">
+            <div className="flex-1 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-auto">
+                <div className="min-w-[900px]">
+                    <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold text-slate-800 py-2">
+                        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(d => <div key={d}>{d}</div>) }
+                    </div>
+                    <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
                      {[0,1,2,3,4,5].map(colIndex => (
                         <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30 space-y-2 h-full overflow-y-auto">
                             {/* Reminders for this day */}
@@ -715,6 +724,7 @@ const Planning: React.FC = () => {
                             }
                         </div>
                      ))}
+                    </div>
                 </div>
             </div>
             
@@ -757,12 +767,12 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Footer Stats - Updated to reflect filtered items */}
-       <div className="bg-slate-200 p-4 mt-6 flex justify-between items-center font-bold text-slate-800 rounded-lg">
-            <div className="flex items-center gap-2">
+       <div className="bg-slate-200 p-4 mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center font-bold text-slate-800 rounded-lg">
+            <div className="flex items-center justify-between sm:justify-start gap-2">
                 <span>Total heures (Auj.) :</span>
                 <span className="text-xl">{totalHoursToday}h</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between sm:justify-start gap-2">
                 <span>Total heures ({currentWeekOffset === 0 ? 'Cette semaine' : 'Semaine sélectionnée'}) :</span>
                 <span className="text-xl">{totalHoursFiltered}h</span>
             </div>
@@ -808,7 +818,7 @@ const Planning: React.FC = () => {
                     </div>
 
                     {/* Date Logic */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                          <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">Date Début</label>
                             <input 
@@ -837,7 +847,7 @@ const Planning: React.FC = () => {
                     </div>
 
                     {/* Time Logic */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Heure Début</label>
                              <input 
@@ -919,7 +929,7 @@ const Planning: React.FC = () => {
                         <div className="flex items-center gap-2 mb-2 text-brand-blue font-bold text-sm">
                             <Repeat className="w-4 h-4" /> Options de Récurrence
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Type</label>
                                 <select

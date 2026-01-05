@@ -15,7 +15,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { toMartiniqueTime } from '../src/utils/martiniqueTime';
+import { getMartiniqueToday, toMartiniqueTime } from '../src/utils/martiniqueTime';
 
 // --- Types & Mock Data ---
 
@@ -108,7 +108,7 @@ const Statistics: React.FC = () => {
 
     // 1. Time Filter (Global)
     if (timeFilter === 'day') {
-        const todayStr = now.toISOString().split('T')[0];
+        const todayStr = getMartiniqueToday();
         data = data.filter(m => m.date === todayStr);
     } else if (timeFilter === 'week') {
         const { start, end } = getWeekRange();
@@ -176,7 +176,7 @@ const Statistics: React.FC = () => {
     const now = new Date();
     
     if (timeFilter === 'day') {
-        const todayStr = now.toISOString().split('T')[0];
+        const todayStr = getMartiniqueToday();
         baseData = baseData.filter(m => m.date === todayStr);
     } else if (timeFilter === 'week') {
         const { start, end } = getWeekRange();

@@ -88,6 +88,10 @@ const DevisFactures: React.FC = () => {
 
     const getTodayMartiniqueStr = (): string => getMartiniqueToday();
 
+    const toMartiniqueISODate = (d: Date): string => {
+        return dayjs(d).tz(MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
+    };
+
     const pad2 = (n: number) => String(n).padStart(2, '0');
 
     const roundUpToNext5Minutes = (d: Date): Date => {
@@ -291,12 +295,13 @@ const DevisFactures: React.FC = () => {
 
         const newSlots: InterventionSlot[] = [];
         const baseDate = (() => {
-            const d = new Date(getTodayMartiniqueStr());
+            const todayStr = getTodayMartiniqueStr();
             const defaultStart = '09:00';
-            if (isSlotStartInPast(getTodayMartiniqueStr(), defaultStart)) {
-                d.setDate(d.getDate() + 1);
+            const base = dayjs.tz(todayStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+            if (isSlotStartInPast(todayStr, defaultStart)) {
+                return base.add(1, 'day');
             }
-            return d;
+            return base;
         })();
 
         if (pack.name.includes("Tranquility")) {
@@ -308,11 +313,10 @@ const DevisFactures: React.FC = () => {
             const hours = choice === "4j_3h" ? 3 : 4;
 
             for (let i = 0; i < days; i++) {
-                const date = new Date(baseDate);
-                date.setDate(date.getDate() + (i * 2)); // Spread every 2 days by default
+                const date = baseDate.add(i * 2, 'day'); // Spread every 2 days by default
                 newSlots.push({
                     id: `slot-tranquility-${i}`,
-                    date: date.toISOString().split('T')[0],
+                    date: toMartiniqueISODate(date.toDate()),
                     startTime: '09:00',
                     endTime: addHoursToTime('09:00', hours),
                     duration: hours
@@ -322,7 +326,7 @@ const DevisFactures: React.FC = () => {
             // Pack ULTIME 6: 6h en une seule journée de 9h à 15h
             newSlots.push({
                 id: `slot-ultime-6`,
-                date: baseDate.toISOString().split('T')[0],
+                date: toMartiniqueISODate(baseDate.toDate()),
                 startTime: '09:00',
                 endTime: '15:00',
                 duration: 6
@@ -333,11 +337,10 @@ const DevisFactures: React.FC = () => {
             const hoursPerDay = totalHours / days;
 
             for (let i = 0; i < days; i++) {
-                const date = new Date(baseDate);
-                date.setDate(date.getDate() + i);
+                const date = baseDate.add(i, 'day');
                 newSlots.push({
                     id: `slot-custom-${i}`,
-                    date: date.toISOString().split('T')[0],
+                    date: toMartiniqueISODate(date.toDate()),
                     startTime: '09:00',
                     endTime: addHoursToTime('09:00', hoursPerDay),
                     duration: hoursPerDay
@@ -478,21 +481,19 @@ const DevisFactures: React.FC = () => {
         }
 
         const startDateStr = getTodayMartiniqueStr();
-        const startDate = new Date(startDateStr);
         const newSlots: InterventionSlot[] = [];
-        let cursorDate = new Date(startDate);
+        let cursorDate = dayjs.tz(startDateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
 
         // Si l'horaire par défaut est déjà passé pour aujourd'hui, commencer au lendemain
         if (sessions.length > 0 && sessions[0]?.startTime && isSlotStartInPast(startDateStr, sessions[0].startTime)) {
-            cursorDate.setDate(cursorDate.getDate() + 1);
+            cursorDate = cursorDate.add(1, 'day');
         }
 
         for (let i = 0; i < sessions.length; i++) {
             let found = false;
             for (let offset = 0; offset < maxLookaheadDays; offset++) {
-                const candidate = new Date(cursorDate);
-                candidate.setDate(candidate.getDate() + offset);
-                const candidateStr = candidate.toISOString().split('T')[0];
+                const candidate = cursorDate.add(offset, 'day');
+                const candidateStr = candidate.format('YYYY-MM-DD');
 
                 // Ne jamais proposer un créneau dans le passé (cas: aujourd'hui mais heure déjà passée)
                 if (candidateStr === getTodayMartiniqueStr() && isSlotStartInPast(candidateStr, sessions[i].startTime)) {
@@ -509,8 +510,7 @@ const DevisFactures: React.FC = () => {
 
                 if (isAnyProviderAvailableForSlot(candidateSlot)) {
                     newSlots.push(candidateSlot);
-                    cursorDate = new Date(candidate);
-                    cursorDate.setDate(cursorDate.getDate() + 1);
+                    cursorDate = candidate.add(1, 'day');
                     found = true;
                     break;
                 }
@@ -677,9 +677,10 @@ const DevisFactures: React.FC = () => {
         const lastSlot = interventionSlots[interventionSlots.length - 1];
         let newDate = getMartiniqueToday();
         if (lastSlot) {
-            const d = new Date(lastSlot.date);
-            d.setDate(d.getDate() + 1);
-            newDate = d.toISOString().split('T')[0];
+            newDate = dayjs
+                .tz(lastSlot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE)
+                .add(1, 'day')
+                .format('YYYY-MM-DD');
         }
 
         // Définir la durée par défaut selon le pack

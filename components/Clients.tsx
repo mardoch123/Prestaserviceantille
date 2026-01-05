@@ -42,6 +42,8 @@ const Clients: React.FC = () => {
     "Trinité",
     "Le François",
     "Ducos",
+    "Sainte-Luce",
+    "Sainte-Anne",
     "Sainte-Marie",
     "Le Carbet",
     "Case-Pilote",
@@ -606,6 +608,8 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 value={formData.city}
                                 onChange={(value) => setFormData((prev: any) => ({ ...prev, city: value }))}
                                 placeholder="Sélectionner une ville..."
+                                usePortal
+                                dropdownClassName="max-h-80"
                              />
                         </div>
                     </div>

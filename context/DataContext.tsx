@@ -9,12 +9,14 @@ import { sendEmailViaEmailJS } from '../utils/emailService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import dayjs from 'dayjs';
 import { 
     getMartiniqueNowISO,
     getMartiniqueToday,
     formatMartiniqueDateTime,
     formatMartiniqueDate,
-    toMartiniqueTime
+    toMartiniqueTime,
+    MARTINIQUE_TIMEZONE
 } from '../src/utils/martiniqueTime';
 
 // --- Assets & Constantes ---
@@ -43,8 +45,8 @@ function capitalize(s: string) {
 
 // Helper to calculate day index
 function getDayIndexFromDate(dateStr: string): number {
-    const date = new Date(dateStr);
-    const day = date.getDay();
+    const date = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    const day = date.day();
     return day === 0 ? 6 : day - 1;
 }
 
@@ -2253,17 +2255,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
         const missionsToCreate: any[] = [];
         const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
-        const endDate = doc.recurrenceEndDate ? new Date(doc.recurrenceEndDate) : new Date(new Date().setFullYear(toMartiniqueTime(new Date()).getFullYear() + 1));
+        const endDate = doc.recurrenceEndDate
+            ? dayjs.tz(doc.recurrenceEndDate, MARTINIQUE_TIMEZONE).endOf('day')
+            : dayjs.tz(new Date(), MARTINIQUE_TIMEZONE).add(1, 'year').endOf('day');
 
         // Use document slots to generate planned missions
         for (const slot of doc.slotsData) {
             if (isRecurring && slot.date) {
-                let currentDate = new Date(slot.date);
-                while (currentDate <= endDate) {
+                let currentDate = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+                while (currentDate.valueOf() <= endDate.valueOf()) {
                     const missionId = generateUUID();
                     missionsToCreate.push({
                         id: missionId,
-                        date: currentDate.toISOString().split('T')[0],
+                        date: currentDate.format('YYYY-MM-DD'),
                         start_time: slot.startTime,
                         end_time: slot.endTime,
                         duration: slot.duration,
@@ -2277,9 +2281,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         source: 'devis',
                         source_document_id: doc.id
                     });
-                    if (doc.frequency === 'Hebdomadaire') currentDate = addDays(currentDate, 7);
-                    else if (doc.frequency === 'Bimensuelle') currentDate = addDays(currentDate, 14);
-                    else if (doc.frequency === 'Mensuelle') currentDate = addMonths(currentDate, 1);
+                    if (doc.frequency === 'Hebdomadaire') currentDate = currentDate.add(7, 'day');
+                    else if (doc.frequency === 'Bimensuelle') currentDate = currentDate.add(14, 'day');
+                    else if (doc.frequency === 'Mensuelle') currentDate = currentDate.add(1, 'month');
                     else break;
                 }
             } else if (slot.date) {
@@ -2469,7 +2473,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             remainingText: formatRemainingMs(remainingMs),
             login: client.email,
             password: (client as any).initial_password ? String((client as any).initial_password) : undefined,
-            link: 'https://presta-antilles.app/login'
+            link: 'https://prestaservicesantilles.com/'
         });
     };
 
