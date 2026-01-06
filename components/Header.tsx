@@ -93,8 +93,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           setSelectedMissionReportId(missionId);
       } else if (notif.link === 'tab:planning') {
           navigate('/planning');
-      } else if (notif.link === 'tab:messaging') {
-          navigate('/secretariat', { state: { tab: 'messaging' } });
+      } else if (notif.link === 'tab:messaging' || (typeof notif.link === 'string' && notif.link.startsWith('tab:messaging:'))) {
+          const parts = String(notif.link || '').split(':');
+          const clientId = parts.length >= 3 ? parts.slice(2).join(':') : undefined;
+          navigate('/secretariat', { state: { tab: 'messaging', clientId } });
       } else if (notif.link === 'tab:live-videos') {
           navigate('/secretariat', { state: { tab: 'live-videos' } });
       } else if (notif.link === 'tab:docs') {

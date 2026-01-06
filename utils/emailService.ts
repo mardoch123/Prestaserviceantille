@@ -2,9 +2,9 @@ import emailjs from '@emailjs/browser';
 import { generateEmailTemplate } from './emailTemplates';
 
 // EmailJS Configuration
-const EMAILJS_SERVICE_ID = "service_fuz4xun";
-const EMAILJS_TEMPLATE_ID = "template_rbhwm3n";
-const EMAILJS_PUBLIC_KEY = "IjPFArfcYyNDZTQSS";
+const EMAILJS_SERVICE_ID = "service_0u67mco";
+const EMAILJS_TEMPLATE_ID = "template_dhqrmbu";
+const EMAILJS_PUBLIC_KEY = "jjYNnpHbr5djyFBlK";
 
 const EMAIL_BRAND_NAME = 'Presta Services Antilles';
 

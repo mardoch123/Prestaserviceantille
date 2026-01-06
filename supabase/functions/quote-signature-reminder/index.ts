@@ -21,7 +21,7 @@ type RequestBody = {
   force?: boolean;
 };
 
-const LOGIN_LINK = 'https://presta-antilles.app/login';
+const LOGIN_LINK = 'https://www.prestaservicesantilles.com/';
 
 async function sendEmailViaEmailJS(params: {
   to: string;
@@ -79,21 +79,45 @@ function buildEmailMessage(params: {
   password?: string;
 }): string {
   const createTextEmail = (title: string, content: string): string => {
-    return `
-${COMPANY_NAME.toUpperCase()}
-==================================================
+    const applyTextEmphasis = (input: string): string => {
+      const raw = String(input ?? '');
 
-${title}
+      // 1) Bold "Bonjour ..." line (plain text, no HTML)
+      const withBoldGreeting = raw.replace(/^Bonjour([^\n]*)$/m, (line) => {
+        const trimmed = String(line || '').trim();
+        if (!trimmed) return line;
+        if (trimmed.startsWith('**Bonjour')) return line;
+        return `**${trimmed}**`;
+      });
 
---------------------------------------------------
+      // 2) Bold company name occurrences
+      return withBoldGreeting
+        .replace(/\bPresta Services Antilles\b/g, '**Presta Services Antilles**')
+        .replace(/\bPRESTA SERVICES ANTILLES\b/g, '**PRESTA SERVICES ANTILLES**');
+    };
+
+    const safeTitle = String(title || '').trim();
+    const subjectLine = safeTitle ? `Objet : ${safeTitle}` : `Objet : Nouvelle notification – Presta Services Antilles`;
+
+    const rawMessage = `
+${COMPANY_NAME}
+${COMPANY_ADDRESS}
+📧 ${COMPANY_EMAIL} | 📞 ${COMPANY_PHONE}
+
+${subjectLine}
 
 ${content}
 
---------------------------------------------------
-${COMPANY_NAME}
-${COMPANY_ADDRESS}
-Email: ${COMPANY_EMAIL} | Tél: ${COMPANY_PHONE}
+Merci de vous connecter à votre espace personnel pour en prendre connaissance :
+🔗 ${LOGIN_LINK}
+
+Restant à votre disposition pour toute question,
+L’équipe Presta Services Antilles
+
+Ce message vous a été envoyé automatiquement via notre système sécurisé.
     `.trim();
+
+    return applyTextEmphasis(rawMessage);
   };
 
   const passwordText = params.password ? params.password : 'Non disponible';

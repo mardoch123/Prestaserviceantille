@@ -756,6 +756,7 @@ const styles = StyleSheet.create({
   signatureBoxCardQuote: {
     padding: 8,
     minHeight: 100,
+    alignItems: 'center',
   },
   signatureBoxCardContract: {
     padding: 8,
@@ -972,7 +973,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                         Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
                         Email : prestaservicesantilles.rh@gmail.com
                     </Text>
-                    <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+                    <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
                   </View>
                 </View>
               </View>
@@ -987,7 +988,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                       Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
                       Email : prestaservicesantilles.rh@gmail.com
                   </Text>
-                <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+                <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
               </View>
             );
           }
@@ -1215,7 +1216,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
 
       <View style={[styles.footer, styles.footerQuote]} fixed>
         <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
-        <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+        <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
   </Document>
@@ -1244,7 +1245,7 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
               Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
               Email : prestaservicesantilles.rh@gmail.com
             </Text>
-            <Text style={[styles.subtitle, styles.subtitleInvoice]}>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+            <Text style={[styles.subtitle, styles.subtitleInvoice]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
           </View>
         </View>
       </View>
@@ -1414,7 +1415,7 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
 
       <View style={[styles.footer, styles.footerInvoice]} fixed>
         <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
-        <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+        <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
   </Document>
@@ -1445,7 +1446,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                     Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
                     Email : prestaservicesantilles.rh@gmail.com
                   </Text>
-                  <Text style={styles.subtitleSmall}>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+                  <Text style={styles.subtitleSmall}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
                 </View>
               </View>
             </View>
@@ -1592,7 +1593,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
 
       <View style={styles.footer} fixed>
         <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email : prestaservicesantilles.rh@gmail.com</Text>
-        <Text>Téléphone: +596 0696 06 15 94 - www.prestaservicesantilles.com</Text>
+        <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
   </Document>

@@ -267,9 +267,12 @@ const Secretariat: React.FC = () => {
     // Handle external redirects (e.g., from notifications)
     useEffect(() => {
         if (location.state) {
-            const state = location.state as { tab?: string };
+            const state = location.state as { tab?: string; clientId?: string };
             if (state.tab === 'messaging') {
                 setActiveTab('messaging');
+                if (state.clientId) {
+                    setSelectedChatClientId(state.clientId);
+                }
             } else if (state.tab === 'absences') {
                 setActiveTab('absences');
             } else if (state.tab === 'live-videos') {

@@ -30,21 +30,46 @@ export const generateEmailTemplate = (
 
     // Helper function to create Text email (Fallback for when HTML is not supported/configured)
     const createTextEmail = (title: string, content: string): string => {
-        return `
-${companyName.toUpperCase()}
-==================================================
+        const applyTextEmphasis = (input: string): string => {
+            const raw = String(input ?? '');
 
-${title}
+            // 1) Bold "Bonjour ..." line (plain text, no HTML)
+            const withBoldGreeting = raw.replace(/^Bonjour([^\n]*)$/m, (line) => {
+                const trimmed = String(line || '').trim();
+                if (!trimmed) return line;
+                if (trimmed.startsWith('**Bonjour')) return line;
+                return `**${trimmed}**`;
+            });
 
---------------------------------------------------
+            // 2) Bold company name occurrences
+            return withBoldGreeting
+                .replace(/\bPresta Services Antilles\b/g, '**Presta Services Antilles**')
+                .replace(/\bPRESTA SERVICES ANTILLES\b/g, '**PRESTA SERVICES ANTILLES**');
+        };
+
+        const portalLink = context?.link || 'https://www.prestaservicesantilles.com/';
+        const safeTitle = String(title || '').trim();
+        const subjectLine = safeTitle ? `Objet : ${safeTitle}` : `Objet : Nouvelle notification – Presta Services Antilles`;
+
+        const rawMessage = `
+${companyName}
+${companyAddress}
+📧 ${companyEmail} | 📞 ${companyPhone}
+
+${subjectLine}
 
 ${content}
 
---------------------------------------------------
-${companyName}
-${companyAddress}
-Email: ${companyEmail} | Tél: ${companyPhone}
+Merci de vous connecter à votre espace personnel pour en prendre connaissance :
+🔗 ${portalLink}
+
+Restant à votre disposition pour toute question,
+L’équipe Presta Services Antilles
+
+Ce message vous a été envoyé automatiquement via notre système sécurisé.
         `.trim();
+
+        return applyTextEmphasis(rawMessage);
     };
 
     // Helper to format key-value pairs textually
@@ -430,9 +455,10 @@ Le contrat est maintenant actif et peut être utilisé.`
                     'Notification',
                     `Bonjour ${context.name || context.clientName || context.providerName || ''},
 
-${context.message || 'Vous avez reçu une notification.'}
+Vous avez reçu une nouvelle notification importante concernant votre compte.
 
-Connectez-vous à votre espace pour plus de détails sur https://www.prestaservicesantilles.com/`
+${context.message || 'Vous avez reçu une notification.'}
+`
                 )
             };
     }

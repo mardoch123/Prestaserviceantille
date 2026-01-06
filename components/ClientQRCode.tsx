@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import { QrCode, Clock, MapPin, User, CheckCircle, XCircle, LogIn, LogOut, RefreshCw } from 'lucide-react';
+import { QrCode, Clock, MapPin, User, CheckCircle, XCircle, LogIn, LogOut, RefreshCw, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 
 const ClientQRCode: React.FC = () => {
@@ -85,6 +85,21 @@ const ClientQRCode: React.FC = () => {
         return type === 'entry' ? 'border-green-200' : 'border-red-200';
     };
 
+    const handleDownloadQRCode = () => {
+        if (!qrCodeUrl || loading) return;
+        const safeName = String(client?.name || 'client')
+            .trim()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-zA-Z0-9_\-]/g, '');
+
+        const link = document.createElement('a');
+        link.href = qrCodeUrl;
+        link.download = `QRCode_${safeName || 'client'}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     if (!client) {
         return (
             <div className="max-w-4xl mx-auto space-y-6">
@@ -115,13 +130,50 @@ const ClientQRCode: React.FC = () => {
                                     <RefreshCw className="w-8 h-8 text-slate-400 animate-spin" />
                                 </div>
                             ) : (
-                                <div className="inline-block p-4 bg-white rounded-lg border-2 border-slate-200">
-                                    <img src={qrCodeUrl} alt="Code QR" className="w-56 h-56" />
+                                <div className="inline-block">
+                                    <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50 border border-slate-200 shadow-sm">
+                                        <div className="px-4 py-2 rounded-xl bg-white border border-slate-200 mb-4">
+                                            <div className="text-sm font-bold text-slate-800">{client.name}</div>
+                                            <div className="text-xs text-slate-500">ID: {client.id.slice(0, 8)}…</div>
+                                        </div>
+                                        <div className="p-4 bg-white rounded-xl border-2 border-slate-200">
+                                            <img src={qrCodeUrl} alt="Code QR" className="w-56 h-56" />
+                                        </div>
+                                        <div className="mt-4 text-left text-xs text-slate-600 space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <MapPin className="w-4 h-4 text-slate-400" />
+                                                <span className="truncate max-w-[18rem]">{client.address || 'Adresse non spécifiée'}</span>
+                                            </div>
+                                            {client.email ? (
+                                                <div className="flex items-center gap-2">
+                                                    <CheckCircle className="w-4 h-4 text-slate-400" />
+                                                    <span className="truncate max-w-[18rem]">{client.email}</span>
+                                                </div>
+                                            ) : null}
+                                            {client.phone ? (
+                                                <div className="flex items-center gap-2">
+                                                    <CheckCircle className="w-4 h-4 text-slate-400" />
+                                                    <span className="truncate max-w-[18rem]">{client.phone}</span>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                             <p className="text-sm text-slate-500 mt-4">
                                 Présentez ce code QR pour votre pointage
                             </p>
+
+                            <button
+                                onClick={handleDownloadQRCode}
+                                disabled={loading || !qrCodeUrl}
+                                className={`mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition border ${loading || !qrCodeUrl
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'bg-brand-blue text-white border-brand-blue hover:bg-blue-700'}`}
+                            >
+                                <Download className="w-4 h-4" />
+                                Télécharger mon QRCode
+                            </button>
                         </div>
                         
                         {/* Informations du client */}
@@ -151,11 +203,10 @@ const ClientQRCode: React.FC = () => {
                             </div>
                             
                             <div className="bg-blue-50 rounded-lg p-4">
-                                <h3 className="font-semibold text-blue-800 mb-2">Comment utiliser ?</h3>
+                                <h3 className="font-semibold text-blue-800 mb-2">Comment ça marche ?</h3>
                                 <ul className="text-sm text-blue-700 space-y-1">
-                                    <li>• Présentez ce code QR à l'accueil</li>
-                                    <li>• Le système enregistrera automatiquement votre passage</li>
-                                    <li>• Alternance automatique entrée/sortie</li>
+                                    <li>• Affichez ce code QR à l'entrée du site</li>
+                                    <li>• Chaque scan enregistre un passage</li>
                                     <li>• Historique disponible ci-dessous</li>
                                 </ul>
                             </div>

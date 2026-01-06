@@ -155,6 +155,8 @@ const ClientPortal: React.FC = () => {
     const [messageInput, setMessageInput] = useState('');
     const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
 
+    const messageInputRef = useRef<HTMLInputElement>(null);
+
     // États pour la messagerie en temps réel
     const [isTyping, setIsTyping] = useState(false);
     const [adminTyping, setAdminTyping] = useState(false);
@@ -169,6 +171,7 @@ const ClientPortal: React.FC = () => {
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
     const [showMobileNotifModal, setShowMobileNotifModal] = useState(false);
+    const notifDropdownRef = useRef<HTMLDivElement>(null);
 
     // Mobile Menu State
     const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -212,6 +215,25 @@ const ClientPortal: React.FC = () => {
         }
     }, [activeStream, client]);
 
+    useEffect(() => {
+        if (!showNotifDropdown) return;
+
+        const handleOutside = (event: MouseEvent | TouchEvent) => {
+            const target = event.target as Node | null;
+            if (!target) return;
+            if (!notifDropdownRef.current) return;
+            if (notifDropdownRef.current.contains(target)) return;
+            setShowNotifDropdown(false);
+        };
+
+        document.addEventListener('mousedown', handleOutside);
+        document.addEventListener('touchstart', handleOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleOutside);
+            document.removeEventListener('touchstart', handleOutside);
+        };
+    }, [showNotifDropdown]);
+
     if (!client) {
         return (
             <div className="h-full flex items-center justify-center flex-col bg-slate-100 p-8">
@@ -251,24 +273,47 @@ const ClientPortal: React.FC = () => {
 
     const handleNotificationClick = (notif: any) => {
         markNotificationRead(notif.id);
-        if (notif.link && notif.link.startsWith('mission:')) {
+        const title = String(notif?.title || '');
+        const message = String(notif?.message || '');
+        const link = typeof notif?.link === 'string' ? notif.link : '';
+
+        const isDocNotif =
+            link === 'documents' ||
+            link === 'tab:docs' ||
+            link.startsWith('document:') ||
+            /\bdevis\b/i.test(title) ||
+            /\bdevis\b/i.test(message) ||
+            /\bcontrat\b/i.test(title) ||
+            /\bcontrat\b/i.test(message);
+
+        const isMessageNotif =
+            link === 'tab:messages' ||
+            link.startsWith('tab:messages:') ||
+            notif?.type === 'message' ||
+            /\bmessage\b/i.test(title) ||
+            /\bmessage\b/i.test(message);
+
+        if (link && link.startsWith('mission:')) {
             setActiveTab('planning');
-        } else if (notif.link === 'tab:messages') {
+        } else if (isDocNotif) {
+            setActiveTab('docs');
+        } else if (isMessageNotif) {
             setActiveTab('messages');
-        } else if (notif.link === 'tab:live') {
+        } else if (link === 'tab:live') {
             // Si la notification pointe vers un appel en cours, ouvrir l'onglet live
             setActiveTab('live');
-        } else if (notif.link === 'documents' || notif.type === 'message' && (notif.title.includes('devis') || notif.title.includes('Devis') || notif.message.includes('devis') || notif.message.includes('Devis'))) {
-            // Si c'est une notification concernant un devis ou lien vers documents, ouvrir la page des documents
-            setActiveTab('docs');
-        } else if (notif.link && notif.link.startsWith('document:')) {
-            // Si la notification pointe vers un document spécifique, ouvrir documents et scroller vers le document
-            setActiveTab('docs');
-            // TODO: Implémenter le scroll vers le document spécifique
         }
         setShowNotifDropdown(false);
         setShowAllNotifsModal(false);
     };
+
+    useEffect(() => {
+        if (activeTab !== 'messages') return;
+        const t = setTimeout(() => {
+            messageInputRef.current?.focus();
+        }, 50);
+        return () => clearTimeout(t);
+    }, [activeTab]);
 
     const openQuoteModal = (docId: string) => {
         setSelectedQuoteId(docId);
@@ -1085,6 +1130,20 @@ const ClientPortal: React.FC = () => {
             }
         }
 
+        // Compat: parfois "Lieu: ..." est collé dans la description (sans séparateur "|")
+        // => on l'extrait pour l'afficher sur une ligne dédiée.
+        if (!meta.lieu && meta.description) {
+            const lieuRegex = /\bLieu\s*:\s*(.+)$/i;
+            const match = lieuRegex.exec(meta.description);
+            if (match && typeof match.index === 'number') {
+                const extractedLieu = String(match[1] || '').trim();
+                if (extractedLieu) meta.lieu = extractedLieu;
+
+                const before = meta.description.slice(0, match.index).trim();
+                meta.description = before.replace(/[\s.]+$/g, '').trim();
+            }
+        }
+
         if (!meta.description) meta.description = raw.trim();
         return meta;
     };
@@ -1161,7 +1220,7 @@ const ClientPortal: React.FC = () => {
                 <div className="flex items-center gap-4">
 
                     {/* Notification Bell */}
-                    <div className="relative">
+                    <div className="relative" ref={notifDropdownRef}>
                         <button
                             onClick={() => {
                                 if (window.innerWidth < 768) {
@@ -1839,6 +1898,7 @@ const ClientPortal: React.FC = () => {
                             </div>
                             <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-slate-100 flex gap-2">
                                 <input
+                                    ref={messageInputRef}
                                     type="text"
                                     className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm outline-none focus:border-brand-blue"
                                     placeholder="Votre message..."
@@ -2125,7 +2185,15 @@ const ClientPortal: React.FC = () => {
                                 <div className="bg-white shadow-sm p-4 md:p-8 min-h-full text-xs md:text-sm text-slate-800 leading-relaxed" style={{ fontFamily: 'Times New Roman, serif' }}>
                                     <div className="flex justify-between mb-8 border-b pb-4">
                                         <div className="w-20">
-                                            <img src={LOGO_NORMAL} alt="Logo" className="w-full" />
+                                            <img
+                                                src={LOGO_NORMAL}
+                                                alt="Logo"
+                                                className="w-full"
+                                                onError={(e) => {
+                                                    const img = e.currentTarget as HTMLImageElement;
+                                                    if (img && img.src !== LOGO_BASE64) img.src = LOGO_BASE64;
+                                                }}
+                                            />
                                         </div>
                                         <div className="text-right">
                                             <h1 className="font-bold text-xl uppercase text-brand-blue" style={{ fontFamily: 'Times New Roman, serif' }}>DEVIS</h1>
@@ -2225,7 +2293,7 @@ const ClientPortal: React.FC = () => {
                                         <div className="w-1/2 pr-4 border-r">
                                             <p className="font-bold mb-2">Pour l'Entreprise :</p>
                                             <div className="space-y-2">
-                                                <img src="https://prestaservicesantilles.com/signature.png" alt="Signature entreprise" className="h-12 border border-slate-300 rounded" />
+                                                <img src="https://anciens.prestaservicesantilles.com/signature.png" alt="Signature entreprise" className="h-12 border border-slate-300 rounded" />
                                                 {selectedQuote.status === 'signed' && (
                                                     <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
                                                         Validé & Signé
@@ -2265,14 +2333,14 @@ const ClientPortal: React.FC = () => {
                                                 disabled={selectedQuote.status === 'signed'}
                                             />
                                             <span className="text-sm font-bold text-slate-700">
-                                                Je reconnais avoir pris connaissance des conditions générales de vente et j'accepte les termes du contrat.
+                                                Je reconnais avoir pris connaissance des conditions générales de vente et j'accepte les termes du contrat.{" "}
                                                 {(() => {
                                                     const total = Number(selectedQuote.totalTTC || 0);
                                                     const creditActive = !!((selectedQuote as any).hasTaxCredit || (selectedQuote as any).taxCreditEnabled);
                                                     const toPay = creditActive ? total * 0.5 : total;
                                                     return (
                                                         <>
-                                                            Je m'engage à régler le montant de {toPay.toFixed(2)} € TTC.
+                                                            Je m'engage à régler le montant de {toPay.toFixed(2)} € TTC. 
                                                             {creditActive ? (
                                                                 <span className="block text-green-700 font-bold mt-1">
                                                                     Crédit d'impôt activé (-50%) : reste à charge {toPay.toFixed(2)} €

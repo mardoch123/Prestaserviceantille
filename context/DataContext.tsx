@@ -538,6 +538,173 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
     }, [currentUser]);
 
+    useEffect(() => {
+        if (!currentUser) return;
+        if (currentUser.role !== 'admin') return;
+
+        const mapDocumentRow = (d: any): any => ({
+            ...d,
+            clientId: d.client_id || d.clientId,
+            clientName: d.client_name || d.clientName,
+            unitPrice: d.unit_price || d.unitPrice,
+            tvaRate: d.tva_rate || d.tvaRate,
+            totalHT: d.total_ht || d.totalHT,
+            totalTTC: d.total_ttc || d.totalTTC,
+            taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+            slotsData: d.slots_data,
+            reminderSent: d.reminder_sent,
+            signatureData: d.signature_data,
+            signatureDate: d.signature_date,
+            recurrenceEndDate: d.recurrence_end_date,
+            frequency: d.frequency
+        });
+
+        console.log('[DocumentsSubscription] Setting up subscription for admin');
+
+        const subscription = supabase
+            .channel('documents')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'documents'
+                },
+                (payload) => {
+                    const newDoc = mapDocumentRow(payload.new);
+                    setDocuments(prev => {
+                        const exists = prev.some(d => String((d as any).id) === String(newDoc.id));
+                        if (exists) return prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d);
+                        return [...prev, newDoc];
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'documents'
+                },
+                (payload) => {
+                    const updatedDoc = mapDocumentRow(payload.new);
+                    setDocuments(prev => {
+                        const exists = prev.some(d => String((d as any).id) === String(updatedDoc.id));
+                        if (!exists) return [...prev, updatedDoc];
+                        return prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'documents'
+                },
+                (payload) => {
+                    const deletedId = String((payload.old as any)?.id || '');
+                    if (!deletedId) return;
+                    setDocuments(prev => prev.filter(d => String((d as any).id) !== deletedId));
+                }
+            )
+            .subscribe((status) => {
+                console.log('[DocumentsSubscription] Subscription status:', status);
+            });
+
+        return () => {
+            console.log('[DocumentsSubscription] Cleaning up subscription');
+            subscription.unsubscribe();
+        };
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        if (currentUser.role !== 'client') return;
+        if (!currentUser.relatedEntityId) return;
+
+        const clientId = String(currentUser.relatedEntityId);
+
+        const mapDocumentRow = (d: any): any => ({
+            ...d,
+            clientId: d.client_id || d.clientId,
+            clientName: d.client_name || d.clientName,
+            unitPrice: d.unit_price || d.unitPrice,
+            tvaRate: d.tva_rate || d.tvaRate,
+            totalHT: d.total_ht || d.totalHT,
+            totalTTC: d.total_ttc || d.totalTTC,
+            taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+            slotsData: d.slots_data,
+            reminderSent: d.reminder_sent,
+            signatureData: d.signature_data,
+            signatureDate: d.signature_date,
+            recurrenceEndDate: d.recurrence_end_date,
+            frequency: d.frequency
+        });
+
+        const filter = `client_id=eq.${clientId}`;
+        console.log('[DocumentsSubscription] Setting up subscription for client', clientId, 'with filter', filter);
+
+        const subscription = supabase
+            .channel('documents-client')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'documents',
+                    filter
+                },
+                (payload) => {
+                    const newDoc = mapDocumentRow(payload.new);
+                    setDocuments(prev => {
+                        const exists = prev.some(d => String((d as any).id) === String(newDoc.id));
+                        if (exists) return prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d);
+                        return [...prev, newDoc];
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'documents',
+                    filter
+                },
+                (payload) => {
+                    const updatedDoc = mapDocumentRow(payload.new);
+                    setDocuments(prev => {
+                        const exists = prev.some(d => String((d as any).id) === String(updatedDoc.id));
+                        if (!exists) return [...prev, updatedDoc];
+                        return prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'documents',
+                    filter
+                },
+                (payload) => {
+                    const deletedId = String((payload.old as any)?.id || '');
+                    if (!deletedId) return;
+                    setDocuments(prev => prev.filter(d => String((d as any).id) !== deletedId));
+                }
+            )
+            .subscribe((status) => {
+                console.log('[DocumentsSubscription] Client subscription status:', status);
+            });
+
+        return () => {
+            console.log('[DocumentsSubscription] Cleaning up client subscription');
+            subscription.unsubscribe();
+        };
+    }, [currentUser]);
+
     // --- DATA FETCHING ---
     const refreshData = async () => {
         try {
@@ -3200,7 +3367,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const client = clients.find(c => c.id === clientId);
 
             // NOTIF ADMIN
-            await addNotification('admin', 'message', 'Nouveau Message', `De ${client?.name || 'Client'}: ${text.substring(0, 20)}...`, undefined, 'tab:messaging');
+            await addNotification('admin', 'message', 'Nouveau Message', `De ${client?.name || 'Client'}: ${text.substring(0, 20)}...`, undefined, `tab:messaging:${clientId}`);
 
             // EMAIL ADMIN (Urgent?)
             await sendEmail(companySettings.email, 'Nouveau Message Client', 'admin_new_message', {
