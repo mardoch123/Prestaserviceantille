@@ -105,29 +105,31 @@ const OfflineBanner = () => {
     );
 };
 
-const LoadingScreen = () => {
+const LoadingScreen = ({ mode }: { mode?: 'app' | 'sync' }) => {
     const [showBypass, setShowBypass] = useState(false);
 
     useEffect(() => {
-        // If loading takes more than 4 seconds, show the bypass option
-        const timer = setTimeout(() => setShowBypass(true), 4000);
+        const delay = mode === 'sync' ? 45000 : 4000;
+        const timer = setTimeout(() => setShowBypass(true), delay);
         return () => clearTimeout(timer);
-    }, []);
+    }, [mode]);
 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 text-slate-600 p-8 text-center">
             <Loader2 className="w-12 h-12 text-brand-blue animate-spin mb-4" />
-            <p className="font-bold text-lg animate-pulse">Chargement de l'application...</p>
-            <p className="text-xs text-slate-400 mt-2">Initialisation des modules et connexion sécurisée.</p>
+            <p className="font-bold text-lg animate-pulse">{mode === 'sync' ? 'Synchronisation en cours...' : "Chargement de l'application..."}</p>
+            <p className="text-xs text-slate-400 mt-2">{mode === 'sync' ? "Récupération des données et mise à jour de l'affichage." : 'Initialisation des modules et connexion sécurisée.'}</p>
 
             {showBypass && (
                 <div className="mt-8 animate-in fade-in slide-in-from-bottom-4">
                     <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 max-w-sm">
                         <p className="text-sm text-orange-800 font-bold flex items-center justify-center gap-2 mb-2">
-                            <AlertTriangle className="w-4 h-4" /> Le chargement semble long...
+                            <AlertTriangle className="w-4 h-4" /> {mode === 'sync' ? 'La synchronisation semble longue...' : 'Le chargement semble long...'}
                         </p>
                         <p className="text-xs text-orange-600 mb-4">
-                            Cela peut arriver si la connexion est lente ou si la base de données est en veille.
+                            {mode === 'sync'
+                                ? "Si la synchronisation ne se termine pas, veuillez réactualiser la page."
+                                : "Cela peut arriver si la connexion est lente ou si la base de données est en veille."}
                         </p>
                         <button
                             onClick={() => window.location.reload()}
@@ -145,9 +147,20 @@ const LoadingScreen = () => {
 const AppLayout: React.FC = () => {
     const { currentUser, loading } = useData();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isManualReload, setIsManualReload] = useState(false);
+
+    useEffect(() => {
+        try {
+            const navEntry = (performance.getEntriesByType?.('navigation')?.[0] as any) || null;
+            const type = navEntry?.type || '';
+            setIsManualReload(type === 'reload');
+        } catch {
+            setIsManualReload(false);
+        }
+    }, []);
 
     if (loading) {
-        return <LoadingScreen />;
+        return <LoadingScreen mode={isManualReload ? 'sync' : 'app'} />;
     }
 
     if (!currentUser) {

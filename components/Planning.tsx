@@ -21,6 +21,7 @@ const Planning: React.FC = () => {
   const [customDateRange, setCustomDateRange] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -191,6 +192,22 @@ const Planning: React.FC = () => {
 
   const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);
+
+  const mobilePlanningDays = useMemo(() => {
+      const dates = Array.from(new Set([
+          ...(filteredReminders || []).map((r: any) => String(r?.date || '').trim()).filter(Boolean),
+          ...(filteredProvisionalMissions || []).map((m: any) => String(m?.date || '').trim()).filter(Boolean),
+          ...(filteredMissions || []).map((m: any) => String(m?.date || '').trim()).filter(Boolean)
+      ]))
+          .sort((a, b) => a.localeCompare(b));
+
+      return dates.map((dateStr) => {
+          const remindersForDate = (filteredReminders || []).filter((r: any) => String(r?.date || '') === dateStr && !r.completed);
+          const provisionalForDate = (filteredProvisionalMissions || []).filter((m: any) => String(m?.date || '') === dateStr);
+          const missionsForDate = (filteredMissions || []).filter((m: any) => String(m?.date || '') === dateStr).filter((m: any) => m.status !== 'cancelled');
+          return { dateStr, remindersForDate, provisionalForDate, missionsForDate };
+      });
+  }, [filteredReminders, filteredProvisionalMissions, filteredMissions]);
 
 
   const handlePrevWeek = () => setCurrentWeekOffset(prev => prev - 1);
@@ -467,7 +484,7 @@ const Planning: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-end mb-6">
+      <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-end mb-4 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                <h2 className="text-3xl font-serif font-bold text-slate-800">Planning</h2>
                {selectedMissionIds.size > 0 && (
@@ -484,7 +501,7 @@ const Planning: React.FC = () => {
       </div>
 
        {/* Stats - Interactive Cards */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+       <div className="hidden md:grid md:grid-cols-3 gap-4 mb-8">
            <div 
                 onClick={() => handleStatClick('planned', 'day')}
                 className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
@@ -515,7 +532,7 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Filters & Navigation */}
-       <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-center lg:justify-between">
+       <div className="flex flex-col gap-4 mb-3 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
            <div className="w-full lg:w-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
                 <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-200/50 p-2 sm:p-1 rounded-2xl sm:rounded-full">
@@ -529,9 +546,15 @@ const Planning: React.FC = () => {
                          Suivante <ChevronRight className="w-3 h-3" />
                     </button>
                 </div>
+                <button
+                    onClick={() => setShowMobileFilters(v => !v)}
+                    className="md:hidden w-full bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition"
+                >
+                    {showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
+                </button>
            </div>
 
-           <div className="w-full flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2">
+           <div className={`${showMobileFilters ? 'flex' : 'hidden'} md:flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2`}>
                <div className="relative w-full sm:w-48">
                    <input 
                       type="text"
@@ -650,8 +673,81 @@ const Planning: React.FC = () => {
 
        {/* Main Grid */}
        <div className="flex-1 flex flex-col gap-4 lg:flex-row lg:gap-6 min-h-[400px]">
-            <div className="flex-1 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-auto">
-                <div className="min-w-[900px]">
+            <div className="flex-1 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-hidden md:overflow-x-auto">
+                {/* Mobile list view */}
+                <div className="md:hidden p-3 space-y-4 min-h-[85vh] max-h-[85vh] overflow-y-auto">
+                    {mobilePlanningDays.length === 0 ? (
+                        <div className="text-center text-sm text-slate-400 py-10">
+                            Aucun élément sur la période sélectionnée.
+                        </div>
+                    ) : (
+                        mobilePlanningDays.map(({ dateStr, remindersForDate, provisionalForDate, missionsForDate }) => (
+                            <div key={dateStr} className="border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="bg-slate-100 px-4 py-2 font-bold text-slate-800 text-sm">
+                                    {new Date(`${dateStr}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                </div>
+                                <div className="p-3 space-y-2 bg-white">
+                                    {remindersForDate.map((r: any) => (
+                                        <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-3 rounded shadow-sm text-sm">
+                                            <div className="flex justify-between items-start gap-3">
+                                                <p className="font-bold text-yellow-900">{r.text}</p>
+                                                <button onClick={() => toggleReminder(r.id)} className="text-yellow-700 hover:text-green-700 shrink-0">
+                                                    <CheckCircle className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {provisionalForDate.map((item: any) => (
+                                        <div
+                                            key={item.id}
+                                            className="bg-orange-100 p-3 rounded text-sm cursor-pointer hover:bg-orange-200 transition border-l-4 border-orange-500"
+                                            onClick={(e) => handleProvisionalMissionClick(e)}
+                                        >
+                                            <p className="font-bold text-orange-900 truncate">{item.clientName}</p>
+                                            <p className="text-xs text-orange-800 mt-1">{item.startTime} - {item.endTime}</p>
+                                            <p className="text-xs italic text-orange-700 truncate">En attente</p>
+                                        </div>
+                                    ))}
+
+                                    {missionsForDate.map((item: any) => (
+                                        <div
+                                            key={item.id}
+                                            className="bg-slate-50 p-3 rounded text-sm cursor-pointer hover:bg-slate-100 transition border-l-4 border-brand-blue"
+                                            onClick={(e) => handleMissionClick(item, e)}
+                                        >
+                                            <div className="flex justify-between items-start gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
+                                                    <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
+                                                    <p className="text-xs italic text-slate-500 truncate">{item.providerName}</p>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => toggleMissionSelection(item.id, e)}
+                                                    className="p-1 hover:bg-white/80 rounded shrink-0"
+                                                    title="Sélectionner pour suppression"
+                                                >
+                                                    {selectedMissionIds.has(item.id) ? (
+                                                        <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
+                                                    ) : (
+                                                        <Square className="w-5 h-5 text-slate-400" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {remindersForDate.length === 0 && provisionalForDate.length === 0 && missionsForDate.length === 0 ? (
+                                        <div className="text-xs text-slate-400 italic">Aucun élément.</div>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Desktop calendar view */}
+                <div className="hidden md:block min-w-[900px]">
                     <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold text-slate-800 py-2">
                         {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(d => <div key={d}>{d}</div>) }
                     </div>
@@ -759,11 +855,6 @@ const Planning: React.FC = () => {
                             ))}
                         </>
                     )}
-                </div>
-                <div className="p-2 border-t border-slate-200">
-                    <button onClick={() => { setIsModalOpen(true); setMissionForm(initialFormState); }} className="w-full bg-brand-orange text-white py-2 rounded font-bold text-sm hover:bg-orange-600 flex items-center justify-center gap-2">
-                        <Plus className="w-4 h-4" /> Ajouter Mission
-                    </button>
                 </div>
             </div>
        </div>
