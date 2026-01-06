@@ -262,7 +262,9 @@ const Secretariat: React.FC = () => {
     // --- MESSAGING STATE ---
     const [selectedChatClientId, setSelectedChatClientId] = useState<string | null>(null);
     const [adminMessageInput, setAdminMessageInput] = useState('');
+    const [chatClientSearch, setChatClientSearch] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
+    const chatMessagesContainerRef = useRef<HTMLDivElement>(null);
 
     // Handle external redirects (e.g., from notifications)
     useEffect(() => {
@@ -286,7 +288,10 @@ const Secretariat: React.FC = () => {
         if (activeTab === 'messaging' && selectedChatClientId) {
             // Small timeout to ensure DOM is rendered
             setTimeout(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                const container = chatMessagesContainerRef.current;
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
             }, 100);
         }
     }, [messages, selectedChatClientId, activeTab]);
@@ -1283,6 +1288,11 @@ const Secretariat: React.FC = () => {
 
     // Chat Logic
     const chatClients = clients;
+    const filteredChatClients = useMemo(() => {
+        const q = String(chatClientSearch || '').trim().toLowerCase();
+        if (!q) return chatClients;
+        return (chatClients || []).filter((c: any) => String(c?.name || '').toLowerCase().includes(q));
+    }, [chatClients, chatClientSearch]);
     // Sort messages to ensure chronological order
     const currentChatMessages = useMemo(() => {
         return messages
@@ -1624,8 +1634,20 @@ const Secretariat: React.FC = () => {
                     <div className="flex flex-col lg:flex-row h-[600px] border rounded-lg overflow-hidden">
                         {/* Sidebar Users */}
                         <div className="w-full lg:w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto">
-                            <div className="p-4 border-b bg-white font-bold text-slate-700">Conversations</div>
-                            {chatClients.map(client => (
+                            <div className="p-4 border-b bg-white">
+                                <div className="font-bold text-slate-700">Conversations</div>
+                                <div className="mt-3 relative">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        value={chatClientSearch}
+                                        onChange={(e) => setChatClientSearch(e.target.value)}
+                                        placeholder="Rechercher un client..."
+                                        className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-brand-blue"
+                                    />
+                                </div>
+                            </div>
+                            {filteredChatClients.map(client => (
                                 <div
                                     key={client.id}
                                     onClick={() => setSelectedChatClientId(client.id)}
@@ -1638,13 +1660,13 @@ const Secretariat: React.FC = () => {
                         </div>
 
                         {/* Chat Area */}
-                        <div className="w-full lg:w-2/3 flex flex-col bg-white">
+                        <div className="w-full lg:w-2/3 flex flex-col bg-white min-h-0">
                             {selectedChatClientId ? (
                                 <>
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
                                         <span className="font-bold text-slate-700">{chatClients.find(c => c.id === selectedChatClientId)?.name}</span>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
+                                    <div ref={chatMessagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
                                         {currentChatMessages.length === 0 ? (
                                             <div className="text-center text-slate-400 text-sm mt-10">Aucun message. Démarrer la conversation.</div>
                                         ) : (

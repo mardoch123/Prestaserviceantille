@@ -85,19 +85,100 @@ const ClientQRCode: React.FC = () => {
         return type === 'entry' ? 'border-green-200' : 'border-red-200';
     };
 
-    const handleDownloadQRCode = () => {
-        if (!qrCodeUrl || loading) return;
+    const handleDownloadQRCode = async () => {
+        if (!qrCodeUrl || loading || !client) return;
         const safeName = String(client?.name || 'client')
             .trim()
             .replace(/\s+/g, '_')
             .replace(/[^a-zA-Z0-9_\-]/g, '');
 
-        const link = document.createElement('a');
-        link.href = qrCodeUrl;
-        link.download = `QRCode_${safeName || 'client'}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = qrCodeUrl;
+            await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error('QR image load failed'));
+            });
+
+            const padding = 32;
+            const titleText = 'Scannez ce code pour enregistrer votre présence';
+            const subtitleText = `Client : ${client.name}`;
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const wrapText = (text: string, maxWidth: number, font: string): string[] => {
+                ctx.font = font;
+                const words = String(text || '').split(/\s+/).filter(Boolean);
+                const lines: string[] = [];
+                let line = '';
+
+                for (const word of words) {
+                    const test = line ? `${line} ${word}` : word;
+                    if (ctx.measureText(test).width <= maxWidth) {
+                        line = test;
+                    } else {
+                        if (line) lines.push(line);
+                        line = word;
+                    }
+                }
+                if (line) lines.push(line);
+                return lines.length ? lines : [String(text || '')];
+            };
+
+            // Canvas size: QR + padding + text block
+            const qrSize = img.width || 256;
+            const maxTextWidth = qrSize + padding * 2 - 24;
+            const titleFont = 'bold 18px Arial';
+            const subtitleFont = '14px Arial';
+            const titleLines = wrapText(titleText, maxTextWidth, titleFont);
+            const titleLineHeight = 22;
+            const headerTop = 18;
+            const titleBlockHeight = titleLines.length * titleLineHeight;
+            const subtitleTop = headerTop + titleBlockHeight + 10;
+            const headerHeight = Math.max(90, subtitleTop + 20);
+            canvas.width = qrSize + padding * 2;
+            canvas.height = headerHeight + qrSize + padding;
+
+            // Background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Text
+            ctx.fillStyle = '#0f172a';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+
+            ctx.font = titleFont;
+            titleLines.forEach((line, i) => {
+                ctx.fillText(line, canvas.width / 2, headerTop + i * titleLineHeight);
+            });
+
+            ctx.font = subtitleFont;
+            ctx.fillStyle = '#334155';
+            ctx.fillText(subtitleText, canvas.width / 2, subtitleTop);
+
+            // QR image
+            ctx.drawImage(img, padding, headerHeight, qrSize, qrSize);
+
+            const finalPng = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = finalPng;
+            link.download = `QRCode_${safeName || 'client'}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Erreur téléchargement QR code:', error);
+            const link = document.createElement('a');
+            link.href = qrCodeUrl;
+            link.download = `QRCode_${safeName || 'client'}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     };
 
     if (!client) {
