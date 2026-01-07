@@ -2287,7 +2287,7 @@ const DevisFactures: React.FC = () => {
                                         </div>
                                         <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA : </span><span>{((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (tvaRate / 100)).toFixed(2)} €</span></div>
                                     </div>
-                                    <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total TTC : </span><span>{((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (1 + tvaRate / 100)).toFixed(2)} €</span></div>
+                                    <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total HT : </span><span>{((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (1 + tvaRate / 100)).toFixed(2)} €</span></div>
                                 </div>
 
                                 {/* TAX CREDIT SECTION */}
