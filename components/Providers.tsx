@@ -49,6 +49,16 @@ const PROVIDER_SPECIALTIES = [
     "Autre"
 ];
 
+const NON_INTERVENTION_DAY_OPTIONS: Array<{ value: number; label: string }> = [
+    { value: 1, label: 'Lundi' },
+    { value: 2, label: 'Mardi' },
+    { value: 3, label: 'Mercredi' },
+    { value: 4, label: 'Jeudi' },
+    { value: 5, label: 'Vendredi' },
+    { value: 6, label: 'Samedi' },
+    { value: 0, label: 'Dimanche' }
+];
+
 const Providers: React.FC = () => {
   const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -78,7 +88,8 @@ const Providers: React.FC = () => {
     specialty: 'Ménage / Entretien',
     phone: '',
     email: '',
-    status: 'Active'
+    status: 'Active',
+    nonInterventionDays: [] as number[]
   });
 
   const [leaveForm, setLeaveForm] = useState({
@@ -160,7 +171,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active' });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [] });
       setIsModalOpen(true);
   };
 
@@ -173,9 +184,18 @@ const Providers: React.FC = () => {
           specialty: provider.specialty,
           phone: provider.phone,
           email: provider.email,
-          status: provider.status
+          status: provider.status,
+          nonInterventionDays: Array.isArray(provider?.nonInterventionDays) ? provider.nonInterventionDays : []
       });
       setIsModalOpen(true);
+  };
+
+  const toggleNonInterventionDay = (day: number) => {
+      setFormData(prev => {
+          const current = Array.isArray((prev as any).nonInterventionDays) ? (prev as any).nonInterventionDays : [];
+          const next = current.includes(day) ? current.filter((d: number) => d !== day) : [...current, day];
+          return { ...prev, nonInterventionDays: next };
+      });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -190,7 +210,8 @@ const Providers: React.FC = () => {
                   specialty: formData.specialty,
                   phone: formData.phone,
                   email: formData.email,
-                  status: formData.status as any
+                  status: formData.status as any,
+                  nonInterventionDays: formData.nonInterventionDays
               });
               showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
               setIsModalOpen(false);
@@ -203,6 +224,7 @@ const Providers: React.FC = () => {
                   phone: formData.phone,
                   email: formData.email,
                   status: formData.status as 'Active',
+                  nonInterventionDays: formData.nonInterventionDays
               });
               
               setIsModalOpen(false);
@@ -215,7 +237,7 @@ const Providers: React.FC = () => {
               }
           }
           // Reset form
-          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active' });
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [] });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
           showToast("Une erreur est survenue.");
@@ -575,6 +597,30 @@ Lien de connexion : https://presta-antilles.app/login`);
                                  <option key={specialty} value={specialty}>{specialty}</option>
                              ))}
                          </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Jours de non-interventions</label>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {NON_INTERVENTION_DAY_OPTIONS.map(d => {
+                                    const checked = Array.isArray(formData.nonInterventionDays) && formData.nonInterventionDays.includes(d.value);
+                                    return (
+                                        <button
+                                            key={d.value}
+                                            type="button"
+                                            onClick={() => toggleNonInterventionDay(d.value)}
+                                            className={`px-3 py-2 rounded-lg text-xs font-bold border transition ${checked
+                                                ? 'bg-orange-100 text-orange-800 border-orange-200'
+                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            {d.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
 
                      <div className="grid grid-cols-2 gap-4">

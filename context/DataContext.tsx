@@ -808,6 +808,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     firstName: p.first_name || p.firstName,
                     lastName: p.last_name || p.lastName,
                     hoursWorked: p.hours_worked || p.hoursWorked,
+                    nonInterventionDays: Array.isArray(p.non_intervention_days)
+                        ? p.non_intervention_days
+                        : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
                     leaves: leavesData ? leavesData.map((l: any) => ({
                         id: l.id,
                         providerId: l.provider_id,
@@ -1829,6 +1832,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 phone: providerData.phone,
                 email: providerData.email,
                 status: providerData.status,
+                non_intervention_days: Array.isArray((providerData as any).nonInterventionDays) ? (providerData as any).nonInterventionDays : [],
                 hours_worked: 0,
                 rating: 5
             };
@@ -1862,6 +1866,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     firstName: newProvider.first_name,
                     lastName: newProvider.last_name,
                     hoursWorked: newProvider.hours_worked,
+                    nonInterventionDays: Array.isArray(newProvider.non_intervention_days)
+                        ? newProvider.non_intervention_days
+                        : (Array.isArray((providerData as any).nonInterventionDays) ? (providerData as any).nonInterventionDays : []),
                     leaves: []
                 }]);
 
@@ -2126,6 +2133,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
         const existingMission = missions.find(m => m.id === missionId);
 
+        if (existingMission?.date) {
+            const provider = providers.find(p => p.id === providerId);
+            const days = (provider as any)?.nonInterventionDays;
+            const day = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            if (Array.isArray(days) && days.includes(day)) {
+                throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
+            }
+        }
+
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
 
         if (!error) {
@@ -2219,6 +2235,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (data.email) dbData.email = data.email;
         if (data.specialty) dbData.specialty = data.specialty;
         if (data.status) dbData.status = data.status;
+        if (Array.isArray((data as any).nonInterventionDays)) dbData.non_intervention_days = (data as any).nonInterventionDays;
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if (!error) {
             setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));

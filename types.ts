@@ -55,6 +55,7 @@ export interface Provider {
     email: string; // email en DB
     initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
     isActive?: boolean; // Champ pour vérifier si le prestataire est actif (dérivé de status)
+    nonInterventionDays?: number[]; // 0=Dimanche ... 6=Samedi
 }
 
 // DTO for creating a provider (no ID)

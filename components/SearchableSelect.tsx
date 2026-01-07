@@ -44,10 +44,21 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     const inputRef = useRef<HTMLInputElement>(null);
     const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
 
+    const normalizeForSearch = (value: string) => {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+
     // Filter options based on search query
-    const filteredOptions = options.filter(option =>
-        option.label.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredOptions = options.filter(option => {
+        const q = normalizeForSearch(searchQuery);
+        if (!q) return true;
+        return normalizeForSearch(option.label).includes(q);
+    });
 
     // Get selected option label
     const selectedOption = options.find(opt => opt.value === value);

@@ -22,10 +22,12 @@ const Planning: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [isQuickPlanModalOpen, setIsQuickPlanModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
 
@@ -61,6 +63,13 @@ const Planning: React.FC = () => {
       text: '',
       date: getMartiniqueToday(),
       notifyEmail: true
+  });
+
+  const [quickPlanForm, setQuickPlanForm] = useState({
+      clientId: '',
+      date: getMartiniqueToday(),
+      startTime: '09:00',
+      endTime: '11:00'
   });
 
   // Calculate Week Date Range
@@ -194,12 +203,23 @@ const Planning: React.FC = () => {
       .reduce((acc, m) => acc + m.duration, 0);
 
   const mobilePlanningDays = useMemo(() => {
-      const dates = Array.from(new Set([
-          ...(filteredReminders || []).map((r: any) => String(r?.date || '').trim()).filter(Boolean),
-          ...(filteredProvisionalMissions || []).map((m: any) => String(m?.date || '').trim()).filter(Boolean),
-          ...(filteredMissions || []).map((m: any) => String(m?.date || '').trim()).filter(Boolean)
-      ]))
-          .sort((a, b) => a.localeCompare(b));
+      let startStr: string, endStr: string;
+
+      if (customDateRange && startDate && endDate) {
+          startStr = startDate;
+          endStr = endDate;
+      } else {
+          startStr = weekStart.format('YYYY-MM-DD');
+          endStr = weekEnd.format('YYYY-MM-DD');
+      }
+
+      const dates: string[] = [];
+      let cursor = dayjs.tz(startStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const end = dayjs.tz(endStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
+          dates.push(cursor.format('YYYY-MM-DD'));
+          cursor = cursor.add(1, 'day');
+      }
 
       return dates.map((dateStr) => {
           const remindersForDate = (filteredReminders || []).filter((r: any) => String(r?.date || '') === dateStr && !r.completed);
@@ -207,12 +227,20 @@ const Planning: React.FC = () => {
           const missionsForDate = (filteredMissions || []).filter((m: any) => String(m?.date || '') === dateStr).filter((m: any) => m.status !== 'cancelled');
           return { dateStr, remindersForDate, provisionalForDate, missionsForDate };
       });
-  }, [filteredReminders, filteredProvisionalMissions, filteredMissions]);
+  }, [filteredReminders, filteredProvisionalMissions, filteredMissions, customDateRange, startDate, endDate, weekStart, weekEnd]);
 
 
   const handlePrevWeek = () => setCurrentWeekOffset(prev => prev - 1);
   const handleNextWeek = () => setCurrentWeekOffset(prev => prev + 1);
   const handleCurrentWeek = () => setCurrentWeekOffset(0);
+
+  const isProviderNonWorkingDay = (providerId: string, dateStr: string) => {
+      const provider = providers.find(p => p.id === providerId);
+      if (!provider) return false;
+      const day = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+      const days = (provider as any)?.nonInterventionDays;
+      return Array.isArray(days) && days.includes(day);
+  };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const { name, value } = e.target;
@@ -264,6 +292,10 @@ const Planning: React.FC = () => {
 
               const dateStr = currentDate.format('YYYY-MM-DD');
 
+              if (provider && isProviderNonWorkingDay(provider.id, dateStr)) {
+                  throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : ne travaille pas aujourd'hui.`);
+              }
+
               await addMission({
                   id: '', // Context will handle ID generation (or UUID)
                   date: dateStr,
@@ -296,6 +328,45 @@ const Planning: React.FC = () => {
       }
   };
 
+  const handleQuickPlanSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+      try {
+          const client = clients.find(c => c.id === quickPlanForm.clientId);
+          if (!client) throw new Error('Client invalide');
+
+          let duration = calculateDuration(quickPlanForm.date, quickPlanForm.startTime, quickPlanForm.date, quickPlanForm.endTime);
+          if (duration <= 0) throw new Error("L'heure de fin doit être après l'heure de début");
+
+          await addMission({
+              id: '',
+              date: quickPlanForm.date,
+              startTime: quickPlanForm.startTime,
+              endTime: quickPlanForm.endTime,
+              duration: parseFloat(duration.toFixed(2)),
+              clientId: client.id,
+              clientName: client.name,
+              service: 'Prestation manuelle',
+              providerId: null,
+              providerName: 'À assigner',
+              status: 'planned',
+              color: 'gray'
+          });
+
+          if (refreshData) await refreshData();
+
+          showToast('Prestation ajoutée !');
+          setIsQuickPlanModalOpen(false);
+          setQuickPlanForm({ clientId: '', date: getMartiniqueToday(), startTime: '09:00', endTime: '11:00' });
+      } catch (error: any) {
+          console.error('Erreur planification rapide', error);
+          showToast(error?.message || 'Erreur planification rapide', 'error');
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
   const handleReminderSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!reminderForm.text || !reminderForm.date) return;
@@ -323,6 +394,8 @@ const Planning: React.FC = () => {
   const isProviderAvailable = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59') => {
       const provider = providers.find(p => p.id === providerId);
       if (!provider) return false;
+
+      if (isProviderNonWorkingDay(providerId, dateStr)) return false;
       
       const missionStart = new Date(`${dateStr}T${startTime}`);
       const missionEnd = new Date(`${dateStr}T${endTime}`);
@@ -382,6 +455,10 @@ const Planning: React.FC = () => {
           const provider = providers.find(p => p.id === assignProviderId);
           
           if (mission && provider) {
+              if (isProviderNonWorkingDay(provider.id, mission.date)) {
+                  showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`, 'warning');
+                  return;
+              }
               // Ensure we are using valid IDs from refreshed data
               await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
               
@@ -455,7 +532,7 @@ const Planning: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 flex flex-col relative">
+    <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
        
        {/* Toast Notification */}
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
@@ -484,9 +561,61 @@ const Planning: React.FC = () => {
         </div>
       </div>
 
+      {isMobileActionsOpen && (
+        <div className="fixed inset-0 z-50 flex items-end md:hidden bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white w-full rounded-t-2xl shadow-2xl overflow-hidden max-h-[85svh] flex flex-col">
+                <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+                    <div className="font-bold text-slate-800">Actions & Missions</div>
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileActionsOpen(false)}
+                        className="p-2 hover:bg-slate-200 rounded-full transition"
+                    >
+                        <X className="w-5 h-5 text-slate-600" />
+                    </button>
+                </div>
+                <div className="p-3 space-y-2 overflow-y-auto">
+                    <button 
+                        onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true }); setIsMobileActionsOpen(false); }}
+                        className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
+                    >
+                        <Flag className="w-3 h-3" /> Ajouter un Rappel
+                    </button>
+
+                    {unassignedMissions.length === 0 ? (
+                        <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
+                    ) : (
+                        <>
+                            <div className="text-xs text-slate-500 font-bold mb-2">
+                                {unassignedMissions.length} mission{unassignedMissions.length > 1 ? 's' : ''} à assigner
+                            </div>
+                            {unassignedMissions.map(m => (
+                                <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100 shrink-0">
+                                    <p className="font-bold text-xs text-red-800 truncate">{m.clientName}</p>
+                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.service}</p>
+                                    <button onClick={() => { setSelectedMissionId(m.id); setIsMobileActionsOpen(false); }} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
+                                </div>
+                            ))}
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-end mb-4 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                <h2 className="text-3xl font-serif font-bold text-slate-800">Planning</h2>
+               {false && (
+                <button
+                    type="button"
+                    onClick={() => setIsQuickPlanModalOpen(true)}
+                    className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:opacity-90 transition"
+                >
+                    <Plus className="w-4 h-4" /> Planification rapide
+                </button>
+                )}
+
                {selectedMissionIds.size > 0 && (
                    <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
                        <Trash2 className="w-4 h-4" /> Supprimer ({selectedMissionIds.size})
@@ -672,10 +801,10 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Main Grid */}
-       <div className="flex-1 flex flex-col gap-4 lg:flex-row lg:gap-6 min-h-[400px]">
-            <div className="flex-1 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-hidden md:overflow-x-auto">
+       <div className="flex-1 min-h-0 flex flex-col gap-4 lg:flex-row lg:gap-6">
+            <div className="flex-1 min-h-0 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-hidden md:overflow-x-auto">
                 {/* Mobile list view */}
-                <div className="md:hidden p-3 space-y-4 min-h-[85vh] max-h-[85vh] overflow-y-auto">
+                <div className="md:hidden p-3 space-y-4 flex-1 overflow-y-auto">
                     {mobilePlanningDays.length === 0 ? (
                         <div className="text-center text-sm text-slate-400 py-10">
                             Aucun élément sur la période sélectionnée.
@@ -827,7 +956,7 @@ const Planning: React.FC = () => {
             </div>
             
             {/* Actions & Missions - Responsive */}
-            <div className="w-full md:w-64 bg-white border border-slate-200 flex flex-col md:h-auto">
+            <div className="hidden md:flex w-full md:w-64 bg-white border border-slate-200 flex-col md:h-auto">
                 <div className="bg-slate-100 p-3 text-center font-bold text-slate-700 border-b border-slate-200">
                     Actions & Missions
                 </div>
@@ -859,6 +988,15 @@ const Planning: React.FC = () => {
             </div>
        </div>
 
+       <button
+           type="button"
+           onClick={() => setIsMobileActionsOpen(true)}
+           className="md:hidden fixed bottom-24 right-4 z-40 bg-brand-blue text-white rounded-full shadow-xl w-14 h-14 flex items-center justify-center"
+           title="Actions & Missions"
+       >
+           <Briefcase className="w-6 h-6" />
+       </button>
+
        {/* Footer Stats - Updated to reflect filtered items */}
        <div className="bg-slate-200 p-4 mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center font-bold text-slate-800 rounded-lg">
             <div className="flex items-center justify-between sm:justify-start gap-2">
@@ -870,6 +1008,99 @@ const Planning: React.FC = () => {
                 <span className="text-xl">{totalHoursFiltered}h</span>
             </div>
        </div>
+
+       {isQuickPlanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Planification rapide</h3>
+                        <p className="text-xs text-slate-500 mt-1">Créer une prestation manuellement</p>
+                    </div>
+                    <button type="button" onClick={() => setIsQuickPlanModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleQuickPlanSubmit} className="p-5 space-y-4 overflow-y-auto max-h-[80vh]">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Client</label>
+                        <select
+                            required
+                            name="clientId"
+                            value={quickPlanForm.clientId}
+                            onChange={() => {}}
+                            className="sr-only"
+                            tabIndex={-1}
+                        >
+                            <option value="">Sélectionner...</option>
+                            {clients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                        <SearchableSelect
+                            options={clients.map(c => ({ value: c.id, label: c.name }))}
+                            value={quickPlanForm.clientId}
+                            onChange={(value) => setQuickPlanForm(prev => ({ ...prev, clientId: value }))}
+                            placeholder="Sélectionner..."
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Date de prestation</label>
+                        <input
+                            required
+                            type="date"
+                            value={quickPlanForm.date}
+                            onChange={(e) => setQuickPlanForm(prev => ({ ...prev, date: e.target.value }))}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Heure début</label>
+                            <input
+                                required
+                                type="time"
+                                value={quickPlanForm.startTime}
+                                onChange={(e) => setQuickPlanForm(prev => ({ ...prev, startTime: e.target.value }))}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Heure fin</label>
+                            <input
+                                required
+                                type="time"
+                                value={quickPlanForm.endTime}
+                                onChange={(e) => setQuickPlanForm(prev => ({ ...prev, endTime: e.target.value }))}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setIsQuickPlanModalOpen(false)}
+                            className="px-5 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                            disabled={isSubmitting}
+                        >
+                            Annuler
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-5 py-2 rounded-lg bg-brand-blue text-white font-bold hover:opacity-90 transition disabled:opacity-60"
+                            disabled={isSubmitting}
+                        >
+                            {isSubmitting ? 'Création...' : 'Créer'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+       )}
 
 
        {/* NEW MISSION MODAL */}
@@ -977,10 +1208,11 @@ const Planning: React.FC = () => {
                              >
                                 <option value="">(À assigner plus tard)</option>
                                 {providers.map(p => {
+                                    const nonWorking = missionForm.date ? isProviderNonWorkingDay(p.id, missionForm.date) : false;
                                     const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available}>
-                                            {p.firstName} {p.lastName} {!available ? '(Congés/Indisp.)' : ''}
+                                            {p.firstName} {p.lastName} {nonWorking ? '(Ne travaille pas ce jour)' : (!available ? '(Congés/Indisp.)' : '')}
                                         </option>
                                     );
                                 })}
@@ -989,10 +1221,11 @@ const Planning: React.FC = () => {
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
                                     ...providers.map(p => {
+                                        const nonWorking = missionForm.date ? isProviderNonWorkingDay(p.id, missionForm.date) : false;
                                         const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
                                         return {
                                             value: p.id,
-                                            label: `${p.firstName} ${p.lastName}${!available ? ' (Congés/Indisp.)' : ''}`,
+                                            label: `${p.firstName} ${p.lastName}${nonWorking ? ' (Ne travaille pas ce jour)' : (!available ? ' (Congés/Indisp.)' : '')}`,
                                             disabled: !available
                                         };
                                     })

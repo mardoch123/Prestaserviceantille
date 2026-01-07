@@ -122,13 +122,26 @@ const Clients: React.FC = () => {
     }
   }, [location]);
 
+  const normalizeForSearch = (value: string) => {
+      return String(value || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim();
+  };
+
   const filteredClients = useMemo(() => {
     let result = clients;
     if (filterStatus !== 'all') result = result.filter(c => c.status === filterStatus);
     if (cityFilter !== '') result = result.filter(c => c.city === cityFilter);
     if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        result = result.filter(c => c.name.toLowerCase().includes(query) || c.city.toLowerCase().includes(query) || c.phone.includes(query));
+        const query = normalizeForSearch(searchQuery);
+        result = result.filter(c =>
+            normalizeForSearch(c.name).includes(query) ||
+            normalizeForSearch(c.city).includes(query) ||
+            normalizeForSearch(c.phone).includes(query)
+        );
     }
     return result;
   }, [clients, filterStatus, cityFilter, searchQuery]);
@@ -145,26 +158,26 @@ const Clients: React.FC = () => {
     let result = filteredClients;
 
     if (columnFilters.name) {
-      const q = columnFilters.name.toLowerCase();
-      result = result.filter(c => (c.name || '').toLowerCase().includes(q));
+      const q = normalizeForSearch(columnFilters.name);
+      result = result.filter(c => normalizeForSearch(c.name || '').includes(q));
     }
 
     if (columnFilters.contact) {
-      const q = columnFilters.contact.toLowerCase();
+      const q = normalizeForSearch(columnFilters.contact);
       result = result.filter(c =>
-        (c.phone || '').toLowerCase().includes(q) ||
-        (c.email || '').toLowerCase().includes(q)
+        normalizeForSearch(c.phone || '').includes(q) ||
+        normalizeForSearch(c.email || '').includes(q)
       );
     }
 
     if (columnFilters.city) {
-      const q = columnFilters.city.toLowerCase();
-      result = result.filter(c => (c.city || '').toLowerCase().includes(q));
+      const q = normalizeForSearch(columnFilters.city);
+      result = result.filter(c => normalizeForSearch(c.city || '').includes(q));
     }
 
     if (columnFilters.status) {
-      const q = columnFilters.status.toLowerCase();
-      result = result.filter(c => (c.status || '').toLowerCase().includes(q));
+      const q = normalizeForSearch(columnFilters.status);
+      result = result.filter(c => normalizeForSearch(c.status || '').includes(q));
     }
 
     return result;
