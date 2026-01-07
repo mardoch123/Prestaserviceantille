@@ -847,9 +847,14 @@ const Planning: React.FC = () => {
                                         >
                                             <div className="flex justify-between items-start gap-3">
                                                 <div className="min-w-0">
-                                                    <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
+                                                        <span className="text-xs font-bold text-slate-700 shrink-0">
+                                                            {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                                        </span>
+                                                    </div>
                                                     <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
-                                                    <p className="text-xs italic text-slate-500 truncate">{item.providerName}</p>
+                                                    <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
                                                 </div>
                                                 <button
                                                     onClick={(e) => toggleMissionSelection(item.id, e)}
@@ -940,12 +945,14 @@ const Planning: React.FC = () => {
                                         {selectedMissionIds.has(item.id) && (
                                             <div className="absolute inset-0 bg-blue-500/10 border-2 border-brand-blue rounded pointer-events-none"></div>
                                         )}
-                                        <div className="flex justify-between">
-                                            <p className="font-bold text-slate-800 pr-4 truncate">{item.clientName}</p>
-                                            <span className="text-[9px] text-slate-500">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
+                                            <span className="text-[10px] font-bold text-slate-700 shrink-0">
+                                                {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                            </span>
                                         </div>
                                         <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
-                                        <p className="text-[9px] italic text-slate-500 truncate">{item.providerName}</p>
+                                        <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
                                     </div>
                                 ))
                             }

@@ -549,11 +549,13 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const updateSlot = (index: number, field: keyof InterventionSlot, value: string) => {
+    const updateSlot = (index: number, field: keyof InterventionSlot, value: string, options?: { validate?: boolean }) => {
         const newSlots = [...interventionSlots];
         const currentSlot = newSlots[index];
 
-        if (field === 'date') {
+        const shouldValidate = options?.validate !== false;
+
+        if (field === 'date' && shouldValidate) {
             const nextDate = value;
             if (nextDate && nextDate < getTodayMartiniqueStr()) {
                 showToast("La date doit être aujourd'hui ou une date future.", 'warning');
@@ -570,7 +572,7 @@ const DevisFactures: React.FC = () => {
             }
         }
 
-        if (field === 'startTime' && currentSlot.date) {
+        if (field === 'startTime' && shouldValidate && currentSlot.date) {
             const minStart = getMinStartTimeForSlot(currentSlot.date);
             if (minStart && value && value < minStart) {
                 showToast("Impossible de choisir une heure passée pour aujourd'hui. Choisissez une heure future ou une date ultérieure.", 'warning');
@@ -2048,21 +2050,24 @@ const DevisFactures: React.FC = () => {
                                                                             className="p-2 border border-slate-200 rounded text-sm"
                                                                             min={getTodayMartiniqueStr()}
                                                                             value={slot.date}
-                                                                            onChange={(e) => updateSlot(index, 'date', e.target.value)}
+                                                                            onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })}
+                                                                            onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })}
                                                                         />
                                                                         <input
                                                                             type="time"
                                                                             className="p-2 border border-slate-200 rounded text-sm"
                                                                             min={getMinStartTimeForSlot(slot.date)}
                                                                             value={slot.startTime}
-                                                                            onChange={(e) => updateSlot(index, 'startTime', e.target.value)}
+                                                                            onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })}
+                                                                            onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })}
                                                                         />
                                                                         <input
                                                                             type="time"
                                                                             className="p-2 border border-slate-200 rounded text-sm"
                                                                             min={getMinStartTimeForSlot(slot.date)}
                                                                             value={slot.endTime}
-                                                                            onChange={(e) => updateSlot(index, 'endTime', e.target.value)}
+                                                                            onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })}
+                                                                            onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })}
                                                                         />
                                                                     </div>
                                                                     <div className="text-xs text-slate-500">
@@ -2181,11 +2186,11 @@ const DevisFactures: React.FC = () => {
                                                     interventionSlots.map((slot, index) => (
                                                         <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50">
                                                             <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
-                                                            <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value)} />
+                                                            <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
                                                             <div className="flex items-center gap-1">
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value)} />
+                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
                                                                 <span className="text-slate-400 text-xs">à</span>
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value)} />
+                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
                                                             </div>
                                                             <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
                                                             <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
