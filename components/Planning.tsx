@@ -9,7 +9,7 @@ import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '
 import SearchableSelect from './SearchableSelect';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
   const navigate = useNavigate();
 
   // Filter State
@@ -485,6 +485,17 @@ const Planning: React.FC = () => {
   const [selectedMissionDetails, setSelectedMissionDetails] = useState<Mission | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
+  const [isEditMissionModalOpen, setIsEditMissionModalOpen] = useState(false);
+  const [editMissionForm, setEditMissionForm] = useState({
+      providerId: '',
+      date: '',
+      startTime: '09:00',
+      endTime: '11:00',
+      service: '',
+      status: 'planned' as Mission['status']
+  });
+  const [editMissionOriginalProviderId, setEditMissionOriginalProviderId] = useState<string>('');
+
   const [isProvisionalDetailsModalOpen, setIsProvisionalDetailsModalOpen] = useState(false);
 
   const detailClient = selectedMissionDetails?.clientId ? clients.find(c => c.id === selectedMissionDetails.clientId) : undefined;
@@ -494,6 +505,84 @@ const Planning: React.FC = () => {
           // Simple click = show details
           setSelectedMissionDetails(mission);
           setIsDetailsModalOpen(true);
+      }
+  };
+
+  const openEditMissionModal = () => {
+      if (!selectedMissionDetails) return;
+
+      const providerIdValue = selectedMissionDetails.providerId ? String(selectedMissionDetails.providerId) : '';
+      setEditMissionOriginalProviderId(providerIdValue);
+      setEditMissionForm({
+          providerId: providerIdValue,
+          date: selectedMissionDetails.date || getMartiniqueToday(),
+          startTime: selectedMissionDetails.startTime || '09:00',
+          endTime: selectedMissionDetails.endTime || '11:00',
+          service: selectedMissionDetails.service || '',
+          status: selectedMissionDetails.status || 'planned'
+      });
+      setIsEditMissionModalOpen(true);
+  };
+
+  const handleEditMissionSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedMissionDetails) return;
+      if (isSubmitting) return;
+
+      setIsSubmitting(true);
+      try {
+          const missionId = selectedMissionDetails.id;
+
+          const nextDate = editMissionForm.date;
+          const nextStart = editMissionForm.startTime;
+          const nextEnd = editMissionForm.endTime;
+
+          const duration = calculateDuration(nextDate, nextStart, nextDate, nextEnd);
+          if (!duration || duration <= 0) {
+              throw new Error("L'heure de fin doit être après l'heure de début");
+          }
+
+          const nextProviderId = editMissionForm.providerId || '';
+          const nextProvider = nextProviderId ? providers.find(p => p.id === nextProviderId) : undefined;
+
+          // Si on garde un prestataire (ou on en met un), vérifier qu'il travaille ce jour-là
+          if (nextProvider && isProviderNonWorkingDay(nextProvider.id, nextDate)) {
+              throw new Error(`Impossible de programmer ${nextProvider.firstName} ${nextProvider.lastName} le ${nextDate} : ne travaille pas aujourd'hui.`);
+          }
+
+          // 1) Mettre à jour les champs "planning" (date/heures/service/statut)
+          await updateMission(missionId, {
+              date: nextDate,
+              startTime: nextStart,
+              endTime: nextEnd,
+              duration: parseFloat(duration.toFixed(2)),
+              service: editMissionForm.service,
+              status: editMissionForm.status
+          });
+
+          // 2) Si le prestataire change, réutiliser la logique existante (emails/notifs)
+          if (nextProviderId !== editMissionOriginalProviderId) {
+              if (!nextProviderId) {
+                  await updateMission(missionId, {
+                      providerId: null,
+                      providerName: 'À assigner',
+                      status: 'planned',
+                      color: 'gray'
+                  });
+              } else if (nextProvider) {
+                  await assignProvider(missionId, nextProvider.id, `${nextProvider.firstName} ${nextProvider.lastName}`);
+              }
+          }
+
+          if (refreshData) await refreshData();
+
+          showToast('Mission modifiée avec succès !');
+          setIsEditMissionModalOpen(false);
+      } catch (error: any) {
+          console.error('[editMission] error:', error);
+          showToast(error?.message || 'Erreur lors de la modification', 'error');
+      } finally {
+          setIsSubmitting(false);
       }
   };
 
@@ -1696,6 +1785,15 @@ const Planning: React.FC = () => {
                 </div>
 
                 <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+                    <button
+                        onClick={() => {
+                            setIsDetailsModalOpen(false);
+                            openEditMissionModal();
+                        }}
+                        className="px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:opacity-90 transition"
+                    >
+                        Modifier
+                    </button>
                     <button 
                         onClick={() => { setIsDetailsModalOpen(false); setSelectedMissionDetails(null); }}
                         className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
@@ -1713,6 +1811,125 @@ const Planning: React.FC = () => {
                         Sélectionner pour suppression
                     </button>
                 </div>
+            </div>
+        </div>
+      )}
+
+      {isEditMissionModalOpen && selectedMissionDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">Modifier la Mission</h3>
+                        <p className="text-xs text-slate-500 mt-1">Modifier prestataire, date, horaires et service</p>
+                    </div>
+                    <button onClick={() => setIsEditMissionModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleEditMissionSubmit} className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+                    <div className="grid grid-cols-1 gap-4">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Prestataire</label>
+                            <SearchableSelect
+                                options={[
+                                    { value: '', label: '(À assigner plus tard)' },
+                                    ...providers.map(p => {
+                                        const nonWorking = editMissionForm.date ? isProviderNonWorkingDay(p.id, editMissionForm.date) : false;
+                                        const available = editMissionForm.date ? isProviderAvailable(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime) : true;
+                                        return {
+                                            value: p.id,
+                                            label: `${p.firstName} ${p.lastName}${nonWorking ? ' (Ne travaille pas ce jour)' : (!available ? ' (Congés/Indisp.)' : '')}`,
+                                            disabled: !available
+                                        };
+                                    })
+                                ]}
+                                value={editMissionForm.providerId}
+                                onChange={(value) => setEditMissionForm(prev => ({ ...prev, providerId: value }))}
+                                placeholder="(À assigner plus tard)"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Date</label>
+                                <input
+                                    required
+                                    type="date"
+                                    value={editMissionForm.date}
+                                    onChange={(e) => setEditMissionForm(prev => ({ ...prev, date: e.target.value }))}
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Statut</label>
+                                <select
+                                    value={editMissionForm.status}
+                                    onChange={(e) => setEditMissionForm(prev => ({ ...prev, status: e.target.value as Mission['status'] }))}
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none font-bold"
+                                >
+                                    <option value="planned">Planifiée</option>
+                                    <option value="in_progress">En cours</option>
+                                    <option value="completed">Terminée</option>
+                                    <option value="cancelled">Annulée</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Heure début</label>
+                                <input
+                                    required
+                                    type="time"
+                                    value={editMissionForm.startTime}
+                                    onChange={(e) => setEditMissionForm(prev => ({ ...prev, startTime: e.target.value }))}
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Heure fin</label>
+                                <input
+                                    required
+                                    type="time"
+                                    value={editMissionForm.endTime}
+                                    onChange={(e) => setEditMissionForm(prev => ({ ...prev, endTime: e.target.value }))}
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Service</label>
+                            <input
+                                required
+                                type="text"
+                                value={editMissionForm.service}
+                                onChange={(e) => setEditMissionForm(prev => ({ ...prev, service: e.target.value }))}
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setIsEditMissionModalOpen(false)}
+                            className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                            disabled={isSubmitting}
+                        >
+                            Annuler
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:opacity-90 transition disabled:opacity-70"
+                        >
+                            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
       )}

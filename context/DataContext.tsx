@@ -75,6 +75,7 @@ interface DataContextType {
     cancelMissionByClient: (id: string) => Promise<void>;
     canCancelMission: (mission: Mission) => boolean;
     assignProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
+    updateMission: (id: string, data: Partial<Mission>) => Promise<void>;
     deleteMissions: (ids: string[]) => Promise<void>;
 
     clients: Client[];
@@ -1005,6 +1006,41 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 setIsOnline(false);
             }
         }
+    };
+
+    const updateMission = async (id: string, data: Partial<Mission>) => {
+        const dbData: any = {};
+
+        if (data.date !== undefined) dbData.date = data.date;
+        if (data.startTime !== undefined) dbData.start_time = data.startTime;
+        if (data.endTime !== undefined) dbData.end_time = data.endTime;
+        if (data.duration !== undefined) dbData.duration = data.duration;
+        if (data.clientId !== undefined) dbData.client_id = data.clientId;
+        if (data.clientName !== undefined) dbData.client_name = data.clientName;
+        if (data.service !== undefined) dbData.service = data.service;
+        if (data.providerId !== undefined) dbData.provider_id = (!data.providerId || data.providerId === 'null') ? null : data.providerId;
+        if (data.providerName !== undefined) dbData.provider_name = data.providerName;
+        if (data.status !== undefined) dbData.status = data.status;
+        if (data.color !== undefined) dbData.color = data.color;
+        if (data.source !== undefined) dbData.source = data.source;
+        if (data.sourceDocumentId !== undefined) dbData.source_document_id = data.sourceDocumentId;
+
+        const { error } = await supabase.from('missions').update(dbData).eq('id', id);
+
+        if (error) {
+            console.error('[updateMission] Supabase error:', error);
+            throw error;
+        }
+
+        setMissions(prev => prev.map(m => {
+            if (m.id !== id) return m;
+            const nextDate = data.date !== undefined ? data.date : m.date;
+            return {
+                ...m,
+                ...data,
+                dayIndex: nextDate ? getDayIndexFromDate(nextDate) : m.dayIndex
+            };
+        }));
     };
 
     // Check for 48h reminders (updated from 72h)
@@ -4343,7 +4379,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         <DataContext.Provider value={{
             companySettings, updateCompanySettings,
 
-            missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, deleteMissions,
+            missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
 
             clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
 
