@@ -234,6 +234,14 @@ const ClientPortal: React.FC = () => {
         };
     }, [showNotifDropdown]);
 
+    useEffect(() => {
+        if (activeTab !== 'messages') return;
+        const t = setTimeout(() => {
+            messageInputRef.current?.focus();
+        }, 50);
+        return () => clearTimeout(t);
+    }, [activeTab]);
+
     if (!client) {
         return (
             <div className="h-full flex items-center justify-center flex-col bg-slate-100 p-8">
@@ -306,14 +314,6 @@ const ClientPortal: React.FC = () => {
         setShowNotifDropdown(false);
         setShowAllNotifsModal(false);
     };
-
-    useEffect(() => {
-        if (activeTab !== 'messages') return;
-        const t = setTimeout(() => {
-            messageInputRef.current?.focus();
-        }, 50);
-        return () => clearTimeout(t);
-    }, [activeTab]);
 
     const openQuoteModal = (docId: string) => {
         setSelectedQuoteId(docId);

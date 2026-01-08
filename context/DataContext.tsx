@@ -721,7 +721,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log("[RefreshData] Setting online status, preparing fetches...");
 
             // Perform fetches in parallel but wrapped to not fail completely if one table is missing
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 5000) => {
+            const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
                 try {
                     console.log(`[RefreshData] Fetching ${table}...`);
 
@@ -751,7 +751,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             };
 
-            const [
+            let [
                 cData, pData, mData, dData, packData, ctData,
                 rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData
             ] = await Promise.all([
@@ -765,7 +765,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 fetchTable('expenses'),
                 fetchTable('messages'), // Ordering happens in memory or add order to fetchTable if critical
                 fetchTable('notifications'),
-                fetchTable('company_settings', '*', 5000).then(r => r?.[0] || null),
+                fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null),
                 fetchTable('visit_scans'),
                 fetchTable('video_recordings'),
                 fetchTable('leaves'),
@@ -773,6 +773,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             ]);
 
             console.log("[RefreshData] All fetches completed, processing data...");
+
+            if (!cData) cData = await fetchTable('clients');
+            if (!pData) pData = await fetchTable('providers');
+            if (!mData) mData = await fetchTable('missions');
+            if (!dData) dData = await fetchTable('documents');
 
             if (cData) {
                 // Enrichir les clients avec leurs packs associés via les contrats
