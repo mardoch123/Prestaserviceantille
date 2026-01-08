@@ -93,6 +93,8 @@ const ClientPortal: React.FC = () => {
     const activeClientId = simulatedClientId || (currentUser?.role === 'client' ? currentUser.relatedEntityId : null);
     const client = clients.find(c => c.id === activeClientId);
 
+    const profileLoadTimeoutRef = useRef<number | null>(null);
+
     // Get client's video recordings for replay
     const clientVideoRecordings = client ? getVideoRecordings(client.id) : [];
 
@@ -233,6 +235,56 @@ const ClientPortal: React.FC = () => {
             document.removeEventListener('touchstart', handleOutside);
         };
     }, [showNotifDropdown]);
+
+    useEffect(() => {
+        if (client) {
+            if (profileLoadTimeoutRef.current) {
+                clearTimeout(profileLoadTimeoutRef.current);
+                profileLoadTimeoutRef.current = null;
+            }
+            return;
+        }
+
+        if (!activeClientId) return;
+        if (currentUser?.role !== 'client') return;
+        if (profileLoadTimeoutRef.current) return;
+
+        profileLoadTimeoutRef.current = window.setTimeout(() => {
+            try {
+                localStorage.setItem('presta_session_expired', '1');
+            } catch { }
+
+            try {
+                localStorage.removeItem('presta_auth_recovery');
+                localStorage.removeItem('presta_current_user');
+                localStorage.removeItem('presta_session_persistent');
+                localStorage.removeItem('presta_session_extended');
+            } catch { }
+
+            try {
+                sessionStorage.clear();
+            } catch { }
+
+            try {
+                const cookies = document.cookie ? document.cookie.split(';') : [];
+                cookies.forEach((cookie) => {
+                    const eqPos = cookie.indexOf('=');
+                    const name = (eqPos > -1 ? cookie.substr(0, eqPos) : cookie).trim();
+                    if (!name) return;
+                    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+                });
+            } catch { }
+
+            logout(true);
+        }, 30000);
+
+        return () => {
+            if (profileLoadTimeoutRef.current) {
+                clearTimeout(profileLoadTimeoutRef.current);
+                profileLoadTimeoutRef.current = null;
+            }
+        };
+    }, [activeClientId, client, currentUser?.role, logout]);
 
     useEffect(() => {
         if (activeTab !== 'messages') return;

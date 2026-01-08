@@ -1266,12 +1266,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 console.log("Starting auth initialization...");
 
+                let restoredUser: User | null = null;
+
                 // First try to restore user from localStorage for immediate UI update
                 try {
                     const storedUser = localStorage.getItem('presta_current_user');
                     if (storedUser) {
                         const userObj = JSON.parse(storedUser);
                         console.log("Restored user from localStorage:", userObj.name, userObj.role);
+                        restoredUser = userObj;
                         setCurrentUser(userObj);
                         if (userObj.role === 'client' && userObj.relatedEntityId) {
                             setSimulatedClientId(userObj.relatedEntityId);
@@ -1281,6 +1284,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 } catch (err) {
                     console.warn("Failed to restore user from localStorage:", err);
+                }
+
+                if (restoredUser && (restoredUser.role === 'client' || restoredUser.role === 'provider') && mounted) {
+                    try {
+                        await refreshData();
+                    } catch (e) {
+                        console.warn("Data refresh failed for restored user:", e);
+                    }
+                    return;
                 }
 
                 // Check Supabase Session status directly
@@ -1387,6 +1399,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         setLoading(false);
                     }
                 });
+            } else if (event === 'INITIAL_SESSION' && !session?.user) {
+                setLoading(false);
             } else {
                 console.log("[AuthStateChange] Unhandled event:", event);
             }

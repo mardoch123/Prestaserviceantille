@@ -11,6 +11,8 @@ const Login: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const [sessionExpiredPopup, setSessionExpiredPopup] = useState(false);
+
     // Loading states for test generation
     const [creatingClient, setCreatingClient] = useState(false);
     const [creatingProvider, setCreatingProvider] = useState(false);
@@ -31,6 +33,14 @@ const Login: React.FC = () => {
     React.useEffect(() => {
         const cleanState = async () => {
             try {
+                try {
+                    const expired = localStorage.getItem('presta_session_expired');
+                    if (expired === '1') {
+                        setSessionExpiredPopup(true);
+                        localStorage.removeItem('presta_session_expired');
+                    }
+                } catch { }
+
                 // 1. Vérifier d'abord s'il existe une session valide Supabase
                 const { data: { session } } = await supabase.auth.getSession();
                 
@@ -222,6 +232,25 @@ const Login: React.FC = () => {
             <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
             <div className="absolute -top-20 -right-20 w-96 h-96 bg-brand-orange/10 rounded-full blur-3xl"></div>
             <div className="absolute -bottom-20 -left-20 w-96 h-96 bg-brand-blue/10 rounded-full blur-3xl"></div>
+
+            {sessionExpiredPopup && (
+                <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50">
+                    <div className="bg-white border border-orange-200 shadow-xl rounded-xl px-4 py-3 flex items-start gap-3 max-w-md">
+                        <AlertTriangle className="w-5 h-5 text-orange-600 mt-0.5" />
+                        <div className="flex-1">
+                            <p className="text-sm font-bold text-slate-800">Session expirée</p>
+                            <p className="text-xs text-slate-600">Votre session précédente a expiré. Veuillez vous reconnecter.</p>
+                        </div>
+                        <button
+                            onClick={() => setSessionExpiredPopup(false)}
+                            className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"
+                            aria-label="Fermer"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <div className="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white relative z-10">
                 <div className="text-center mb-8">
