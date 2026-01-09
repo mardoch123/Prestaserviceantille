@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import {
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
@@ -20,11 +20,11 @@ import {
 } from '../src/utils/martiniqueTime';
 
 // --- Assets & Constantes ---
-export const LOGO_NORMAL = "https://prestaservicesantilles.com/images/logo.png";
-export const LOGO_SAP = "https://prestaservicesantilles.com/sap.png";
+export const LOGO_NORMAL = "https://anciens.prestaservicesantilles.com/images/logo.png";
+export const LOGO_SAP = "https://anciens.prestaservicesantilles.com/sap.png";
 
-export const COMPANY_STAMP_URL = "https://prestaservicesantilles.com/cachetetsignature.png";
-export const COMPANY_SIGNATURE_URL = "https://prestaservicesantilles.com/signature.png";
+export const COMPANY_STAMP_URL = "https://anciens.prestaservicesantilles.com/cachetetsignature.png";
+export const COMPANY_SIGNATURE_URL = "https://anciens.prestaservicesantilles.com/signature.png";
 
 // Helper for UUID generation
 function generateUUID() {
@@ -104,6 +104,7 @@ interface DataContextType {
     sendDocumentReminder: (id: string) => Promise<void>;
     sendQuoteSignatureReminder: (docId: string) => Promise<void>;
     signQuoteWithData: (id: string, signatureData: string) => Promise<void>;
+    signQuoteAsAdmin: (id: string, signatureData?: string) => Promise<void>;
     refuseQuote: (id: string) => Promise<void>;
     requestInvoice: (docId: string) => Promise<void>;
     refundTransaction: (ref: string, amount: number) => Promise<void>;
@@ -234,6 +235,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+    const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
     // Session management pour éviter la déconnexion pendant lecture
     const [lastActivity, setLastActivity] = useState(Date.now());
@@ -708,308 +711,316 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
-        try {
-            console.log("[RefreshData] Starting data refresh...");
+        if (refreshInFlightRef.current) {
+            await refreshInFlightRef.current;
+            return;
+        }
 
-            if (!isSupabaseConfigured) {
-                console.log("[RefreshData] Supabase not configured, skipping fetch");
-                // If not configured, we don't fetch but we MUST ensure loading stops
-                return;
-            }
+        const run = (async () => {
+            try {
+                console.log("[RefreshData] Starting data refresh...");
 
-            setIsOnline(true); // Assume online if we are attempting to refresh
-            console.log("[RefreshData] Setting online status, preparing fetches...");
+                if (!isSupabaseConfigured) {
+                    console.log("[RefreshData] Supabase not configured, skipping fetch");
+                    return;
+                }
 
-            // Perform fetches in parallel but wrapped to not fail completely if one table is missing
-            const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
-                try {
-                    console.log(`[RefreshData] Fetching ${table}...`);
+                setIsOnline(true);
+                console.log("[RefreshData] Setting online status, preparing fetches...");
 
-                    // Add timeout to prevent hanging
-                    const timeoutPromise = new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
-                    });
+                const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
+                    try {
+                        console.log(`[RefreshData] Fetching ${table}...`);
 
-                    const fetchPromise = supabase.from(table).select(query);
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
+                        });
 
-                    const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+                        const fetchPromise = supabase.from(table).select(query);
 
-                    if (result.error) {
-                        console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
+                        const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+                        if (result.error) {
+                            console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
+                            return null;
+                        }
+
+                        console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
+                        return result.data;
+                    } catch (err) {
+                        if (err instanceof Error && err.message.includes('Timeout')) {
+                            console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
+                        } else {
+                            console.error(`[RefreshData] Exception fetching ${table}:`, err);
+                        }
                         return null;
                     }
+                };
 
-                    console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
-                    return result.data;
-                } catch (err) {
-                    if (err instanceof Error && err.message.includes('Timeout')) {
-                        console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
-                    } else {
-                        console.error(`[RefreshData] Exception fetching ${table}:`, err);
-                    }
-                    return null;
+                let [
+                    cData, pData, mData, dData, packData, ctData,
+                    rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData
+                ] = await Promise.all([
+                    fetchTable('clients'),
+                    fetchTable('providers'),
+                    fetchTable('missions'),
+                    fetchTable('documents'),
+                    fetchTable('packs'),
+                    fetchTable('contracts'),
+                    fetchTable('reminders'),
+                    fetchTable('expenses'),
+                    fetchTable('messages'),
+                    fetchTable('notifications'),
+                    fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null),
+                    fetchTable('visit_scans'),
+                    fetchTable('video_recordings'),
+                    fetchTable('leaves'),
+                    fetchTable('generic_contracts')
+                ]);
+
+                console.log("[RefreshData] All fetches completed, processing data...");
+
+                const retryJobs: Promise<void>[] = [];
+                if (!cData) retryJobs.push(fetchTable('clients').then(r => { cData = r; }));
+                if (!pData) retryJobs.push(fetchTable('providers').then(r => { pData = r; }));
+                if (!mData) retryJobs.push(fetchTable('missions').then(r => { mData = r; }));
+                if (!dData) retryJobs.push(fetchTable('documents').then(r => { dData = r; }));
+                if (retryJobs.length) await Promise.all(retryJobs);
+
+                if (cData) {
+                    const enrichedClients = cData.map((c: any) => {
+                        const clientContracts = ctData?.filter((contract: any) =>
+                            contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
+                        ) || [];
+
+                        const associatedPacks = packData?.filter((pack: any) =>
+                            clientContracts.some((contract: any) => contract.packId === pack.id)
+                        ) || [];
+
+                        const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
+
+                        return {
+                            ...c,
+                            packsConsumed: c.packs_consumed || 0,
+                            loyaltyHoursAvailable: c.loyalty_hours_available || 0,
+                            hasLeftReview: c.has_left_review,
+                            initialPassword: c.initial_password,
+                            pack: packName && packName !== '-' ? packName : null
+                        };
+                    });
+
+                    setClients(enrichedClients);
                 }
-            };
 
-            let [
-                cData, pData, mData, dData, packData, ctData,
-                rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData
-            ] = await Promise.all([
-                fetchTable('clients'),
-                fetchTable('providers'),
-                fetchTable('missions'),
-                fetchTable('documents'),
-                fetchTable('packs'),
-                fetchTable('contracts'),
-                fetchTable('reminders'),
-                fetchTable('expenses'),
-                fetchTable('messages'), // Ordering happens in memory or add order to fetchTable if critical
-                fetchTable('notifications'),
-                fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null),
-                fetchTable('visit_scans'),
-                fetchTable('video_recordings'),
-                fetchTable('leaves'),
-                fetchTable('generic_contracts')
-            ]);
-
-            console.log("[RefreshData] All fetches completed, processing data...");
-
-            if (!cData) cData = await fetchTable('clients');
-            if (!pData) pData = await fetchTable('providers');
-            if (!mData) mData = await fetchTable('missions');
-            if (!dData) dData = await fetchTable('documents');
-
-            if (cData) {
-                // Enrichir les clients avec leurs packs associés via les contrats
-                const enrichedClients = cData.map((c: any) => {
-                    // Chercher les contrats actifs du client
-                    const clientContracts = ctData?.filter((contract: any) =>
-                        contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
-                    ) || [];
-
-                    // Chercher les packs associés via les contrats
-                    const associatedPacks = packData?.filter((pack: any) =>
-                        clientContracts.some((contract: any) => contract.packId === pack.id)
-                    ) || [];
-
-                    // Utiliser le premier pack trouvé ou garder le pack existant
-                    const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
-
-                    return {
-                        ...c,
-                        packsConsumed: c.packs_consumed || 0,
-                        loyaltyHoursAvailable: c.loyalty_hours_available || 0,
-                        hasLeftReview: c.has_left_review,
-                        initialPassword: c.initial_password,
-                        pack: packName && packName !== '-' ? packName : null
-                    };
-                });
-
-                setClients(enrichedClients);
-            }
-
-            if (pData) {
-                setProviders(pData.map((p: any) => ({
-                    ...p,
-                    firstName: p.first_name || p.firstName,
-                    lastName: p.last_name || p.lastName,
-                    hoursWorked: p.hours_worked || p.hoursWorked,
-                    nonInterventionDays: Array.isArray(p.non_intervention_days)
-                        ? p.non_intervention_days
-                        : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
-                    leaves: leavesData ? leavesData.map((l: any) => ({
-                        id: l.id,
-                        providerId: l.provider_id,
-                        startDate: l.start_date,
-                        endDate: l.end_date,
-                        startTime: l.start_time,
-                        endTime: l.end_time,
-                        status: l.status
-                    })).filter((l: any) => l.providerId === p.id) : [],
-                })));
-            }
-
-            if (mData) {
-                const mappedMissions = mData.map((m: any) => ({
-                    ...m,
-                    dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
-                    startTime: m.start_time || m.startTime,
-                    endTime: m.end_time || m.endTime,
-                    clientId: m.client_id || m.clientId,
-                    clientName: m.client_name || m.clientName,
-                    providerId: m.provider_id || m.providerId,
-                    providerName: m.provider_name || m.providerName,
-                    startPhotos: m.start_photos || m.startPhotos,
-                    endPhotos: m.end_photos || m.endPhotos,
-                    startVideo: m.start_video || m.startVideo,
-                    endVideo: m.end_video,
-                    startRemark: m.start_remark,
-                    endRemark: m.end_remark,
-                    cancellationReason: m.cancellation_reason || m.cancellationReason,
-                    lateCancellation: m.late_cancellation || m.lateCancellation,
-                    reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
-                    reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
-                    reportSent: m.report_sent || m.reportSent
-                }));
-                setMissions(mappedMissions);
-                checkUpcomingReminders(mappedMissions); // Trigger 48h check
-            }
-            if (dData) {
-                setDocuments(dData.map((d: any) => ({
-                    ...d,
-                    clientId: d.client_id || d.clientId,
-                    clientName: d.client_name || d.clientName,
-                    unitPrice: d.unit_price || d.unitPrice,
-                    tvaRate: d.tva_rate || d.tvaRate,
-                    totalHT: d.total_ht || d.totalHT,
-                    totalTTC: d.total_ttc || d.totalTTC,
-                    taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-                    slotsData: d.slots_data,
-                    reminderSent: d.reminder_sent,
-                    signatureData: d.signature_data,
-                    signatureDate: d.signature_date,
-                    recurrenceEndDate: d.recurrence_end_date,
-                    frequency: d.frequency
-                })));
-            }
-            if (packData) {
-                setPacks(packData.map((p: any) => {
-                    const desc = p.description || '';
-                    const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
-                    const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
-
-                    return {
+                if (pData) {
+                    setProviders(pData.map((p: any) => ({
                         ...p,
-                        mainService: p.main_service || p.mainService,
-                        priceTTC: p.price_ttc || p.priceTTC,
-                        priceHT: p.price_ht || p.priceHT,
-                        priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
-                        suppliesIncluded: p.supplies_included || p.suppliesIncluded,
-                        suppliesDetails: p.supplies_details || p.suppliesDetails,
-                        isSap: p.is_sap || p.isSap,
-                        contractType: p.contract_type || p.contractType,
-                        quantity: p.quantity || '',
-                        location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
-                        frequency: freq
-                    };
-                }));
-            }
-            if (ctData) {
-                console.log('Loading contracts from DB:', ctData.map((c: any) => ({ id: c.id, client_id: c.client_id, pack_id: c.pack_id })));
-                setContracts(ctData.map((c: any) => ({
-                    ...c,
-                    packId: c.pack_id || c.packId,
-                    clientId: c.client_id || c.clientId,
-                    quoteId: c.quote_id || c.quoteId,
-                    isSap: c.is_sap || c.isSap,
-                    validationDate: c.validation_date || c.validationDate,
-                    clientSignatureUrl: c.client_signature_url,
-                    signedAt: c.signed_at
-                })));
-            }
-            if (gcData) {
-                setGenericContracts(gcData.map((gc: any) => ({
-                    ...gc,
-                    isActive: typeof gc.is_active === 'boolean' ? gc.is_active : (typeof gc.isActive === 'boolean' ? gc.isActive : false)
-                })));
-            }
-            if (rData) {
-                setReminders(rData.map((r: any) => ({
-                    ...r,
-                    notifyEmail: r.notify_email || r.notifyEmail
-                })));
-            }
-            if (eData) {
-                setExpenses(eData.map((e: any) => ({
-                    ...e,
-                    proofUrl: e.proof_url || e.proofUrl
-                })));
-            }
-            if (msgData) {
-                // sort locally since we fetched crudely
-                const sorted = msgData.sort((a: any, b: any) =>
-                    new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
-                );
-                setMessages(sorted.map((m: any) => ({
-                    id: m.id,
-                    sender: m.sender,
-                    text: m.text,
-                    date: m.created_at || m.date,
-                    clientId: m.client_id,
-                    read: m.is_read
-                })));
-            }
-            if (notifData) {
-                const sorted = notifData.sort((a: any, b: any) =>
-                    new Date(b.date).getTime() - new Date(a.date).getTime()
-                );
-                setNotifications(sorted.map((n: any) => ({
-                    ...n,
-                    read: n.is_read, // Map DB column to UI property
-                    targetUserType: n.target_user_type, // CORRIGÉ: Utiliser target_user_type pour cohérence
-                    targetUserId: n.target_user_id
-                })));
-            }
+                        firstName: p.first_name || p.firstName,
+                        lastName: p.last_name || p.lastName,
+                        hoursWorked: p.hours_worked || p.hoursWorked,
+                        nonInterventionDays: Array.isArray(p.non_intervention_days)
+                            ? p.non_intervention_days
+                            : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
+                        leaves: leavesData ? leavesData.map((l: any) => ({
+                            id: l.id,
+                            providerId: l.provider_id,
+                            startDate: l.start_date,
+                            endDate: l.end_date,
+                            startTime: l.start_time,
+                            endTime: l.end_time,
+                            status: l.status
+                        })).filter((l: any) => l.providerId === p.id) : [],
+                    })));
+                }
 
-            if (vsData) {
-                const sorted = vsData.sort((a: any, b: any) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                );
-                setVisitScans(sorted.map((s: any) => ({
-                    ...s,
-                    clientId: s.client_id || s.clientId,
-                    scannerId: s.scanner_id || s.scannerId,
-                    scannerName: s.scanner_name || s.scannerName,
-                    scanType: s.scan_type || s.scanType,
-                    locationData: s.location_data
-                })));
+                if (mData) {
+                    const mappedMissions = mData.map((m: any) => ({
+                        ...m,
+                        dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+                        startTime: m.start_time || m.startTime,
+                        endTime: m.end_time || m.endTime,
+                        clientId: m.client_id || m.clientId,
+                        clientName: m.client_name || m.clientName,
+                        providerId: m.provider_id || m.providerId,
+                        providerName: m.provider_name || m.providerName,
+                        startPhotos: m.start_photos || m.startPhotos,
+                        endPhotos: m.end_photos || m.endPhotos,
+                        startVideo: m.start_video || m.startVideo,
+                        endVideo: m.end_video,
+                        startRemark: m.start_remark,
+                        endRemark: m.end_remark,
+                        cancellationReason: m.cancellation_reason || m.cancellationReason,
+                        lateCancellation: m.late_cancellation || m.lateCancellation,
+                        reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
+                        reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+                        reportSent: m.report_sent || m.reportSent
+                    }));
+                    setMissions(mappedMissions);
+                    checkUpcomingReminders(mappedMissions);
+                }
+                if (dData) {
+                    setDocuments(dData.map((d: any) => ({
+                        ...d,
+                        clientId: d.client_id || d.clientId,
+                        clientName: d.client_name || d.clientName,
+                        unitPrice: d.unit_price || d.unitPrice,
+                        tvaRate: d.tva_rate || d.tvaRate,
+                        totalHT: d.total_ht || d.totalHT,
+                        totalTTC: d.total_ttc || d.totalTTC,
+                        taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+                        slotsData: d.slots_data,
+                        reminderSent: d.reminder_sent,
+                        signatureData: d.signature_data,
+                        signatureDate: d.signature_date,
+                        recurrenceEndDate: d.recurrence_end_date,
+                        frequency: d.frequency
+                    })));
+                }
+                if (packData) {
+                    setPacks(packData.map((p: any) => {
+                        const desc = p.description || '';
+                        const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
+                        const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
+
+                        return {
+                            ...p,
+                            mainService: p.main_service || p.mainService,
+                            priceTTC: p.price_ttc || p.priceTTC,
+                            priceHT: p.price_ht || p.priceHT,
+                            priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
+                            suppliesIncluded: p.supplies_included || p.suppliesIncluded,
+                            suppliesDetails: p.supplies_details || p.suppliesDetails,
+                            isSap: p.is_sap || p.isSap,
+                            contractType: p.contract_type || p.contractType,
+                            quantity: p.quantity || '',
+                            location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
+                            frequency: freq
+                        };
+                    }));
+                }
+                if (ctData) {
+                    console.log('Loading contracts from DB:', ctData.map((c: any) => ({ id: c.id, client_id: c.client_id, pack_id: c.pack_id })));
+                    setContracts(ctData.map((c: any) => ({
+                        ...c,
+                        packId: c.pack_id || c.packId,
+                        clientId: c.client_id || c.clientId,
+                        quoteId: c.quote_id || c.quoteId,
+                        isSap: c.is_sap || c.isSap,
+                        validationDate: c.validation_date || c.validationDate,
+                        clientSignatureUrl: c.client_signature_url,
+                        signedAt: c.signed_at
+                    })));
+                }
+                if (gcData) {
+                    setGenericContracts(gcData.map((gc: any) => ({
+                        ...gc,
+                        isActive: typeof gc.is_active === 'boolean' ? gc.is_active : (typeof gc.isActive === 'boolean' ? gc.isActive : false)
+                    })));
+                }
+                if (rData) {
+                    setReminders(rData.map((r: any) => ({
+                        ...r,
+                        notifyEmail: r.notify_email || r.notifyEmail
+                    })));
+                }
+                if (eData) {
+                    setExpenses(eData.map((e: any) => ({
+                        ...e,
+                        proofUrl: e.proof_url || e.proofUrl
+                    })));
+                }
+                if (msgData) {
+                    const sorted = msgData.sort((a: any, b: any) =>
+                        new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime()
+                    );
+                    setMessages(sorted.map((m: any) => ({
+                        id: m.id,
+                        sender: m.sender,
+                        text: m.text,
+                        date: m.created_at || m.date,
+                        clientId: m.client_id,
+                        read: m.is_read
+                    })));
+                }
+                if (notifData) {
+                    const sorted = notifData.sort((a: any, b: any) =>
+                        new Date(b.date).getTime() - new Date(a.date).getTime()
+                    );
+                    setNotifications(sorted.map((n: any) => ({
+                        ...n,
+                        read: n.is_read,
+                        targetUserType: n.target_user_type,
+                        targetUserId: n.target_user_id
+                    })));
+                }
+
+                if (vsData) {
+                    const sorted = vsData.sort((a: any, b: any) =>
+                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    );
+                    setVisitScans(sorted.map((s: any) => ({
+                        ...s,
+                        clientId: s.client_id || s.clientId,
+                        scannerId: s.scanner_id || s.scannerId,
+                        scannerName: s.scanner_name || s.scannerName,
+                        scanType: s.scan_type || s.scanType,
+                        locationData: s.location_data
+                    })));
+                }
+
+                if (vrData) {
+                    const sorted = vrData.sort((a: any, b: any) =>
+                        new Date(b.start_time || b.startTime || b.created_at).getTime() - new Date(a.start_time || a.startTime || a.created_at).getTime()
+                    );
+
+                    setVideoRecordings(sorted.map((r: any) => ({
+                        id: r.id,
+                        sessionId: r.session_id || r.sessionId,
+                        providerId: r.provider_id || r.providerId,
+                        clientId: r.client_id || r.clientId,
+                        status: (r.status as any) || 'recording',
+                        startTime: r.start_time || r.startTime || r.created_at,
+                        endTime: r.end_time || r.endTime,
+                        recordingUrl: r.recording_url || r.recordingUrl,
+                        replayUrl: r.replay_url || r.replayUrl,
+                        duration: r.duration || 0,
+                        fileSize: r.file_size || r.fileSize || 0,
+                        thumbnailUrl: r.thumbnail_url || r.thumbnailUrl,
+                        accessToken: r.access_token || r.accessToken,
+                        expiresAt: r.expires_at || r.expiresAt,
+                        url: r.url
+                    })));
+                }
+
+                if (settingsData) {
+                    setCompanySettings({
+                        name: settingsData.name,
+                        address: settingsData.address,
+                        siret: settingsData.siret,
+                        email: settingsData.email,
+                        phone: settingsData.phone,
+                        tvaRateDefault: settingsData.tva_rate_default,
+                        emailNotifications: settingsData.email_notifications,
+                        loyaltyRewardHours: settingsData.loyalty_reward_hours,
+                        logoUrl: settingsData.logo_url
+                    });
+                }
+
+                setIsOnline(true);
+
+            } catch (error: any) {
+                console.error("Erreur critique lors du chargement des données:", error);
+                if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
+                    setIsOnline(false);
+                }
             }
+        })();
 
-            if (vrData) {
-                const sorted = vrData.sort((a: any, b: any) =>
-                    new Date(b.start_time || b.startTime || b.created_at).getTime() - new Date(a.start_time || a.startTime || a.created_at).getTime()
-                );
-
-                setVideoRecordings(sorted.map((r: any) => ({
-                    id: r.id,
-                    sessionId: r.session_id || r.sessionId,
-                    providerId: r.provider_id || r.providerId,
-                    clientId: r.client_id || r.clientId,
-                    status: (r.status as any) || 'recording',
-                    startTime: r.start_time || r.startTime || r.created_at,
-                    endTime: r.end_time || r.endTime,
-                    recordingUrl: r.recording_url || r.recordingUrl,
-                    replayUrl: r.replay_url || r.replayUrl,
-                    duration: r.duration || 0,
-                    fileSize: r.file_size || r.fileSize || 0,
-                    thumbnailUrl: r.thumbnail_url || r.thumbnailUrl,
-                    accessToken: r.access_token || r.accessToken,
-                    expiresAt: r.expires_at || r.expiresAt,
-                    url: r.url
-                })));
-            }
-
-            if (settingsData) {
-                setCompanySettings({
-                    name: settingsData.name,
-                    address: settingsData.address,
-                    siret: settingsData.siret,
-                    email: settingsData.email,
-                    phone: settingsData.phone,
-                    tvaRateDefault: settingsData.tva_rate_default,
-                    emailNotifications: settingsData.email_notifications,
-                    loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                    logoUrl: settingsData.logo_url
-                });
-            }
-
-            setIsOnline(true);
-
-        } catch (error: any) {
-            console.error("Erreur critique lors du chargement des données:", error);
-            if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
-                setIsOnline(false);
-            }
+        refreshInFlightRef.current = run;
+        try {
+            await run;
+        } finally {
+            refreshInFlightRef.current = null;
         }
     };
 
@@ -2492,6 +2503,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const generateMissionsFromDocument = async (doc: Document) => {
         // ... rest of the code remains the same ...
         if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
+
+        // Idempotence: if missions already exist for this document, do not generate again
+        const existingInState = missions.some((m: any) => (m.sourceDocumentId || m.source_document_id) === doc.id);
+        if (existingInState) return;
+
+        const { data: existingMissions, error: existingError } = await supabase
+            .from('missions')
+            .select('id')
+            .eq('source_document_id', doc.id)
+            .limit(1);
+
+        if (existingError) {
+            console.error('Erreur vérification missions existantes (source_document_id):', existingError);
+            // On n'empêche pas la génération si la vérification échoue (fallback), mais on log.
+        }
+        if (existingMissions && existingMissions.length > 0) return;
+
         const missionsToCreate: any[] = [];
         const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
         const endDate = doc.recurrenceEndDate
@@ -2572,7 +2600,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (oldDoc && oldDoc.status !== 'signed' && status === 'signed') {
                 const updatedDoc = documents.find(d => d.id === id);
                 if (updatedDoc) {
-                    await generateMissionsFromDocument({ ...updatedDoc, status: 'signed' });
+                    const existingInState = missions.some((m: any) => (m.sourceDocumentId || m.source_document_id) === id);
+                    if (!existingInState) {
+                        const { data: existingMissions, error: existingError } = await supabase
+                            .from('missions')
+                            .select('id')
+                            .eq('source_document_id', id)
+                            .limit(1);
+                        if (existingError) {
+                            console.error('Erreur vérification missions existantes (updateDocumentStatus):', existingError);
+                        }
+                        if (!existingMissions || existingMissions.length === 0) {
+                            await generateMissionsFromDocument({ ...updatedDoc, status: 'signed' });
+                        }
+                    }
                 }
             }
             const client = clients.find(c => c.id === oldDoc?.clientId);
@@ -2716,7 +2757,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         });
     };
 
-    const signQuoteWithData = async (id: string, signatureData: string) => {
+    const signQuoteWithData = async (id: string, signatureData: string, signedBy: 'client' | 'admin' = 'client') => {
         // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
         const docToSign = documents.find(d => d.id === id);
         // ...
@@ -2811,10 +2852,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const now = getMartiniqueNowISO();
         console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);
-        const { error } = await supabase.from('documents').update({ status: 'signed', signature_data: signatureData, signature_date: now }).eq('id', id);
+        const documentUpdates: any = { status: 'signed', signature_date: now };
+        if (signatureData) {
+            documentUpdates.signature_data = signatureData;
+        }
+        const { error } = await supabase.from('documents').update(documentUpdates).eq('id', id);
+
+        if (error) {
+            console.error('Erreur Supabase update documents (signature):', error);
+            throw error;
+        }
 
         if (!error) {
-            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData, signatureDate: now } : d));
+            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'signed', signatureData: signatureData ? signatureData : d.signatureData, signatureDate: now } : d));
             console.log('Quote signature saved successfully');
 
             // FIND ASSOCIATED CONTRACT (by pack name match usually)
@@ -2835,12 +2885,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         console.log('Contract current signature:', relatedContract.clientSignatureUrl ? 'exists' : 'none');
                         console.log('New signature data length:', signatureData?.length);
                         // Update Contract Signature
-                        await supabase.from('contracts').update({
-                            client_signature_url: signatureData,
-                            signed_at: now
-                        }).eq('id', relatedContract.id);
+                        const contractUpdates: any = { signed_at: now };
+                        if (signatureData) {
+                            contractUpdates.client_signature_url = signatureData;
+                        }
+                        await supabase.from('contracts').update(contractUpdates).eq('id', relatedContract.id);
 
-                        setContracts(prev => prev.map(c => c.id === relatedContract.id ? { ...c, clientSignatureUrl: signatureData, signedAt: now } : c));
+                        setContracts(prev => prev.map(c => c.id === relatedContract.id ? { ...c, clientSignatureUrl: signatureData ? signatureData : c.clientSignatureUrl, signedAt: now } : c));
                         console.log('Contract signature updated successfully');
                     } else {
                         // Create contract automatically when quote is signed
@@ -2851,7 +2902,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             if (newContract) {
                                 // Add clientId to the contract
                                 newContract.clientId = quote.clientId;
-                                newContract.clientSignatureUrl = signatureData;
+                                if (signatureData) {
+                                    newContract.clientSignatureUrl = signatureData;
+                                }
                                 newContract.signedAt = now;
                                 newContract.status = 'active';
 
@@ -2874,7 +2927,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // NOTIF ADMIN (Urgent)
-            await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par client. Créneaux verrouillés.`);
+            await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par ${signedBy === 'admin' ? 'admin' : 'client'}. Créneaux verrouillés.`);
 
             // EMAIL ADMIN
             await sendEmail(companySettings.email, 'URGENT - Devis Signé', 'admin_quote_signed', {
@@ -2883,10 +2936,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 total: quote?.totalTTC
             });
 
-            if (quote) {
+            if (quote && docToSign?.status !== 'signed') {
                 await generateMissionsFromDocument({ ...quote, status: 'signed' });
             }
         }
+    };
+
+    const signQuoteAsAdmin = async (id: string, signatureData?: string) => {
+        await signQuoteWithData(id, signatureData || '', 'admin');
     };
 
     const refuseQuote = async (id: string) => {
@@ -4404,7 +4461,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
 
-            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
 
             packs, addPack, updatePack, deletePacks,
 

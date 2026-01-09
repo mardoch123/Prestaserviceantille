@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Mission, Document, Contract } from '../types';
@@ -30,7 +30,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser } = useData();
+    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -49,6 +49,14 @@ const DevisFactures: React.FC = () => {
     // Document Detail Modal State
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState<any>(null);
+
+    const [isAdminSignModalOpen, setIsAdminSignModalOpen] = useState(false);
+    const [adminSignDocumentId, setAdminSignDocumentId] = useState<string | null>(null);
+    const [adminSignatureDataUrl, setAdminSignatureDataUrl] = useState<string>('');
+    const [adminSignatureFileName, setAdminSignatureFileName] = useState<string>('');
+    const [isAdminSigning, setIsAdminSigning] = useState(false);
+    const [isAdminSignDragOver, setIsAdminSignDragOver] = useState(false);
+    const adminSignatureInputRef = useRef<HTMLInputElement | null>(null);
 
     const location = useLocation();
 
@@ -922,6 +930,70 @@ const DevisFactures: React.FC = () => {
         setIsDetailModalOpen(true);
     };
 
+    const readFileAsDataUrl = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                if (typeof reader.result === 'string') resolve(reader.result);
+                else reject(new Error('Lecture fichier impossible'));
+            };
+            reader.onerror = () => reject(new Error('Lecture fichier impossible'));
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const openAdminSignModal = (docId: string) => {
+        setAdminSignDocumentId(docId);
+        setAdminSignatureDataUrl('');
+        setAdminSignatureFileName('');
+        setIsAdminSignDragOver(false);
+        setIsAdminSignModalOpen(true);
+    };
+
+    const closeAdminSignModal = () => {
+        if (isAdminSigning) return;
+        setIsAdminSignModalOpen(false);
+        setAdminSignDocumentId(null);
+        setAdminSignatureDataUrl('');
+        setAdminSignatureFileName('');
+        setIsAdminSignDragOver(false);
+    };
+
+    const handleAdminSignatureFile = async (file?: File) => {
+        if (!file) return;
+        if (!file.type || !file.type.startsWith('image/')) {
+            showToast('Veuillez sélectionner une image valide.', 'error');
+            return;
+        }
+        try {
+            const dataUrl = await readFileAsDataUrl(file);
+            setAdminSignatureDataUrl(dataUrl);
+            setAdminSignatureFileName(file.name || 'signature');
+        } catch (e) {
+            showToast('Erreur lors du chargement de l\'image.', 'error');
+        }
+    };
+
+    const confirmAdminSign = async () => {
+        if (!adminSignDocumentId) return;
+        setIsAdminSigning(true);
+        try {
+            await signQuoteAsAdmin(adminSignDocumentId, adminSignatureDataUrl ? adminSignatureDataUrl : undefined);
+            showToast('Devis signé (admin) ! Vos créneaux sont réservés.', 'success');
+            setIsAdminSigning(false);
+            setIsAdminSignModalOpen(false);
+            setAdminSignDocumentId(null);
+            setAdminSignatureDataUrl('');
+            setAdminSignatureFileName('');
+            setIsAdminSignDragOver(false);
+        } catch (e) {
+            console.error('[DevisFactures] Admin sign failed:', e);
+            showToast('Erreur lors de la signature admin du devis.', 'error');
+        } finally {
+            setIsAdminSigning(false);
+        }
+    };
+
     const handleSuccess = async () => {
         setIsSubmitting(true);
         try {
@@ -1501,6 +1573,15 @@ const DevisFactures: React.FC = () => {
                                                         ]}
                                                     value={doc.status}
                                                     onChange={(value) => {
+                                                        if (
+                                                            doc.type === 'Devis' &&
+                                                            doc.status !== 'signed' &&
+                                                            value === 'signed' &&
+                                                            (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')
+                                                        ) {
+                                                            openAdminSignModal(doc.id);
+                                                            return;
+                                                        }
                                                         updateDocumentStatus(doc.id, value);
                                                         showToast('Statut mis à jour manuellement.');
                                                     }}
@@ -1527,6 +1608,20 @@ const DevisFactures: React.FC = () => {
 
                                     {/* Actions */}
                                     <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                                        {doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    openAdminSignModal(doc.id);
+                                                }}
+                                                className="text-slate-400 hover:text-brand-blue p-1 hover:bg-blue-50 rounded transition"
+                                                title="Signer le devis (admin)"
+                                            >
+                                                <PenTool className="w-4 h-4" />
+                                            </button>
+                                        )}
+
                                         {/* CONVERT BUTTON */}
                                         {doc.type === 'Devis' && doc.status === 'signed' && (
                                             <button
@@ -1762,6 +1857,15 @@ const DevisFactures: React.FC = () => {
                                                             ]}
                                                         value={doc.status}
                                                         onChange={(value) => {
+                                                            if (
+                                                                doc.type === 'Devis' &&
+                                                                doc.status !== 'signed' &&
+                                                                value === 'signed' &&
+                                                                (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')
+                                                            ) {
+                                                                openAdminSignModal(doc.id);
+                                                                return;
+                                                            }
                                                             updateDocumentStatus(doc.id, value);
                                                             showToast('Statut mis à jour manuellement.');
                                                         }}
@@ -1788,6 +1892,20 @@ const DevisFactures: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-center gap-2">
+
+                                                {doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            openAdminSignModal(doc.id);
+                                                        }}
+                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-blue-50 rounded transition"
+                                                        title="Signer le devis (admin)"
+                                                    >
+                                                        <PenTool className="w-4 h-4 pointer-events-none" />
+                                                    </button>
+                                                )}
 
                                                 {/* CONVERT BUTTON */}
                                                 {doc.type === 'Devis' && doc.status === 'signed' && (
@@ -2404,6 +2522,18 @@ const DevisFactures: React.FC = () => {
                                     <div><span className="text-slate-500">Statut : </span><span className={`font-medium ${selectedDocument.status === 'signed' ? 'text-green-600' : selectedDocument.status === 'sent' ? 'text-orange-600' : 'text-red-600'}`}>{selectedDocument.status}</span></div>
                                     <div><span className="text-slate-500">Type : </span><span className="font-medium">{selectedDocument.type}</span></div>
                                 </div>
+
+                                {selectedDocument.type === 'Devis' && selectedDocument.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+                                    <div className="mt-4 flex justify-end">
+                                        <button
+                                            onClick={() => openAdminSignModal(selectedDocument.id)}
+                                            className="px-4 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2"
+                                        >
+                                            <PenTool className="w-4 h-4" />
+                                            Signer (admin)
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Service Details */}
@@ -2517,6 +2647,105 @@ const DevisFactures: React.FC = () => {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isAdminSignModalOpen && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                        <div className="flex items-center justify-between p-4 border-b bg-cream-50">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <PenTool className="w-5 h-5" />
+                                Signature Admin
+                            </h3>
+                            <button
+                                onClick={closeAdminSignModal}
+                                disabled={isAdminSigning}
+                                className="p-2 hover:bg-slate-200 rounded-full transition disabled:opacity-50"
+                            >
+                                <X className="w-5 h-5 text-slate-500" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="text-sm text-slate-600">
+                                Vous pouvez ajouter une image de signature (facultatif). Si vous ne mettez rien, le devis sera quand même marqué signé.
+                            </div>
+
+                            <input
+                                ref={adminSignatureInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleAdminSignatureFile(e.target.files?.[0])}
+                                className="hidden"
+                            />
+
+                            <div
+                                onClick={() => adminSignatureInputRef.current?.click()}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setIsAdminSignDragOver(true);
+                                }}
+                                onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    setIsAdminSignDragOver(false);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setIsAdminSignDragOver(false);
+                                    const file = e.dataTransfer.files?.[0];
+                                    handleAdminSignatureFile(file);
+                                }}
+                                className={`w-full rounded-xl border-2 border-dashed p-6 cursor-pointer transition ${isAdminSignDragOver ? 'border-brand-blue bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
+                            >
+                                {adminSignatureDataUrl ? (
+                                    <div className="space-y-3">
+                                        <div className="bg-white rounded-lg border border-slate-200 p-3">
+                                            <img src={adminSignatureDataUrl} alt="Signature" className="w-full max-h-56 object-contain" />
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="text-slate-500 font-bold truncate">{adminSignatureFileName || 'signature'}</span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    setAdminSignatureDataUrl('');
+                                                    setAdminSignatureFileName('');
+                                                }}
+                                                className="text-red-600 hover:text-red-700 font-bold"
+                                            >
+                                                Retirer
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center text-center gap-2">
+                                        <UploadCloud className="w-10 h-10 text-slate-400" />
+                                        <div className="text-sm font-bold text-slate-700">Déposez une image ici ou cliquez pour choisir</div>
+                                        <div className="text-xs text-slate-500">PNG, JPG, WEBP…</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={closeAdminSignModal}
+                                    disabled={isAdminSigning}
+                                    className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={confirmAdminSign}
+                                    disabled={isAdminSigning}
+                                    className="flex-1 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {isAdminSigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                                    Marquer signé
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
