@@ -86,7 +86,9 @@ const ClientPortal: React.FC = () => {
         endReadingSession,
         videoRecordings,
         getVideoRecordings,
-        stopLiveStream
+        stopLiveStream,
+        missionChangeRequests,
+        respondToMissionReschedule
     } = useData();
 
     // Determine client ID either from simulation or real login
@@ -107,12 +109,30 @@ const ClientPortal: React.FC = () => {
     const [planningStatusFilter, setPlanningStatusFilter] = useState<string>('all');
     const [planningSearch, setPlanningSearch] = useState<string>('');
     const [planningDateFilter, setPlanningDateFilter] = useState<string>('all');
+    const [selectedChangeRequestId, setSelectedChangeRequestId] = useState<string | null>(null);
+    const [isChangeRequestModalOpen, setIsChangeRequestModalOpen] = useState(false);
+    const [isRespondingRequest, setIsRespondingRequest] = useState(false);
 
     // Get client's documents
     const clientDocs = client ? documents.filter(d => d.clientId === client.id) : [];
 
     // Get client missions
     const clientMissions = client ? missions.filter(m => m.clientId === client.id || m.clientName === client.name) : [];
+
+    const clientPendingChangeRequests = useMemo(() => {
+        if (!client) return [];
+        return missionChangeRequests
+            .filter(req => req.clientId === client.id && req.status === 'pending')
+            .map(req => ({
+                ...req,
+                mission: missions.find(m => m.id === req.missionId) || null
+            }));
+    }, [client, missionChangeRequests, missions]);
+
+    const selectedChangeRequest = useMemo(() => {
+        if (!selectedChangeRequestId) return null;
+        return missionChangeRequests.find(req => req.id === selectedChangeRequestId) || null;
+    }, [missionChangeRequests, selectedChangeRequestId]);
 
     // Filter documents
     const filteredClientDocs = useMemo(() => {
@@ -1153,6 +1173,25 @@ const ClientPortal: React.FC = () => {
         showToast('Demande d\'annulation envoyée.');
     };
 
+    const handleRespondChangeRequest = async (decision: 'approved' | 'rejected') => {
+        if (!selectedChangeRequest) return;
+        if (isRespondingRequest) return;
+        setIsRespondingRequest(true);
+        try {
+            await respondToMissionReschedule(selectedChangeRequest.id, decision);
+            showToast(decision === 'approved'
+                ? 'Créneau modifié avec succès !'
+                : 'Votre refus a bien été transmis.');
+            setIsChangeRequestModalOpen(false);
+            setSelectedChangeRequestId(null);
+        } catch (error: any) {
+            console.error('[ClientPortal] respond change request error:', error);
+            showToast(error?.message || 'Impossible de traiter la demande pour le moment.', 'error');
+        } finally {
+            setIsRespondingRequest(false);
+        }
+    };
+
     const selectedQuote = documents.find(d => d.id === selectedQuoteId);
 
     const parseQuoteDescriptionMeta = (rawValue: any) => {
@@ -1466,6 +1505,63 @@ const ClientPortal: React.FC = () => {
                     {activeTab === 'planning' && (
                         <div className="space-y-6">
                             <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
+
+                            {clientPendingChangeRequests.length > 0 && (
+                                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
+                                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                        <div>
+                                            <p className="text-sm font-semibold text-amber-700 uppercase">Demande du secrétariat</p>
+                                            <h3 className="text-lg font-bold text-slate-800">Validation de changement de créneau</h3>
+                                            <p className="text-sm text-slate-600">
+                                                Merci de confirmer ou refuser la proposition avant la prochaine intervention.
+                                            </p>
+                                        </div>
+                                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-bold self-start md:self-auto">
+                                            {clientPendingChangeRequests.length} en attente
+                                        </span>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {clientPendingChangeRequests.map(req => (
+                                            <div key={req.id} className="bg-white border border-amber-100 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <p className="text-xs text-slate-500 uppercase tracking-wide">Mission</p>
+                                                        <p className="font-bold text-slate-800">
+                                                            {req.mission?.service || 'Intervention'}
+                                                        </p>
+                                                        {req.mission?.providerName && (
+                                                            <p className="text-xs text-slate-500">
+                                                                Prestataire: <span className="font-medium text-slate-700">{req.mission.providerName}</span>
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedChangeRequestId(req.id);
+                                                            setIsChangeRequestModalOpen(true);
+                                                        }}
+                                                        className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition"
+                                                    >
+                                                        Voir la proposition
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                                    <div className="border border-slate-100 rounded-lg p-3">
+                                                        <p className="text-[11px] uppercase text-slate-400 font-bold">Créneau actuel</p>
+                                                        <p className="font-semibold text-slate-800 mt-1">{formatMartiniqueDate(req.oldDate)}</p>
+                                                        <p className="text-slate-600 text-sm">{req.oldStartTime} - {req.oldEndTime}</p>
+                                                    </div>
+                                                    <div className="border border-amber-200 rounded-lg p-3 bg-amber-50">
+                                                        <p className="text-[11px] uppercase text-amber-600 font-bold">Nouveau créneau proposé</p>
+                                                        <p className="font-semibold text-slate-800 mt-1">{formatMartiniqueDate(req.newDate)}</p>
+                                                        <p className="text-slate-700 text-sm">{req.newStartTime} - {req.newEndTime}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Filtres du planning */}
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
@@ -2141,7 +2237,7 @@ const ClientPortal: React.FC = () => {
                                                                     const url = recording.replayUrl || recording.recordingUrl || (recording as any).url;
                                                                     if (url) window.open(url, '_blank', 'noopener,noreferrer');
                                                                 }}
-                                                                className="bg-brand-blue text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors flex items-center gap-2"
+                                                                className="bg-brand-blue text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
                                                             >
                                                                 <Play className="w-4 h-4" />
                                                                 Voir
