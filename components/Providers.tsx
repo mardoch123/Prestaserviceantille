@@ -539,13 +539,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     {p.status === 'Inactive' && <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200"><XCircle className="w-3 h-3"/> Inactif</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                    <button 
-                                        onClick={() => showCredentials(p)}
-                                        className="text-purple-600 hover:text-purple-800 text-xs font-bold px-3 py-1 bg-purple-50 border border-purple-200 rounded hover:bg-purple-100 transition" 
-                                        title="Voir Identifiants"
-                                    >
-                                        Voir ID
-                                    </button>
+                                  
                                     <button 
                                         onClick={() => openEditModal(p)}
                                         className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200" 

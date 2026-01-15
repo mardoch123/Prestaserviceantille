@@ -587,13 +587,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
-                                        <button 
-                                            onClick={() => showCredentials(client)}
-                                            className="text-purple-600 hover:text-purple-800 text-xs font-bold px-3 py-1 bg-purple-50 border border-purple-200 rounded hover:bg-purple-100 transition"
-                                            title="Voir Identifiants"
-                                        >
-                                            Voir ID
-                                        </button>
+                                        
                                         <button 
                                             onClick={() => openEditModal(client)}
                                             className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200"
