@@ -353,9 +353,27 @@ const ClientPortal: React.FC = () => {
 
     const handleNotificationClick = (notif: any) => {
         markNotificationRead(notif.id);
+        setShowNotifDropdown(false);
+        setShowAllNotifsModal(false);
+        setShowMobileNotifModal(false);
+
         const title = String(notif?.title || '');
         const message = String(notif?.message || '');
         const link = typeof notif?.link === 'string' ? notif.link : '';
+
+        const parseMissionChangeId = (value: string) => {
+            if (!value) return null;
+            const match = value.match(/mission-change:([a-f0-9-]+)/i);
+            return match ? match[1] : null;
+        };
+
+        const missionChangeId = parseMissionChangeId(link);
+        if (missionChangeId) {
+            setActiveTab('planning');
+            setSelectedChangeRequestId(missionChangeId);
+            setIsChangeRequestModalOpen(true);
+            return;
+        }
 
         const isDocNotif =
             link === 'documents' ||
@@ -383,8 +401,6 @@ const ClientPortal: React.FC = () => {
             // Si la notification pointe vers un appel en cours, ouvrir l'onglet live
             setActiveTab('live');
         }
-        setShowNotifDropdown(false);
-        setShowAllNotifsModal(false);
     };
 
     const openQuoteModal = (docId: string) => {

@@ -91,6 +91,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       if (notif.link && notif.link.startsWith('mission:')) {
           const missionId = notif.link.split(':')[1];
           setSelectedMissionReportId(missionId);
+      } else if (notif.link && notif.link.startsWith('tab:planning:mission-change:')) {
+          const requestId = notif.link.split(':').pop();
+          navigate('/planning', { state: { missionChangeRequestId: requestId || undefined } });
       } else if (notif.link === 'tab:planning') {
           navigate('/planning');
       } else if (notif.link === 'tab:messaging' || (typeof notif.link === 'string' && notif.link.startsWith('tab:messaging:'))) {
