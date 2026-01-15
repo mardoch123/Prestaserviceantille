@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
     Search, 
     Filter, 
@@ -20,7 +21,7 @@ import {
 import { Mission } from '../types';
 
 const MissionReports: React.FC = () => {
-    const { missions } = useData();
+    const { missions, serviceTypeFilter } = useData();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -28,7 +29,9 @@ const MissionReports: React.FC = () => {
 
     // Filter only completed missions
     const completedMissions = useMemo(() => {
-        let result = missions.filter(m => m.status === 'completed');
+        let result = missions
+            .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
+            .filter(m => m.status === 'completed');
         
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
@@ -41,7 +44,7 @@ const MissionReports: React.FC = () => {
         
         // Sort by date desc
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [missions, searchQuery]);
+    }, [missions, searchQuery, serviceTypeFilter]);
 
     const openReport = (mission: Mission) => {
         setSelectedMission(mission);

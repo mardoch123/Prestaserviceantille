@@ -14,6 +14,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -56,7 +57,7 @@ const StatCard: React.FC<{
 );
 
 const Statistics: React.FC = () => {
-  const { missions, documents } = useData(); 
+  const { missions, documents, serviceTypeFilter } = useData(); 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
@@ -106,7 +107,7 @@ const Statistics: React.FC = () => {
 
   // Filter Logic
   const filteredData = useMemo(() => {
-    let data = missions; 
+    let data = missions.filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter)); 
 
     // 1. Time Filter (Global)
     if (timeFilter === 'day') {
@@ -172,7 +173,7 @@ const Statistics: React.FC = () => {
   // Calculate Stats based on Time Filter (Contextual)
   const stats = useMemo(() => {
     // We compute stats on the data filtered by TIME only, ignoring column filters for the cards context
-    let baseData = missions;
+    let baseData = missions.filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter));
     
     if (timeFilter === 'day') {
         const todayStr = getMartiniqueToday();

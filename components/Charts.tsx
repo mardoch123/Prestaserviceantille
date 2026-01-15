@@ -21,6 +21,12 @@ interface ChartProps {
   data: any[];
 }
 
+const truncateLabel = (value: any, maxLen: number = 22) => {
+  const s = String(value ?? '');
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+};
+
 export const TurnoverChart: React.FC<ChartProps> = ({ data }) => (
   <ResponsiveContainer width="100%" height="100%">
     <LineChart data={data}>
@@ -67,8 +73,19 @@ export const MissionsChart: React.FC<ChartProps> = ({ data }) => (
           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
         ))}
       </Pie>
-      <Tooltip />
-      <Legend verticalAlign="bottom" height={36} iconSize={8} wrapperStyle={{ fontSize: '10px' }}/>
+      <Tooltip
+        formatter={(value: number, _name: any, props: any) => {
+          const label = props?.payload?.name ?? '';
+          return [value, label];
+        }}
+      />
+      <Legend
+        verticalAlign="bottom"
+        height={48}
+        iconSize={8}
+        wrapperStyle={{ fontSize: '10px' }}
+        formatter={(value: any) => truncateLabel(value, 24)}
+      />
     </PieChart>
   </ResponsiveContainer>
 );

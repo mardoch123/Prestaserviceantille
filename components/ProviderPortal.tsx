@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
   Calendar, 
   Clock, 
@@ -41,6 +42,7 @@ const ProviderPortal: React.FC = () => {
     providers, 
     clients,
     missions, 
+    serviceTypeFilter,
     simulatedProviderId, 
     setSimulatedProviderId,
     notifications,
@@ -129,7 +131,11 @@ const ProviderPortal: React.FC = () => {
   const [showVideoLinkInput, setShowVideoLinkInput] = useState(false);
 
   // Data Calculations
-  const providerMissions = provider ? missions.filter(m => m.providerId === provider.id) : [];
+  const providerMissions = provider
+    ? missions
+        .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
+        .filter(m => m.providerId === provider.id)
+    : [];
   // All notifications
   const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];
   const unreadProviderNotifs = allProviderNotifs.filter(n => !n.read);

@@ -5,10 +5,12 @@ import StatCard from './StatCard';
 import { TurnoverChart, ClientsChart, MissionsChart } from './Charts';
 import { useData } from '../context/DataContext';
 import AdminVideoSupervisor from './AdminVideoSupervisor';
+import { getServiceTypeFromText, matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
     getMartiniqueNow,
     toMartiniqueTime
 } from '../src/utils/dayjsMartinique';
+
 import { 
     ChevronDown, 
     Euro, 
@@ -27,12 +29,13 @@ import {
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
+
   const [viewMode, setViewMode] = useState<DashboardViewMode>(DashboardViewMode.COMMERCIAL);
   const [timeFilter, setTimeFilter] = useState<string>('month');
   const [providerFilter, setProviderFilter] = useState<string>('');
   const [showVideoSupervisor, setShowVideoSupervisor] = useState(false);
   const navigate = useNavigate();
-  const { missions, documents, clients, providers, activeStream, currentUser } = useData();
+  const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter } = useData();
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -93,9 +96,18 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Données filtrées par type de service (global)
+  const serviceFilteredMissions = useMemo(() => {
+    return missions.filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter));
+  }, [missions, serviceTypeFilter]);
+
+  const serviceFilteredDocuments = useMemo(() => {
+    return documents.filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter));
+  }, [documents, serviceTypeFilter]);
+
   // Données filtrées par temps
-  const filteredMissions = useMemo(() => filterDataByTime(missions), [missions, timeFilter]);
-  const filteredDocuments = useMemo(() => filterDataByTime(documents), [documents, timeFilter]);
+  const filteredMissions = useMemo(() => filterDataByTime(serviceFilteredMissions), [serviceFilteredMissions, timeFilter]);
+  const filteredDocuments = useMemo(() => filterDataByTime(serviceFilteredDocuments), [serviceFilteredDocuments, timeFilter]);
   const filteredClients = useMemo(() => filterDataByTime(clients, 'since'), [clients, timeFilter]);
 
   // Données filtrées par prestataire
@@ -165,13 +177,7 @@ const Dashboard: React.FC = () => {
   const missionsData = useMemo(() => {
       const counts: Record<string, number> = {};
       missionsFilteredByProvider.forEach(m => {
-          const service = m.service || 'Autre';
-          // Simple grouping
-          let key = service;
-          if (service.toLowerCase().includes('ménage')) key = 'Ménage';
-          else if (service.toLowerCase().includes('jardin')) key = 'Jardin';
-          else if (service.toLowerCase().includes('brico')) key = 'Bricolage';
-          
+          const key = getServiceTypeFromText(m.service || '');
           counts[key] = (counts[key] || 0) + 1;
       });
 

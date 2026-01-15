@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
@@ -30,7 +31,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin } = useData();
+    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -1332,6 +1333,9 @@ const DevisFactures: React.FC = () => {
 
     const filteredDocs = useMemo(() => {
         let docs = [...documents]; // Copie pour éviter les mutations
+
+        // Filtrage global par type de service
+        docs = docs.filter(doc => matchesServiceTypeFilterFromText(doc.description, serviceTypeFilter));
         
         // Filtrage par statut
         if (filterStatus !== 'all') docs = docs.filter(doc => doc.status === filterStatus);
@@ -1350,7 +1354,7 @@ const DevisFactures: React.FC = () => {
         });
         
         return docs;
-    }, [filterStatus, searchQuery, documents, sortOrder]);
+    }, [filterStatus, searchQuery, documents, sortOrder, serviceTypeFilter]);
 
     // Filtres par colonne (tableau)
     const [columnFilters, setColumnFilters] = useState({

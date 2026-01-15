@@ -57,6 +57,7 @@ import type { Pack, Contract, Reminder, Message, Expense, Client, Provider, Miss
 import { useNavigate, useLocation } from 'react-router-dom';
 import LiveVideoManager from './LiveVideoManager';
 import SearchableSelect from './SearchableSelect';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
 type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'live-videos';
 
@@ -135,7 +136,8 @@ const Secretariat: React.FC = () => {
         getVideoRecordings,
         deleteContracts,
         genericContracts,
-        generateContractFromTemplate
+        generateContractFromTemplate,
+        serviceTypeFilter
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -1280,8 +1282,9 @@ const Secretariat: React.FC = () => {
     const agendaMissions = useMemo(() => {
         return [...missions]
             .filter(m => m.status === 'planned')
+            .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    }, [missions]);
+    }, [missions, serviceTypeFilter]);
 
     // Expenses Stats (Computed from Filtered)
     const totalExpenses = filteredExpenses.reduce((acc, curr) => acc + curr.amount, 0);

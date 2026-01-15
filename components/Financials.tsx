@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
   Euro, 
   Filter, 
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 
 const Financials: React.FC = () => {
-  const { documents, refundTransaction, markInvoicePaid } = useData();
+  const { documents, refundTransaction, markInvoicePaid, serviceTypeFilter } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const location = useLocation();
 
@@ -29,6 +30,7 @@ const Financials: React.FC = () => {
   const filteredTransactions = useMemo(() => {
     // Transform Documents (Invoices) into Transactions for display
     const transactions = documents
+        .filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter))
         .filter(d => d.type === 'Facture') 
         .map(d => ({
             id: d.id,
@@ -44,7 +46,7 @@ const Financials: React.FC = () => {
     if (filterStatus === 'refund') return transactions.filter(t => t.type === 'refund');
     
     return transactions.filter(t => t.status === filterStatus && t.type === 'income');
-  }, [filterStatus, documents]);
+  }, [filterStatus, documents, serviceTypeFilter]);
 
   const handleRefund = (ref: string, amount: number) => {
       const confirm = window.confirm(`Rembourser ${amount}€ pour la facture ${ref} ? Cela créera un avoir comptable.`);

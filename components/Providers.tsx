@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import type { Mission } from '../types';
 import { 
   Filter, 
   Search, 
@@ -60,7 +61,7 @@ const NON_INTERVENTION_DAY_OPTIONS: Array<{ value: number; label: string }> = [
 ];
 
 const Providers: React.FC = () => {
-  const { providers, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
+  const { providers, missions, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -74,6 +75,30 @@ const Providers: React.FC = () => {
 
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
+
+  const [isProviderDetailsOpen, setIsProviderDetailsOpen] = useState(false);
+  const [selectedProviderDetailsId, setSelectedProviderDetailsId] = useState<string | null>(null);
+
+  const selectedProviderDetails = useMemo(() => {
+    if (!selectedProviderDetailsId) return null;
+    return (providers || []).find(p => p.id === selectedProviderDetailsId) || null;
+  }, [providers, selectedProviderDetailsId]);
+
+  const providerMissions = useMemo(() => {
+    if (!selectedProviderDetailsId) return [] as Mission[];
+    const list = (missions || []).filter((m: any) => String(m?.providerId || '') === String(selectedProviderDetailsId));
+    return list.slice().sort((a: any, b: any) => String(b?.date || '').localeCompare(String(a?.date || '')));
+  }, [missions, selectedProviderDetailsId]);
+
+  const providerMissionStats = useMemo(() => {
+    const total = providerMissions.length;
+    const planned = providerMissions.filter(m => m.status === 'planned').length;
+    const inProgress = providerMissions.filter(m => m.status === 'in_progress').length;
+    const completed = providerMissions.filter(m => m.status === 'completed').length;
+    const cancelled = providerMissions.filter(m => m.status === 'cancelled').length;
+    const totalHours = providerMissions.reduce((acc, m) => acc + (Number(m.duration) || 0), 0);
+    return { total, planned, inProgress, completed, cancelled, totalHours };
+  }, [providerMissions]);
   
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   
@@ -480,7 +505,17 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     </button>
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-700">
-                                    {p.firstName} {p.lastName}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedProviderDetailsId(p.id);
+                                            setIsProviderDetailsOpen(true);
+                                        }}
+                                        className="hover:underline"
+                                        title="Voir fiche prestataire"
+                                    >
+                                        {p.firstName} {p.lastName}
+                                    </button>
                                     {p.leaves.length > 0 && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded">Congés déclarés</span>}
                                 </td>
                                 <td className="px-6 py-4 text-slate-600">
@@ -688,6 +723,98 @@ Lien de connexion : https://presta-antilles.app/login`);
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+      )}
+
+      {isProviderDetailsOpen && selectedProviderDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">Fiche Prestataire</h3>
+                        <p className="text-xs text-slate-500 mt-1">{selectedProviderDetails.firstName} {selectedProviderDetails.lastName}</p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            setIsProviderDetailsOpen(false);
+                            setSelectedProviderDetailsId(null);
+                        }}
+                        className="p-2 hover:bg-slate-200 rounded-full transition"
+                    >
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                            <div className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> Contact</div>
+                            <div className="text-slate-700"><span className="text-slate-500">Téléphone:</span> <span className="font-semibold">{selectedProviderDetails.phone || '—'}</span></div>
+                            <div className="text-slate-700"><span className="text-slate-500">Email:</span> <span className="font-semibold">{selectedProviderDetails.email || '—'}</span></div>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                            <div className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Clock className="w-4 h-4 text-slate-400" /> Activité</div>
+                            <div className="text-slate-700"><span className="text-slate-500">Spécialité:</span> <span className="font-semibold">{selectedProviderDetails.specialty || '—'}</span></div>
+                            <div className="text-slate-700"><span className="text-slate-500">Heures cumulées:</span> <span className="font-semibold">{selectedProviderDetails.hoursWorked}h</span></div>
+                            <div className="text-slate-700"><span className="text-slate-500">Statut:</span> <span className="font-semibold">{selectedProviderDetails.status}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="font-bold text-slate-800 flex items-center gap-2"><Clock className="w-4 h-4 text-slate-500" /> Statistiques missions</div>
+                            <div className="text-xs text-slate-500">Total heures (missions): <span className="font-bold text-slate-700">{providerMissionStats.totalHours.toFixed(2)}h</span></div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+                            <div className="bg-slate-50 rounded-lg border border-slate-200 p-2">
+                                <div className="text-[10px] uppercase text-slate-500 font-bold">Total</div>
+                                <div className="text-lg font-bold text-slate-800">{providerMissionStats.total}</div>
+                            </div>
+                            <div className="bg-orange-50 rounded-lg border border-orange-100 p-2">
+                                <div className="text-[10px] uppercase text-orange-700 font-bold">Planifiées</div>
+                                <div className="text-lg font-bold text-orange-800">{providerMissionStats.planned}</div>
+                            </div>
+                            <div className="bg-blue-50 rounded-lg border border-blue-100 p-2">
+                                <div className="text-[10px] uppercase text-blue-700 font-bold">En cours</div>
+                                <div className="text-lg font-bold text-blue-800">{providerMissionStats.inProgress}</div>
+                            </div>
+                            <div className="bg-green-50 rounded-lg border border-green-100 p-2">
+                                <div className="text-[10px] uppercase text-green-700 font-bold">Terminées</div>
+                                <div className="text-lg font-bold text-green-800">{providerMissionStats.completed}</div>
+                            </div>
+                            <div className="bg-red-50 rounded-lg border border-red-100 p-2">
+                                <div className="text-[10px] uppercase text-red-700 font-bold">Annulées</div>
+                                <div className="text-lg font-bold text-red-800">{providerMissionStats.cancelled}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="font-bold text-slate-800 mb-3">Missions récentes</div>
+                        {providerMissions.length === 0 ? (
+                            <div className="text-sm text-slate-400">Aucune mission trouvée pour ce prestataire.</div>
+                        ) : (
+                            <div className="space-y-2">
+                                {providerMissions.slice(0, 10).map((m: any) => (
+                                    <div key={m.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                        <div className="min-w-0">
+                                            <div className="font-bold text-slate-800 text-sm truncate">{m.date} {m.startTime}-{m.endTime}</div>
+                                            <div className="text-xs text-slate-600 truncate">{m.service}</div>
+                                            <div className="text-xs text-slate-500 truncate">Client: {m.clientName}</div>
+                                        </div>
+                                        <div className="ml-3">
+                                            {m.status === 'completed' && <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded">Terminée</span>}
+                                            {m.status === 'planned' && <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded">Planifiée</span>}
+                                            {m.status === 'in_progress' && <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded">En cours</span>}
+                                            {m.status === 'cancelled' && <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-1 rounded">Annulée</span>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
       )}

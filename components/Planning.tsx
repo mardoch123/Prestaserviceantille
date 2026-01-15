@@ -7,9 +7,10 @@ import { useNavigate } from 'react-router-dom';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import SearchableSelect from './SearchableSelect';
+import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder } = useData(); 
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule } = useData(); 
   const navigate = useNavigate();
 
   // Filter State
@@ -99,7 +100,9 @@ const Planning: React.FC = () => {
       }
       
       // Missions
-      let fMissions = missions.filter(m => m.date >= startStr && m.date <= endStr);
+      let fMissions = missions
+        .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
+        .filter(m => m.date >= startStr && m.date <= endStr);
       
       // Filter by provider
       if (selectedProvider !== 'all') {
@@ -131,7 +134,7 @@ const Planning: React.FC = () => {
       let fReminders = reminders.filter(r => r.date >= startStr && r.date <= endStr);
       
       return { filteredMissions: fMissions, filteredReminders: fReminders };
-  }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
+  }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   const filteredProvisionalMissions = useMemo(() => {
       let startStr, endStr;
@@ -147,6 +150,7 @@ const Planning: React.FC = () => {
       const provisional = (documents || [])
           .filter(d => d.type === 'Devis')
           .filter(d => d.status !== 'signed')
+          .filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter))
           .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
           .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
               id: `provisional-${d.id}-${index}-${slot?.date || 'no-date'}-${slot?.startTime || 'no-start'}`,
@@ -187,7 +191,7 @@ const Planning: React.FC = () => {
       }
 
       return fProvisional;
-  }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate]);
+  }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   // Stats Logic
   const today = getMartiniqueToday();
@@ -537,8 +541,13 @@ const Planning: React.FC = () => {
           const nextStart = editMissionForm.startTime;
           const nextEnd = editMissionForm.endTime;
 
+          const scheduleChanged =
+              String(nextDate || '') !== String(selectedMissionDetails.date || '') ||
+              String(nextStart || '') !== String(selectedMissionDetails.startTime || '') ||
+              String(nextEnd || '') !== String(selectedMissionDetails.endTime || '');
+
           const duration = calculateDuration(nextDate, nextStart, nextDate, nextEnd);
-          if (!duration || duration <= 0) {
+          if (scheduleChanged && (!duration || duration <= 0)) {
               throw new Error("L'heure de fin doit être après l'heure de début");
           }
 
@@ -550,12 +559,13 @@ const Planning: React.FC = () => {
               throw new Error(`Impossible de programmer ${nextProvider.firstName} ${nextProvider.lastName} le ${nextDate} : ne travaille pas aujourd'hui.`);
           }
 
-          // 1) Mettre à jour les champs "planning" (date/heures/service/statut)
+          // 1) Si date/heure changent, créer une demande de modification (validation client)
+          if (scheduleChanged) {
+              await requestMissionReschedule(missionId, nextDate, nextStart, nextEnd);
+          }
+
+          // 2) Mettre à jour les champs autorisés immédiatement (service/statut)
           await updateMission(missionId, {
-              date: nextDate,
-              startTime: nextStart,
-              endTime: nextEnd,
-              duration: parseFloat(duration.toFixed(2)),
               service: editMissionForm.service,
               status: editMissionForm.status
           });
@@ -576,7 +586,7 @@ const Planning: React.FC = () => {
 
           if (refreshData) await refreshData();
 
-          showToast('Mission modifiée avec succès !');
+          showToast(scheduleChanged ? 'Demande de modification envoyée au client (en attente de validation).' : 'Mission modifiée avec succès !');
           setIsEditMissionModalOpen(false);
       } catch (error: any) {
           console.error('[editMission] error:', error);

@@ -1,11 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo } from 'react';
 import {
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
+import { getServiceTypeOptions, type ServiceTypeFilter } from '../utils/serviceTypes';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
@@ -191,6 +192,14 @@ interface DataContextType {
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
     refreshData: () => Promise<void>;
     sendEmail: (to: string, subject: string, template: string, context: any) => Promise<void>;
+
+    serviceTypeFilter: ServiceTypeFilter;
+    serviceTypeOptions: ServiceTypeFilter[];
+    setServiceTypeFilter: (value: ServiceTypeFilter) => void;
+
+    missionChangeRequests: MissionChangeRequest[];
+    requestMissionReschedule: (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => Promise<void>;
+    respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -221,6 +230,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [messages, setMessages] = useState<Message[]>([]);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [visitScans, setVisitScans] = useState<VisitScan[]>([]);
+    const [missionChangeRequests, setMissionChangeRequests] = useState<MissionChangeRequest[]>([]);
 
     // Alert popup state
     const [alertPopup, setAlertPopup] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
@@ -231,6 +241,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [activeStream, setActiveStream] = useState<StreamSession | null>(null);
     const [videoRecordings, setVideoRecordings] = useState<VideoRecording[]>([]);
     const [videoAccessTokens, setVideoAccessTokens] = useState<VideoAccessToken[]>([]);
+
+    const [serviceTypeFilter, setServiceTypeFilter] = useState<ServiceTypeFilter>(() => {
+        try {
+            const raw = localStorage.getItem('presta_service_type_filter');
+            const parsed = (raw ? String(raw) : 'all') as ServiceTypeFilter;
+            return parsed || 'all';
+        } catch {
+            return 'all';
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('presta_service_type_filter', String(serviceTypeFilter || 'all'));
+        } catch { }
+    }, [serviceTypeFilter]);
+
+    const serviceTypeOptions = useMemo(() => {
+        const items: Array<{ text?: string | null }> = [];
+        (missions || []).forEach((m: any) => items.push({ text: m?.service }));
+        (documents || []).forEach((d: any) => items.push({ text: d?.description }));
+        (packs || []).forEach((p: any) => items.push({ text: `${p?.mainService || ''} ${p?.name || ''}`.trim() }));
+        return getServiceTypeOptions(items);
+    }, [missions, documents, packs]);
 
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
@@ -254,6 +288,131 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setLastActivity(Date.now());
     };
 
+    const requestMissionReschedule = async (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => {
+        const mission = missions.find(m => m.id === missionId);
+        if (!mission) throw new Error('Mission introuvable');
+        if (!mission.clientId) throw new Error('Client introuvable sur la mission');
+
+        const id = generateUUID();
+        const now = getMartiniqueNowISO();
+
+        const insertData = {
+            id,
+            mission_id: missionId,
+            client_id: mission.clientId,
+            old_date: mission.date,
+            old_start_time: mission.startTime,
+            old_end_time: mission.endTime,
+            new_date: newDate,
+            new_start_time: newStartTime,
+            new_end_time: newEndTime,
+            status: 'pending',
+            created_at: now
+        };
+
+        const { data, error } = await supabase.from('mission_change_requests').insert(insertData).select();
+        if (error) {
+            console.error('[requestMissionReschedule] Supabase error:', error);
+            throw error;
+        }
+
+        const mapped: MissionChangeRequest = {
+            id,
+            missionId,
+            clientId: mission.clientId,
+            oldDate: mission.date,
+            oldStartTime: mission.startTime,
+            oldEndTime: mission.endTime,
+            newDate,
+            newStartTime,
+            newEndTime,
+            status: 'pending',
+            createdAt: now
+        };
+
+        setMissionChangeRequests(prev => [mapped, ...prev]);
+
+        const client = clients.find(c => c.id === mission.clientId);
+        await addNotification(
+            'client',
+            'alert',
+            'Demande de modification de votre intervention',
+            `Nous vous proposons un changement de créneau : ${mission.date} ${mission.startTime}-${mission.endTime} → ${newDate} ${newStartTime}-${newEndTime}. Merci de valider ou refuser.`,
+            mission.clientId,
+            `mission-change:${id}`
+        );
+
+        if (client?.email) {
+            await sendEmail(client.email, 'Demande de modification de créneau', 'mission_reschedule_request', {
+                clientName: client.name,
+                oldDate: mission.date,
+                oldStartTime: mission.startTime,
+                oldEndTime: mission.endTime,
+                newDate,
+                newStartTime,
+                newEndTime,
+                link: 'https://prestaservicesantilles.com/'
+            });
+        }
+    };
+
+    const respondToMissionReschedule = async (requestId: string, decision: 'approved' | 'rejected') => {
+        const req = missionChangeRequests.find(r => r.id === requestId);
+        if (!req) throw new Error('Demande introuvable');
+
+        const now = getMartiniqueNowISO();
+        const { error } = await supabase
+            .from('mission_change_requests')
+            .update({ status: decision, responded_at: now })
+            .eq('id', requestId);
+
+        if (error) {
+            console.error('[respondToMissionReschedule] Supabase error:', error);
+            throw error;
+        }
+
+        setMissionChangeRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: decision, respondedAt: now } : r));
+
+        const mission = missions.find(m => m.id === req.missionId);
+        const client = clients.find(c => c.id === req.clientId);
+
+        if (decision === 'approved' && mission) {
+            const start = dayjs.tz(`${req.newDate} ${req.newStartTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const end = dayjs.tz(`${req.newDate} ${req.newEndTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const duration = Math.max(0, end.diff(start, 'minute')) / 60;
+
+            await updateMission(req.missionId, {
+                date: req.newDate,
+                startTime: req.newStartTime,
+                endTime: req.newEndTime,
+                duration: Number.isFinite(duration) ? parseFloat(duration.toFixed(2)) : mission.duration
+            });
+        }
+
+        await addNotification(
+            'admin',
+            decision === 'approved' ? 'success' : 'alert',
+            decision === 'approved' ? 'Modification de créneau approuvée' : 'Modification de créneau refusée',
+            `${client?.name || 'Client'} a ${decision === 'approved' ? 'approuvé' : 'refusé'} la modification : ${req.oldDate} ${req.oldStartTime}-${req.oldEndTime} → ${req.newDate} ${req.newStartTime}-${req.newEndTime}.`,
+            undefined,
+            `tab:planning:mission-change:${requestId}`
+        );
+
+        if (client?.email) {
+            await sendEmail(client.email, 'Réponse à la modification de créneau', 'mission_reschedule_response', {
+                clientName: client.name,
+                decision,
+                oldDate: req.oldDate,
+                oldStartTime: req.oldStartTime,
+                oldEndTime: req.oldEndTime,
+                newDate: req.newDate,
+                newStartTime: req.newStartTime,
+                newEndTime: req.newEndTime,
+                link: 'https://prestaservicesantilles.com/'
+            });
+        }
+    };
+
     const endReadingSession = () => {
         setIsReadingDocument(false);
         setLastActivity(Date.now());
@@ -266,41 +425,44 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Polling pour les notifications en temps réel
     useEffect(() => {
         if (currentUser && isOnline) {
+            const user = currentUser;
+
             // Charger les notifications existantes au démarrage
             const loadInitialNotifications = async () => {
                 try {
-                    if (isSupabaseConfigured) {
-                        const { data: existingNotifications, error } = await supabase
-                            .from('notifications')
-                            .select('*')
-                            .eq('is_read', false)
-                            .order('created_at', { ascending: false })
-                            .limit(50);
+                    if (!isSupabaseConfigured) return;
 
-                        if (!error && existingNotifications) {
-                            const mappedNotifications = existingNotifications.map((notif: any) => ({
-                                id: notif.id,
-                                type: notif.type as 'alert' | 'info' | 'success',
-                                title: notif.title,
-                                message: notif.message,
-                                date: notif.created_at,
-                                read: notif.is_read,
-                                is_read: notif.is_read, // Ajout de la propriété manquante
-                                targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
-                                targetUserId: notif.target_user_id
-                            }));
+                    const { data: existingNotifications, error } = await supabase
+                        .from('notifications')
+                        .select('*')
+                        .eq('is_read', false)
+                        .order('created_at', { ascending: false })
+                        .limit(50);
 
-                            // Filtrer pour l'utilisateur courant
-                            const userNotifications = mappedNotifications.filter(notif => {
-                                if (currentUser.role === 'admin') return notif.targetUserType === 'admin';
-                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
-                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
-                                return false;
-                            });
+                    if (error || !existingNotifications) return;
 
-                            setNotifications(userNotifications);
-                            setLastNotificationCheck(Date.now());
-                        }
+                    const mappedNotifications = existingNotifications.map((notif: any) => ({
+                        id: notif.id,
+                        type: notif.type as 'alert' | 'info' | 'success',
+                        title: notif.title,
+                        message: notif.message,
+                        date: notif.created_at,
+                        read: notif.is_read,
+                        is_read: notif.is_read,
+                        targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
+                        targetUserId: notif.target_user_id
+                    }));
+
+                    const userNotifications = mappedNotifications.filter(notif => {
+                        if (user.role === 'admin') return notif.targetUserType === 'admin';
+                        if (user.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === user.relatedEntityId);
+                        if (user.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === user.relatedEntityId);
+                        return false;
+                    });
+
+                    if (userNotifications.length > 0) {
+                        setNotifications(userNotifications);
+                        setLastNotificationCheck(Date.now());
                     }
                 } catch (error) {
                     console.warn('[LoadInitialNotifications] Error:', error);
@@ -312,71 +474,68 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // Initialiser le polling toutes les 5 secondes pour les notifications
             const interval = setInterval(async () => {
                 try {
-                    // Rafraîchir les notifications
-                    if (isSupabaseConfigured) {
-                        const { data: newNotifications, error } = await supabase
-                            .from('notifications')
-                            .select('*')
-                            .eq('is_read', false)
-                            .gte('created_at', new Date(lastNotificationCheck).toISOString())
-                            .order('created_at', { ascending: false });
+                    if (!isSupabaseConfigured) return;
 
-                        if (!error && newNotifications && newNotifications.length > 0) {
-                            // Ajouter les nouvelles notifications
-                            const mappedNotifications = newNotifications.map((notif: any) => ({
-                                id: notif.id,
-                                type: notif.type as 'alert' | 'info' | 'success',
-                                title: notif.title,
-                                message: notif.message,
-                                date: notif.created_at,
-                                read: notif.is_read,
-                                is_read: notif.is_read, // Ajout de la propriété manquante
-                                targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
-                                targetUserId: notif.target_user_id
-                            }));
+                    const { data: newNotifications, error } = await supabase
+                        .from('notifications')
+                        .select('*')
+                        .eq('is_read', false)
+                        .gte('created_at', new Date(lastNotificationCheck).toISOString())
+                        .order('created_at', { ascending: false });
 
-                            // Filtrer pour l'utilisateur courant
-                            const userNotifications = mappedNotifications.filter(notif => {
-                                if (currentUser.role === 'admin') return notif.targetUserType === 'admin';
-                                if (currentUser.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
-                                if (currentUser.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === currentUser.relatedEntityId);
-                                return false;
+                    if (!error && newNotifications && newNotifications.length > 0) {
+                        const mappedNotifications = newNotifications.map((notif: any) => ({
+                            id: notif.id,
+                            type: notif.type as 'alert' | 'info' | 'success',
+                            title: notif.title,
+                            message: notif.message,
+                            date: notif.created_at,
+                            read: notif.is_read,
+                            is_read: notif.is_read,
+                            targetUserType: notif.target_user_type as 'admin' | 'client' | 'provider',
+                            targetUserId: notif.target_user_id
+                        }));
+
+                        const userNotifications = mappedNotifications.filter(notif => {
+                            if (user.role === 'admin') return notif.targetUserType === 'admin';
+                            if (user.role === 'client') return notif.targetUserType === 'client' && (!notif.targetUserId || notif.targetUserId === user.relatedEntityId);
+                            if (user.role === 'provider') return notif.targetUserType === 'provider' && (!notif.targetUserId || notif.targetUserId === user.relatedEntityId);
+                            return false;
+                        });
+
+                        if (userNotifications.length > 0) {
+                            setNotifications(prev => [...userNotifications, ...prev]);
+                            setLastNotificationCheck(Date.now());
+
+                            // Jouer un son de notification plus fort pour les appels vidéo
+                            userNotifications.forEach(notif => {
+                                if (notif.title.includes('Appel Vidéo')) {
+                                    try {
+                                        // Son plus distinctif pour les appels vidéo
+                                        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                                        audio.volume = 0.7;
+                                        audio.play().catch(() => { });
+
+                                        // Vibration si disponible (mobile)
+                                        if ('vibrate' in navigator) {
+                                            navigator.vibrate([200, 100, 200]);
+                                        }
+                                    } catch (e) { }
+                                } else {
+                                    // Son normal pour les autres notifications
+                                    try {
+                                        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
+                                        audio.volume = 0.3;
+                                        audio.play().catch(() => { });
+                                    } catch (e) { }
+                                }
                             });
-
-                            if (userNotifications.length > 0) {
-                                setNotifications(prev => [...userNotifications, ...prev]);
-                                setLastNotificationCheck(Date.now());
-
-                                // Jouer un son de notification plus fort pour les appels vidéo
-                                userNotifications.forEach(notif => {
-                                    if (notif.title.includes('Appel Vidéo')) {
-                                        try {
-                                            // Son plus distinctif pour les appels vidéo
-                                            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
-                                            audio.volume = 0.7;
-                                            audio.play().catch(() => {});
-
-                                            // Vibration si disponible (mobile)
-                                            if ('vibrate' in navigator) {
-                                                navigator.vibrate([200, 100, 200]);
-                                            }
-                                        } catch (e) {}
-                                    } else {
-                                        // Son normal pour les autres notifications
-                                        try {
-                                            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUazi5L2d');
-                                            audio.volume = 0.3;
-                                            audio.play().catch(() => {});
-                                        } catch (e) {}
-                                    }
-                                });
-                            }
                         }
+                    }
 
-                        // Rafraîchir les scans pour les prestataires et clients
-                        if (currentUser.role === 'provider' || currentUser.role === 'client') {
-                            await refreshData();
-                        }
+                    // Rafraîchir les scans pour les prestataires et clients
+                    if (user.role === 'provider' || user.role === 'client') {
+                        await refreshData();
                     }
                 } catch (error) {
                     console.warn('[NotificationPolling] Error:', error);
@@ -747,7 +906,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                         console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                         return result.data;
-                    } catch (err) {
+                    } catch (err: any) {
                         if (err instanceof Error && err.message.includes('Timeout')) {
                             console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
                         } else {
@@ -759,7 +918,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 let [
                     cData, pData, mData, dData, packData, ctData,
-                    rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData
+                    rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData, mcrData
                 ] = await Promise.all([
                     fetchTable('clients'),
                     fetchTable('providers'),
@@ -775,7 +934,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('visit_scans'),
                     fetchTable('video_recordings'),
                     fetchTable('leaves'),
-                    fetchTable('generic_contracts')
+                    fetchTable('generic_contracts'),
+                    fetchTable('mission_change_requests')
                 ]);
 
                 console.log("[RefreshData] All fetches completed, processing data...");
@@ -951,6 +1111,29 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         read: n.is_read,
                         targetUserType: n.target_user_type,
                         targetUserId: n.target_user_id
+                    })));
+                }
+
+                if (mcrData) {
+                    const sorted = (mcrData || []).slice().sort((a: any, b: any) => {
+                        const ta = new Date(a.created_at || a.createdAt || 0).getTime();
+                        const tb = new Date(b.created_at || b.createdAt || 0).getTime();
+                        return tb - ta;
+                    });
+
+                    setMissionChangeRequests(sorted.map((r: any) => ({
+                        id: r.id,
+                        missionId: r.mission_id || r.missionId,
+                        clientId: r.client_id || r.clientId,
+                        oldDate: r.old_date || r.oldDate,
+                        oldStartTime: r.old_start_time || r.oldStartTime,
+                        oldEndTime: r.old_end_time || r.oldEndTime,
+                        newDate: r.new_date || r.newDate,
+                        newStartTime: r.new_start_time || r.newStartTime,
+                        newEndTime: r.new_end_time || r.newEndTime,
+                        status: r.status,
+                        createdAt: r.created_at || r.createdAt,
+                        respondedAt: r.responded_at || r.respondedAt
                     })));
                 }
 
@@ -4445,53 +4628,60 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             } else {
                 throw new Error('Impossible d\'ouvrir la fenêtre d\'impression');
             }
-
         } catch (error: any) {
             console.error('Error generating contract document:', error);
         }
     };
 
-    return (
-        <DataContext.Provider value={{
-            companySettings, updateCompanySettings,
+return (
+    <DataContext.Provider value={{
+        companySettings, updateCompanySettings,
 
-            missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
+        missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
 
-            clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+        clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
 
-            providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
+        providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
 
-            documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+        documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
 
-            packs, addPack, updatePack, deletePacks,
+        packs, addPack, updatePack, deletePacks,
 
-            contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
+        contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
 
-            reminders, addReminder, toggleReminder,
+        reminders, addReminder, toggleReminder,
 
-            expenses, addExpense, updateExpense,
+        expenses, addExpense, updateExpense,
 
-            messages, replyToClient, sendClientMessage,
+        messages, replyToClient, sendClientMessage,
 
-            notifications, markNotificationRead, addNotification,
+        notifications, markNotificationRead, addNotification,
 
-            visitScans, registerScan,
+        visitScans, registerScan,
 
-            alertPopup, setAlertPopup,
-            currentUser, login, logout,
-            simulatedClientId, setSimulatedClientId,
-            simulatedProviderId, setSimulatedProviderId,
-            activeStream, startLiveStream, stopLiveStream,
-            videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
-            generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
-            isOnline, pendingSyncCount, loading,
-            extendReadingSession, endReadingSession, isReadingDocument,
-            connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
-            getAvailableSlots, refreshData, sendEmail
-        }}>
-            {children}
-        </DataContext.Provider>
-    );
+        alertPopup, setAlertPopup,
+        currentUser, login, logout,
+        simulatedClientId, setSimulatedClientId,
+        simulatedProviderId, setSimulatedProviderId,
+        activeStream, startLiveStream, stopLiveStream,
+        videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
+        generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
+        isOnline, pendingSyncCount, loading,
+        extendReadingSession, endReadingSession, isReadingDocument,
+        connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
+        getAvailableSlots, refreshData, sendEmail,
+
+        serviceTypeFilter,
+        serviceTypeOptions,
+        setServiceTypeFilter,
+        missionChangeRequests,
+        requestMissionReschedule,
+        respondToMissionReschedule
+    }}>
+        {children}
+    </DataContext.Provider>
+);
+
 };
 
 export const useData = () => {

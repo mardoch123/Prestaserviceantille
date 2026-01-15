@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import type { Client } from '../types';
+import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
 import { 
@@ -12,6 +12,7 @@ import {
   Star,
   MapPin,
   Phone,
+  Clock,
   X,
   CheckCircle,
   Mail,
@@ -27,7 +28,7 @@ import {
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
+  const { clients, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,6 +77,30 @@ const Clients: React.FC = () => {
   ];
 
   const location = useLocation();
+
+  const [isClientDetailsOpen, setIsClientDetailsOpen] = useState(false);
+  const [selectedClientDetailsId, setSelectedClientDetailsId] = useState<string | null>(null);
+
+  const selectedClientDetails = useMemo(() => {
+    if (!selectedClientDetailsId) return null;
+    return (clients || []).find(c => c.id === selectedClientDetailsId) || null;
+  }, [clients, selectedClientDetailsId]);
+
+  const clientMissions = useMemo(() => {
+    if (!selectedClientDetailsId) return [] as Mission[];
+    const list = (missions || []).filter((m: any) => String(m?.clientId || '') === String(selectedClientDetailsId));
+    return list.slice().sort((a: any, b: any) => String(b?.date || '').localeCompare(String(a?.date || '')));
+  }, [missions, selectedClientDetailsId]);
+
+  const clientMissionStats = useMemo(() => {
+    const total = clientMissions.length;
+    const planned = clientMissions.filter(m => m.status === 'planned').length;
+    const inProgress = clientMissions.filter(m => m.status === 'in_progress').length;
+    const completed = clientMissions.filter(m => m.status === 'completed').length;
+    const cancelled = clientMissions.filter(m => m.status === 'cancelled').length;
+    const totalHours = clientMissions.reduce((acc, m) => acc + (Number(m.duration) || 0), 0);
+    return { total, planned, inProgress, completed, cancelled, totalHours };
+  }, [clientMissions]);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -541,7 +566,17 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-700 flex items-center gap-2">
                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-600 font-bold">{client.name.charAt(0)}</div>
-                                    {client.name}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedClientDetailsId(client.id);
+                                            setIsClientDetailsOpen(true);
+                                        }}
+                                        className="text-left hover:underline"
+                                        title="Voir fiche client"
+                                    >
+                                        {client.name}
+                                    </button>
                                 </td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{client.phone}</div></td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{client.city}</div></td>
@@ -638,6 +673,97 @@ Lien de connexion : https://presta-antilles.app/login`);
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+      )}
+
+      {isClientDetailsOpen && selectedClientDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-xl font-serif font-bold text-slate-800">Fiche Client</h3>
+                        <p className="text-xs text-slate-500 mt-1">{selectedClientDetails.name}</p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            setIsClientDetailsOpen(false);
+                            setSelectedClientDetailsId(null);
+                        }}
+                        className="p-2 hover:bg-slate-200 rounded-full transition"
+                    >
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                            <div className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> Contact</div>
+                            <div className="text-slate-700"><span className="text-slate-500">Téléphone:</span> <span className="font-semibold">{selectedClientDetails.phone || '—'}</span></div>
+                            <div className="text-slate-700"><span className="text-slate-500">Email:</span> <span className="font-semibold">{selectedClientDetails.email || '—'}</span></div>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                            <div className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Home className="w-4 h-4 text-slate-400" /> Adresse</div>
+                            <div className="text-slate-700"><span className="text-slate-500">Adresse:</span> <span className="font-semibold">{selectedClientDetails.address || '—'}</span></div>
+                            <div className="text-slate-700"><span className="text-slate-500">Ville:</span> <span className="font-semibold">{selectedClientDetails.city || '—'}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="font-bold text-slate-800 flex items-center gap-2"><Clock className="w-4 h-4 text-slate-500" /> Statistiques missions</div>
+                            <div className="text-xs text-slate-500">Total heures: <span className="font-bold text-slate-700">{clientMissionStats.totalHours.toFixed(2)}h</span></div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+                            <div className="bg-slate-50 rounded-lg border border-slate-200 p-2">
+                                <div className="text-[10px] uppercase text-slate-500 font-bold">Total</div>
+                                <div className="text-lg font-bold text-slate-800">{clientMissionStats.total}</div>
+                            </div>
+                            <div className="bg-orange-50 rounded-lg border border-orange-100 p-2">
+                                <div className="text-[10px] uppercase text-orange-700 font-bold">Planifiées</div>
+                                <div className="text-lg font-bold text-orange-800">{clientMissionStats.planned}</div>
+                            </div>
+                            <div className="bg-blue-50 rounded-lg border border-blue-100 p-2">
+                                <div className="text-[10px] uppercase text-blue-700 font-bold">En cours</div>
+                                <div className="text-lg font-bold text-blue-800">{clientMissionStats.inProgress}</div>
+                            </div>
+                            <div className="bg-green-50 rounded-lg border border-green-100 p-2">
+                                <div className="text-[10px] uppercase text-green-700 font-bold">Terminées</div>
+                                <div className="text-lg font-bold text-green-800">{clientMissionStats.completed}</div>
+                            </div>
+                            <div className="bg-red-50 rounded-lg border border-red-100 p-2">
+                                <div className="text-[10px] uppercase text-red-700 font-bold">Annulées</div>
+                                <div className="text-lg font-bold text-red-800">{clientMissionStats.cancelled}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="font-bold text-slate-800 mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-slate-500" /> Missions récentes</div>
+                        {clientMissions.length === 0 ? (
+                            <div className="text-sm text-slate-400">Aucune mission trouvée pour ce client.</div>
+                        ) : (
+                            <div className="space-y-2">
+                                {clientMissions.slice(0, 10).map((m: any) => (
+                                    <div key={m.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                        <div className="min-w-0">
+                                            <div className="font-bold text-slate-800 text-sm truncate">{m.date} {m.startTime}-{m.endTime}</div>
+                                            <div className="text-xs text-slate-600 truncate">{m.service}</div>
+                                            <div className="text-xs text-slate-500 truncate">Prestataire: {m.providerName || 'À assigner'}</div>
+                                        </div>
+                                        <div className="ml-3">
+                                            {m.status === 'completed' && <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded">Terminée</span>}
+                                            {m.status === 'planned' && <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded">Planifiée</span>}
+                                            {m.status === 'in_progress' && <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded">En cours</span>}
+                                            {m.status === 'cancelled' && <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-1 rounded">Annulée</span>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
       )}

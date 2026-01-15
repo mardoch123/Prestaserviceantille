@@ -189,6 +189,24 @@ export interface Mission {
     sourceDocumentId?: string;
 }
 
+export interface MissionChangeRequest {
+    id: string;
+    missionId: string;
+    clientId: string;
+
+    oldDate: string;
+    oldStartTime: string;
+    oldEndTime: string;
+
+    newDate: string;
+    newStartTime: string;
+    newEndTime: string;
+
+    status: 'pending' | 'approved' | 'rejected';
+    createdAt: string;
+    respondedAt?: string;
+}
+
 // DTO for creating a mission
 export type CreateMissionDTO = Omit<Mission, 'id'>;
 
