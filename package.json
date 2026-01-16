@@ -6,10 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:cap": "tsc && vite build --mode capacitor",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync:android": "npx cap sync android",
+    "cap:add:android": "npx cap add android",
+    "cap:open:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/core": "^6.0.0",
     "@emailjs/browser": "^4.4.1",
     "@livekit/components-react": "^2.9.17",
     "@react-pdf/renderer": "^4.3.1",
@@ -32,6 +37,8 @@
     "utc": "^0.1.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@types/simple-peer": "^9.11.9",

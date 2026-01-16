@@ -2455,9 +2455,9 @@ const ClientPortal: React.FC = () => {
                                     {/* Signatures on Contract */}
                                     <div className="mt-8 flex justify-between border-t pt-4">
                                         <div className="w-1/2 pr-4 border-r">
-                                            <p className="font-bold mb-2">Pour l'Entreprise :</p>
+                                            <p className="font-bold mb-2">Pour l'entreprise :</p>
                                             <div className="space-y-2">
-                                                <img src="https://anciens.prestaservicesantilles.com/signature.png" alt="Signature entreprise" className="h-12 border border-slate-300 rounded" />
+                                                <img src="https://anciens.prestaservicesantilles.com/cachetetsignature.png" alt="Signature entreprise" className="h-12 border border-slate-300 rounded" />
                                                 {selectedQuote.status === 'signed' && (
                                                     <div className="text-green-600 font-bold text-xs uppercase border-2 border-green-600 p-2 inline-block rounded">
                                                         Validé & Signé
@@ -2469,7 +2469,7 @@ const ClientPortal: React.FC = () => {
                                             </div>
                                         </div>
                                         <div className="w-1/2 pl-4">
-                                            <p className="font-bold mb-2">Pour le Client :</p>
+                                            <p className="font-bold mb-2">Pour le client :</p>
                                             {selectedQuote.status === 'signed' && selectedQuote.signatureData ? (
                                                 <div className="space-y-2">
                                                     <img src={selectedQuote.signatureData} alt="Signature client" className="h-16 border border-slate-300 rounded shadow-sm" />

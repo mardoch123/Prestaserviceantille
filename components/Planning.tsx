@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
@@ -12,6 +12,8 @@ import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 const Planning: React.FC = () => {
   const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule } = useData(); 
   const navigate = useNavigate();
+
+  const submitLockRef = useRef(false);
 
   // Filter State
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
@@ -260,6 +262,9 @@ const Planning: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
+
       if (isSubmitting) return; // Prevent double submit
       setIsSubmitting(true);
       
@@ -328,12 +333,16 @@ const Planning: React.FC = () => {
           console.error("Erreur planning", error);
           alert("Une erreur est survenue : " + error.message);
       } finally {
+          submitLockRef.current = false;
           setIsSubmitting(false); // CRITICAL: Always reset submitting state
       }
   };
 
   const handleQuickPlanSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
+
       if (isSubmitting) return;
       setIsSubmitting(true);
       try {
@@ -367,6 +376,7 @@ const Planning: React.FC = () => {
           console.error('Erreur planification rapide', error);
           showToast(error?.message || 'Erreur planification rapide', 'error');
       } finally {
+          submitLockRef.current = false;
           setIsSubmitting(false);
       }
   };

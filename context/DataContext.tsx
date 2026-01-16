@@ -1826,6 +1826,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addMission = async (mission: Mission) => {
+        // Guardrail: avoid duplicates for same client + date + startTime (except cancelled)
+        // This is a UI/back-end safety net; DB uniqueness constraint should also exist.
+        const duplicateLocal = (missions || []).some(m =>
+            String(m?.clientId || '') === String(mission?.clientId || '') &&
+            String(m?.date || '') === String(mission?.date || '') &&
+            String(m?.startTime || '') === String(mission?.startTime || '') &&
+            String(m?.status || '') !== 'cancelled'
+        );
+        if (duplicateLocal) {
+            throw new Error('Une mission existe déjà pour ce client à cette date et heure.');
+        }
+
         const finalId = generateUUID();
         const dbData = {
             id: finalId,
@@ -1847,6 +1859,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
         if (error) {
+            // If DB uniqueness constraint exists (recommended), handle it gracefully.
+            const msg = String((error as any)?.message || '').toLowerCase();
+            const code = String((error as any)?.code || '');
+            if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
+                throw new Error('Une mission existe déjà pour ce client à cette date et heure.');
+            }
+
             console.error("Error adding mission:", error);
             throw error; // Throw error to be caught by UI
         }

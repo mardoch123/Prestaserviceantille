@@ -142,8 +142,8 @@ const Clients: React.FC = () => {
 
   useEffect(() => {
     if (location.state) {
-        const state = location.state as { filter?: string };
-        if (state.filter) setFilterStatus(state.filter);
+        const state = location.state as { filter?: string; applyFilter?: boolean };
+        if (state.filter && state.applyFilter) setFilterStatus(state.filter);
     }
   }, [location]);
 

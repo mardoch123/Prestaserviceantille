@@ -30,6 +30,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 8. Empêcher les missions en doublon (même client + même jour + même heure de début)
+-- NOTE: Les colonnes dans la table missions sont: client_id, date, start_time.
+-- On crée une clé unique sur (client_id, date, start_time).
+-- Cela empêche 2 programmations à la même heure pour le même client.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_missions_unique_client_date_start_time
+ON missions (client_id, date, start_time);
+
 -- Créer un trigger pour empêcher les scans multiples
 CREATE OR REPLACE FUNCTION prevent_duplicate_scans()
 RETURNS TRIGGER AS $$

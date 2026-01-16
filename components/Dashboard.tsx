@@ -223,7 +223,7 @@ const Dashboard: React.FC = () => {
   };
 
   const goToClients = (filter: 'all' | 'new') => {
-    navigate('/clients', { state: { filter, time: timeFilter } });
+    navigate('/clients', { state: { time: timeFilter } });
   };
 
   const goToInvoices = (filter: 'all' | 'sent' | 'signed' | 'expired') => {
@@ -231,7 +231,7 @@ const Dashboard: React.FC = () => {
   };
 
   const goToProviders = (filter: 'all' | 'active' | 'passive') => {
-    navigate('/providers', { state: { filter, time: timeFilter } });
+    navigate('/providers', { state: { time: timeFilter } });
   };
 
   const goToFinancials = (filter: 'all' | 'pending' | 'paid' | 'refund') => {
