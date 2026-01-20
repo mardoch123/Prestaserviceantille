@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { QrCode, AlertCircle, Camera, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useData } from '../context/DataContext';
@@ -55,6 +55,21 @@ const ScanPage: React.FC = () => {
 
     const clientId = searchParams.get('client');
 
+    const clientScansToday = useMemo(() => {
+        if (!clientId) return [] as any[];
+        const today = new Date(getMartiniqueToday());
+        today.setHours(0, 0, 0, 0);
+        return (visitScans || [])
+            .filter(scan => scan.clientId === clientId && new Date(scan.timestamp) >= today)
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }, [clientId, visitScans]);
+
+    useEffect(() => {
+        if (status === 'success') {
+            setClientScans(clientScansToday);
+        }
+    }, [status, clientScansToday]);
+
     // Pull-to-refresh functionality
     const { containerRef, isPulling, pullDistance, isRefreshing, pullProgress } = usePullToRefresh({
         onRefresh: () => {
@@ -65,15 +80,10 @@ const ScanPage: React.FC = () => {
     });
 
     useEffect(() => {
-        let timeoutId: NodeJS.Timeout;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         
         // Éviter les traitements multiples du même clientId
         if (!clientId || isProcessing || processedClientId === clientId) {
-            return;
-        }
-
-        // Attendre que les données clients soient chargées
-        if (!clients || clients.length === 0) {
             return;
         }
 
@@ -119,16 +129,6 @@ const ScanPage: React.FC = () => {
                     // Ignorer les erreurs audio
                 }
 
-                // Vérifier si le client existe
-                const client = clients.find(c => c.id === clientId);
-                if (!client) {
-                    clearTimeout(timeoutId);
-                    setStatus('error');
-                    setMessage("Client non trouvé. Veuillez vérifier le code QR.");
-                    setIsProcessing(false);
-                    return;
-                }
-
                 // Récupérer les scans précédents du client aujourd'hui
                 const today = new Date(getMartiniqueToday());
                 today.setHours(0, 0, 0, 0);
@@ -136,18 +136,6 @@ const ScanPage: React.FC = () => {
                     scan.clientId === clientId && 
                     new Date(scan.timestamp) >= today
                 ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-                // Déterminer le type de scan (alternance entrée/sortie)
-                let scanType: 'entry' | 'exit';
-                if (clientTodayScans.length === 0) {
-                    // Premier scan du jour = entrée
-                    scanType = 'entry';
-                } else {
-                    const lastScan = clientTodayScans[0];
-                    // Si le dernier scan était une entrée, le suivant doit être une sortie
-                    // Si le dernier scan était une sortie, le suivant doit être une entrée
-                    scanType = lastScan.scanType === 'entry' ? 'exit' : 'entry';
-                }
 
                 const result = await registerScan(clientId);
 
@@ -157,15 +145,6 @@ const ScanPage: React.FC = () => {
                 if (result.success) {
                     setScanType(result.type || 'entry');
                     setStatus('success');
-                    
-                    // Récupérer tous les scans du client pour les afficher
-                    const today = new Date(getMartiniqueToday());
-                    today.setHours(0, 0, 0, 0);
-                    const clientTodayScans = visitScans.filter(scan => 
-                        scan.clientId === clientId && 
-                        new Date(scan.timestamp) >= today
-                    ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                    setClientScans(clientTodayScans);
                     
                     // Jouer un son de succès
                     try {
@@ -207,7 +186,7 @@ const ScanPage: React.FC = () => {
                 clearTimeout(timeoutId);
             }
         };
-    }, [clientId, currentUser, clients]); // Ajout de clients dans les dépendances
+    }, [clientId, currentUser, clients]);
 
     if (status === 'unauthorized') {
         return (

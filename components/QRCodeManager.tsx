@@ -50,7 +50,7 @@ const QRCodeManager: React.FC = () => {
         const client = clients.find(c => c.id === clientId);
         if (!client) return;
 
-        const baseUrl = window.location.origin;
+        const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
         const qrData = `${baseUrl}/#/scan?client=${clientId}`;
         const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
 

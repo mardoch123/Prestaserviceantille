@@ -30,6 +30,73 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 9. Table de pointage utilisée par l'application: visit_scans
+-- Le code front insère dans "visit_scans" (client_id, scanner_id, scanner_name, scan_type, timestamp)
+
+-- Extension pour gen_random_uuid (souvent déjà activée sur Supabase)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS visit_scans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id TEXT NOT NULL,
+    scanner_id TEXT NOT NULL,
+    scanner_name TEXT,
+    scan_type TEXT NOT NULL CHECK (scan_type IN ('entry', 'exit')),
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_visit_scans_client_timestamp
+ON visit_scans (client_id, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_visit_scans_scanner_timestamp
+ON visit_scans (scanner_id, timestamp DESC);
+
+-- Anti-doublon court: empêche 2 scans identiques trop rapprochés pour le même client
+CREATE OR REPLACE FUNCTION prevent_duplicate_visit_scans()
+RETURNS TRIGGER AS $$
+DECLARE
+    scan_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO scan_count
+    FROM visit_scans
+    WHERE client_id = NEW.client_id
+      AND scan_type = NEW.scan_type
+      AND timestamp >= (NEW.timestamp - INTERVAL '5 seconds')
+      AND timestamp < NEW.timestamp;
+
+    IF scan_count > 0 THEN
+        RAISE EXCEPTION 'Scan multiple détecté pour le client % de type %', NEW.client_id, NEW.scan_type;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_prevent_duplicate_visit_scans ON visit_scans;
+CREATE TRIGGER trigger_prevent_duplicate_visit_scans
+    BEFORE INSERT ON visit_scans
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_duplicate_visit_scans();
+
+-- RLS (permissif) pour que l'app fonctionne même sans auth Supabase
+ALTER TABLE visit_scans ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "visit_scans_select_all" ON visit_scans;
+CREATE POLICY "visit_scans_select_all" ON visit_scans
+FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "visit_scans_insert_all" ON visit_scans;
+CREATE POLICY "visit_scans_insert_all" ON visit_scans
+FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "visit_scans_update_all" ON visit_scans;
+CREATE POLICY "visit_scans_update_all" ON visit_scans
+FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "visit_scans_delete_all" ON visit_scans;
+CREATE POLICY "visit_scans_delete_all" ON visit_scans
+FOR DELETE USING (true);
+
 -- 8. Empêcher les missions en doublon (même client + même jour + même heure de début)
 -- NOTE: Les colonnes dans la table missions sont: client_id, date, start_time.
 -- On crée une clé unique sur (client_id, date, start_time).
