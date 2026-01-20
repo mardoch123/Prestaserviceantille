@@ -21,7 +21,10 @@ const ClientQRCode: React.FC = () => {
 
             try {
                 // Générer le QR code avec l'ID du client
-                const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
+                const publicBaseUrl = (import.meta as any)?.env?.VITE_PUBLIC_BASE_URL || '';
+                const baseUrl = String(publicBaseUrl).trim()
+                    ? String(publicBaseUrl).trim().replace(/\/$/, '')
+                    : `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
                 const qrData = `${baseUrl}/#/scan?client=${client.id}`;
                 const url = await QRCode.toDataURL(qrData, {
                     width: 256,

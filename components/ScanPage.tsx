@@ -45,7 +45,7 @@ document.head.appendChild(style);
 const ScanPage: React.FC = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const { currentUser, registerScan, visitScans, clients } = useData();
+    const { currentUser, registerScan, visitScans, clients, simulatedClientId } = useData();
     const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'unauthorized'>('loading');
     const [message, setMessage] = useState('');
     const [scanType, setScanType] = useState<'entry' | 'exit' | null>(null);
@@ -104,12 +104,24 @@ const ScanPage: React.FC = () => {
                 return;
             }
 
-            // Autorisation: le scan est réalisé uniquement par admin ou prestataire
-            if (currentUser.role !== 'admin' && currentUser.role !== 'provider') {
+            // Autorisation:
+            // - admin/provider: peuvent scanner n'importe quel client
+            // - client: ne peut scanner QUE son propre QR
+            if (currentUser.role !== 'admin' && currentUser.role !== 'provider' && currentUser.role !== 'client') {
                 setStatus('unauthorized');
-                setMessage("Accès non autorisé. Seul un administrateur ou un prestataire peut effectuer un scan.");
+                setMessage("Accès non autorisé.");
                 setIsProcessing(false);
                 return;
+            }
+
+            if (currentUser.role === 'client') {
+                const ownClientId = String(simulatedClientId || currentUser.relatedEntityId || '');
+                if (!ownClientId || ownClientId !== String(clientId)) {
+                    setStatus('unauthorized');
+                    setMessage("Accès non autorisé. Vous ne pouvez scanner que votre propre QR code.");
+                    setIsProcessing(false);
+                    return;
+                }
             }
 
             // Timeout de 10 secondes pour éviter le blocage

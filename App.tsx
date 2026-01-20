@@ -177,6 +177,17 @@ const AppLayout: React.FC = () => {
         );
     }
 
+    // IMPORTANT: permettre le scan via URL (QR Code) même pour les clients.
+    // Sinon, ClientPortal masque la route /scan et l'utilisateur reste bloqué.
+    if (currentUser.role === 'client' && (location.pathname === '/scan' || location.pathname === '/scan-success')) {
+        return (
+            <div className="h-screen flex flex-col overflow-hidden">
+                <OfflineBanner />
+                {location.pathname === '/scan' ? <ScanPage /> : <ScanSuccess />}
+            </div>
+        );
+    }
+
     if (currentUser.role === 'client') {
         return (
             <div className="h-screen flex flex-col overflow-hidden">

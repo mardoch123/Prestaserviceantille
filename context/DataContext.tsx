@@ -3719,6 +3719,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         console.log("[RegisterScan] Starting scan for client:", clientId, "by user:", currentUser.id);
         
         try {
+            const requestTimeoutMs = 8000;
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
             
@@ -3726,12 +3727,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             let recentScans = [];
             try {
                 // Récupérer TOUS les scans du jour pour ce client (tous scanneurs)
+                const selectController = new AbortController();
+                const selectTimeout = setTimeout(() => selectController.abort(), requestTimeoutMs);
+
                 const { data: allClientScans, error: scanError } = await supabase
                     .from('visit_scans')
                     .select('*')
                     .eq('client_id', clientId)
                     .gte('timestamp', todayStart.toISOString())
-                    .order('timestamp', { ascending: false });
+                    .order('timestamp', { ascending: false })
+                    .abortSignal(selectController.signal);
+
+                clearTimeout(selectTimeout);
                     
                 if (scanError) {
                     console.warn("[RegisterScan] Table visit_scans error:", scanError);
@@ -3809,7 +3816,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             
             console.log("[RegisterScan] Inserting scan:", newScan);
             
-            const { data, error } = await supabase.from('visit_scans').insert(newScan).select();
+            const insertController = new AbortController();
+            const insertTimeout = setTimeout(() => insertController.abort(), requestTimeoutMs);
+            const { data, error } = await supabase
+                .from('visit_scans')
+                .insert(newScan)
+                .select()
+                .abortSignal(insertController.signal);
+            clearTimeout(insertTimeout);
             
             if (error) {
                 console.error("[RegisterScan] Insert error:", error);
