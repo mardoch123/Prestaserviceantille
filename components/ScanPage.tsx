@@ -94,6 +94,14 @@ const ScanPage: React.FC = () => {
                 return;
             }
 
+            // Autorisation: le scan est réalisé uniquement par admin ou prestataire
+            if (currentUser.role !== 'admin' && currentUser.role !== 'provider') {
+                setStatus('unauthorized');
+                setMessage("Accès non autorisé. Seul un administrateur ou un prestataire peut effectuer un scan.");
+                setIsProcessing(false);
+                return;
+            }
+
             // Timeout de 10 secondes pour éviter le blocage
             timeoutId = setTimeout(() => {
                 setStatus('error');

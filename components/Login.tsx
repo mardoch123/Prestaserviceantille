@@ -43,8 +43,21 @@ const Login: React.FC = () => {
 
                 // 1. Vérifier d'abord s'il existe une session valide Supabase
                 const { data: { session } } = await supabase.auth.getSession();
-                
+
+                // 1.b. Si on a un utilisateur local (fallback) côté client/prestataire,
+                // ne pas effacer sa session locale juste parce que Supabase n'a pas de session.
+                // Sinon, le scan (qui ouvre parfois l'app via URL) "efface la session".
+                let storedUser: any = null;
+                try {
+                    storedUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
+                } catch { }
+
                 if (!session?.user) {
+                    if (storedUser && (storedUser.role === 'client' || storedUser.role === 'provider')) {
+                        console.log("No Supabase session, but local user found (fallback). Preserving local session.");
+                        return;
+                    }
+
                     console.log("No valid Supabase session found, cleaning local state...");
                     // Nettoyer seulement s'il n'y a pas de session valide
                     localStorage.removeItem('presta_current_user');
@@ -54,9 +67,17 @@ const Login: React.FC = () => {
                     return;
                 }
 
-                // 2. Forcer Supabase SignOut uniquement si pas de session
-                const { error } = await supabase.auth.signOut();
-                if (error) console.warn("Background signout warning:", error.message);
+                // 2. SignOut "best-effort" uniquement si une session existe réellement
+                // (évite d'envoyer un SIGNED_OUT inutile qui peut impacter d'autres parties de l'app)
+                try {
+                    const { data: { session: recheck } } = await supabase.auth.getSession();
+                    if (recheck?.user) {
+                        const { error } = await supabase.auth.signOut();
+                        if (error) console.warn("Background signout warning:", error.message);
+                    }
+                } catch (e: any) {
+                    console.warn("Background signout skipped/failed:", e?.message || e);
+                }
             } catch (e) {
                 console.warn("Cleanup error:", e);
             }

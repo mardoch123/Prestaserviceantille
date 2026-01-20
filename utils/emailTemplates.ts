@@ -205,7 +205,7 @@ DÉTAILS :
 - Date : ${context.date || 'N/A'}
 
 Le rapport complet avec photos est disponible dans l'espace admin :
-${context.link || 'https://outremerfermetures.com/reports'}`
+${context.link || 'https://www.prestaservicesantilles.com/reports'}`
                 )
             };
 
@@ -226,7 +226,7 @@ DÉTAILS :
 
 ACTION REQUISE : Le créneau est maintenant libéré. Vous devez réassigner cette mission à un autre prestataire.
 
-Gérer la mission : https://outremerfermetures.com/admin`
+Gérer la mission : https://www.prestaservicesantilles.com/admin`
                 )
             };
 
@@ -245,7 +245,7 @@ DÉTAILS :
 
 FACTURATION : Cette mission doit être facturée à 50% conformément aux CGV.
 
-Gérer la facturation : https://outremerfermetures.com/admin`
+Gérer la facturation : https://www.prestaservicesantilles.com/admin`
                 )
             };
 
@@ -336,7 +336,7 @@ https://www.prestaservicesantilles.com/`
 
 ACTION REQUISE : Planifier les missions et créer le contrat SAP si applicable.
 
-Gérer le devis : https://outremerfermetures.com/admin`
+Gérer le devis : https://www.prestaservicesantilles.com/admin`
                 )
             };
 
@@ -403,7 +403,7 @@ Vous avez reçu un nouveau message d'un client.
 - Client : ${context.clientName || 'N/A'}
 - Message : "${context.message || context.text || 'Voir dans l\'application'}"
 
-Répondre au message : https://outremerfermetures.com/admin/messages`
+Répondre au message : https://www.prestaservicesantilles.com/admin/messages`
                 )
             }
 
@@ -424,7 +424,7 @@ INFORMATIONS DU CONTRAT :
 
 ACTION REQUISE : Veuillez vous connecter pour examiner et valider ce contrat.
 
-Accéder à l'espace de validation : ${context.link || 'https://presta-antilles.app/login'}`
+Accéder à l'espace de validation : ${context.link || 'https://www.prestaservicesantilles.com/login'}`
                 )
             };
 

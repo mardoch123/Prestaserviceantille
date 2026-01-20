@@ -1,6 +1,5 @@
-
 import React, { useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -82,7 +81,6 @@ class ErrorBoundary extends React.Component<
     }
 }
 
-
 const OfflineBanner = () => {
     const { isOnline, pendingSyncCount } = useData();
 
@@ -146,6 +144,7 @@ const LoadingScreen = ({ mode }: { mode?: 'app' | 'sync' }) => {
 
 const AppLayout: React.FC = () => {
     const { currentUser, loading } = useData();
+    const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isManualReload, setIsManualReload] = useState(false);
 
@@ -165,6 +164,17 @@ const AppLayout: React.FC = () => {
 
     if (!currentUser) {
         return <Login />;
+    }
+
+    // IMPORTANT: permettre le scan via URL (QR Code) même pour les prestataires.
+    // Sans cela, ProviderPortal masque la route /scan et le scan ne s'exécute jamais.
+    if (currentUser.role === 'provider' && (location.pathname === '/scan' || location.pathname === '/scan-success')) {
+        return (
+            <div className="h-screen flex flex-col overflow-hidden">
+                <OfflineBanner />
+                {location.pathname === '/scan' ? <ScanPage /> : <ScanSuccess />}
+            </div>
+        );
     }
 
     if (currentUser.role === 'client') {
