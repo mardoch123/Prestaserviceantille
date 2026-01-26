@@ -138,7 +138,8 @@ const Secretariat: React.FC = () => {
         deleteContracts,
         genericContracts,
         generateContractFromTemplate,
-        serviceTypeFilter
+        serviceTypeFilter,
+        markClientMessagesRead
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -289,6 +290,7 @@ const Secretariat: React.FC = () => {
     // Scroll to bottom of chat
     useEffect(() => {
         if (activeTab === 'messaging' && selectedChatClientId) {
+            markClientMessagesRead(selectedChatClientId);
             // Small timeout to ensure DOM is rendered
             setTimeout(() => {
                 const container = chatMessagesContainerRef.current;
@@ -1309,6 +1311,23 @@ const Secretariat: React.FC = () => {
         return map;
     }, [messages]);
 
+    const unreadClientMessagesCountByClientId = useMemo(() => {
+        const map = new Map<string, number>();
+        (messages || []).forEach((m: any) => {
+            if (String(m?.sender || '') !== 'client') return;
+            const clientId = String(m?.clientId || '');
+            if (!clientId) return;
+            const isRead = m?.read === true;
+            if (isRead) return;
+            map.set(clientId, (map.get(clientId) || 0) + 1);
+        });
+        return map;
+    }, [messages]);
+
+    const unreadChatClientsCount = useMemo(() => {
+        return unreadClientMessagesCountByClientId.size;
+    }, [unreadClientMessagesCountByClientId]);
+
     const filteredChatClients = useMemo(() => {
         const q = String(chatClientSearch || '').trim().toLowerCase();
         const base = !q
@@ -1388,6 +1407,11 @@ const Secretariat: React.FC = () => {
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'messaging' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
                 >
                     <MessageSquare className="w-4 h-4" /> Messagerie
+                    {unreadChatClientsCount > 0 && (
+                        <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                            {unreadChatClientsCount}
+                        </span>
+                    )}
                 </button>
                 <button
                     onClick={() => setActiveTab('expenses')}
@@ -1684,10 +1708,24 @@ const Secretariat: React.FC = () => {
                             {filteredChatClients.map(client => (
                                 <div
                                     key={client.id}
-                                    onClick={() => setSelectedChatClientId(client.id)}
+                                    onClick={() => {
+                                        setSelectedChatClientId(client.id);
+                                        markClientMessagesRead(client.id);
+                                    }}
                                     className={`p-4 border-b cursor-pointer hover:bg-blue-50 transition ${selectedChatClientId === client.id ? 'bg-blue-100 border-l-4 border-l-brand-blue' : ''}`}
                                 >
-                                    <div className="font-bold text-slate-800 text-sm">{client.name}</div>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="font-bold text-slate-800 text-sm">{client.name}</div>
+                                        {(() => {
+                                            const count = unreadClientMessagesCountByClientId.get(String(client.id || '')) || 0;
+                                            if (count <= 0) return null;
+                                            return (
+                                                <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                                                    {count}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
                                     <div className="text-xs text-slate-500 truncate">{client.city}</div>
                                 </div>
                             ))}

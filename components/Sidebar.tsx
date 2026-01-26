@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -39,7 +39,20 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings, currentUser } = useData();
+  const { companySettings, currentUser, messages } = useData();
+
+  const unreadChatClientsCount = useMemo(() => {
+    if (currentUser?.role !== 'admin') return 0;
+    const ids = new Set<string>();
+    (messages || []).forEach((m: any) => {
+      if (String(m?.sender || '') !== 'client') return;
+      if (m?.read === true) return;
+      const clientId = String(m?.clientId || '');
+      if (!clientId) return;
+      ids.add(clientId);
+    });
+    return ids.size;
+  }, [currentUser?.role, messages]);
 
   // Filter navigation items based on user role
   const getFilteredNavItems = () => {
@@ -103,7 +116,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   }`}
                 >
                   <item.icon className={`mr-3 h-5 w-5 ${isActive ? 'text-brand-orange' : 'text-slate-400'}`} />
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {item.path === '/secretariat' && unreadChatClientsCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                      {unreadChatClientsCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

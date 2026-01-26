@@ -64,18 +64,30 @@ CREATE TRIGGER trg_sync_mission_reschedule_status
 -- RLS
 ALTER TABLE mission_change_requests ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Admins can view mission change requests"
+DROP POLICY IF EXISTS "Admins can view mission change requests" ON mission_change_requests;
+DROP POLICY IF EXISTS "Clients can view their mission change requests" ON mission_change_requests;
+
+CREATE POLICY "Admins can view mission change requests"
     ON mission_change_requests FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM user_profiles up
-            WHERE up.user_id = auth.uid() AND up.role = 'admin'
+            SELECT 1
+            FROM public.users u
+            WHERE u.id = auth.uid() AND u.role = 'admin'
         )
     );
 
-CREATE POLICY IF NOT EXISTS "Clients can view their mission change requests"
+CREATE POLICY "Clients can view their mission change requests"
     ON mission_change_requests FOR SELECT
-    USING (client_id::text = auth.uid()::text);
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM public.users u
+            WHERE u.id = auth.uid()
+              AND u.role = 'client'
+              AND u.related_entity_id = mission_change_requests.client_id
+        )
+    );
 
 CREATE POLICY IF NOT EXISTS "System can insert mission change requests"
     ON mission_change_requests FOR INSERT

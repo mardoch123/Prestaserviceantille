@@ -140,6 +140,7 @@ interface DataContextType {
     messages: Message[];
     replyToClient: (text: string, clientId: string) => Promise<void>;
     sendClientMessage: (text: string, clientId: string) => Promise<void>;
+    markClientMessagesRead: (clientId: string) => Promise<void>;
 
     notifications: AppNotification[];
     markNotificationRead: (id: string) => Promise<void>;
@@ -374,7 +375,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             created_at: now
         };
 
-        const { data, error } = await supabase.from('mission_change_requests').insert(insertData).select();
+        const { error } = await supabase.from('mission_change_requests').insert(insertData);
         if (error) {
             console.error('[requestMissionReschedule] Supabase error:', error);
             throw error;
@@ -397,26 +398,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setMissionChangeRequests(prev => [mapped, ...prev]);
 
         const client = clients.find(c => c.id === mission.clientId);
-        await addNotification(
-            'client',
-            'alert',
-            'Demande de modification de votre intervention',
-            `Nous vous proposons un changement de créneau : ${mission.date} ${mission.startTime}-${mission.endTime} → ${newDate} ${newStartTime}-${newEndTime}. Merci de valider ou refuser.`,
-            mission.clientId,
-            `mission-change:${id}`
-        );
+        try {
+            await addNotification(
+                'client',
+                'alert',
+                'Demande de modification de votre intervention',
+                `Nous vous proposons un changement de créneau : ${mission.date} ${mission.startTime}-${mission.endTime} → ${newDate} ${newStartTime}-${newEndTime}. Merci de valider ou refuser.`,
+                mission.clientId,
+                `mission-change:${id}`
+            );
+        } catch (e) {
+            console.error('[requestMissionReschedule] addNotification error:', e);
+        }
 
         if (client?.email) {
-            await sendEmail(client.email, 'Demande de modification de créneau', 'mission_reschedule_request', {
-                clientName: client.name,
-                oldDate: mission.date,
-                oldStartTime: mission.startTime,
-                oldEndTime: mission.endTime,
-                newDate,
-                newStartTime,
-                newEndTime,
-                link: 'https://prestaservicesantilles.com/'
-            });
+            try {
+                await sendEmail(client.email, 'Demande de modification de créneau', 'mission_reschedule_request', {
+                    clientName: client.name,
+                    oldDate: mission.date,
+                    oldStartTime: mission.startTime,
+                    oldEndTime: mission.endTime,
+                    newDate,
+                    newStartTime,
+                    newEndTime,
+                    link: 'https://prestaservicesantilles.com/'
+                });
+            } catch (e) {
+                console.error('[requestMissionReschedule] sendEmail error:', e);
+            }
         }
     };
 
@@ -453,27 +462,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             });
         }
 
-        await addNotification(
-            'admin',
-            decision === 'approved' ? 'success' : 'alert',
-            decision === 'approved' ? 'Modification de créneau approuvée' : 'Modification de créneau refusée',
-            `${client?.name || 'Client'} a ${decision === 'approved' ? 'approuvé' : 'refusé'} la modification : ${req.oldDate} ${req.oldStartTime}-${req.oldEndTime} → ${req.newDate} ${req.newStartTime}-${req.newEndTime}.`,
-            undefined,
-            `tab:planning:mission-change:${requestId}`
-        );
+        try {
+            await addNotification(
+                'admin',
+                decision === 'approved' ? 'success' : 'alert',
+                decision === 'approved' ? 'Modification de créneau approuvée' : 'Modification de créneau refusée',
+                `${client?.name || 'Client'} a ${decision === 'approved' ? 'approuvé' : 'refusé'} la modification : ${req.oldDate} ${req.oldStartTime}-${req.oldEndTime} → ${req.newDate} ${req.newStartTime}-${req.newEndTime}.`,
+                undefined,
+                `tab:planning:mission-change:${requestId}`
+            );
+        } catch (e) {
+            console.error('[respondToMissionReschedule] addNotification error:', e);
+        }
 
         if (client?.email) {
-            await sendEmail(client.email, 'Réponse à la modification de créneau', 'mission_reschedule_response', {
-                clientName: client.name,
-                decision,
-                oldDate: req.oldDate,
-                oldStartTime: req.oldStartTime,
-                oldEndTime: req.oldEndTime,
-                newDate: req.newDate,
-                newStartTime: req.newStartTime,
-                newEndTime: req.newEndTime,
-                link: 'https://prestaservicesantilles.com/'
-            });
+            try {
+                await sendEmail(client.email, 'Réponse à la modification de créneau', 'mission_reschedule_response', {
+                    clientName: client.name,
+                    decision,
+                    oldDate: req.oldDate,
+                    oldStartTime: req.oldStartTime,
+                    oldEndTime: req.oldEndTime,
+                    newDate: req.newDate,
+                    newStartTime: req.newStartTime,
+                    newEndTime: req.newEndTime,
+                    link: 'https://prestaservicesantilles.com/'
+                });
+            } catch (e) {
+                console.error('[respondToMissionReschedule] sendEmail error:', e);
+            }
         }
     };
 
@@ -980,6 +997,39 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
+                const fetchMissionChangeRequests = async (timeout: number = 15000) => {
+                    try {
+                        console.log('[RefreshData] Fetching mission_change_requests...');
+
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('Timeout fetching mission_change_requests')), timeout);
+                        });
+
+                        const activeClientId = simulatedClientId || (currentUser?.role === 'client' ? currentUser.relatedEntityId : null);
+                        let fetchPromise: any = supabase.from('mission_change_requests').select('*');
+                        if (currentUser?.role === 'client' && activeClientId) {
+                            fetchPromise = fetchPromise.eq('client_id', activeClientId);
+                        }
+
+                        const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+                        if (result.error) {
+                            console.warn('[RefreshData] Failed to fetch mission_change_requests:', result.error.message);
+                            return null;
+                        }
+
+                        console.log('[RefreshData] Successfully fetched mission_change_requests:', result.data?.length || 0, 'items');
+                        return result.data;
+                    } catch (err: any) {
+                        if (err instanceof Error && err.message.includes('Timeout')) {
+                            console.warn('[RefreshData] Timeout fetching mission_change_requests, skipping...');
+                        } else {
+                            console.error('[RefreshData] Exception fetching mission_change_requests:', err);
+                        }
+                        return null;
+                    }
+                };
+
                 let [
                     cData, pData, mData, dData, packData, ctData,
                     rData, eData, msgData, notifData, cfData, settingsData, vsData, vrData, leavesData, gcData, mcrData
@@ -1000,7 +1050,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('video_recordings'),
                     fetchTable('leaves'),
                     fetchTable('generic_contracts'),
-                    fetchTable('mission_change_requests')
+                    fetchMissionChangeRequests(15000)
                 ]);
 
                 console.log("[RefreshData] All fetches completed, processing data...");
@@ -1174,7 +1224,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     setNotifications(sorted.map((n: any) => ({
                         ...n,
                         read: n.is_read,
-                        targetUserType: n.target_user_type,
+                        targetUserType: n.target_user_type || n.target_user_role,
                         targetUserId: n.target_user_id
                     })));
                 }
@@ -1205,16 +1255,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     });
 
                     setMissionChangeRequests(sorted.map((r: any) => ({
-                        id: r.id,
-                        missionId: r.mission_id || r.missionId,
-                        clientId: r.client_id || r.clientId,
+                        id: String(r.id || ''),
+                        missionId: String(r.mission_id || r.missionId || ''),
+                        clientId: String(r.client_id || r.clientId || ''),
                         oldDate: r.old_date || r.oldDate,
                         oldStartTime: r.old_start_time || r.oldStartTime,
                         oldEndTime: r.old_end_time || r.oldEndTime,
                         newDate: r.new_date || r.newDate,
                         newStartTime: r.new_start_time || r.newStartTime,
                         newEndTime: r.new_end_time || r.newEndTime,
-                        status: r.status,
+                        status: String(r.status || '').toLowerCase() as any,
                         createdAt: r.created_at || r.createdAt,
                         respondedAt: r.responded_at || r.respondedAt
                     })));
@@ -1862,26 +1912,38 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         console.log("[AddNotification] Inserting into DB:", insertData);
 
-        const { data, error } = await supabase.from('notifications').insert(insertData).select();
+        const { error } = await supabase.from('notifications').insert(insertData);
 
         if (error) {
             console.error("[AddNotification] Error inserting notification:", error);
             return;
         }
 
-        console.log("[AddNotification] Successfully inserted:", data);
+        const mappedNotif: AppNotification = {
+            ...(insertData as any),
+            type,
+            read: false,
+            targetUserType,
+            targetUserId
+        };
 
-        if (data) {
-            const mappedNotif: AppNotification = {
-                ...data[0],
-                read: false,
-                targetUserType,
-                targetUserId
-            };
+        console.log("[AddNotification] Adding to local state:", mappedNotif);
+        setNotifications(prev => [mappedNotif, ...prev]);
+    };
 
-            console.log("[AddNotification] Adding to local state:", mappedNotif);
-            setNotifications(prev => [mappedNotif, ...prev]);
+    const markClientMessagesRead = async (clientId: string) => {
+        const { error } = await supabase
+            .from('messages')
+            .update({ is_read: true })
+            .eq('client_id', clientId)
+            .eq('sender', 'client');
+
+        if (error) {
+            console.error('[markClientMessagesRead] Supabase error:', error);
+            return;
         }
+
+        setMessages(prev => prev.map(m => (m.clientId === clientId && m.sender === 'client') ? { ...m, read: true } : m));
     };
 
     // --- ACTIONS ---
@@ -3724,26 +3786,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             created_at: now
         };
 
-        const { data, error } = await supabase.from('messages').insert(dbData).select();
-
+        const { error } = await supabase.from('messages').insert(dbData);
         if (error) {
             console.error("Error sending admin message:", error);
             return;
         }
 
-        if (data && data.length > 0) {
-            const m = data[0];
-            const newMessage: Message = {
-                id: m.id,
-                sender: m.sender,
-                text: m.text,
-                date: m.created_at || m.date,
-                clientId: m.client_id,
-                read: m.is_read
-            };
-            setMessages(prev => [...prev, newMessage]);
+        const newMessage: Message = {
+            id: dbData.id,
+            sender: 'admin',
+            text: text,
+            date: now,
+            clientId: clientId,
+            read: false
+        };
+        setMessages(prev => [...prev, newMessage]);
 
+        try {
             await addNotification('client', 'message', 'Nouveau message', 'Le secrétariat vous a répondu.', clientId, 'tab:messages');
+        } catch (e) {
+            console.error('[replyToClient] addNotification error:', e);
         }
     };
 
@@ -3759,35 +3821,39 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             created_at: now
         };
 
-        const { data, error } = await supabase.from('messages').insert(dbData).select();
-
+        const { error } = await supabase.from('messages').insert(dbData);
         if (error) {
             console.error("Error sending client message:", error);
             return;
         }
 
-        if (data && data.length > 0) {
-            const m = data[0];
-            const newMessage: Message = {
-                id: m.id,
-                sender: m.sender,
-                text: m.text,
-                date: m.created_at || m.date,
-                clientId: m.client_id,
-                read: m.is_read
-            };
-            setMessages(prev => [...prev, newMessage]);
+        const newMessage: Message = {
+            id: dbData.id,
+            sender: 'client',
+            text: text,
+            date: now,
+            clientId: clientId,
+            read: false
+        };
+        setMessages(prev => [...prev, newMessage]);
 
-            const client = clients.find(c => c.id === clientId);
+        const client = clients.find(c => c.id === clientId);
 
+        try {
             // NOTIF ADMIN
             await addNotification('admin', 'message', 'Nouveau Message', `De ${client?.name || 'Client'}: ${text.substring(0, 20)}...`, undefined, `tab:messaging:${clientId}`);
+        } catch (e) {
+            console.error('[sendClientMessage] addNotification error:', e);
+        }
 
+        try {
             // EMAIL ADMIN (Urgent?)
             await sendEmail(companySettings.email, 'Nouveau Message Client', 'admin_new_message', {
                 clientName: client?.name || 'Client',
                 message: text
             });
+        } catch (e) {
+            console.error('[sendClientMessage] sendEmail error:', e);
         }
     };
 
@@ -4769,7 +4835,7 @@ return (
 
         expenses, addExpense, updateExpense,
 
-        messages, replyToClient, sendClientMessage,
+        messages, replyToClient, sendClientMessage, markClientMessagesRead,
 
         notifications, markNotificationRead, addNotification,
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -712,9 +712,9 @@ const Planning: React.FC = () => {
         </div>
       )}
 
-      <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-end mb-4 md:mb-6">
+      <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end mb-2 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-               <h2 className="text-3xl font-serif font-bold text-slate-800">Planning</h2>
+               <h2 className="text-2xl md:text-3xl font-serif font-bold text-slate-800">Planning</h2>
                {false && (
                 <button
                     type="button"
@@ -733,7 +733,7 @@ const Planning: React.FC = () => {
            </div>
            
            {/* Date Range Display */}
-           <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600 md:self-auto">
+           <div className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600 md:self-auto">
                {dateRangeString}
            </div>
       </div>
@@ -770,26 +770,59 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Filters & Navigation */}
-       <div className="flex flex-col gap-4 mb-3 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
-           <div className="w-full lg:w-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-                <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
-                <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-200/50 p-2 sm:p-1 rounded-2xl sm:rounded-full">
-                    <button onClick={handlePrevWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
-                        <ChevronLeft className="w-3 h-3" /> Précédente
-                    </button>
-                    <button onClick={handleCurrentWeek} className="w-full sm:w-auto bg-[#66BB44] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold shadow-sm hover:bg-green-600">
-                        En cours
-                    </button>
-                    <button onClick={handleNextWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
-                         Suivante <ChevronRight className="w-3 h-3" />
+       <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
+           <div className="w-full lg:w-auto">
+                <div className="md:hidden flex items-center gap-2">
+                    <div className="flex-1 flex items-center justify-between bg-slate-200/50 p-1 rounded-full">
+                        <button
+                            onClick={handlePrevWeek}
+                            className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800"
+                            title="Semaine précédente"
+                            aria-label="Semaine précédente"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={handleCurrentWeek}
+                            className="bg-[#66BB44] text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm hover:bg-green-600"
+                            title="Semaine en cours"
+                            aria-label="Semaine en cours"
+                        >
+                            <Calendar className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={handleNextWeek}
+                            className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800"
+                            title="Semaine suivante"
+                            aria-label="Semaine suivante"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <button
+                        onClick={() => setShowMobileFilters(v => !v)}
+                        className={`w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 transition ${showMobileFilters ? 'text-brand-blue' : 'text-slate-700'}`}
+                        title={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
+                        aria-label={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
+                    >
+                        <SlidersHorizontal className="w-4 h-4" />
                     </button>
                 </div>
-                <button
-                    onClick={() => setShowMobileFilters(v => !v)}
-                    className="md:hidden w-full bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition"
-                >
-                    {showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
-                </button>
+
+                <div className="hidden md:flex flex-row items-center gap-4">
+                    <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
+                    <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-200/50 p-2 sm:p-1 rounded-2xl sm:rounded-full">
+                        <button onClick={handlePrevWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
+                            <ChevronLeft className="w-3 h-3" /> Précédente
+                        </button>
+                        <button onClick={handleCurrentWeek} className="w-full sm:w-auto bg-[#66BB44] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold shadow-sm hover:bg-green-600">
+                            En cours
+                        </button>
+                        <button onClick={handleNextWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
+                            Suivante <ChevronRight className="w-3 h-3" />
+                        </button>
+                    </div>
+                </div>
            </div>
 
            <div className={`${showMobileFilters ? 'flex' : 'hidden'} md:flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2`}>

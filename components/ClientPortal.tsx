@@ -93,7 +93,7 @@ const ClientPortal: React.FC = () => {
 
     // Determine client ID either from simulation or real login
     const activeClientId = simulatedClientId || (currentUser?.role === 'client' ? currentUser.relatedEntityId : null);
-    const client = clients.find(c => c.id === activeClientId);
+    const client = clients.find(c => String((c as any).id || '') === String(activeClientId || ''));
 
     const profileLoadTimeoutRef = useRef<number | null>(null);
 
@@ -121,8 +121,9 @@ const ClientPortal: React.FC = () => {
 
     const clientPendingChangeRequests = useMemo(() => {
         if (!client) return [];
+        const clientId = String((client as any).id || '');
         return missionChangeRequests
-            .filter(req => req.clientId === client.id && req.status === 'pending')
+            .filter(req => String((req as any).clientId || '') === clientId && String((req as any).status || '').toLowerCase() === 'pending')
             .map(req => ({
                 ...req,
                 mission: missions.find(m => m.id === req.missionId) || null
@@ -1437,7 +1438,7 @@ const ClientPortal: React.FC = () => {
                     <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
                 </nav>
 
-                <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+                <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8">
                     {activeTab === 'qr-scans' && (
                         <ClientQRCode />
                     )}
@@ -1522,20 +1523,25 @@ const ClientPortal: React.FC = () => {
                         <div className="space-y-6">
                             <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
 
-                            {clientPendingChangeRequests.length > 0 && (
-                                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
-                                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                                        <div>
-                                            <p className="text-sm font-semibold text-amber-700 uppercase">Demande du secrétariat</p>
-                                            <h3 className="text-lg font-bold text-slate-800">Validation de changement de créneau</h3>
-                                            <p className="text-sm text-slate-600">
-                                                Merci de confirmer ou refuser la proposition avant la prochaine intervention.
-                                            </p>
-                                        </div>
-                                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-bold self-start md:self-auto">
-                                            {clientPendingChangeRequests.length} en attente
-                                        </span>
+                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                    <div>
+                                        <p className="text-sm font-semibold text-amber-700 uppercase">Demande du secrétariat</p>
+                                        <h3 className="text-lg font-bold text-slate-800">Validation de changement de créneau</h3>
+                                        <p className="text-sm text-slate-600">
+                                            Merci de confirmer ou refuser la proposition avant la prochaine intervention.
+                                        </p>
                                     </div>
+                                    <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-bold self-start md:self-auto">
+                                        {clientPendingChangeRequests.length} en attente
+                                    </span>
+                                </div>
+
+                                {clientPendingChangeRequests.length === 0 ? (
+                                    <div className="bg-white border border-amber-100 rounded-xl p-4 text-sm text-slate-600">
+                                        Aucune demande en attente pour le moment.
+                                    </div>
+                                ) : (
                                     <div className="space-y-3">
                                         {clientPendingChangeRequests.map(req => (
                                             <div key={req.id} className="bg-white border border-amber-100 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
@@ -1576,8 +1582,8 @@ const ClientPortal: React.FC = () => {
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
 
                             {/* Filtres du planning */}
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
@@ -2281,24 +2287,127 @@ const ClientPortal: React.FC = () => {
             </div>
 
             {/* Mobile Bottom Navigation */}
-            <div className="md:hidden bg-white border-t border-slate-200 flex justify-around p-2 pb-safe z-30 shrink-0">
-                <button onClick={() => setActiveTab('planning')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'planning' ? 'text-brand-blue' : 'text-slate-400'}`}>
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-14 pb-safe z-40">
+                <button
+                    onClick={() => setActiveTab('planning')}
+                    className={`p-2 rounded-lg transition ${activeTab === 'planning' ? 'text-brand-blue' : 'text-slate-400'}`}
+                    aria-label="Planning"
+                >
                     <Calendar className="w-6 h-6" />
-                    <span className="text-[10px] font-bold mt-1">Planning</span>
                 </button>
-                <button onClick={() => setActiveTab('docs')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'docs' ? 'text-brand-blue' : 'text-slate-400'}`}>
+                <button
+                    onClick={() => setActiveTab('docs')}
+                    className={`p-2 rounded-lg transition ${activeTab === 'docs' ? 'text-brand-blue' : 'text-slate-400'}`}
+                    aria-label="Documents"
+                >
                     <FileText className="w-6 h-6" />
-                    <span className="text-[10px] font-bold mt-1">Docs</span>
                 </button>
-                <button onClick={() => setActiveTab('messages')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'messages' ? 'text-brand-blue' : 'text-slate-400'}`}>
+                <button
+                    onClick={() => setActiveTab('messages')}
+                    className={`p-2 rounded-lg transition ${activeTab === 'messages' ? 'text-brand-blue' : 'text-slate-400'}`}
+                    aria-label="Messages"
+                >
                     <MessageSquare className="w-6 h-6" />
-                    <span className="text-[10px] font-bold mt-1">Chat</span>
                 </button>
-                <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center p-2 rounded-lg transition ${activeTab === 'profile' ? 'text-brand-blue' : 'text-slate-400'}`}>
+                <button
+                    onClick={() => setActiveTab('profile')}
+                    className={`p-2 rounded-lg transition ${activeTab === 'profile' ? 'text-brand-blue' : 'text-slate-400'}`}
+                    aria-label="Profil"
+                >
                     <User className="w-6 h-6" />
-                    <span className="text-[10px] font-bold mt-1">Profil</span>
                 </button>
             </div>
+
+            {isChangeRequestModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-4 border-b bg-amber-50 flex justify-between items-center">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">Proposition de changement de créneau</h3>
+                                <p className="text-xs text-slate-600">Merci de confirmer ou refuser la proposition.</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setIsChangeRequestModalOpen(false);
+                                    setSelectedChangeRequestId(null);
+                                }}
+                                className="p-2 hover:bg-amber-100 rounded-full transition"
+                            >
+                                <X className="w-5 h-5 text-slate-600" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            {!selectedChangeRequest ? (
+                                <div className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
+                                    Impossible d'afficher la proposition pour le moment. Merci de réessayer.
+                                </div>
+                            ) : (
+                                (() => {
+                                    const mission = missions.find(m => m.id === selectedChangeRequest.missionId) || null;
+                                    return (
+                                        <>
+                                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                                <p className="text-xs text-slate-500 uppercase tracking-wide">Mission</p>
+                                                <p className="font-bold text-slate-800">
+                                                    {mission?.service || 'Intervention'}
+                                                </p>
+                                                {mission?.providerName ? (
+                                                    <p className="text-xs text-slate-500 mt-1">
+                                                        Prestataire: <span className="font-medium text-slate-700">{mission.providerName}</span>
+                                                    </p>
+                                                ) : null}
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="border border-slate-200 rounded-xl p-4">
+                                                    <p className="text-[11px] uppercase text-slate-400 font-bold">Créneau actuel</p>
+                                                    <p className="font-semibold text-slate-800 mt-2 flex items-center gap-2">
+                                                        <Calendar className="w-4 h-4 text-slate-400" />
+                                                        {formatMartiniqueDate(selectedChangeRequest.oldDate)}
+                                                    </p>
+                                                    <p className="text-slate-600 text-sm flex items-center gap-2 mt-1">
+                                                        <ClockIcon className="w-4 h-4 text-slate-400" />
+                                                        {selectedChangeRequest.oldStartTime} - {selectedChangeRequest.oldEndTime}
+                                                    </p>
+                                                </div>
+                                                <div className="border border-amber-200 bg-amber-50 rounded-xl p-4">
+                                                    <p className="text-[11px] uppercase text-amber-700 font-bold">Nouveau créneau proposé</p>
+                                                    <p className="font-semibold text-slate-800 mt-2 flex items-center gap-2">
+                                                        <Calendar className="w-4 h-4 text-amber-600" />
+                                                        {formatMartiniqueDate(selectedChangeRequest.newDate)}
+                                                    </p>
+                                                    <p className="text-slate-700 text-sm flex items-center gap-2 mt-1">
+                                                        <ClockIcon className="w-4 h-4 text-amber-600" />
+                                                        {selectedChangeRequest.newStartTime} - {selectedChangeRequest.newEndTime}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
+                                                <button
+                                                    onClick={() => handleRespondChangeRequest('rejected')}
+                                                    disabled={isRespondingRequest}
+                                                    className="flex-1 px-4 py-3 rounded-xl font-bold border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    Refuser
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRespondChangeRequest('approved')}
+                                                    disabled={isRespondingRequest}
+                                                    className="flex-1 px-4 py-3 rounded-xl font-bold bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    Accepter
+                                                </button>
+                                            </div>
+                                        </>
+                                    );
+                                })()
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* QUOTE SIGNATURE MODAL */}
             {quoteModalOpen && selectedQuote && (

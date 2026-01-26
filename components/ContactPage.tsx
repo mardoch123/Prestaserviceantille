@@ -51,7 +51,7 @@ const ContactPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-cream-50 relative overflow-hidden">
+        <div className="min-h-screen bg-cream-50 relative overflow-x-hidden">
             <div className="absolute -top-24 -left-24 w-72 h-72 bg-brand-orange/20 rounded-full blur-3xl" />
             <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-brand-blue/20 rounded-full blur-3xl" />
 

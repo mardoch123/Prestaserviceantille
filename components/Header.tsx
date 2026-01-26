@@ -69,10 +69,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   }, [currentUser?.role]);
 
   const adminNotifs = notifications
-    .filter(n => n.targetUserType === 'admin' && !n.read)
+    .filter(n => n.targetUserType === 'admin')
     .slice()
     .sort((a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime());
-  const unreadCount = adminNotifs.length;
+  const unreadCount = adminNotifs.filter(n => !n.read).length;
 
   const handleRefresh = () => {
       window.location.reload();
@@ -191,7 +191,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                                 <div className="p-3 sm:p-4 text-center text-xs text-slate-400">Aucune notification.</div>
                             ) : (
                                 adminNotifs.map(notif => (
-                                    <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                                    <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!notif.read ? 'bg-orange-50 border-l-4 border-orange-500' : ''}`}>
                                         <div className="flex justify-between items-start mb-1">
                                             <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${notif.type === 'alert' ? 'bg-red-100 text-red-600' : notif.type === 'success' ? 'bg-green-100 text-green-600' : notif.type === 'message' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-600'}`}>{notif.title}</span>
                                             <span className="text-[10px] text-slate-400">{notif.date}</span>
@@ -296,7 +296,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                 <div key={notif.id} onClick={() => {
                   handleNotificationClick(notif);
                   setShowMobileNotifications(false);
-                }} className={`p-3 mb-2 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-50 transition ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                }} className={`p-3 mb-2 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-50 transition ${!notif.read ? 'bg-orange-50 border-orange-200' : ''}`}>
                   <div className="flex justify-between items-start mb-1">
                     <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${notif.type === 'alert' ? 'bg-red-100 text-red-600' : notif.type === 'success' ? 'bg-green-100 text-green-600' : notif.type === 'message' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-600'}`}>
                       {notif.title}
