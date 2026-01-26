@@ -283,6 +283,19 @@ export interface Message {
     read?: boolean;
 }
 
+export interface ContactForm {
+    id: string;
+    name: string;
+    email: string;
+    phone?: string;
+    subject?: string;
+    message: string;
+    createdAt: string;
+    isRead: boolean;
+}
+
+export type CreateContactFormDTO = Omit<ContactForm, 'id' | 'createdAt' | 'isRead'>;
+
 export interface Review {
     id: string;
     clientId: string; // FK

@@ -2053,7 +2053,7 @@ const ClientPortal: React.FC = () => {
                                         <div key={msg.id} className={`flex ${msg.sender === 'client' ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`max-w-[80%] p-3 rounded-xl shadow-sm text-sm ${msg.sender === 'client' ? 'bg-brand-blue text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-200 rounded-tl-none'}`}>
                                                 <p>{msg.text}</p>
-                                                <p className={`text-[10px] mt-1 text-right ${msg.sender === 'client' ? 'text-blue-200' : 'text-slate-400'}`}>{new Date(msg.date).toLocaleString()}</p>
+                                                <p className={`text-[10px] mt-1 text-right ${msg.sender === 'client' ? 'text-blue-200' : 'text-slate-400'}`}>{formatMartiniqueDateTime(msg.date)}</p>
                                             </div>
                                         </div>
                                     ))

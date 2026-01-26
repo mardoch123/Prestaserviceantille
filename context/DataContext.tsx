@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useRe
 import {
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
-    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest
+    CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest,
+    ContactForm, CreateContactFormDTO
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
@@ -144,6 +145,10 @@ interface DataContextType {
     markNotificationRead: (id: string) => Promise<void>;
     addNotification: (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => Promise<void>;
 
+    contactForms: ContactForm[];
+    submitContactForm: (data: CreateContactFormDTO) => Promise<void>;
+    markContactFormRead: (id: string) => Promise<void>;
+
     visitScans: VisitScan[];
     registerScan: (clientId: string) => Promise<{ success: boolean; type?: 'entry' | 'exit'; message: string }>;
 
@@ -229,6 +234,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
+    const [contactForms, setContactForms] = useState<ContactForm[]>([]);
     const [visitScans, setVisitScans] = useState<VisitScan[]>([]);
     const [missionChangeRequests, setMissionChangeRequests] = useState<MissionChangeRequest[]>([]);
 
@@ -286,6 +292,64 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const extendReadingSession = () => {
         setIsReadingDocument(true);
         setLastActivity(Date.now());
+    };
+
+    const submitContactForm = async (data: CreateContactFormDTO) => {
+        const now = getMartiniqueNowISO();
+        const insertData: any = {
+            id: generateUUID(),
+            name: data.name,
+            email: data.email,
+            phone: data.phone || null,
+            subject: data.subject || null,
+            message: data.message,
+            is_read: false,
+            created_at: now
+        };
+
+        const { error } = await supabase.from('contact_forms').insert(insertData);
+        if (error) {
+            console.error('[submitContactForm] Supabase error:', error);
+            throw error;
+        }
+
+        const mapped: ContactForm = {
+            id: insertData.id,
+            name: insertData.name,
+            email: insertData.email,
+            phone: insertData.phone || undefined,
+            subject: insertData.subject || undefined,
+            message: insertData.message,
+            createdAt: now,
+            isRead: false
+        };
+
+        setContactForms(prev => [mapped, ...prev]);
+
+        try {
+            await addNotification('admin', 'message', 'Nouveau Contact', `De ${mapped.name}: ${(mapped.subject || mapped.message || '').substring(0, 30)}...`, undefined, 'tab:contact-forms');
+        } catch (e) {
+            console.error('[submitContactForm] addNotification error:', e);
+        }
+
+        try {
+            await sendEmail(companySettings.email, 'Nouveau message (page Contact)', 'contact_form', {
+                name: mapped.name,
+                email: mapped.email,
+                phone: mapped.phone || '',
+                subject: mapped.subject || '',
+                message: mapped.message
+            });
+        } catch (e) {
+            console.error('[submitContactForm] sendEmail error:', e);
+        }
+    };
+
+    const markContactFormRead = async (id: string) => {
+        const { error } = await supabase.from('contact_forms').update({ is_read: true }).eq('id', id);
+        if (!error) {
+            setContactForms(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
+        }
     };
 
     const requestMissionReschedule = async (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => {
@@ -918,7 +982,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 let [
                     cData, pData, mData, dData, packData, ctData,
-                    rData, eData, msgData, notifData, settingsData, vsData, vrData, leavesData, gcData, mcrData
+                    rData, eData, msgData, notifData, cfData, settingsData, vsData, vrData, leavesData, gcData, mcrData
                 ] = await Promise.all([
                     fetchTable('clients'),
                     fetchTable('providers'),
@@ -930,6 +994,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('expenses'),
                     fetchTable('messages'),
                     fetchTable('notifications'),
+                    fetchTable('contact_forms'),
                     fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null),
                     fetchTable('visit_scans'),
                     fetchTable('video_recordings'),
@@ -1111,6 +1176,24 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         read: n.is_read,
                         targetUserType: n.target_user_type,
                         targetUserId: n.target_user_id
+                    })));
+                }
+
+                if (cfData) {
+                    const sorted = (cfData || []).slice().sort((a: any, b: any) => {
+                        const ta = new Date(b.created_at || b.createdAt || b.date || 0).getTime();
+                        const tb = new Date(a.created_at || a.createdAt || a.date || 0).getTime();
+                        return ta - tb;
+                    });
+                    setContactForms(sorted.map((f: any) => ({
+                        id: f.id,
+                        name: f.name,
+                        email: f.email,
+                        phone: f.phone,
+                        subject: f.subject,
+                        message: f.message,
+                        createdAt: f.created_at || f.createdAt || getMartiniqueNowISO(),
+                        isRead: !!(f.is_read ?? f.isRead)
                     })));
                 }
 
@@ -4689,6 +4772,8 @@ return (
         messages, replyToClient, sendClientMessage,
 
         notifications, markNotificationRead, addNotification,
+
+        contactForms, submitContactForm, markContactFormRead,
 
         visitScans, registerScan,
 

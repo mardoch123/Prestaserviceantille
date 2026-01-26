@@ -100,6 +100,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           const parts = String(notif.link || '').split(':');
           const clientId = parts.length >= 3 ? parts.slice(2).join(':') : undefined;
           navigate('/secretariat', { state: { tab: 'messaging', clientId } });
+      } else if (notif.link === 'tab:contact-forms') {
+          navigate('/contact-forms');
       } else if (notif.link === 'tab:live-videos') {
           navigate('/secretariat', { state: { tab: 'live-videos' } });
       } else if (notif.link === 'tab:docs') {

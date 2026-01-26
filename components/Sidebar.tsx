@@ -12,6 +12,7 @@ import {
   PhoneCall,
   QrCode,
   ClipboardCheck,
+  Mail,
   X
 } from 'lucide-react';
 import { NavItem } from '../types';
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { label: 'Planning', path: '/planning', icon: Calendar },
   { label: 'Réservations', path: '/reservations', icon: Clock },
   { label: 'Secrétariat', path: '/secretariat', icon: PhoneCall },
+  { label: 'Formulaires Contact', path: '/contact-forms', icon: Mail },
 ];
 
 interface SidebarProps {

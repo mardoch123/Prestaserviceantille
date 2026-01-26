@@ -47,7 +47,8 @@ import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SA
 import { 
     getMartiniqueToday,
     getMartiniqueNowISO,
-    formatMartiniqueDate
+    formatMartiniqueDate,
+    formatMartiniqueDateTime
 } from '../src/utils/martiniqueTime';
 import { ContractPDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
@@ -1291,11 +1292,41 @@ const Secretariat: React.FC = () => {
 
     // Chat Logic
     const chatClients = clients;
+
+    const clientIndexById = useMemo(() => {
+        return new Map((chatClients || []).map((c: any, idx: number) => [String(c?.id || ''), idx]));
+    }, [chatClients]);
+
+    const lastMessageTimestampByClientId = useMemo(() => {
+        const map = new Map<string, number>();
+        (messages || []).forEach((m: any) => {
+            const clientId = String(m?.clientId || '');
+            const t = new Date(m?.date || '').getTime();
+            if (!clientId || !Number.isFinite(t)) return;
+            const prev = map.get(clientId);
+            if (prev === undefined || t > prev) map.set(clientId, t);
+        });
+        return map;
+    }, [messages]);
+
     const filteredChatClients = useMemo(() => {
         const q = String(chatClientSearch || '').trim().toLowerCase();
-        if (!q) return chatClients;
-        return (chatClients || []).filter((c: any) => String(c?.name || '').toLowerCase().includes(q));
-    }, [chatClients, chatClientSearch]);
+        const base = !q
+            ? (chatClients || [])
+            : (chatClients || []).filter((c: any) => String(c?.name || '').toLowerCase().includes(q));
+
+        const getIdx = (id: any) => clientIndexById.get(String(id || '')) ?? 0;
+        const getLast = (id: any) => lastMessageTimestampByClientId.get(String(id || '')) ?? 0;
+
+        return base
+            .slice()
+            .sort((a: any, b: any) => {
+                const ta = getLast(a?.id);
+                const tb = getLast(b?.id);
+                if (tb !== ta) return tb - ta;
+                return getIdx(a?.id) - getIdx(b?.id);
+            });
+    }, [chatClients, chatClientSearch, clientIndexById, lastMessageTimestampByClientId]);
     // Sort messages to ensure chronological order
     const currentChatMessages = useMemo(() => {
         return messages
@@ -1679,7 +1710,7 @@ const Secretariat: React.FC = () => {
                                                         <p>{msg.text}</p>
                                                         <div className="flex justify-between items-center mt-1 gap-4">
                                                             <span className={`text-[10px] ${msg.sender === 'admin' ? 'text-blue-200' : 'text-slate-400'}`}>
-                                                                {new Date(msg.date).toLocaleTimeString()}
+                                                                {formatMartiniqueDateTime(msg.date)}
                                                             </span>
                                                             {msg.sender === 'admin' && (
                                                                 <span className="text-[10px] text-blue-200">

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -20,6 +20,8 @@ import MissionReports from './components/MissionReports';
 import Login from './components/Login';
 import ScanPage from './components/ScanPage';
 import ScanSuccess from './components/ScanSuccess';
+import ContactPage from './components/ContactPage';
+import ContactFormsAdmin from './components/ContactFormsAdmin';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 // Error Boundary to catch DataProvider context issues
@@ -149,6 +151,14 @@ const AppLayout: React.FC = () => {
     const [isManualReload, setIsManualReload] = useState(false);
 
     useEffect(() => {
+        const hash = window.location.hash || '';
+        if (hash.startsWith('#/')) {
+            const nextPath = hash.slice(1);
+            window.history.replaceState(null, '', nextPath);
+        }
+    }, []);
+
+    useEffect(() => {
         try {
             const navEntry = (performance.getEntriesByType?.('navigation')?.[0] as any) || null;
             const type = navEntry?.type || '';
@@ -157,6 +167,10 @@ const AppLayout: React.FC = () => {
             setIsManualReload(false);
         }
     }, []);
+
+    if (location.pathname === '/contact') {
+        return <ContactPage />;
+    }
 
     if (loading) {
         return <LoadingScreen mode={isManualReload ? 'sync' : 'app'} />;
@@ -237,6 +251,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/financials" element={<Financials />} />
                         <Route path="/reservations" element={<Reservations />} />
                         <Route path="/secretariat" element={<Secretariat />} />
+                        <Route path="/contact-forms" element={<ContactFormsAdmin />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
                         <Route path="/scan" element={<ScanPage />} />
@@ -253,9 +268,9 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
             <DataProvider>
-                <HashRouter>
+                <BrowserRouter>
                     <AppLayout />
-                </HashRouter>
+                </BrowserRouter>
             </DataProvider>
         </ErrorBoundary>
     );
