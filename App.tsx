@@ -105,6 +105,48 @@ const OfflineBanner = () => {
     );
 };
 
+const OfflineScreen = () => {
+    const { attemptReconnection, connectionStatus, reconnectAttempts, maxReconnectAttempts } = useData();
+    const [isTrying, setIsTrying] = useState(false);
+
+    const handleRetry = async () => {
+        if (isTrying) return;
+        setIsTrying(true);
+        try {
+            await attemptReconnection();
+        } finally {
+            setIsTrying(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 p-8 text-center">
+            <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full">
+                <WifiOff className="w-16 h-16 text-slate-700 mx-auto mb-4" />
+                <h1 className="text-2xl font-bold text-slate-800 mb-2">Pas de connexion Internet</h1>
+                <p className="text-slate-600 mb-6">
+                    Vérifie ta connexion (Wi‑Fi / 4G) puis réessaie.
+                </p>
+
+                <div className="text-xs text-slate-500 mb-4">
+                    Statut: <span className="font-bold">{connectionStatus}</span>
+                    <br />
+                    Tentatives: <span className="font-bold">{reconnectAttempts}</span> / {maxReconnectAttempts}
+                </div>
+
+                <button
+                    onClick={handleRetry}
+                    className="bg-brand-blue text-white px-6 py-3 rounded-lg font-bold hover:bg-teal-700 flex items-center gap-2 mx-auto disabled:opacity-60"
+                    disabled={isTrying}
+                >
+                    <RefreshCw className={`w-4 h-4 ${isTrying ? 'animate-spin' : ''}`} />
+                    Réessayer
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const LoadingScreen = ({ mode }: { mode?: 'app' | 'sync' }) => {
     const [showBypass, setShowBypass] = useState(false);
 
@@ -145,7 +187,7 @@ const LoadingScreen = ({ mode }: { mode?: 'app' | 'sync' }) => {
 }
 
 const AppLayout: React.FC = () => {
-    const { currentUser, loading } = useData();
+    const { currentUser, loading, isOnline } = useData();
     const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isManualReload, setIsManualReload] = useState(false);
@@ -167,6 +209,10 @@ const AppLayout: React.FC = () => {
             setIsManualReload(false);
         }
     }, []);
+
+    if (!isOnline) {
+        return <OfflineScreen />;
+    }
 
     if (location.pathname === '/contact') {
         return <ContactPage />;

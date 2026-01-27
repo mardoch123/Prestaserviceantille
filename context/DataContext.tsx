@@ -5,6 +5,9 @@ import {
     CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest,
     ContactForm, CreateContactFormDTO
 } from '../types';
+import { Capacitor } from '@capacitor/core';
+import { Network } from '@capacitor/network';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import { getServiceTypeOptions, type ServiceTypeFilter } from '../utils/serviceTypes';
@@ -63,6 +66,17 @@ function addMonths(date: Date, months: number): Date {
     const result = new Date(date);
     result.setMonth(result.getMonth() + months);
     return result;
+}
+
+async function getCurrentOnlineStatus(): Promise<boolean> {
+    try {
+        if (Capacitor.isNativePlatform()) {
+            const status = await Network.getStatus();
+            return !!status.connected;
+        }
+    } catch { }
+
+    return typeof navigator !== 'undefined' ? !!navigator.onLine : true;
 }
 
 interface DataContextType {
@@ -503,6 +517,89 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [lastNotificationCheck, setLastNotificationCheck] = useState(Date.now());
     const [notificationPollingInterval, setNotificationPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
+    const nativeNotifiedIdsRef = useRef<Set<string>>(new Set());
+    const nativeNotificationsReadyRef = useRef(false);
+
+    const ensureNativeNotificationsReady = async (): Promise<boolean> => {
+        try {
+            if (!Capacitor.isNativePlatform()) return false;
+            if (nativeNotificationsReadyRef.current) return true;
+
+            const perm = await LocalNotifications.requestPermissions();
+            if ((perm as any)?.display !== 'granted') return false;
+
+            try {
+                await LocalNotifications.createChannel({
+                    id: 'default',
+                    name: 'Notifications',
+                    description: 'Notifications de Presta Services Antilles',
+                    importance: 4
+                } as any);
+            } catch { }
+
+            nativeNotificationsReadyRef.current = true;
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    const isNotificationForCurrentUser = (notif: any, user: User | null): boolean => {
+        if (!user) return false;
+        const targetUserType = String(notif?.targetUserType || notif?.target_user_type || '');
+        const targetUserId = notif?.targetUserId || notif?.target_user_id;
+
+        if (user.role === 'admin' || user.role === 'super_admin') {
+            return targetUserType === 'admin' || targetUserType === 'super_admin';
+        }
+        if (user.role === 'client') {
+            return targetUserType === 'client' && (!targetUserId || String(targetUserId) === String(user.relatedEntityId));
+        }
+        if (user.role === 'provider') {
+            return targetUserType === 'provider' && (!targetUserId || String(targetUserId) === String(user.relatedEntityId));
+        }
+        return false;
+    };
+
+    const stringToStableInt = (value: string): number => {
+        let hash = 0;
+        for (let i = 0; i < value.length; i++) {
+            hash = ((hash << 5) - hash) + value.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash || 1);
+    };
+
+    const triggerNativeNotification = async (notif: any) => {
+        try {
+            if (!Capacitor.isNativePlatform()) return;
+            if (!isNotificationForCurrentUser(notif, currentUser)) return;
+
+            const id = String(notif?.id || '');
+            if (!id) return;
+            if (nativeNotifiedIdsRef.current.has(id)) return;
+            nativeNotifiedIdsRef.current.add(id);
+
+            const ready = await ensureNativeNotificationsReady();
+            if (!ready) return;
+
+            await LocalNotifications.schedule({
+                notifications: [
+                    {
+                        id: stringToStableInt(id),
+                        title: String(notif?.title || 'Notification'),
+                        body: String(notif?.message || ''),
+                        schedule: { at: new Date(Date.now() + 250) },
+                        extra: { link: notif?.link },
+                        channelId: 'default',
+                        smallIcon: 'ic_launcher',
+                        largeIcon: 'ic_launcher'
+                    } as any
+                ]
+            });
+        } catch { }
+    };
+
     // Polling pour les notifications en temps réel
     useEffect(() => {
         if (currentUser && isOnline) {
@@ -587,6 +684,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         if (userNotifications.length > 0) {
                             setNotifications(prev => [...userNotifications, ...prev]);
                             setLastNotificationCheck(Date.now());
+
+                            userNotifications.forEach((n: any) => {
+                                triggerNativeNotification(n);
+                            });
 
                             // Jouer un son de notification plus fort pour les appels vidéo
                             userNotifications.forEach(notif => {
@@ -709,13 +810,44 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // Handle online/offline status
     useEffect(() => {
-        const handleOnline = () => setIsOnline(true);
-        const handleOffline = () => setIsOnline(false);
-        window.addEventListener('online', handleOnline);
-        window.addEventListener('offline', handleOffline);
+        let removed = false;
+        let networkListener: { remove: () => Promise<void> } | null = null;
+
+        const init = async () => {
+            try {
+                const initial = await getCurrentOnlineStatus();
+                if (!removed) setIsOnline(initial);
+            } catch { }
+
+            if (Capacitor.isNativePlatform()) {
+                try {
+                    networkListener = await Network.addListener('networkStatusChange', (status: { connected: boolean }) => {
+                        setIsOnline(!!status.connected);
+                    });
+                } catch { }
+                return;
+            }
+
+            const handleOnline = () => setIsOnline(true);
+            const handleOffline = () => setIsOnline(false);
+            window.addEventListener('online', handleOnline);
+            window.addEventListener('offline', handleOffline);
+
+            networkListener = {
+                remove: async () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                }
+            };
+        };
+
+        init();
+
         return () => {
-            window.removeEventListener('online', handleOnline);
-            window.removeEventListener('offline', handleOffline);
+            removed = true;
+            if (networkListener) {
+                networkListener.remove();
+            }
         };
     }, []);
 
@@ -763,13 +895,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     // Add notification to state immediately
                     setNotifications(prev => [mappedNotif, ...prev]);
 
-                    // Show browser notification if permission granted
-                    if (Notification.permission === 'granted') {
-                        new Notification(mappedNotif.title, {
-                            body: mappedNotif.message,
-                            icon: '/favicon.ico'
-                        });
-                    }
+                    triggerNativeNotification(mappedNotif);
+
+                    try {
+                        if (!Capacitor.isNativePlatform() && Notification.permission === 'granted') {
+                            new Notification(mappedNotif.title, {
+                                body: mappedNotif.message,
+                                icon: companySettings?.logoUrl || LOGO_NORMAL
+                            });
+                        }
+                    } catch { }
                 }
             )
             .subscribe((status) => {
@@ -1577,10 +1712,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (mounted && loading) {
                 console.warn("Initialization timed out after 15 seconds. Forcing app load.");
                 setLoading(false);
-                // Only mark offline if browser actually reports offline
-                if (!navigator.onLine) {
-                    setIsOnline(false);
-                }
+                getCurrentOnlineStatus().then((online) => {
+                    if (mounted) setIsOnline(online);
+                }).catch(() => { });
             }
         }, 15000);
 
@@ -1929,6 +2063,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         console.log("[AddNotification] Adding to local state:", mappedNotif);
         setNotifications(prev => [mappedNotif, ...prev]);
+
+        triggerNativeNotification(mappedNotif);
     };
 
     const markClientMessagesRead = async (clientId: string) => {
@@ -4418,8 +4554,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             // Simuler une tentative de reconnexion
             await new Promise(resolve => setTimeout(resolve, reconnectDelay));
 
-            // Vérifier si la connexion est rétablie
-            if (navigator.onLine) {
+            const online = await getCurrentOnlineStatus();
+            if (online) {
+                setIsOnline(true);
                 setConnectionStatus('connected');
                 setReconnectAttempts(0);
                 setReconnectDelay(1000);

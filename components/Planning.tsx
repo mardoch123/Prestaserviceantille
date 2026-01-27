@@ -640,6 +640,28 @@ const Planning: React.FC = () => {
       navigate('/statistics', { state: { filter, time } });
   };
 
+  const getMissionPlanningStyle = (mission: Mission): { container: string; border: string; label: string } => {
+      const isUnassigned = (!mission.providerId || mission.providerId === 'null') && mission.status !== 'cancelled';
+      const isSignedFromQuote = mission.source === 'devis' && mission.status !== 'cancelled';
+
+      if (mission.status === 'completed') {
+          return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: 'Terminée' };
+      }
+      if (mission.status === 'cancelled') {
+          return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée' };
+      }
+      if (isSignedFromQuote) {
+          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé' };
+      }
+      if (isUnassigned) {
+          return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée' };
+      }
+      if (mission.status === 'in_progress') {
+          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours' };
+      }
+      return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée' };
+  };
+
   return (
     <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
        
@@ -981,37 +1003,41 @@ const Planning: React.FC = () => {
                                         </div>
                                     ))}
 
-                                    {missionsForDate.map((item: any) => (
-                                        <div
-                                            key={item.id}
-                                            className="bg-slate-50 p-3 rounded text-sm cursor-pointer hover:bg-slate-100 transition border-l-4 border-brand-blue"
-                                            onClick={(e) => handleMissionClick(item, e)}
-                                        >
-                                            <div className="flex justify-between items-start gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
-                                                        <span className="text-xs font-bold text-slate-700 shrink-0">
-                                                            {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
-                                                        </span>
+                                    {missionsForDate.map((item: any) => {
+                                        const style = getMissionPlanningStyle(item as Mission);
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className={`p-3 rounded text-sm cursor-pointer transition border-l-4 ${style.container} ${style.border}`}
+                                                onClick={(e) => handleMissionClick(item, e)}
+                                            >
+                                                <div className="flex justify-between items-start gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
+                                                            <span className="text-xs font-bold text-slate-700 shrink-0">
+                                                                {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
+                                                        <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
+                                                        <p className="text-[11px] font-bold mt-1 text-slate-600">{style.label}</p>
                                                     </div>
-                                                    <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
-                                                    <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
+                                                    <button
+                                                        onClick={(e) => toggleMissionSelection(item.id, e)}
+                                                        className="p-1 hover:bg-white/80 rounded shrink-0"
+                                                        title="Sélectionner pour suppression"
+                                                    >
+                                                        {selectedMissionIds.has(item.id) ? (
+                                                            <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
+                                                        ) : (
+                                                            <Square className="w-5 h-5 text-slate-400" />
+                                                        )}
+                                                    </button>
                                                 </div>
-                                                <button
-                                                    onClick={(e) => toggleMissionSelection(item.id, e)}
-                                                    className="p-1 hover:bg-white/80 rounded shrink-0"
-                                                    title="Sélectionner pour suppression"
-                                                >
-                                                    {selectedMissionIds.has(item.id) ? (
-                                                        <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
-                                                    ) : (
-                                                        <Square className="w-5 h-5 text-slate-400" />
-                                                    )}
-                                                </button>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
 
                                     {remindersForDate.length === 0 && provisionalForDate.length === 0 && missionsForDate.length === 0 ? (
                                         <div className="text-xs text-slate-400 italic">Aucun élément.</div>
@@ -1065,39 +1091,41 @@ const Planning: React.FC = () => {
                             {filteredMissions
                                 .filter(item => getDayIndex(item.date) === colIndex)
                                 .filter(item => item.status !== 'cancelled')
-                                .map(item => (
-                                    <div 
-                                        key={item.id} 
-                                        className={`bg-${item.color === 'gray' ? 'slate-200' : item.color + '-100'} p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-${item.color === 'gray' ? 'slate-500' : 'brand-blue'} relative group`}
-                                        onClick={(e) => handleMissionClick(item, e)}
-                                    >
-                                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                             <button 
-                                                 onClick={(e) => toggleMissionSelection(item.id, e)}
-                                                 className="p-1 hover:bg-white/50 rounded"
-                                                 title="Sélectionner pour suppression"
-                                             >
-                                                 {selectedMissionIds.has(item.id) ? (
-                                                     <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
-                                                 ) : (
-                                                     <Square className="w-4 h-4 text-slate-400" />
-                                                 )}
-                                             </button>
-                                         </div>
-                                        {selectedMissionIds.has(item.id) && (
-                                            <div className="absolute inset-0 bg-blue-500/10 border-2 border-brand-blue rounded pointer-events-none"></div>
-                                        )}
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
-                                            <span className="text-[10px] font-bold text-slate-700 shrink-0">
-                                                {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
-                                            </span>
+                                .map(item => {
+                                    const style = getMissionPlanningStyle(item);
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className={`p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group ${style.container} ${style.border}`}
+                                            onClick={(e) => handleMissionClick(item, e)}
+                                        >
+                                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={(e) => toggleMissionSelection(item.id, e)}
+                                                    className="p-1 hover:bg-white/50 rounded"
+                                                    title="Sélectionner pour suppression"
+                                                >
+                                                    {selectedMissionIds.has(item.id) ? (
+                                                        <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
+                                                    ) : (
+                                                        <Square className="w-4 h-4 text-slate-400" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                            {selectedMissionIds.has(item.id) && (
+                                                <div className="absolute inset-0 bg-blue-500/10 border-2 border-brand-blue rounded pointer-events-none"></div>
+                                            )}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
+                                                <span className="text-[10px] font-bold text-slate-700 shrink-0">
+                                                    {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                            <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
                                         </div>
-                                        <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
-                                        <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
-                                    </div>
-                                ))
-                            }
+                                    );
+                                })}
                         </div>
                      ))}
                     </div>
@@ -1145,6 +1173,30 @@ const Planning: React.FC = () => {
        >
            <Briefcase className="w-6 h-6" />
        </button>
+
+       <div className="md:hidden fixed bottom-4 left-4 right-4 z-40">
+            <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-lg px-4 py-3">
+                <div className="text-xs font-bold text-slate-700 mb-2">Légende</div>
+                <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
+                    <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-orange-400"></span>
+                        En attente de validation
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-brand-blue"></span>
+                        Assignée
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                        Non assignée
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+                        Devis signé
+                    </div>
+                </div>
+            </div>
+       </div>
 
        {/* Footer Stats - Updated to reflect filtered items */}
        <div className="bg-slate-200 p-4 mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center font-bold text-slate-800 rounded-lg">
@@ -1838,6 +1890,15 @@ const Planning: React.FC = () => {
                 </div>
 
                 <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+                    {selectedMissionDetails.sourceDocumentId && (
+                        <button
+                            onClick={() => navigate('/invoices', { state: { documentId: selectedMissionDetails.sourceDocumentId, filter: 'devis' } })}
+                            className="px-6 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition flex items-center gap-2"
+                        >
+                            <FileText className="w-4 h-4" />
+                            Voir le devis
+                        </button>
+                    )}
                     <button
                         onClick={() => {
                             setIsDetailsModalOpen(false);
