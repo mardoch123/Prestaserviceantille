@@ -129,8 +129,8 @@ const Login: React.FC = () => {
 
         try {
             const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: 'admin@presta.com',
-                password: 'admin123',
+                email: 'contact@prestaservicesantilles.com',
+                password: 'PrestaAdmin#2026',
             });
 
             if (authError && !authError.message.includes("already registered")) {
@@ -145,7 +145,7 @@ const Login: React.FC = () => {
             if (userId) {
                 const { error: profileError } = await supabase.from('users').insert({
                     id: userId,
-                    email: 'admin@presta.com',
+                    email: 'contact@prestaservicesantilles.com',
                     name: 'Admin Principal',
                     role: 'admin'
                 });
@@ -164,8 +164,8 @@ const Login: React.FC = () => {
                 });
 
                 setInitStatus('success');
-                setEmail('admin@presta.com');
-                setPassword('admin123');
+                setEmail('contact@prestaservicesantilles.com');
+                setPassword('PrestaAdmin#2026');
             }
 
         } catch (err: any) {
@@ -372,7 +372,7 @@ const Login: React.FC = () => {
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center animate-in fade-in zoom-in duration-200">
                         <h3 className="text-lg font-bold text-slate-800 mb-2">Initialisation Admin</h3>
                         <p className="text-sm text-slate-500 mb-6">
-                            Cela va créer un compte `admin@presta.com` / `admin123` et configurer les tables de base.
+                            Cela va créer un compte `contact@prestaservicesantilles.com` / `PrestaAdmin#2026` et configurer les tables de base.
                         </p>
 
                         {initStatus === 'loading' && <Loader2 className="w-8 h-8 text-brand-blue animate-spin mx-auto mb-4" />}

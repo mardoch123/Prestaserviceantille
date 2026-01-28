@@ -1889,11 +1889,11 @@ const Planning: React.FC = () => {
                     )}
                 </div>
 
-                <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+                <div className="p-6 border-t border-slate-100 flex flex-col sm:flex-row sm:justify-end gap-3">
                     {selectedMissionDetails.sourceDocumentId && (
                         <button
                             onClick={() => navigate('/invoices', { state: { documentId: selectedMissionDetails.sourceDocumentId, filter: 'devis' } })}
-                            className="px-6 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition flex items-center gap-2"
+                            className="w-full sm:w-auto px-6 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition flex items-center justify-center gap-2"
                         >
                             <FileText className="w-4 h-4" />
                             Voir le devis
@@ -1904,13 +1904,13 @@ const Planning: React.FC = () => {
                             setIsDetailsModalOpen(false);
                             openEditMissionModal();
                         }}
-                        className="px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:opacity-90 transition"
+                        className="w-full sm:w-auto px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:opacity-90 transition"
                     >
                         Modifier
                     </button>
                     <button 
                         onClick={() => { setIsDetailsModalOpen(false); setSelectedMissionDetails(null); }}
-                        className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                        className="w-full sm:w-auto px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
                     >
                         Fermer
                     </button>
@@ -1920,7 +1920,7 @@ const Planning: React.FC = () => {
                             setIsDetailsModalOpen(false);
                             setSelectedMissionDetails(null);
                         }}
-                        className="px-6 py-2 bg-red-100 text-red-600 font-bold rounded-lg hover:bg-red-200 transition"
+                        className="w-full sm:w-auto px-6 py-2 bg-red-100 text-red-600 font-bold rounded-lg hover:bg-red-200 transition"
                     >
                         Sélectionner pour suppression
                     </button>

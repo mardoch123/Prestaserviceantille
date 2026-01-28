@@ -1635,7 +1635,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             let userObj: User | null = null;
 
             // Check for admin first to avoid unnecessary DB queries
-            if (authUser.email === 'admin@presta.com') {
+            if (authUser.email === 'contact@prestaservicesantilles.com') {
                 console.log("[FetchProfile] Admin user detected, using admin fallback");
                 userObj = {
                     id: authUser.id,
@@ -1677,6 +1677,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         role: 'client'
                     } as User;
                 }
+            }
+
+            if (userObj && (userObj.role === 'admin' || userObj.role === 'super_admin') && String(authUser.email || '').toLowerCase() !== 'contact@prestaservicesantilles.com') {
+                userObj = {
+                    ...userObj,
+                    role: 'client'
+                } as User;
             }
 
             if (userObj) {
@@ -1735,12 +1742,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (storedUser) {
                         const userObj = JSON.parse(storedUser);
                         console.log("Restored user from localStorage:", userObj.name, userObj.role);
-                        restoredUser = userObj;
-                        setCurrentUser(userObj);
-                        if (userObj.role === 'client' && userObj.relatedEntityId) {
-                            setSimulatedClientId(userObj.relatedEntityId);
-                        } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
-                            setSimulatedProviderId(userObj.relatedEntityId);
+                        if ((userObj?.role === 'admin' || userObj?.role === 'super_admin') && String(userObj?.email || '').toLowerCase() !== 'contact@prestaservicesantilles.com') {
+                            localStorage.removeItem('presta_current_user');
+                        } else {
+                            restoredUser = userObj;
+                            setCurrentUser(userObj);
+                            if (userObj.role === 'client' && userObj.relatedEntityId) {
+                                setSimulatedClientId(userObj.relatedEntityId);
+                            } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
+                                setSimulatedProviderId(userObj.relatedEntityId);
+                            }
                         }
                     }
                 } catch (err) {

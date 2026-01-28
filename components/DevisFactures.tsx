@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
@@ -60,6 +60,7 @@ const DevisFactures: React.FC = () => {
     const adminSignatureInputRef = useRef<HTMLInputElement | null>(null);
 
     const location = useLocation();
+    const navigate = useNavigate();
 
     // --- Form State ---
     const [selectedClientId, setSelectedClientId] = useState<string>('');
@@ -150,13 +151,35 @@ const DevisFactures: React.FC = () => {
     const detailClient = selectedDocument ? clients.find(c => c.id === selectedDocument.clientId) : undefined;
 
     useEffect(() => {
-        if (location.state) {
-            const state = location.state as { filter?: string };
-            if (state.filter) {
-                setFilterStatus(state.filter);
+        if (!location.state) return;
+
+        const state = location.state as { filter?: string; documentId?: string };
+
+        if (state.filter) {
+            const filter = String(state.filter);
+            if (filter === 'devis' || filter === 'quote') {
+                setFilterStatus('all');
+                setColumnFilters(prev => ({
+                    ...prev,
+                    type: 'devis'
+                }));
+            } else {
+                setFilterStatus(filter);
             }
         }
-    }, [location]);
+
+        if (state.documentId) {
+            const docId = String(state.documentId);
+            const doc = (documents || []).find((d: any) => String(d?.id || '') === docId);
+            if (doc) {
+                openDetailModal(doc);
+            }
+        }
+
+        if (state.filter || state.documentId) {
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.state, location.pathname, documents, navigate]);
 
     const openModal = (mode: 'devis' | 'facture') => {
         setModalMode(mode);

@@ -1523,7 +1523,7 @@ const ClientPortal: React.FC = () => {
                         <div className="space-y-6">
                             <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
 
-                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
+                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 sm:p-5 shadow-sm">
                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                                     <div>
                                         <p className="text-sm font-semibold text-amber-700 uppercase">Demande du secrétariat</p>
@@ -1562,7 +1562,7 @@ const ClientPortal: React.FC = () => {
                                                             setSelectedChangeRequestId(req.id);
                                                             setIsChangeRequestModalOpen(true);
                                                         }}
-                                                        className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition"
+                                                        className="w-full sm:w-auto px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition"
                                                     >
                                                         Voir la proposition
                                                     </button>
@@ -1587,7 +1587,7 @@ const ClientPortal: React.FC = () => {
 
                             {/* Filtres du planning */}
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                                     {/* Recherche */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Recherche</label>
@@ -1665,7 +1665,7 @@ const ClientPortal: React.FC = () => {
                                     filteredClientMissions.map(m => {
                                         const cancelable = canCancelMission(m);
                                         return (
-                                            <div key={m.id} className={`bg-white p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-brand-blue'}`}>
+                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-brand-blue'}`}>
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <span className="font-bold text-lg text-slate-800">{m.service}</span>
@@ -1759,7 +1759,7 @@ const ClientPortal: React.FC = () => {
 
                             {/* Filtres */}
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                                     {/* Recherche */}
                                     <div className="md:col-span-1">
                                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Recherche</label>
