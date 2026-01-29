@@ -234,24 +234,30 @@ const AppLayout: React.FC = () => {
             return;
         }
 
-        const sendDeviceToken = async (tokenValue: string) => {
-            if (!tokenValue) return;
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const sendDeviceToken = async (tokenValue: string): Promise<boolean> => {
+            if (!tokenValue) return false;
 
             const endpointBase = import.meta.env.VITE_API_BASE || '';
             if (!endpointBase) {
                 console.warn('[push] VITE_API_BASE manquant. Exemple attendu: https://ton-app.vercel.app/api');
-                return;
+                return false;
             }
 
+            const normalizedBase = String(endpointBase).replace(/\/$/, '');
+            const apiBase = normalizedBase.endsWith('/api') ? normalizedBase : `${normalizedBase}/api`;
+
             // IMPORTANT (mobile): endpoint must be ABSOLUTE
-            const endpoint = `${String(endpointBase).replace(/\/$/, '')}/device-tokens`;
+            const endpoint = `${apiBase}/device-tokens`;
 
             // Secure using Supabase session access_token
-            const { data } = await (await import('./utils/supabaseClient')).supabase.auth.getSession();
+            const supabase = (await import('./utils/supabaseClient')).supabase;
+            const { data } = await supabase.auth.getSession();
             const accessToken = data.session?.access_token || '';
             if (!accessToken) {
-                console.warn('[push] Aucun access_token Supabase en session. Token push non envoyé.');
-                return;
+                console.warn('[push] Aucun access_token Supabase en session. Token push non envoyé (retry nécessaire).');
+                return false;
             }
 
             const payload = {
@@ -270,11 +276,38 @@ const AppLayout: React.FC = () => {
                 });
 
                 if (!response.ok) {
-                    console.warn('[push] Échec de l\'enregistrement du token push', response.status, response.statusText);
+                    let body = '';
+                    try {
+                        body = await response.text();
+                    } catch { }
+                    console.warn('[push] Échec de l\'enregistrement du token push', {
+                        endpoint,
+                        status: response.status,
+                        statusText: response.statusText,
+                        body
+                    });
+                    return false;
                 }
+
+                return true;
             } catch (error) {
                 console.error('[push] Erreur lors de l\'envoi du token vers le backend', error);
+                return false;
             }
+        };
+
+        const sendDeviceTokenWithRetry = async (tokenValue: string) => {
+            // In some cases (auto-login / session restore), the push registration event can
+            // arrive before Supabase session is fully available. We retry a few times.
+            const maxAttempts = 5;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const ok = await sendDeviceToken(tokenValue);
+                if (ok) return;
+
+                await sleep(800 * attempt);
+            }
+
+            console.warn('[push] Échec final: impossible d\'enregistrer le token push après retry');
         };
 
         const initPush = async () => {
@@ -302,6 +335,11 @@ const AppLayout: React.FC = () => {
                 const registrationListener = await PushNotifications.addListener('registration', async (token) => {
                     if (!token?.value) return;
 
+                    console.info('[push] registration token reçu', {
+                        platform: Capacitor.getPlatform(),
+                        tokenPreview: `${token.value.slice(0, 12)}...${token.value.slice(-6)}`,
+                    });
+
                     if (
                         pushTokenRef.current === token.value &&
                         pushRegisteredUserRef.current === currentUser.id
@@ -311,7 +349,7 @@ const AppLayout: React.FC = () => {
 
                     pushTokenRef.current = token.value;
                     pushRegisteredUserRef.current = currentUser.id;
-                    await sendDeviceToken(token.value);
+                    await sendDeviceTokenWithRetry(token.value);
                 });
                 pushListenersRef.current.push(registrationListener);
 
