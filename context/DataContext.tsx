@@ -111,10 +111,11 @@ interface DataContextType {
 
     documents: Document[];
     addDocument: (doc: Document) => Promise<void>;
+    updateDocument: (id: string, updates: Partial<Document>) => Promise<Document | null>;
     updateDocumentStatus: (id: string, status: string) => Promise<void>;
     deleteDocument: (id: string) => Promise<void>;
     deleteDocuments: (ids: string[]) => Promise<void>;
-    duplicateDocument: (id: string) => Promise<void>;
+    duplicateDocument: (id: string) => Promise<Document | null>;
     convertQuoteToInvoice: (quoteId: string) => Promise<void>;
     markInvoicePaid: (id: string) => Promise<void>;
     sendDocumentReminder: (id: string) => Promise<void>;
@@ -307,6 +308,67 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const extendReadingSession = () => {
         setIsReadingDocument(true);
         setLastActivity(Date.now());
+    };
+
+    const updateDocument = async (id: string, updates: Partial<Document>): Promise<Document | null> => {
+        const dbUpdates: any = { ...updates };
+        if (dbUpdates.clientId !== undefined) { dbUpdates.client_id = dbUpdates.clientId; delete dbUpdates.clientId; }
+        if (dbUpdates.clientName !== undefined) { dbUpdates.client_name = dbUpdates.clientName; delete dbUpdates.clientName; }
+        if (dbUpdates.unitPrice !== undefined) { dbUpdates.unit_price = dbUpdates.unitPrice; delete dbUpdates.unitPrice; }
+        if (dbUpdates.tvaRate !== undefined) { dbUpdates.tva_rate = dbUpdates.tvaRate; delete dbUpdates.tvaRate; }
+        if (dbUpdates.totalHT !== undefined) { dbUpdates.total_ht = dbUpdates.totalHT; delete dbUpdates.totalHT; }
+        if (dbUpdates.totalTTC !== undefined) { dbUpdates.total_ttc = dbUpdates.totalTTC; delete dbUpdates.totalTTC; }
+        if (dbUpdates.taxCreditEnabled !== undefined) { dbUpdates.tax_credit_enabled = dbUpdates.taxCreditEnabled; delete dbUpdates.taxCreditEnabled; }
+        if (dbUpdates.slotsData !== undefined) { dbUpdates.slots_data = dbUpdates.slotsData; delete dbUpdates.slotsData; }
+        if (dbUpdates.reminderSent !== undefined) { dbUpdates.reminder_sent = dbUpdates.reminderSent; delete dbUpdates.reminderSent; }
+        if (dbUpdates.recurrenceEndDate !== undefined) { dbUpdates.recurrence_end_date = dbUpdates.recurrenceEndDate; delete dbUpdates.recurrenceEndDate; }
+        if (dbUpdates.packId !== undefined) { dbUpdates.pack_id = dbUpdates.packId || null; delete dbUpdates.packId; }
+
+        let { data, error } = await supabase
+            .from('documents')
+            .update(dbUpdates)
+            .eq('id', id)
+            .select()
+            .maybeSingle();
+
+        if (error) {
+            const msg = String((error as any)?.message || '').toLowerCase();
+            if (msg.includes('pack_id') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))) {
+                const retryUpdates = { ...dbUpdates };
+                delete retryUpdates.pack_id;
+                ({ data, error } = await supabase
+                    .from('documents')
+                    .update(retryUpdates)
+                    .eq('id', id)
+                    .select()
+                    .maybeSingle());
+            }
+        }
+
+        if (error) {
+            console.error('Error updating document:', error);
+            throw error;
+        }
+
+        if (!data) return null;
+
+        const mapped: Document = {
+            ...data,
+            clientId: (data as any).client_id,
+            clientName: (data as any).client_name,
+            unitPrice: (data as any).unit_price,
+            tvaRate: (data as any).tva_rate,
+            totalHT: (data as any).total_ht,
+            totalTTC: (data as any).total_ttc,
+            taxCreditEnabled: (data as any).tax_credit_enabled,
+            slotsData: (data as any).slots_data,
+            reminderSent: (data as any).reminder_sent,
+            recurrenceEndDate: (data as any).recurrence_end_date,
+            packId: (data as any).pack_id
+        } as any;
+
+        setDocuments(prev => prev.map(d => d.id === id ? { ...d, ...mapped } : d));
+        return mapped;
     };
 
     const submitContactForm = async (data: CreateContactFormDTO) => {
@@ -2958,7 +3020,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
-        const finalId = generateUUID();
+        const finalId = doc.id && String(doc.id).trim() ? doc.id : generateUUID();
         const dbDocData = {
             id: finalId,
             ref: doc.ref,
@@ -2976,11 +3038,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             tax_credit_enabled: doc.taxCreditEnabled,
             status: doc.status,
             slots_data: doc.slotsData,
+            pack_id: doc.packId || null,
             reminder_sent: false,
             frequency: doc.frequency,
             recurrence_end_date: doc.recurrenceEndDate
         };
-        const { data, error } = await supabase.from('documents').insert(dbDocData).select();
+        let { data, error } = await supabase.from('documents').insert(dbDocData).select();
+
+        if (error) {
+            const msg = String((error as any)?.message || '').toLowerCase();
+            if (msg.includes('pack_id') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))) {
+                const retryDocData: any = { ...dbDocData };
+                delete retryDocData.pack_id;
+                ({ data, error } = await supabase.from('documents').insert(retryDocData).select());
+            }
+        }
 
         if (error) {
             console.error("Error creating document:", error);
@@ -3161,23 +3233,79 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const duplicateDocument = async (id: string) => {
+    const duplicateDocument = async (id: string): Promise<Document | null> => {
         const doc = documents.find(d => d.id === id);
-        if (doc) {
-            // Remove ID to force new insertion, and update Ref to avoid unique constraint if any
-            const { id: oldId, ...rest } = doc;
-            const newRef = `${doc.ref}-COPY-${Date.now().toString().slice(-4)}`;
+        if (!doc) return null;
 
-            const newDoc: Document = {
-                ...rest,
-                id: generateUUID(),
-                ref: newRef,
-                status: doc.type === 'Devis' ? 'draft' : 'pending',
-                date: getMartiniqueToday()
-            };
+        const newId = generateUUID();
+        const newRef = `${doc.ref}-COPY-${Date.now().toString().slice(-4)}`;
 
-            await addDocument(newDoc);
+        const dbDocData: any = {
+            id: newId,
+            ref: newRef,
+            client_id: doc.clientId,
+            client_name: doc.clientName,
+            date: getMartiniqueToday(),
+            type: doc.type,
+            category: doc.category,
+            description: doc.description,
+            unit_price: doc.unitPrice,
+            quantity: doc.quantity,
+            tva_rate: doc.tvaRate,
+            total_ht: doc.totalHT,
+            total_ttc: doc.totalTTC,
+            tax_credit_enabled: doc.taxCreditEnabled,
+            status: doc.type === 'Devis' ? 'draft' : 'pending',
+            slots_data: doc.slotsData,
+            reminder_sent: false,
+            frequency: doc.frequency || null,
+            recurrence_end_date: doc.recurrenceEndDate || null,
+            pack_id: doc.packId || null,
+        };
+
+        let { data, error } = await supabase
+            .from('documents')
+            .insert(dbDocData)
+            .select()
+            .maybeSingle();
+
+        if (error) {
+            const msg = String((error as any)?.message || '').toLowerCase();
+            if (msg.includes('pack_id') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))) {
+                const retryDocData: any = { ...dbDocData };
+                delete retryDocData.pack_id;
+                ({ data, error } = await supabase
+                    .from('documents')
+                    .insert(retryDocData)
+                    .select()
+                    .maybeSingle());
+            }
         }
+
+        if (error) {
+            console.error('Error duplicating document:', error);
+            throw error;
+        }
+
+        if (!data) return null;
+
+        const mapped: Document = {
+            ...data,
+            clientId: (data as any).client_id,
+            clientName: (data as any).client_name,
+            unitPrice: (data as any).unit_price,
+            tvaRate: (data as any).tva_rate,
+            totalHT: (data as any).total_ht,
+            totalTTC: (data as any).total_ttc,
+            taxCreditEnabled: (data as any).tax_credit_enabled,
+            slotsData: (data as any).slots_data,
+            reminderSent: (data as any).reminder_sent,
+            recurrenceEndDate: (data as any).recurrence_end_date,
+            packId: (data as any).pack_id
+        } as any;
+
+        setDocuments(prev => [...prev, mapped]);
+        return mapped;
     };
 
     const convertQuoteToInvoice = async (quoteId: string) => {
@@ -5002,7 +5130,7 @@ return (
 
         providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
 
-        documents, addDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+        documents, addDocument, updateDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
 
         packs, addPack, updatePack, deletePacks,
 

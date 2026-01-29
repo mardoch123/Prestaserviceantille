@@ -26,6 +26,7 @@ import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-rea
 import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Error Boundary to catch DataProvider context issues
 class ErrorBoundary extends React.Component<
@@ -285,6 +286,15 @@ const AppLayout: React.FC = () => {
                         console.info('[push] Permission de notifications refusée');
                         return;
                     }
+                }
+
+                try {
+                    const localPermission = await LocalNotifications.checkPermissions();
+                    if ((localPermission as any)?.display !== 'granted') {
+                        await LocalNotifications.requestPermissions();
+                    }
+                } catch (e) {
+                    console.warn('[notifications] LocalNotifications permission request failed', e);
                 }
 
                 cleanupListeners();

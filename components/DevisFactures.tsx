@@ -31,7 +31,7 @@ interface InterventionSlot {
 }
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -46,6 +46,7 @@ const DevisFactures: React.FC = () => {
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [documentToDelete, setDocumentToDelete] = useState<{ id: string, ref: string } | null>(null);
     const [isBulkDelete, setIsBulkDelete] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Document Detail Modal State
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -75,6 +76,28 @@ const DevisFactures: React.FC = () => {
 
     // Loading state
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set());
+    const [prefilledRef, setPrefilledRef] = useState<string>('');
+    const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+
+    const [loadingActions, setLoadingActions] = useState<Set<string>>(new Set());
+
+    const startAction = (key: string) => {
+        setLoadingActions(prev => {
+            const next = new Set(prev);
+            next.add(key);
+            return next;
+        });
+    };
+
+    const stopAction = (key: string) => {
+        setLoadingActions(prev => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+        });
+    };
 
     // Planification Prévisionnelle Enhancements
     const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
@@ -184,6 +207,8 @@ const DevisFactures: React.FC = () => {
     const openModal = (mode: 'devis' | 'facture') => {
         setModalMode(mode);
         setIsModalOpen(true);
+        setPrefilledRef('');
+        setEditingDocumentId(null);
         setSelectedClientId('');
         setServiceType('pack');
         setPackQuantity(1);
@@ -195,6 +220,34 @@ const DevisFactures: React.FC = () => {
         setInterventionSlots([]);
         setPackSpecificConfig({});
         setCustomLines([]); // Réinitialiser les lignes personnalisées
+    };
+
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setPrefilledRef('');
+        setEditingDocumentId(null);
+    };
+
+    const openDuplicateModal = (doc: any) => {
+        const nextMode: 'devis' | 'facture' = doc?.type === 'Facture' ? 'facture' : 'devis';
+        setModalMode(nextMode);
+        setIsModalOpen(true);
+        setEditingDocumentId(String(doc?.id || ''));
+
+        // Prefill the form with the existing document values
+        setSelectedClientId(String(doc?.clientId || ''));
+        setServiceType((doc?.category === 'custom' ? 'custom' : 'pack') as any);
+        setSelectedPackId(String(doc?.packId || ''));
+        setPackQuantity(Number(doc?.quantity || 1));
+        setUnitPrice(Number(doc?.unitPrice || 0));
+        setCustomDescription(String(doc?.description || ''));
+        setTvaRate((Number(doc?.tvaRate || 0) as any));
+        setTaxCreditActive(!!doc?.taxCreditEnabled);
+        setInterventionSlots(Array.isArray(doc?.slotsData) ? doc.slotsData : []);
+        setPackSpecificConfig({});
+        setCustomLines([]);
+
+        setPrefilledRef(String(doc?.ref || ''));
     };
 
     // Fonctions pour gérer les lignes personnalisées
@@ -950,6 +1003,11 @@ const DevisFactures: React.FC = () => {
     };
 
     const openDetailModal = (doc: any) => {
+        // If it's a draft quote, open edit modal directly (with existing slots/hours)
+        if (String(doc?.type || '') === 'Devis' && String(doc?.status || '') === 'draft') {
+            openDuplicateModal(doc);
+            return;
+        }
         setSelectedDocument(doc);
         setIsDetailModalOpen(true);
     };
@@ -1127,9 +1185,11 @@ const DevisFactures: React.FC = () => {
             }
 
             
-            const newDoc: Document = {
-                id: '',
-                ref: `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
+            const ref = prefilledRef || `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`;
+
+            const docToPersist: Document = {
+                id: editingDocumentId || '',
+                ref,
                 clientId: selectedClientId,
                 clientName: clientName,
                 date: getMartiniqueToday(),
@@ -1147,7 +1207,28 @@ const DevisFactures: React.FC = () => {
                 packId: serviceType === 'pack' ? selectedPackId : undefined,
             };
 
-            await addDocument(newDoc);
+            if (editingDocumentId) {
+                await updateDocument(editingDocumentId, {
+                    ref: docToPersist.ref,
+                    clientId: docToPersist.clientId,
+                    clientName: docToPersist.clientName,
+                    date: docToPersist.date,
+                    type: docToPersist.type,
+                    category: docToPersist.category,
+                    description: docToPersist.description,
+                    unitPrice: docToPersist.unitPrice,
+                    quantity: docToPersist.quantity,
+                    tvaRate: docToPersist.tvaRate,
+                    totalHT: docToPersist.totalHT,
+                    totalTTC: docToPersist.totalTTC,
+                    taxCreditEnabled: docToPersist.taxCreditEnabled,
+                    status: docToPersist.status,
+                    slotsData: docToPersist.slotsData,
+                    packId: docToPersist.packId,
+                });
+            } else {
+                await addDocument(docToPersist);
+            }
 
             // GÉNÉRATION AUTOMATIQUE DU CONTRAT LORS DE LA CRÉATION D'UN DEVIS
             if (modalMode === 'devis') {
@@ -1155,7 +1236,7 @@ const DevisFactures: React.FC = () => {
                 const pack = packs.find(p => p.id === selectedPackId);
 
                 if (client) {
-                    const contract = generateContractFromTemplate(newDoc, client, pack);
+                    const contract = generateContractFromTemplate(docToPersist, client, pack);
 
                     if (contract) {
                         // Rendre le contrat automatiquement validé et actif
@@ -1166,8 +1247,8 @@ const DevisFactures: React.FC = () => {
                             validatedAt: getMartiniqueNowISO(),
                             validatedBy: currentUser?.id || 'system',
                             validationDate: getMartiniqueToday(),
-                            clientSignatureUrl: newDoc.signedAt ? 'auto-signed' : undefined,
-                            signedAt: newDoc.signedAt || getMartiniqueNowISO()
+                            clientSignatureUrl: docToPersist.signedAt ? 'auto-signed' : undefined,
+                            signedAt: docToPersist.signedAt || getMartiniqueNowISO()
                         };
 
                         await addContract(validatedContract);
@@ -1177,7 +1258,7 @@ const DevisFactures: React.FC = () => {
                             'client',
                             'success',
                             'Contrat créé et validé',
-                            `Votre contrat a été automatiquement généré et validé pour le devis ${newDoc.ref}. Vous pouvez le télécharger dans votre espace client.`,
+                            `Votre contrat a été automatiquement généré et validé pour le devis ${docToPersist.ref}. Vous pouvez le télécharger dans votre espace client.`,
                             selectedClientId,
                             'documents'
                         );
@@ -1193,7 +1274,7 @@ const DevisFactures: React.FC = () => {
                     'client',
                     'info',
                     'Nouveau devis reçu',
-                    `Vous avez reçu un nouveau devis ${newDoc.ref} d'un montant de ${newDoc.totalTTC}€. Consultez-le dans votre espace client.`,
+                    `Vous avez reçu un nouveau devis ${docToPersist.ref} d'un montant de ${docToPersist.totalTTC}€. Consultez-le dans votre espace client.`,
                     selectedClientId,
                     'documents'
                 );
@@ -1221,7 +1302,7 @@ const DevisFactures: React.FC = () => {
                 }
             }
 
-            setIsModalOpen(false);
+            closeModal();
             showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
         } catch (e: any) {
             showToast("Erreur création document: " + e.message, 'error');
@@ -1232,48 +1313,98 @@ const DevisFactures: React.FC = () => {
 
     // --- ACTION HANDLERS ---
 
-    const handleConversion = (docId: string, e: React.MouseEvent) => {
+    const handleConversion = async (docId: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
 
         if (window.confirm("Confirmer la conversion en facture ?")) {
-            convertQuoteToInvoice(docId);
-            setFilterStatus('all');
-            showToast('Devis converti en facture !');
+            const key = `convert:${docId}`;
+            startAction(key);
+            try {
+                await convertQuoteToInvoice(docId);
+                setFilterStatus('all');
+                showToast('Devis converti en facture !');
+            } catch (err: any) {
+                showToast('Erreur conversion en facture.', 'error');
+            } finally {
+                stopAction(key);
+            }
         }
     };
 
-    const handleSendEmail = (docRef: string, e: React.MouseEvent) => {
+    const handleSendEmail = async (doc: any, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        showToast(`Facture ${docRef} envoyée par email au client.`);
+
+        const docId = String(doc?.id || '');
+        const key = `email:${docId || String(doc?.ref || '')}`;
+        startAction(key);
+        try {
+            const client = clients.find(c => c.id === String(doc?.clientId || ''));
+            const to = client?.email || '';
+            if (!to) {
+                showToast('Email client introuvable.', 'error');
+                return;
+            }
+
+            await sendEmail(to, `Document ${String(doc?.ref || '')}`, 'new_document', {
+                type: doc?.type || 'Document',
+                ref: doc?.ref || '',
+                link: 'https://www.prestaservicesantilles.com/'
+            });
+            showToast(`Email envoyé au client (${to}).`, 'success');
+        } catch (err: any) {
+            showToast('Erreur envoi email.', 'error');
+        } finally {
+            stopAction(key);
+        }
     };
 
-    const handleMarkPaid = (docId: string, e: React.MouseEvent) => {
+    const handleMarkPaid = async (docId: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         if (window.confirm("Confirmez-vous avoir reçu le paiement ?")) {
-            markInvoicePaid(docId);
-            showToast('Facture marquée comme payée.');
+            const key = `paid:${docId}`;
+            startAction(key);
+            try {
+                await markInvoicePaid(docId);
+                showToast('Facture marquée comme payée.');
+            } catch (err: any) {
+                showToast('Erreur encaissement facture.', 'error');
+            } finally {
+                stopAction(key);
+            }
         }
     };
 
-    const handleManualReminder = (docId: string, e: React.MouseEvent) => {
+    const handleManualReminder = async (docId: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        sendDocumentReminder(docId);
-        showToast('Relance envoyée (Notification + Email).');
+        const key = `reminder:${docId}`;
+        startAction(key);
+        try {
+            await sendDocumentReminder(docId);
+            showToast('Relance envoyée (Notification + Email).');
+        } catch (err: any) {
+            showToast('Erreur envoi relance.', 'error');
+        } finally {
+            stopAction(key);
+        }
     };
 
     const handleManualSignatureReminder = async (docId: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        const key = `signatureReminder:${docId}`;
+        startAction(key);
         try {
             await sendQuoteSignatureReminder(docId);
             showToast('Rappel signature devis envoyé.', 'success');
         } catch (err) {
             console.error('[DevisFactures] Signature reminder failed:', err);
             showToast('Erreur envoi rappel signature devis.', 'error');
+        } finally {
+            stopAction(key);
         }
     };
 
@@ -1302,27 +1433,51 @@ const DevisFactures: React.FC = () => {
     };
 
     const executeDelete = async () => {
-        if (isBulkDelete) {
-            await deleteDocuments(Array.from(selectedIds));
-            setSelectedIds(new Set());
-            showToast(`${selectedIds.size} document(s) supprimé(s).`);
-        } else if (documentToDelete) {
-            await deleteDocument(documentToDelete.id);
-            showToast(`Document ${documentToDelete.ref} supprimé définitivement.`);
+        setIsDeleting(true);
+        try {
+            if (isBulkDelete) {
+                const count = selectedIds.size;
+                await deleteDocuments(Array.from(selectedIds));
+                setSelectedIds(new Set());
+                showToast(`${count} document(s) supprimé(s).`);
+            } else if (documentToDelete) {
+                await deleteDocument(documentToDelete.id);
+                showToast(`Document ${documentToDelete.ref} supprimé définitivement.`);
+            }
+            setIsDeleteModalOpen(false);
+            setDocumentToDelete(null);
+        } catch (err: any) {
+            showToast('Erreur suppression document(s).', 'error');
+        } finally {
+            setIsDeleting(false);
         }
-        setIsDeleteModalOpen(false);
-        setDocumentToDelete(null);
     };
 
     const handleDuplicate = async (id: string, ref: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         try {
-            await duplicateDocument(id);
+            setDuplicatingIds(prev => {
+                const next = new Set(prev);
+                next.add(id);
+                return next;
+            });
+
+            const duplicated = await duplicateDocument(id);
+            if (!duplicated) {
+                throw new Error('Duplication impossible');
+            }
+
+            openDuplicateModal(duplicated);
             setFilterStatus('all');
-            showToast('Document dupliqué !');
         } catch (err: any) {
             alert("Erreur duplication: " + err.message);
+        } finally {
+            setDuplicatingIds(prev => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
         }
     };
 
@@ -1935,13 +2090,18 @@ const DevisFactures: React.FC = () => {
                                                 )}
 
                                                 {/* CONVERT BUTTON */}
-                                                {doc.type === 'Devis' && doc.status === 'signed' && (
+                                                {doc.type === 'Devis' && doc.status === 'paid' && (
                                                     <button
                                                         onClick={(e) => handleConversion(doc.id, e)}
-                                                        className="bg-brand-orange text-white text-xs px-3 py-1 rounded-lg hover:bg-orange-600 transition shadow-sm flex items-center gap-1"
+                                                        disabled={loadingActions.has(`convert:${doc.id}`)}
+                                                        className="bg-brand-orange text-white text-xs px-3 py-1 rounded-lg hover:bg-orange-600 transition shadow-sm flex items-center gap-1 disabled:opacity-50"
                                                         title="Convertir après paiement"
                                                     >
-                                                        <RefreshCw className="w-3 h-3 pointer-events-none" /> Convertir
+                                                        {loadingActions.has(`convert:${doc.id}`)
+                                                            ? <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
+                                                            : <RefreshCw className="w-3 h-3 pointer-events-none" />
+                                                        }
+                                                        Convertir
                                                     </button>
                                                 )}
 
@@ -1960,10 +2120,15 @@ const DevisFactures: React.FC = () => {
                                                 {doc.status === 'pending' && doc.type === 'Facture' && (
                                                     <button
                                                         onClick={(e) => handleMarkPaid(doc.id, e)}
-                                                        className="bg-green-600 text-white text-xs px-3 py-1 rounded-lg hover:bg-green-700 transition shadow-sm flex items-center gap-1"
+                                                        disabled={loadingActions.has(`paid:${doc.id}`)}
+                                                        className="bg-green-600 text-white text-xs px-3 py-1 rounded-lg hover:bg-green-700 transition shadow-sm flex items-center gap-1 disabled:opacity-50"
                                                         title="Marquer comme payé (Externe)"
                                                     >
-                                                        <CreditCard className="w-3 h-3 pointer-events-none" /> Encaisser
+                                                        {loadingActions.has(`paid:${doc.id}`)
+                                                            ? <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
+                                                            : <CreditCard className="w-3 h-3 pointer-events-none" />
+                                                        }
+                                                        Encaisser
                                                     </button>
                                                 )}
 
@@ -1971,10 +2136,14 @@ const DevisFactures: React.FC = () => {
                                                 {doc.type === 'Devis' && doc.status === 'sent' && (
                                                     <button
                                                         onClick={(e) => handleManualReminder(doc.id, e)}
-                                                        className="text-slate-400 hover:text-orange-500 p-1 hover:bg-orange-50 rounded transition"
+                                                        disabled={loadingActions.has(`reminder:${doc.id}`)}
+                                                        className="text-slate-400 hover:text-orange-500 p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
                                                         title="Forcer une relance maintenant"
                                                     >
-                                                        <Zap className="w-4 h-4 pointer-events-none" />
+                                                        {loadingActions.has(`reminder:${doc.id}`)
+                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
+                                                            : <Zap className="w-4 h-4 pointer-events-none" />
+                                                        }
                                                     </button>
                                                 )}
 
@@ -1982,20 +2151,28 @@ const DevisFactures: React.FC = () => {
                                                 {doc.type === 'Devis' && doc.status === 'sent' && (
                                                     <button
                                                         onClick={(e) => handleManualSignatureReminder(doc.id, e)}
-                                                        className="text-slate-400 hover:text-teal-600 p-1 hover:bg-teal-50 rounded transition"
+                                                        disabled={loadingActions.has(`signatureReminder:${doc.id}`)}
+                                                        className="text-slate-400 hover:text-teal-600 p-1 hover:bg-teal-50 rounded transition disabled:opacity-50"
                                                         title="Envoyer rappel signature devis (avec identifiants + temps restant)"
                                                     >
-                                                        <Clock className="w-4 h-4 pointer-events-none" />
+                                                        {loadingActions.has(`signatureReminder:${doc.id}`)
+                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
+                                                            : <Clock className="w-4 h-4 pointer-events-none" />
+                                                        }
                                                     </button>
                                                 )}
 
                                                 {/* DUPLICATE BUTTON */}
                                                 <button
                                                     onClick={(e) => handleDuplicate(doc.id, doc.ref, e)}
-                                                    className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
+                                                    disabled={duplicatingIds.has(doc.id)}
+                                                    className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition disabled:opacity-50"
                                                     title="Dupliquer"
                                                 >
-                                                    <Copy className="w-4 h-4 pointer-events-none" />
+                                                    {duplicatingIds.has(doc.id)
+                                                        ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
+                                                        : <Copy className="w-4 h-4 pointer-events-none" />
+                                                    }
                                                 </button>
 
                                                 {/* DELETE BUTTON */}
@@ -2023,7 +2200,7 @@ const DevisFactures: React.FC = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col">
                         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50 rounded-t-2xl sticky top-0 z-10">
                             <div><h3 className="text-2xl font-serif font-bold text-slate-800">{modalMode === 'devis' ? 'Édition de Devis' : 'Édition de Facture'}</h3><p className="text-xs text-slate-500 mt-1">Infos obligatoires <span className="text-red-500">*</span></p></div>
-                            <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-6 h-6 text-slate-500" /></button>
+                            <button onClick={closeModal} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-6 h-6 text-slate-500" /></button>
                         </div>
                         <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
                             <div className="lg:col-span-7 space-y-8">
@@ -2793,14 +2970,17 @@ const DevisFactures: React.FC = () => {
                             <div className="flex gap-3 w-full">
                                 <button
                                     onClick={() => setIsDeleteModalOpen(false)}
-                                    className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                    disabled={isDeleting}
+                                    className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50"
                                 >
                                     Annuler
                                 </button>
                                 <button
                                     onClick={executeDelete}
-                                    className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md"
+                                    disabled={isDeleting}
+                                    className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
+                                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                                     Supprimer
                                 </button>
                             </div>
