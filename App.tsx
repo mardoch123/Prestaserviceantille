@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
@@ -23,6 +23,9 @@ import ScanSuccess from './components/ScanSuccess';
 import ContactPage from './components/ContactPage';
 import ContactFormsAdmin from './components/ContactFormsAdmin';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import type { PluginListenerHandle } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 // Error Boundary to catch DataProvider context issues
 class ErrorBoundary extends React.Component<
@@ -191,6 +194,9 @@ const AppLayout: React.FC = () => {
     const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isManualReload, setIsManualReload] = useState(false);
+    const pushListenersRef = useRef<PluginListenerHandle[]>([]);
+    const pushTokenRef = useRef<string | null>(null);
+    const pushRegisteredUserRef = useRef<string | null>(null);
 
     useEffect(() => {
         const hash = window.location.hash || '';
@@ -209,6 +215,141 @@ const AppLayout: React.FC = () => {
             setIsManualReload(false);
         }
     }, []);
+
+    useEffect(() => {
+        const cleanupListeners = () => {
+            pushListenersRef.current.forEach(listener => listener.remove());
+            pushListenersRef.current = [];
+        };
+
+        if (!currentUser) {
+            cleanupListeners();
+            pushTokenRef.current = null;
+            pushRegisteredUserRef.current = null;
+            return;
+        }
+
+        if (!Capacitor.isNativePlatform()) {
+            return;
+        }
+
+        const sendDeviceToken = async (tokenValue: string) => {
+            if (!tokenValue) return;
+
+            const endpointBase = import.meta.env.VITE_API_BASE || '';
+            if (!endpointBase) {
+                console.warn('[push] VITE_API_BASE manquant. Exemple attendu: https://ton-app.vercel.app/api');
+                return;
+            }
+
+            // IMPORTANT (mobile): endpoint must be ABSOLUTE
+            const endpoint = `${String(endpointBase).replace(/\/$/, '')}/device-tokens`;
+
+            // Secure using Supabase session access_token
+            const { data } = await (await import('./utils/supabaseClient')).supabase.auth.getSession();
+            const accessToken = data.session?.access_token || '';
+            if (!accessToken) {
+                console.warn('[push] Aucun access_token Supabase en session. Token push non envoyé.');
+                return;
+            }
+
+            const payload = {
+                token: tokenValue,
+                platform: Capacitor.getPlatform(),
+            };
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    console.warn('[push] Échec de l\'enregistrement du token push', response.status, response.statusText);
+                }
+            } catch (error) {
+                console.error('[push] Erreur lors de l\'envoi du token vers le backend', error);
+            }
+        };
+
+        const initPush = async () => {
+            try {
+                const permission = await PushNotifications.checkPermissions();
+                if (permission.receive !== 'granted') {
+                    const request = await PushNotifications.requestPermissions();
+                    if (request.receive !== 'granted') {
+                        console.info('[push] Permission de notifications refusée');
+                        return;
+                    }
+                }
+
+                cleanupListeners();
+
+                const registrationListener = await PushNotifications.addListener('registration', async (token) => {
+                    if (!token?.value) return;
+
+                    if (
+                        pushTokenRef.current === token.value &&
+                        pushRegisteredUserRef.current === currentUser.id
+                    ) {
+                        return;
+                    }
+
+                    pushTokenRef.current = token.value;
+                    pushRegisteredUserRef.current = currentUser.id;
+                    await sendDeviceToken(token.value);
+                });
+                pushListenersRef.current.push(registrationListener);
+
+                const registrationErrorListener = await PushNotifications.addListener('registrationError', (error) => {
+                    console.error('[push] Erreur d\'enregistrement des notifications', error);
+                });
+                pushListenersRef.current.push(registrationErrorListener);
+
+                const receivedListener = await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                    console.info('[push] Notification reçue', notification);
+                });
+                pushListenersRef.current.push(receivedListener);
+
+                const actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+                    console.info('[push] Action sur notification', notification);
+                });
+                pushListenersRef.current.push(actionListener);
+
+                // Create default Android channel (required when using default_notification_channel_id)
+                if (Capacitor.getPlatform() === 'android') {
+                    try {
+                        await PushNotifications.createChannel({
+                            id: 'presta_default_channel',
+                            name: 'Notifications',
+                            description: 'Notifications Presta Services Antilles',
+                            importance: 5,
+                            visibility: 1,
+                            sound: 'default',
+                            lights: true,
+                            vibration: true,
+                        });
+                    } catch (e) {
+                        console.warn('[push] createChannel failed (may already exist)', e);
+                    }
+                }
+
+                await PushNotifications.register();
+            } catch (error) {
+                console.error('[push] Erreur lors de l\'initialisation des notifications push', error);
+            }
+        };
+
+        initPush();
+
+        return () => {
+            cleanupListeners();
+        };
+    }, [currentUser]);
 
     if (!isOnline) {
         return <OfflineScreen />;

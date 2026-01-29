@@ -2064,6 +2064,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
+        try {
+            const endpointBase = import.meta.env.VITE_API_BASE || '';
+            if (endpointBase) {
+                const { data } = await supabase.auth.getSession();
+                const accessToken = data.session?.access_token || '';
+                if (accessToken) {
+                    const endpoint = `${String(endpointBase).replace(/\/$/, '')}/notify`;
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${accessToken}`
+                        },
+                        body: JSON.stringify({
+                            targetUserType,
+                            targetUserId,
+                            title,
+                            body: message,
+                            data: {
+                                link: link || ''
+                            }
+                        })
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('[AddNotification] Push notify failed:', e);
+        }
+
         const mappedNotif: AppNotification = {
             ...(insertData as any),
             type,
@@ -3143,7 +3172,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 ...rest,
                 id: generateUUID(),
                 ref: newRef,
-                status: doc.type === 'Devis' ? 'sent' : 'pending',
+                status: doc.type === 'Devis' ? 'draft' : 'pending',
                 date: getMartiniqueToday()
             };
 

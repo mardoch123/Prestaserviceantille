@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -626,6 +626,40 @@ const Planning: React.FC = () => {
        showToast('Missions supprimées de la base de données.');
   };
 
+  const handleCopyMissionDetails = async () => {
+      if (!selectedMissionDetails) return;
+
+      const mission = selectedMissionDetails;
+      const client = detailClient;
+      const formattedDate = mission.date
+          ? dayjs.tz(mission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY')
+          : '—';
+
+      const info = [
+          `Mission: ${mission.service || '—'}`,
+          `Date: ${formattedDate}`,
+          `Horaires: ${mission.startTime || '—'} - ${mission.endTime || '—'}`,
+          `Durée: ${mission.duration ? `${mission.duration}h` : '—'}`,
+          `Client: ${client?.name || mission.clientName || '—'}`,
+          `Téléphone client: ${client?.phone || '—'}`,
+          `Adresse: ${client?.address || '—'}`,
+          `Prestataire: ${mission.providerName || 'À assigner'}`,
+          `Devis source: ${mission.sourceDocumentId || '—'}`
+      ].join('\n');
+
+      try {
+          if (typeof navigator !== 'undefined' && navigator?.clipboard?.writeText) {
+              await navigator.clipboard.writeText(info);
+              showToast('Informations mission copiées dans le presse-papiers.');
+          } else {
+              throw new Error('Clipboard API non disponible');
+          }
+      } catch (err) {
+          console.error('[copyMissionDetails] error:', err);
+          showToast('Impossible de copier les informations.', 'error');
+      }
+  };
+
   const unassignedMissions = missions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
   const missionToAssign = missions.find(m => m.id === selectedMissionId);
 
@@ -1026,7 +1060,7 @@ const Planning: React.FC = () => {
                                                     <button
                                                         onClick={(e) => toggleMissionSelection(item.id, e)}
                                                         className="p-1 hover:bg-white/80 rounded shrink-0"
-                                                        title="Sélectionner pour suppression"
+                                                        title="Sélectionner"
                                                     >
                                                         {selectedMissionIds.has(item.id) ? (
                                                             <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
@@ -1103,7 +1137,7 @@ const Planning: React.FC = () => {
                                                 <button
                                                     onClick={(e) => toggleMissionSelection(item.id, e)}
                                                     className="p-1 hover:bg-white/50 rounded"
-                                                    title="Sélectionner pour suppression"
+                                                    title="Sélectionner"
                                                 >
                                                     {selectedMissionIds.has(item.id) ? (
                                                         <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
@@ -1900,6 +1934,13 @@ const Planning: React.FC = () => {
                         </button>
                     )}
                     <button
+                        onClick={handleCopyMissionDetails}
+                        className="w-full sm:w-auto px-6 py-2 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-50 transition flex items-center justify-center gap-2"
+                    >
+                        <CopyIcon className="w-4 h-4" />
+                        Copier les infos
+                    </button>
+                    <button
                         onClick={() => {
                             setIsDetailsModalOpen(false);
                             openEditMissionModal();
@@ -1922,7 +1963,7 @@ const Planning: React.FC = () => {
                         }}
                         className="w-full sm:w-auto px-6 py-2 bg-red-100 text-red-600 font-bold rounded-lg hover:bg-red-200 transition"
                     >
-                        Sélectionner pour suppression
+                        Sélectionner
                     </button>
                 </div>
             </div>

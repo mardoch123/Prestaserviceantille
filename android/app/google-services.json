@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "577745772677",
+    "project_id": "pprestaservicesantilles",
+    "storage_bucket": "pprestaservicesantilles.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:577745772677:android:16733550dad44bb6d9c9ec",
+        "android_client_info": {
+          "package_name": "com.prestaservicesantilles.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCB8cx6ln84OPJdPOrmtcmZZyE4IV0nqSU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
