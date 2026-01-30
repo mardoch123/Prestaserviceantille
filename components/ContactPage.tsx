@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
-import { Mail, Phone, Sparkles, Send, MapPin } from 'lucide-react';
+import { Sparkles, Send } from 'lucide-react';
+import logo from '../src/assets/images/logo.webp';
 
 const ContactPage: React.FC = () => {
     const { companySettings, submitContactForm } = useData();
@@ -51,7 +52,7 @@ const ContactPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-cream-50 relative overflow-x-hidden">
+        <div className="h-screen bg-cream-50 relative overflow-x-hidden overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="absolute -top-24 -left-24 w-72 h-72 bg-brand-orange/20 rounded-full blur-3xl" />
             <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-brand-blue/20 rounded-full blur-3xl" />
 
@@ -72,40 +73,8 @@ const ContactPage: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                    <div className="lg:col-span-2 bg-white/80 backdrop-blur rounded-2xl border border-slate-200 shadow-sm p-6">
-                        <h2 className="font-bold text-slate-800 mb-4">Nos coordonnées</h2>
-
-                        <div className="space-y-3 text-sm">
-                            <div className="flex items-start gap-3">
-                                <Mail className="w-5 h-5 text-brand-blue mt-0.5" />
-                                <div>
-                                    <div className="font-bold text-slate-700">Email</div>
-                                    <div className="text-slate-600 break-words">{companySettings.email}</div>
-                                </div>
-                            </div>
-
-                            <div className="flex items-start gap-3">
-                                <Phone className="w-5 h-5 text-brand-blue mt-0.5" />
-                                <div>
-                                    <div className="font-bold text-slate-700">Téléphone</div>
-                                    <div className="text-slate-600">{companySettings.phone}</div>
-                                </div>
-                            </div>
-
-                            <div className="flex items-start gap-3">
-                                <MapPin className="w-5 h-5 text-brand-blue mt-0.5" />
-                                <div>
-                                    <div className="font-bold text-slate-700">Adresse</div>
-                                    <div className="text-slate-600">{companySettings.address}</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                            <p className="text-xs text-slate-600">
-                                Astuce : si c’est urgent, indique « URGENT » dans l’objet et laisse un numéro où te joindre.
-                            </p>
-                        </div>
+                    <div className="lg:col-span-2 bg-white/80 backdrop-blur rounded-2xl border border-slate-200 shadow-sm p-6 flex items-center justify-center">
+                        <img src={logo} alt="Presta Services Antilles" className="w-full max-w-[260px] h-auto" />
                     </div>
 
                     <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
