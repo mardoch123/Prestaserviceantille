@@ -63,12 +63,6 @@ const ContactPage: React.FC = () => {
                             <Sparkles className="w-4 h-4 text-brand-orange" />
                             Contact
                         </div>
-                        <h1 className="text-3xl sm:text-4xl font-serif font-bold text-slate-800 mt-3">
-                            Une question ? Une idée ? Un petit bonjour ?
-                        </h1>
-                        <p className="text-slate-600 mt-2 max-w-2xl">
-                            Écris-nous, on adore lire vos messages. Promis, on répond vite (et avec le sourire).
-                        </p>
                     </div>
                 </div>
 
