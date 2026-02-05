@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:vercel": "vercel dev",
     "build": "tsc && vite build",
     "build:cap": "tsc && vite build --mode capacitor",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

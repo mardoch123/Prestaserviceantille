@@ -1790,7 +1790,7 @@ const Secretariat: React.FC = () => {
                     <div>
                         <div className="flex justify-between items-center mb-6 flex-col sm:flex-row gap-4">
                             <h3 className="text-lg font-bold text-slate-700">Comptabilité Générale</h3>
-                            <button onClick={() => { setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: getMartiniqueToday() }); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 w-full sm:w-auto">
+                            <button onClick={() => { setExpenseForm({ id: '', category: 'fournitures', amount: 0, description: '', date: getMartiniqueToday() }); setModalType('expense'); setIsModalOpen(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 w-full sm:w-auto">
                                 <Plus className="w-4 h-4" /> Saisir Dépense
                             </button>
                         </div>
@@ -1907,7 +1907,7 @@ const Secretariat: React.FC = () => {
                                                 <td className="px-4 py-4 text-center">
                                                     <button
                                                         onClick={() => handleEditExpense(expense)}
-                                                        className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition opacity-0 group-hover:opacity-100"
+                                                        className="bg-slate-100 text-slate-500 p-1.5 rounded hover:bg-brand-blue hover:text-white transition"
                                                         title="Modifier"
                                                     >
                                                         <Edit className="w-3 h-3" />

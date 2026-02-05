@@ -68,6 +68,33 @@ function addMonths(date: Date, months: number): Date {
     return result;
 }
 
+async function checkReachable(url: string, timeoutMs = 3500): Promise<boolean> {
+    try {
+        if (typeof fetch === 'undefined') return true;
+
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeout = setTimeout(() => {
+            try {
+                controller?.abort();
+            } catch { }
+        }, timeoutMs);
+
+        try {
+            const res = await fetch(url, {
+                method: 'GET',
+                cache: 'no-store',
+                signal: controller?.signal
+            } as any);
+            // Si on reçoit une réponse HTTP, même 401/403/500, on a bien une connectivité réseau.
+            return !!res;
+        } finally {
+            clearTimeout(timeout);
+        }
+    } catch {
+        return false;
+    }
+}
+
 async function getCurrentOnlineStatus(): Promise<boolean> {
     try {
         if (Capacitor.isNativePlatform()) {
@@ -76,12 +103,38 @@ async function getCurrentOnlineStatus(): Promise<boolean> {
         }
     } catch { }
 
-    return typeof navigator !== 'undefined' ? !!navigator.onLine : true;
+    const navOnline = typeof navigator !== 'undefined' ? !!navigator.onLine : true;
+    if (navOnline) return true;
+
+    try {
+        const baseUrl = (() => {
+            try {
+                const base = (import.meta as any)?.env?.BASE_URL || '/';
+                return new URL(base, window.location.origin).toString();
+            } catch {
+                return (window.location.href || '').split('#')[0] || window.location.origin;
+            }
+        })();
+
+        const pingUrl = baseUrl.replace(/\/$/, '') + '/favicon.ico';
+        return await checkReachable(pingUrl);
+    } catch {
+        return false;
+    }
 }
 
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
+
+    isSoberMode: boolean;
+    setIsSoberMode: (value: boolean) => void;
+    toggleSoberMode: () => void;
+
+    isDemoMode: boolean;
+    demoRole: User['role'] | null;
+    enterDemoMode: (role: Exclude<User['role'], 'super_admin'>) => Promise<void>;
+    exitDemoMode: () => Promise<void>;
 
     missions: Mission[];
     addMission: (mission: Mission) => Promise<void>;
@@ -274,6 +327,226 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     });
 
+    const [isSoberMode, setIsSoberMode] = useState<boolean>(() => {
+        try {
+            const raw = localStorage.getItem('presta_ui_sober_mode');
+            if (raw === null) return false;
+            return raw === '1' || raw === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
+        try {
+            const raw = localStorage.getItem('presta_demo_mode');
+            return !!raw;
+        } catch {
+            return false;
+        }
+    });
+
+    const [demoRole, setDemoRole] = useState<User['role'] | null>(() => {
+        try {
+            const raw = localStorage.getItem('presta_demo_mode');
+            if (!raw) return null;
+            const r = String(raw);
+            if (r === 'admin' || r === 'client' || r === 'provider' || r === 'super_admin') return r as any;
+            return null;
+        } catch {
+            return null;
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('presta_ui_sober_mode', isSoberMode ? '1' : '0');
+        } catch { }
+    }, [isSoberMode]);
+
+    const toggleSoberMode = () => setIsSoberMode(prev => !prev);
+
+    const demoBlocked = () => {
+        try {
+            alert('Vous êtes en mode démo');
+        } catch { }
+    };
+
+    const enterDemoMode = async (
+        role: Exclude<User['role'], 'super_admin'>,
+        authOverride?: { id: string; email?: string | null }
+    ) => {
+        if (!isDemoMode) {
+            try {
+                const snapshot = {
+                    currentUser,
+                    simulatedClientId,
+                    simulatedProviderId,
+                };
+                localStorage.setItem('presta_demo_prev', JSON.stringify(snapshot));
+            } catch { }
+        }
+
+        try {
+            localStorage.setItem('presta_demo_mode', role);
+        } catch { }
+
+        setIsDemoMode(true);
+        setDemoRole(role);
+        setIsOnline(true);
+        setLoading(false);
+
+        const demoClient: Client = {
+            id: 'demo-client-1',
+            name: 'Client Démo',
+            address: 'Adresse de démonstration',
+            pack: 'Pack Démo',
+            city: 'Fort-de-France',
+            email: 'demo.client@presta.demo',
+            phone: '0000000000',
+            status: 'active',
+            since: getMartiniqueToday(),
+            packsConsumed: 0,
+            loyaltyHoursAvailable: 0,
+        };
+
+        const demoProvider: Provider = {
+            id: 'demo-provider-1',
+            firstName: 'Jean',
+            lastName: 'Démo',
+            status: 'Active',
+            specialty: 'Prestations',
+            leaves: [],
+            hoursWorked: 0,
+            rating: 5,
+            phone: '0000000000',
+            email: 'demo.provider@presta.demo',
+            isActive: true,
+        };
+
+        const demoMission: Mission = {
+            id: 'demo-mission-1',
+            date: getMartiniqueToday(),
+            startTime: '08:00',
+            endTime: '10:00',
+            duration: 2,
+            clientId: demoClient.id,
+            clientName: demoClient.name,
+            providerId: demoProvider.id,
+            providerName: `${demoProvider.firstName} ${demoProvider.lastName}`,
+            service: 'Prestation de démonstration',
+            status: 'planned',
+            color: 'blue',
+            source: 'devis',
+        };
+
+        const demoDocument: Document = {
+            id: 'demo-doc-1',
+            ref: 'DEVIS-DEMO-001',
+            clientId: demoClient.id,
+            clientName: demoClient.name,
+            date: getMartiniqueToday(),
+            type: 'Devis',
+            category: 'custom',
+            description: 'Devis exemple (mode démo)',
+            unitPrice: 50,
+            quantity: 1,
+            tvaRate: 8.5,
+            totalHT: 50,
+            totalTTC: 54.25,
+            taxCreditEnabled: false,
+            status: 'draft',
+        };
+
+        const resolvedId = authOverride?.id || (role === 'admin'
+            ? 'demo-user-admin'
+            : role === 'provider'
+                ? 'demo-user-provider'
+                : 'demo-user-client');
+        const resolvedEmail = String(authOverride?.email || (role === 'admin'
+            ? 'demo.admin@presta.demo'
+            : role === 'provider'
+                ? demoProvider.email
+                : demoClient.email));
+
+        const demoUser: User = role === 'admin'
+            ? { id: resolvedId, name: 'Admin Démo', email: resolvedEmail, role: 'admin' }
+            : role === 'provider'
+                ? { id: resolvedId, name: 'Prestataire Démo', email: resolvedEmail, role: 'provider', relatedEntityId: demoProvider.id }
+                : { id: resolvedId, name: 'Client Démo', email: resolvedEmail, role: 'client', relatedEntityId: demoClient.id };
+
+        setCurrentUser(demoUser);
+
+        if (role === 'client') {
+            setSimulatedClientId(demoClient.id);
+            setSimulatedProviderId(null);
+        } else if (role === 'provider') {
+            setSimulatedProviderId(demoProvider.id);
+            setSimulatedClientId(null);
+        } else {
+            setSimulatedClientId(null);
+            setSimulatedProviderId(null);
+        }
+
+        setClients([demoClient]);
+        setProviders([demoProvider]);
+        setMissions([demoMission]);
+        setDocuments([demoDocument]);
+        setPacks([]);
+        setContracts([]);
+        setGenericContracts([]);
+        setReminders([]);
+        setExpenses([]);
+        setMessages([]);
+        setNotifications([]);
+        setContactForms([]);
+        setVisitScans([]);
+        setMissionChangeRequests([]);
+    };
+
+    const exitDemoMode = async () => {
+        setIsDemoMode(false);
+        setDemoRole(null);
+        try {
+            localStorage.removeItem('presta_demo_mode');
+        } catch { }
+
+        let snapshot: any = null;
+        try {
+            snapshot = JSON.parse(localStorage.getItem('presta_demo_prev') || 'null');
+            localStorage.removeItem('presta_demo_prev');
+        } catch { }
+
+        if (snapshot?.currentUser) {
+            setCurrentUser(snapshot.currentUser);
+            setSimulatedClientId(snapshot.simulatedClientId || null);
+            setSimulatedProviderId(snapshot.simulatedProviderId || null);
+            try {
+                localStorage.setItem('presta_current_user', JSON.stringify(snapshot.currentUser));
+            } catch { }
+            try {
+                await refreshData();
+            } catch { }
+            return;
+        }
+
+        setCurrentUser(null);
+        setSimulatedClientId(null);
+        setSimulatedProviderId(null);
+        setMissions([]);
+        setClients([]);
+        setProviders([]);
+        setDocuments([]);
+        setVisitScans([]);
+    };
+
+    useEffect(() => {
+        if (!isDemoMode) return;
+        if (!demoRole) return;
+        if (currentUser && String(currentUser.id || '').startsWith('demo-user-')) return;
+        void enterDemoMode(demoRole as any);
+    }, [isDemoMode, demoRole]);
+
     useEffect(() => {
         try {
             localStorage.setItem('presta_service_type_filter', String(serviceTypeFilter || 'all'));
@@ -372,6 +645,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const submitContactForm = async (data: CreateContactFormDTO) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const now = getMartiniqueNowISO();
         const insertData: any = {
             id: generateUUID(),
@@ -423,6 +700,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const markContactFormRead = async (id: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const { error } = await supabase.from('contact_forms').update({ is_read: true }).eq('id', id);
         if (!error) {
             setContactForms(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
@@ -430,6 +711,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const requestMissionReschedule = async (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            throw new Error('Vous êtes en mode démo');
+        }
         const mission = missions.find(m => m.id === missionId);
         if (!mission) throw new Error('Mission introuvable');
         if (!mission.clientId) throw new Error('Client introuvable sur la mission');
@@ -506,6 +791,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const respondToMissionReschedule = async (requestId: string, decision: 'approved' | 'rejected') => {
+        if (isDemoMode) {
+            demoBlocked();
+            throw new Error('Vous êtes en mode démo');
+        }
         const req = missionChangeRequests.find(r => r.id === requestId);
         if (!req) throw new Error('Demande introuvable');
 
@@ -891,7 +1180,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             const handleOnline = () => setIsOnline(true);
-            const handleOffline = () => setIsOnline(false);
+            const handleOffline = () => {
+                void (async () => {
+                    try {
+                        const online = await getCurrentOnlineStatus();
+                        if (!removed) setIsOnline(online);
+                    } catch {
+                        if (!removed) setIsOnline(false);
+                    }
+                })();
+            };
             window.addEventListener('online', handleOnline);
             window.addEventListener('offline', handleOffline);
 
@@ -911,26 +1209,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 networkListener.remove();
             }
         };
-    }, []);
+    }, [isDemoMode]);
 
     // Real-time notification subscription
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser || isDemoMode) return;
 
-        console.log("[NotificationSubscription] Setting up subscription for", currentUser.role, currentUser.relatedEntityId);
+        console.log('[NotificationSubscription] Setting up subscription for', currentUser.role, currentUser.relatedEntityId);
 
-        // Subscribe to notifications for the current user using target_user_type (enum NOT NULL)
         const notificationChannel = currentUser.role === 'client'
             ? `notifications:target_user_type=eq.client&target_user_id=eq.${currentUser.relatedEntityId}`
             : currentUser.role === 'provider'
                 ? `notifications:target_user_type=eq.provider&target_user_id=eq.${currentUser.relatedEntityId}`
                 : 'notifications:target_user_type=eq.admin';
 
-        console.log("[NotificationSubscription] Using filter:", notificationChannel);
+        console.log('[NotificationSubscription] Using filter:', notificationChannel);
 
         const subscription = supabase
             .channel('notifications')
-            .on('postgres_changes',
+            .on(
+                'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
@@ -938,8 +1236,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     filter: notificationChannel
                 },
                 (payload) => {
-                    console.log("[NotificationSubscription] Received notification:", payload.new);
-                    const newNotif = payload.new;
+                    const newNotif = payload.new as any;
                     const mappedNotif: AppNotification = {
                         id: newNotif.id,
                         title: newNotif.title,
@@ -947,16 +1244,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         type: newNotif.type,
                         date: newNotif.date,
                         is_read: newNotif.is_read,
-                        read: newNotif.is_read, // UI Alias
+                        read: newNotif.is_read,
                         link: newNotif.link,
-                        targetUserType: newNotif.target_user_type, // CORRIGÉ: Utiliser target_user_type
+                        targetUserType: newNotif.target_user_type,
                         targetUserId: newNotif.target_user_id
                     };
 
-                    console.log("[NotificationSubscription] Adding to state:", mappedNotif);
-                    // Add notification to state immediately
                     setNotifications(prev => [mappedNotif, ...prev]);
-
                     triggerNativeNotification(mappedNotif);
 
                     try {
@@ -970,18 +1264,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             )
             .subscribe((status) => {
-                console.log("[NotificationSubscription] Subscription status:", status);
+                console.log('[NotificationSubscription] Subscription status:', status);
             });
 
         return () => {
-            console.log("[NotificationSubscription] Cleaning up subscription");
+            console.log('[NotificationSubscription] Cleaning up subscription');
             subscription.unsubscribe();
         };
-    }, [currentUser]);
+    }, [currentUser, isDemoMode]);
 
     useEffect(() => {
         if (!currentUser) return;
         if (currentUser.role !== 'admin') return;
+        if (isDemoMode) return;
 
         const mapDocumentRow = (d: any): any => ({
             ...d,
@@ -1012,7 +1307,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     table: 'documents'
                 },
                 (payload) => {
-                    const newDoc = mapDocumentRow(payload.new);
+                    const newDoc = mapDocumentRow((payload as any).new);
                     setDocuments(prev => {
                         const exists = prev.some(d => String((d as any).id) === String(newDoc.id));
                         if (exists) return prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d);
@@ -1044,7 +1339,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     table: 'documents'
                 },
                 (payload) => {
-                    const deletedId = String((payload.old as any)?.id || '');
+                    const deletedId = String(((payload as any).old as any)?.id || '');
                     if (!deletedId) return;
                     setDocuments(prev => prev.filter(d => String((d as any).id) !== deletedId));
                 }
@@ -1057,10 +1352,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log('[DocumentsSubscription] Cleaning up subscription');
             subscription.unsubscribe();
         };
-    }, [currentUser]);
+    }, [currentUser, isDemoMode]);
 
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser || isDemoMode) return;
         if (currentUser.role !== 'client') return;
         if (!currentUser.relatedEntityId) return;
 
@@ -1144,10 +1439,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.log('[DocumentsSubscription] Cleaning up client subscription');
             subscription.unsubscribe();
         };
-    }, [currentUser]);
+    }, [currentUser, isDemoMode]);
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
+        if (isDemoMode && !!localStorage.getItem('presta_demo_mode')) {
+            return;
+        }
         if (refreshInFlightRef.current) {
             await refreshInFlightRef.current;
             return;
@@ -1524,7 +1822,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             } catch (error: any) {
                 console.error("Erreur critique lors du chargement des données:", error);
                 if (error.message === 'Failed to fetch' || error.message.includes('NetworkError')) {
-                    setIsOnline(false);
+                    try {
+                        const online = await getCurrentOnlineStatus();
+                        if (!online) setIsOnline(false);
+                    } catch { }
                 }
             }
         })();
@@ -1538,6 +1839,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const updateMission = async (id: string, data: Partial<Mission>) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const dbData: any = {};
 
         if (data.date !== undefined) dbData.date = data.date;
@@ -1695,6 +2000,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             let userObj: User | null = null;
+            let profileIsDemo = false;
 
             // Check for admin first to avoid unnecessary DB queries
             if (authUser.email === 'contact@prestaservicesantilles.com') {
@@ -1715,6 +2021,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         console.log("[FetchProfile] Profile query error:", error.message);
                     } else if (profile) {
                         console.log("[FetchProfile] Found profile in users table");
+                        profileIsDemo = !!(profile as any).is_demo;
+
+                        // For real demo accounts: auto-enter demo mode and avoid loading real data
+                        if (profileIsDemo) {
+                            const role = (profile.role || 'client') as any;
+                            await enterDemoMode(role, { id: authUser.id, email: authUser.email });
+                            return true;
+                        }
                         userObj = {
                             id: authUser.id,
                             email: authUser.email || '',
@@ -1741,7 +2055,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
 
-            if (userObj && (userObj.role === 'admin' || userObj.role === 'super_admin') && String(authUser.email || '').toLowerCase() !== 'contact@prestaservicesantilles.com') {
+            if (
+                userObj &&
+                (userObj.role === 'admin' || userObj.role === 'super_admin') &&
+                String(authUser.email || '').toLowerCase() !== 'contact@prestaservicesantilles.com' &&
+                !profileIsDemo
+            ) {
                 userObj = {
                     ...userObj,
                     role: 'client'
@@ -1774,6 +2093,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- AUTHENTICATION & INITIALIZATION ---
     useEffect(() => {
+        if (isDemoMode) {
+            setLoading(false);
+            return;
+        }
         let mounted = true;
 
         // SAFETY TIMEOUT: Force stop loading after 15 seconds (increased for Supabase)
@@ -1998,7 +2321,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                                 }
                             } else {
                                 console.warn("Immediate recovery failed, showing login screen.");
-                                setIsOnline(false);
                                 // Only logout admin users on failure
                                 if (currentUser?.role === 'admin') {
                                     await logout(true);
@@ -2062,7 +2384,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             console.log("[Heartbeat] Session recovered successfully");
                         } else {
                             console.warn("[Heartbeat] Recovery failed, user will need to login again");
-                            setIsOnline(false);
                         }
                     }
                 } else {
@@ -2097,6 +2418,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addNotification = async (targetUserType: 'admin' | 'client' | 'provider', type: 'info' | 'alert' | 'success' | 'message', title: string, message: string, targetUserId?: string, link?: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         console.log("[AddNotification] Creating notification:", { targetUserType, type, title, targetUserId, link });
 
         const id = generateUUID();
@@ -2170,6 +2495,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const markClientMessagesRead = async (clientId: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const { error } = await supabase
             .from('messages')
             .update({ is_read: true })
@@ -2209,6 +2538,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addMission = async (mission: Mission) => {
+        if (isDemoMode) {
+            demoBlocked();
+            throw new Error('Vous êtes en mode démo');
+        }
         // Guardrail: avoid duplicates for same client + date + startTime (except cancelled)
         // This is a UI/back-end safety net; DB uniqueness constraint should also exist.
         const duplicateLocal = (missions || []).some(m =>
@@ -2303,6 +2636,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         if (!photos || photos.length < 5) {
             alert("Il faut obligatoirement 5 photos minimum avant chantier.");
             return;
@@ -2327,6 +2664,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         if (!photos || photos.length < 5) {
             alert("Il faut obligatoirement 5 photos minimum fin de chantier.");
             return;
@@ -2341,7 +2682,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }).eq('id', id);
 
         if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed', endRemark: remark, endPhotos: photos, endVideo: video, reportSent: true } : m));
+            setMissions(prev => prev.map(mission => mission.id === id ? {
+                ...mission,
+                status: 'completed',
+                endRemark: remark,
+                endPhotos: photos,
+                endVideo: video,
+                reportSent: true
+            } : mission));
             const m = missions.find(m => m.id === id);
             if (m) {
                 // NOTIFICATION ADMIN (Urgent)
@@ -2391,6 +2739,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addClient = async (clientData: CreateClientDTO) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return null;
+        }
         const password = Math.random().toString(36).slice(-8);
 
         try {
@@ -2473,6 +2825,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addProvider = async (providerData: CreateProviderDTO) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return null;
+        }
         const password = Math.random().toString(36).slice(-8);
 
         try {
@@ -2648,6 +3004,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const updateCompanySettings = async (settings: CompanySettings) => {
+        if (isDemoMode) {
+            demoBlocked();
+            throw new Error('Vous êtes en mode démo');
+        }
         try {
             const dbData = {
                 name: settings.name,
@@ -2678,6 +3038,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const cancelMissionByProvider = async (id: string, reason: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const m = missions.find(m => m.id === id);
         if (!reason) { alert("Le motif d'annulation est obligatoire."); return; }
 
@@ -2725,6 +3089,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const cancelMissionByClient = async (id: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const m = missions.find(m => m.id === id);
         if (m) {
             const isLate = !canCancelMission(m); // isLate means < 48h
@@ -2782,6 +3150,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
@@ -2824,6 +3196,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const updateClient = async (id: string, data: Partial<Client>) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const dbData: any = {};
         if (data.name) dbData.name = data.name;
         if (data.city) dbData.city = data.city;
@@ -2841,6 +3217,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const deleteClients = async (ids: string[]) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const { error } = await supabase.from('clients').delete().in('id', ids);
         if (error) {
             console.error('[deleteClients] Supabase error:', error);
@@ -2864,6 +3244,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addLoyaltyHours = async (clientId: string, hours: number) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const client = clients.find(c => c.id === clientId);
         if (client) {
             const newTotal = (client.loyaltyHoursAvailable || 0) + hours;
@@ -2873,12 +3257,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const submitClientReview = async (clientId: string, rating: number, comment: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const { error } = await supabase.from('clients').update({ has_left_review: true }).eq('id', clientId);
         if (!error) setClients(prev => prev.map(c => c.id === clientId ? { ...c, hasLeftReview: true } : c));
         await supabase.from('reviews').insert({ clientId, rating, comment, date: getMartiniqueNowISO() });
     };
 
     const updateProvider = async (id: string, data: Partial<Provider>) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const dbData: any = {};
         if (data.firstName) dbData.first_name = data.firstName;
         if (data.lastName) dbData.last_name = data.lastName;
@@ -2894,6 +3286,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const deleteProviders = async (ids: string[]) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const { error } = await supabase.from('providers').delete().in('id', ids);
         if (error) {
             console.error('[deleteProviders] Supabase error:', error);
@@ -2917,6 +3313,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const addLeave = async (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
         const dbData = {
             provider_id: providerId,
             start_date: start,
@@ -2956,7 +3356,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const updateLeaveStatus = async (leaveId: string, providerId: string, status: 'approved' | 'rejected') => {
-        const { error } = await supabase.from('leaves').update({ status }).eq('id', leaveId);
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
+        const { error } = await supabase
+            .from('leaves')
+            .update({ status })
+            .eq('id', leaveId);
         if (!error) {
             setProviders(prev => prev.map(p => {
                 if (p.id === providerId) {
@@ -4046,6 +4453,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const addExpense = async (expense: Expense) => {
         const { id, ...eData } = expense;
         const finalId = generateUUID();
+
+        const optimistic: Expense = {
+            ...expense,
+            id: finalId,
+        };
+
+        setExpenses(prev => [...prev, optimistic]);
+
         const dbData = {
             id: finalId,
             date: eData.date,
@@ -4054,10 +4469,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             description: eData.description,
             proof_url: eData.proofUrl
         };
+
         const { data, error } = await supabase.from('expenses').insert(dbData).select();
-        if (error) { alert("Erreur sauvegarde dépense: " + error.message); return; }
-        if (data) {
-            setExpenses(prev => [...prev, { ...data[0], proofUrl: data[0].proof_url }]);
+        if (error) {
+            setExpenses(prev => prev.filter(e => e.id !== finalId));
+            alert("Erreur sauvegarde dépense: " + error.message);
+            return;
+        }
+
+        if (data?.[0]) {
+            const saved: any = { ...data[0], proofUrl: (data[0] as any).proof_url };
+            delete saved.proof_url;
+            setExpenses(prev => prev.map(e => e.id === finalId ? saved : e));
         }
     };
 
@@ -5122,6 +5545,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
 return (
     <DataContext.Provider value={{
+        isSoberMode,
+        setIsSoberMode,
+        toggleSoberMode,
+        isDemoMode,
+        demoRole,
+        enterDemoMode,
+        exitDemoMode,
         companySettings, updateCompanySettings,
 
         missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,

@@ -616,7 +616,22 @@ const ProviderPortal: React.FC = () => {
                                </div>
                            ) : (
                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                                   {providerMissions.map(m => (
+                                   {providerMissions.map(m => {
+                                       const clientById = clients.find(c => String(c.id) === String(m.clientId || ''));
+                                       const normalizedMissionClientName = String(m.clientName || '').trim().toLowerCase();
+                                       const clientByName = !clientById && normalizedMissionClientName
+                                           ? clients.find(c => String(c.name || '').trim().toLowerCase() === normalizedMissionClientName)
+                                           : undefined;
+                                       const client = clientById || clientByName;
+
+                                       const address = String(client?.address || '').trim();
+                                       const city = String(client?.city || '').trim();
+                                       const addressLine = `${address}${city ? `, ${city}` : ''}`.trim();
+                                       const phone = String(client?.phone || '').trim();
+                                       const email = String(client?.email || '').trim();
+                                       const pack = String(client?.pack || '').trim();
+
+                                       return (
                                        <div key={m.id} className={`bg-white p-4 sm:p-5 rounded-2xl shadow-sm border transition-all hover:shadow-md flex flex-col ${m.status === 'completed' ? 'border-green-200 bg-green-50/30' : m.status === 'cancelled' ? 'border-red-200 bg-red-50/30 opacity-75' : 'border-slate-200'}`}>
                                            <div className="flex justify-between items-start mb-4">
                                                 <div className="bg-brand-blue/10 text-brand-blue p-2 rounded-lg">
@@ -639,6 +654,21 @@ const ProviderPortal: React.FC = () => {
                                            <div className="space-y-2 text-sm text-slate-500 mb-6 flex-1">
                                                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-slate-400"/> {m.date} • {m.startTime} - {m.endTime}</div>
                                                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-slate-400"/> {m.clientName}</div>
+                                               <div className="mt-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
+                                                   <div className="text-[11px] font-bold text-slate-700 uppercase">Client</div>
+                                                   <div className="text-xs text-slate-700 mt-1">
+                                                       <span className="font-bold">Adresse:</span> {addressLine || 'Non renseigné'}
+                                                   </div>
+                                                   <div className="text-xs text-slate-700 mt-1">
+                                                       <span className="font-bold">Téléphone:</span> {phone || 'Non renseigné'}
+                                                   </div>
+                                                   <div className="text-xs text-slate-700 mt-1">
+                                                       <span className="font-bold">Email:</span> {email || 'Non renseigné'}
+                                                   </div>
+                                                   <div className="text-xs text-slate-700 mt-1">
+                                                       <span className="font-bold">Pack:</span> {pack || 'Non renseigné'}
+                                                   </div>
+                                               </div>
                                            </div>
 
                                            <div className="grid grid-cols-1 gap-2 mt-auto">
@@ -669,7 +699,8 @@ const ProviderPortal: React.FC = () => {
                                                  )}
                                            </div>
                                        </div>
-                                   ))}
+                                   );
+                                   })}
                                </div>
                            )}
                        </div>

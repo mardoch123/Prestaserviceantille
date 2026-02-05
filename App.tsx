@@ -17,6 +17,7 @@ import QRCodeManager from './components/QRCodeManager';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
 import MissionReports from './components/MissionReports';
+import DemoAccounts from './components/DemoAccounts';
 import Login from './components/Login';
 import ScanPage from './components/ScanPage';
 import ScanSuccess from './components/ScanSuccess';
@@ -399,12 +400,14 @@ const AppLayout: React.FC = () => {
         };
     }, [currentUser]);
 
-    if (!isOnline) {
-        return <OfflineScreen />;
+    const isContactRoute = location.pathname === '/contact' || (window.location.hash || '').startsWith('#/contact');
+
+    if (isContactRoute) {
+        return <ContactPage />;
     }
 
-    if (location.pathname === '/contact') {
-        return <ContactPage />;
+    if (!isOnline) {
+        return <OfflineScreen />;
     }
 
     if (loading) {
@@ -487,6 +490,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/reservations" element={<Reservations />} />
                         <Route path="/secretariat" element={<Secretariat />} />
                         <Route path="/contact-forms" element={<ContactFormsAdmin />} />
+                        <Route path="/demo-accounts" element={<DemoAccounts />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
                         <Route path="/scan" element={<ScanPage />} />

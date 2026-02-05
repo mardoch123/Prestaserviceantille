@@ -13,6 +13,7 @@ import {
   QrCode,
   ClipboardCheck,
   Mail,
+  Wand2,
   X
 } from 'lucide-react';
 import { NavItem } from '../types';
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
   { label: 'Réservations', path: '/reservations', icon: Clock },
   { label: 'Secrétariat', path: '/secretariat', icon: PhoneCall },
   { label: 'Formulaires Contact', path: '/contact-forms', icon: Mail },
+  { label: 'Comptes test', path: '/demo-accounts', icon: Wand2 },
 ];
 
 interface SidebarProps {
@@ -39,7 +41,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings, currentUser, messages } = useData();
+  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode } = useData();
 
   const unreadChatClientsCount = useMemo(() => {
     if (currentUser?.role !== 'admin') return 0;
@@ -54,6 +56,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return ids.size;
   }, [currentUser?.role, messages]);
 
+  const unreadContactFormsCount = useMemo(() => {
+    if (currentUser?.role !== 'admin') return 0;
+    return (contactForms || []).filter(f => !f.isRead).length;
+  }, [currentUser?.role, contactForms]);
+
   // Filter navigation items based on user role
   const getFilteredNavItems = () => {
     if (currentUser?.role === 'client') {
@@ -61,6 +68,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       return navItems.filter(item => 
         ['/qrcode', '/'].includes(item.path) // Only dashboard and QR code
       );
+    }
+    if (currentUser?.role === 'provider') {
+      return navItems.filter(item => item.path !== '/demo-accounts');
     }
     return navItems; // Admin and providers see all items
   };
@@ -76,13 +86,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         ></div>
 
         <aside className={`
-            fixed inset-y-0 left-0 z-50 w-64 bg-cream-200/95 md:bg-cream-200/50 backdrop-blur-md md:backdrop-blur-none border-r border-beige-200 h-full flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+            fixed inset-y-0 left-0 z-50 w-64 h-full flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+            border-r border-beige-200
+            ${isSoberMode ? 'bg-slate-900 text-slate-100' : 'bg-cream-200/95 md:bg-cream-200/50'}
+            ${isSoberMode ? '' : 'backdrop-blur-md md:backdrop-blur-none'}
             ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:relative'}
         `}>
           <div className="p-6 flex flex-col items-center relative shrink-0">
             <button 
                 onClick={onClose}
-                className="absolute top-4 right-4 p-1 text-slate-500 hover:text-slate-800 md:hidden"
+                className={`absolute top-4 right-4 p-1 md:hidden ${isSoberMode ? 'text-slate-300 hover:text-white' : 'text-slate-500 hover:text-slate-800'}`}
             >
                 <X className="w-6 h-6" />
             </button>
@@ -97,8 +110,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                    <span className="text-brand-blue font-bold text-xs text-center">PRESTA<br/>SERVICES<br/>ANTILLES</span>
                 </div>
             )}
-            <h1 className="text-lg font-serif font-bold text-slate-800 text-center">SIMPLIFIEZ</h1>
-            <p className="text-xs text-slate-500 text-center">VOTRE QUOTIDIEN</p>
+            <h1 className={`text-lg font-serif font-bold text-center ${isSoberMode ? 'text-white' : 'text-slate-800'}`}>SIMPLIFIEZ</h1>
+            <p className={`text-xs text-center ${isSoberMode ? 'text-slate-300' : 'text-slate-500'}`}>VOTRE QUOTIDIEN</p>
+
+            <button
+              type="button"
+              onClick={() => toggleSoberMode()}
+              className={`mt-4 w-full px-3 py-2 rounded-lg text-xs font-bold border transition ${isSoberMode
+                ? 'bg-slate-800 text-slate-100 border-slate-700 hover:bg-slate-700'
+                : 'bg-white/70 text-slate-700 border-beige-200 hover:bg-white'}`}
+            >
+              Mode sobre : {isSoberMode ? 'Activé' : 'Désactivé'}
+            </button>
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto pb-4">
@@ -111,15 +134,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   onClick={() => { if(window.innerWidth < 768) onClose(); }}
                   className={`flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-white text-brand-blue shadow-sm'
-                      : 'text-slate-600 hover:bg-white/50 hover:text-slate-800'
+                      ? (isSoberMode ? 'bg-slate-800 text-white shadow-sm' : 'bg-white text-brand-blue shadow-sm')
+                      : (isSoberMode ? 'text-slate-200 hover:bg-slate-800/70 hover:text-white' : 'text-slate-600 hover:bg-white/50 hover:text-slate-800')
                   }`}
                 >
-                  <item.icon className={`mr-3 h-5 w-5 ${isActive ? 'text-brand-orange' : 'text-slate-400'}`} />
+                  <item.icon className={`mr-3 h-5 w-5 ${isActive ? 'text-brand-orange' : (isSoberMode ? 'text-slate-400' : 'text-slate-400')}`} />
                   <span className="flex-1">{item.label}</span>
                   {item.path === '/secretariat' && unreadChatClientsCount > 0 && (
                     <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
                       {unreadChatClientsCount}
+                    </span>
+                  )}
+                  {item.path === '/contact-forms' && unreadContactFormsCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                      {unreadContactFormsCount}
                     </span>
                   )}
                 </Link>

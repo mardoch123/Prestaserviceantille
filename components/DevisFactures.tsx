@@ -325,20 +325,23 @@ const DevisFactures: React.FC = () => {
         setCustomLines([]); // Réinitialiser les lignes personnalisées
     };
 
-    const closeModal = () => {
+    const closeModal = (options?: { skipAutosave?: boolean }) => {
         if (modalMode === 'devis') {
             if (autosaveTimeoutRef.current) {
                 clearTimeout(autosaveTimeoutRef.current);
                 autosaveTimeoutRef.current = null;
             }
-            if (!isDraftBlocked && isDraftDirty) {
-                const res = doDraftAutosave(true);
-                if (res === 'blocked') {
+
+            if (!options?.skipAutosave) {
+                if (!isDraftBlocked && isDraftDirty) {
+                    const res = doDraftAutosave(true);
+                    if (res === 'blocked') {
+                        showToast(draftBlockedMessage, 'warning');
+                    }
+                }
+                if (isDraftBlocked && isDraftDirty) {
                     showToast(draftBlockedMessage, 'warning');
                 }
-            }
-            if (isDraftBlocked && isDraftDirty) {
-                showToast(draftBlockedMessage, 'warning');
             }
         }
         setIsModalOpen(false);
@@ -1583,7 +1586,9 @@ const DevisFactures: React.FC = () => {
                 }
             }
 
-            closeModal();
+            setIsDraftDirty(false);
+            setLocalDraftId(null);
+            closeModal({ skipAutosave: true });
             showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
         } catch (e: any) {
             showToast("Erreur création document: " + e.message, 'error');

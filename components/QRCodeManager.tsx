@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
+import QRCodeLib from 'qrcode';
+import logo from '../src/assets/images/logo.webp';
 import {
     QrCode,
     Printer,
@@ -46,7 +48,7 @@ const QRCodeManager: React.FC = () => {
         return accessibleClients.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
     }, [accessibleClients, searchQuery]);
 
-    const handlePrint = (clientId: string) => {
+    const handlePrint = async (clientId: string) => {
         const client = clients.find(c => c.id === clientId);
         if (!client) return;
 
@@ -55,7 +57,11 @@ const QRCodeManager: React.FC = () => {
             ? String(publicBaseUrl).trim().replace(/\/$/, '')
             : `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
         const qrData = `${baseUrl}/#/scan?client=${clientId}`;
-        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
+        const qrDataUrl = await QRCodeLib.toDataURL(qrData, {
+            width: 700,
+            margin: 2,
+            errorCorrectionLevel: 'H'
+        });
 
         const printWindow = window.open('', '', 'width=600,height=800');
         if (printWindow) {
@@ -70,6 +76,7 @@ const QRCodeManager: React.FC = () => {
                         .title { font-size: 18px; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
                         .client { font-size: 16px; margin-bottom: 30px; font-style: italic; }
                         .qr { width: 250px; height: 250px; margin-bottom: 30px; }
+                        .qr-canvas { display: none; }
                         .instructions { font-size: 12px; color: #666; line-height: 1.5; }
                         @media print {
                             body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -82,7 +89,8 @@ const QRCodeManager: React.FC = () => {
                         <div class="logo">PRESTA SERVICES ANTILLES</div>
                         <div class="title">Pointage Prestataire</div>
                         <div class="client">Client : ${client.name}</div>
-                        <img src="${qrApiUrl}" class="qr" alt="QR Code" />
+                        <canvas id="qrCanvas" class="qr-canvas" width="700" height="700"></canvas>
+                        <img id="finalQr" src="${qrDataUrl}" class="qr" alt="QR Code" />
                         <div class="instructions">
                             1. Ouvrez l'application Presta Services<br/>
                             2. Scannez ce code à votre arrivée (Entrée)<br/>
@@ -92,6 +100,53 @@ const QRCodeManager: React.FC = () => {
                     </div>
                     <br/><br/>
                     <button class="no-print" onclick="window.print()">Imprimer</button>
+                    <script>
+                        (function(){
+                            try {
+                                const qrSrc = ${JSON.stringify(qrDataUrl)};
+                                const logoSrc = ${JSON.stringify(logo)};
+
+                                const canvas = document.getElementById('qrCanvas');
+                                const outImg = document.getElementById('finalQr');
+                                const ctx = canvas.getContext('2d');
+
+                                const qrImg = new Image();
+                                const logoImg = new Image();
+
+                                let qrLoaded = false;
+                                let logoLoaded = false;
+
+                                const render = () => {
+                                    if (!qrLoaded || !logoLoaded) return;
+
+                                    const w = canvas.width;
+                                    const h = canvas.height;
+                                    ctx.clearRect(0, 0, w, h);
+                                    ctx.drawImage(qrImg, 0, 0, w, h);
+
+                                    // Logo au centre (avec fond blanc pour garder la lisibilité)
+                                    const logoSize = Math.floor(w * 0.18);
+                                    const padding = Math.floor(logoSize * 0.18);
+                                    const x = Math.floor((w - logoSize) / 2);
+                                    const y = Math.floor((h - logoSize) / 2);
+
+                                    ctx.fillStyle = '#ffffff';
+                                    ctx.fillRect(x - padding, y - padding, logoSize + (padding * 2), logoSize + (padding * 2));
+                                    ctx.drawImage(logoImg, x, y, logoSize, logoSize);
+
+                                    outImg.src = canvas.toDataURL('image/png');
+                                };
+
+                                qrImg.onload = () => { qrLoaded = true; render(); };
+                                logoImg.onload = () => { logoLoaded = true; render(); };
+
+                                qrImg.src = qrSrc;
+                                logoImg.src = logoSrc;
+                            } catch (e) {
+                                // En cas d'erreur canvas, on garde le QR sans logo
+                            }
+                        })();
+                    </script>
                 </body>
                 </html>
             `);

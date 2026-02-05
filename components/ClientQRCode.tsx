@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import { QrCode, Clock, MapPin, User, CheckCircle, XCircle, LogIn, LogOut, RefreshCw, Download } from 'lucide-react';
+import { QrCode, Clock, MapPin, User, CheckCircle, XCircle, LogIn, LogOut, RefreshCw, Download, Printer } from 'lucide-react';
 import QRCode from 'qrcode';
+import { LOGO_BASE64 } from '../src/assets/images';
 
 const ClientQRCode: React.FC = () => {
-    const { visitScans, currentUser, clients, simulatedClientId } = useData();
+    const { visitScans, clients, simulatedClientId } = useData();
     const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
     const [clientScans, setClientScans] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -89,6 +90,67 @@ const ClientQRCode: React.FC = () => {
         return type === 'entry' ? 'border-green-200' : 'border-red-200';
     };
 
+    const getQrDataForClient = (clientId: string) => {
+        const publicBaseUrl = (import.meta as any)?.env?.VITE_PUBLIC_BASE_URL || '';
+        const baseUrl = String(publicBaseUrl).trim()
+            ? String(publicBaseUrl).trim().replace(/\/$/, '')
+            : `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`;
+        return `${baseUrl}/#/scan?client=${clientId}`;
+    };
+
+    const handlePrintQRCode = async () => {
+        if (!client) return;
+
+        const qrData = getQrDataForClient(client.id);
+        const qrDataUrl = await QRCode.toDataURL(qrData, {
+            width: 700,
+            margin: 2,
+            errorCorrectionLevel: 'H'
+        });
+
+        const printWindow = window.open('', '', 'width=600,height=800');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>QR Code - ${client.name}</title>
+                    <style>
+                        body { font-family: 'Arial', sans-serif; text-align: center; padding: 40px; }
+                        .card { border: 2px solid #333; padding: 40px; border-radius: 20px; display: inline-block; max-width: 400px; }
+                        .logo-img { height: 92px; width: auto; margin-bottom: 14px; }
+                        .logo-text { font-size: 24px; font-weight: bold; color: #2A9D8F; margin-bottom: 10px; }
+                        .title { font-size: 18px; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+                        .client { font-size: 16px; margin-bottom: 30px; font-style: italic; }
+                        .qr { width: 250px; height: 250px; margin-bottom: 30px; }
+                        .instructions { font-size: 12px; color: #666; line-height: 1.5; }
+                        @media print {
+                            body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                            .no-print { display: none; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <img class="logo-img" src="${LOGO_BASE64}" alt="Logo" />
+                        <div class="title">Pointage Prestataire</div>
+                        <div class="client">Client : ${client.name}</div>
+                        <img src="${qrDataUrl}" class="qr" alt="QR Code" />
+                        <div class="instructions">
+                            1. Ouvrez l'application Presta Services<br/>
+                            2. Scannez ce code à votre arrivée (Entrée)<br/>
+                            3. Scannez ce code à votre départ (Sortie)<br/>
+                            4. Le pointage sera automatiquement enregistré
+                        </div>
+                    </div>
+                    <br/><br/>
+                    <button class="no-print" onclick="window.print()">Imprimer</button>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    };
+
     const handleDownloadQRCode = async () => {
         if (!qrCodeUrl || loading || !client) return;
         const safeName = String(client?.name || 'client')
@@ -97,75 +159,110 @@ const ClientQRCode: React.FC = () => {
             .replace(/[^a-zA-Z0-9_\-]/g, '');
 
         try {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.src = qrCodeUrl;
-            await new Promise<void>((resolve, reject) => {
-                img.onload = () => resolve();
-                img.onerror = () => reject(new Error('QR image load failed'));
+            const qrData = getQrDataForClient(client.id);
+            const qrDataUrl = await QRCode.toDataURL(qrData, {
+                width: 700,
+                margin: 2,
+                errorCorrectionLevel: 'H'
             });
 
-            const padding = 32;
-            const titleText = 'Scannez ce code pour enregistrer votre présence';
-            const subtitleText = `Client : ${client.name}`;
+            const qrImg = new Image();
+            qrImg.crossOrigin = 'anonymous';
+            qrImg.src = qrDataUrl;
+            await new Promise<void>((resolve, reject) => {
+                qrImg.onload = () => resolve();
+                qrImg.onerror = () => reject(new Error('QR image load failed'));
+            });
+
+            const logo = new Image();
+            logo.src = LOGO_BASE64;
+            const logoLoaded = await new Promise<boolean>((resolve) => {
+                logo.onload = () => resolve(true);
+                logo.onerror = () => resolve(false);
+            });
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
 
-            const wrapText = (text: string, maxWidth: number, font: string): string[] => {
-                ctx.font = font;
-                const words = String(text || '').split(/\s+/).filter(Boolean);
-                const lines: string[] = [];
-                let line = '';
+            const scale = 2;
+            const cardWidth = 400 * scale;
+            const cardPadding = 40 * scale;
+            const border = 2 * scale;
+            const qrSize = 250 * scale;
+            const logoHeight = 92 * scale;
 
-                for (const word of words) {
-                    const test = line ? `${line} ${word}` : word;
-                    if (ctx.measureText(test).width <= maxWidth) {
-                        line = test;
-                    } else {
-                        if (line) lines.push(line);
-                        line = word;
-                    }
-                }
-                if (line) lines.push(line);
-                return lines.length ? lines : [String(text || '')];
-            };
+            const title = 'Pointage Prestataire';
+            const clientLine = `Client : ${client.name}`;
+            const instructions = [
+                "1. Ouvrez l'application Presta Services",
+                '2. Scannez ce code à votre arrivée (Entrée)',
+                '3. Scannez ce code à votre départ (Sortie)',
+                '4. Le pointage sera automatiquement enregistré'
+            ];
 
-            // Canvas size: QR + padding + text block
-            const qrSize = img.width || 256;
-            const maxTextWidth = qrSize + padding * 2 - 24;
-            const titleFont = 'bold 18px Arial';
-            const subtitleFont = '14px Arial';
-            const titleLines = wrapText(titleText, maxTextWidth, titleFont);
-            const titleLineHeight = 22;
-            const headerTop = 18;
-            const titleBlockHeight = titleLines.length * titleLineHeight;
-            const subtitleTop = headerTop + titleBlockHeight + 10;
-            const headerHeight = Math.max(90, subtitleTop + 20);
-            canvas.width = qrSize + padding * 2;
-            canvas.height = headerHeight + qrSize + padding;
+            const titleFont = `bold ${18 * scale}px Arial`;
+            const clientFont = `italic ${16 * scale}px Arial`;
+            const instructionFont = `${12 * scale}px Arial`;
 
-            // Background
+            const gapAfterLogo = 14 * scale;
+            const gapAfterTitle = 20 * scale;
+            const gapAfterClient = 40 * scale;
+            const gapAfterQr = 30 * scale;
+            const lineHeight = 16 * scale;
+
+            const contentHeight =
+                logoHeight + gapAfterLogo +
+                (18 * scale) + gapAfterTitle +
+                (16 * scale) + gapAfterClient +
+                qrSize + gapAfterQr +
+                (instructions.length * lineHeight);
+
+            const cardHeight = cardPadding * 2 + contentHeight;
+            canvas.width = cardWidth + border * 2;
+            canvas.height = cardHeight + border * 2;
+
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Text
-            ctx.fillStyle = '#0f172a';
+            ctx.fillStyle = '#333333';
+            ctx.fillRect(0, 0, canvas.width, border);
+            ctx.fillRect(0, 0, border, canvas.height);
+            ctx.fillRect(0, canvas.height - border, canvas.width, border);
+            ctx.fillRect(canvas.width - border, 0, border, canvas.height);
+
+            const cx = canvas.width / 2;
+            let y = border + cardPadding;
+
+            if (logoLoaded && logo.width > 0 && logo.height > 0) {
+                const targetH = logoHeight;
+                const targetW = Math.max(1, Math.round((logo.width / logo.height) * targetH));
+                ctx.drawImage(logo, Math.round(cx - targetW / 2), Math.round(y), targetW, targetH);
+            }
+            y += logoHeight + gapAfterLogo;
+
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
 
             ctx.font = titleFont;
-            titleLines.forEach((line, i) => {
-                ctx.fillText(line, canvas.width / 2, headerTop + i * titleLineHeight);
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText(title.toUpperCase(), cx, y);
+            y += (18 * scale) + gapAfterTitle;
+
+            ctx.font = clientFont;
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText(clientLine, cx, y);
+            y += (16 * scale) + gapAfterClient;
+
+            ctx.drawImage(qrImg, Math.round(cx - qrSize / 2), Math.round(y), qrSize, qrSize);
+            y += qrSize + gapAfterQr;
+
+            ctx.font = instructionFont;
+            ctx.fillStyle = '#666666';
+            instructions.forEach((line) => {
+                ctx.fillText(line, cx, y);
+                y += lineHeight;
             });
-
-            ctx.font = subtitleFont;
-            ctx.fillStyle = '#334155';
-            ctx.fillText(subtitleText, canvas.width / 2, subtitleTop);
-
-            // QR image
-            ctx.drawImage(img, padding, headerHeight, qrSize, qrSize);
 
             const finalPng = canvas.toDataURL('image/png');
             const link = document.createElement('a');
@@ -258,6 +355,17 @@ const ClientQRCode: React.FC = () => {
                             >
                                 <Download className="w-4 h-4" />
                                 Télécharger mon QRCode
+                            </button>
+
+                            <button
+                                onClick={handlePrintQRCode}
+                                disabled={loading || !qrCodeUrl}
+                                className={`mt-3 ml-0 sm:ml-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition border ${loading || !qrCodeUrl
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+                            >
+                                <Printer className="w-4 h-4" />
+                                Imprimer mon QRCode
                             </button>
                         </div>
                         
