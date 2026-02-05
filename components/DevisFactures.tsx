@@ -2571,7 +2571,7 @@ const DevisFactures: React.FC = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col">
                         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50 rounded-t-2xl sticky top-0 z-10">
                             <div><h3 className="text-2xl font-serif font-bold text-slate-800">{modalMode === 'devis' ? 'Édition de Devis' : 'Édition de Facture'}</h3><p className="text-xs text-slate-500 mt-1">Infos obligatoires <span className="text-red-500">*</span></p></div>
-                            <button onClick={closeModal} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-6 h-6 text-slate-500" /></button>
+                            <button onClick={() => closeModal()} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-6 h-6 text-slate-500" /></button>
                         </div>
                         <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8" onBlurCapture={() => scheduleDraftAutosave()}>
                             <div className="lg:col-span-7 space-y-8">
