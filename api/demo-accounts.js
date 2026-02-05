@@ -55,11 +55,18 @@ export default async function handler(req, res) {
       return;
     }
 
+    const authHeader = req.headers.authorization || req.headers.Authorization || '';
+    const hasBearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ');
+    if (!hasBearer) {
+      res.status(401).json({ error: 'Unauthorized', details: 'Missing Authorization: Bearer <token>' });
+      return;
+    }
+
     const adminClient = getSupabaseAdminClient();
     const user = await getUserFromAuthHeader(req);
 
     if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: 'Unauthorized', details: 'Invalid or expired token (or wrong Supabase project)' });
       return;
     }
 
