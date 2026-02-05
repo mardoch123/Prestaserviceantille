@@ -28,9 +28,28 @@ const DemoAccounts: React.FC = () => {
 
   const apiBase = useMemo(() => {
     const raw = (import.meta as any)?.env?.VITE_API_BASE || '';
-    const base = String(raw || '').trim().replace(/\/$/, '');
-    if (!base) return '';
-    return base.endsWith('/api') ? base : `${base}/api`;
+    const normalizedBase = String(raw || '').trim().replace(/\/$/, '');
+    let base = normalizedBase;
+    if (base) {
+      base = base.endsWith('/api') ? base : `${base}/api`;
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        if (base) {
+          const origin = new URL(base).origin;
+          if (origin !== window.location.origin) {
+            base = `${window.location.origin}/api`;
+          }
+        } else {
+          base = `${window.location.origin}/api`;
+        }
+      } catch {
+        base = `${window.location.origin}/api`;
+      }
+    }
+
+    return base;
   }, []);
 
   const getApiUrl = (path: string) => {
