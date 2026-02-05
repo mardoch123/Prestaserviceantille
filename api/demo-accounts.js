@@ -206,6 +206,7 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
     console.error('[api/demo-accounts] error', e);
-    res.status(500).json({ error: 'Internal error' });
+    const message = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'Internal error';
+    res.status(500).json({ error: message });
   }
 }

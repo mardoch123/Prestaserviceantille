@@ -2453,11 +2453,32 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         try {
             const endpointBase = import.meta.env.VITE_API_BASE || '';
-            if (endpointBase) {
+            const normalizedBase = String(endpointBase).replace(/\/$/, '');
+            let apiBase = normalizedBase;
+            if (apiBase) {
+                apiBase = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
+            }
+
+            if (typeof window !== 'undefined') {
+                try {
+                    if (apiBase) {
+                        const apiOrigin = new URL(apiBase).origin;
+                        if (apiOrigin !== window.location.origin) {
+                            apiBase = `${window.location.origin}/api`;
+                        }
+                    } else {
+                        apiBase = `${window.location.origin}/api`;
+                    }
+                } catch {
+                    apiBase = `${window.location.origin}/api`;
+                }
+            }
+
+            if (apiBase) {
                 const { data } = await supabase.auth.getSession();
                 const accessToken = data.session?.access_token || '';
                 if (accessToken) {
-                    const endpoint = `${String(endpointBase).replace(/\/$/, '')}/notify`;
+                    const endpoint = `${String(apiBase).replace(/\/$/, '')}/notify`;
                     await fetch(endpoint, {
                         method: 'POST',
                         headers: {
