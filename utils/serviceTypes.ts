@@ -13,7 +13,16 @@ export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter,
 
     if (!t.trim()) return 'Autre';
 
-    if (t.includes('jardin') || t.includes('tonte') || t.includes('elag') || t.includes('debrou') || t.includes('taille')) {
+    if (
+        t.includes('jardin') ||
+        t.includes('tonte') ||
+        t.includes('elag') ||
+        t.includes('debrou') ||
+        t.includes('taille') ||
+        t.includes('desher') ||
+        t.includes('haie') ||
+        t.includes('pelouse')
+    ) {
         return 'Jardinage';
     }
 
@@ -24,7 +33,11 @@ export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter,
         t.includes('petit travaux') ||
         t.includes('plomberie') ||
         t.includes('electric') ||
-        t.includes('peinture')
+        t.includes('peinture') ||
+        t.includes('installation') ||
+        t.includes('fixation') ||
+        t.includes('perç') ||
+        t.includes('perc')
     ) {
         return 'Bricolage';
     }
@@ -34,7 +47,10 @@ export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter,
         t.includes('nettoyage') ||
         t.includes('vitre') ||
         t.includes('repass') ||
-        t.includes('aspirat')
+        t.includes('aspirat') ||
+        t.includes('entretien') ||
+        t.includes('maison') ||
+        t.includes('domicile')
     ) {
         return 'Ménage';
     }

@@ -14,6 +14,10 @@ import {
   ClipboardCheck,
   Mail,
   Wand2,
+  Megaphone,
+  Gift,
+  UserPlus,
+  UserRoundPlus,
   X
 } from 'lucide-react';
 import { NavItem } from '../types';
@@ -22,6 +26,10 @@ import { useData } from '../context/DataContext';
 const navItems: NavItem[] = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
   { label: 'Pointage QR', path: '/qrcode', icon: QrCode },
+  { label: 'Devenir parrain', path: '/parrainage/devenir-parrain-client', icon: UserRoundPlus },
+  { label: 'Inscrire un filleul', path: '/parrainage/inscrire-filleul', icon: UserRoundPlus },
+  { label: 'Mes filleuls', path: '/parrainage/mes-filleuls', icon: Users },
+  { label: 'Mes points', path: '/parrainage/mes-points', icon: Gift },
   { label: 'Rapports Missions', path: '/reports', icon: ClipboardCheck },
   { label: 'Statistiques', path: '/statistics', icon: BarChart2 },
   { label: 'Clients', path: '/clients', icon: Users },
@@ -32,6 +40,12 @@ const navItems: NavItem[] = [
   { label: 'Secrétariat', path: '/secretariat', icon: PhoneCall },
   { label: 'Formulaires Contact', path: '/contact-forms', icon: Mail },
   { label: 'Comptes test', path: '/demo-accounts', icon: Wand2 },
+  { label: 'Gestion des flyers', path: '/admin/flyers', icon: Megaphone },
+  { label: 'Demandes Flyers', path: '/admin/flyer-requests', icon: Megaphone },
+  { label: 'Filleuls (en attente)', path: '/admin/filleuls', icon: UserPlus },
+  { label: 'Filleuls', path: '/admin/referrals', icon: UserPlus },
+  { label: 'Parrains (performance)', path: '/admin/referrers-performance', icon: Users },
+  { label: 'Récompenses & Points', path: '/admin/rewards', icon: Gift },
 ];
 
 interface SidebarProps {
@@ -41,7 +55,17 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode } = useData();
+  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads } = useData();
+
+  const isClientReferrer = useMemo(() => {
+    if (currentUser?.role !== 'client') return false;
+    try {
+      const v = String(localStorage.getItem('mkt_client_is_referrer') || '').trim();
+      return v === '1' || v.toLowerCase() === 'true';
+    } catch {
+      return false;
+    }
+  }, [currentUser?.role, currentUser?.id]);
 
   const unreadChatClientsCount = useMemo(() => {
     if (currentUser?.role !== 'admin') return 0;
@@ -61,18 +85,30 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return (contactForms || []).filter(f => !f.isRead).length;
   }, [currentUser?.role, contactForms]);
 
+  const pendingClientsCount = useMemo(() => {
+    if (currentUser?.role !== 'admin') return 0;
+    return (clientLeads || []).filter((l: any) => String(l?.status || '') === 'pending').length;
+  }, [currentUser?.role, clientLeads]);
+
   // Filter navigation items based on user role
   const getFilteredNavItems = () => {
     if (currentUser?.role === 'client') {
       // Clients can only see specific items
-      return navItems.filter(item => 
-        ['/qrcode', '/'].includes(item.path) // Only dashboard and QR code
-      );
+      return navItems
+        .map((item) => {
+          if (item.path !== '/parrainage/devenir-parrain-client') return item;
+          if (!isClientReferrer) return item;
+          return { ...item, label: 'Mon compte parrain', path: '/parrainage/mon-compte-parrain' };
+        })
+        .filter(item =>
+          ['/', '/qrcode', '/parrainage/devenir-parrain-client', '/parrainage/mon-compte-parrain', '/parrainage/inscrire-filleul', '/parrainage/mes-filleuls', '/parrainage/mes-points'].includes(item.path)
+        );
     }
     if (currentUser?.role === 'provider') {
-      return navItems.filter(item => item.path !== '/demo-accounts');
+      return navItems.filter(item => item.path !== '/demo-accounts' && !item.path.startsWith('/admin/') && (item.path === '/parrainage/mes-filleuls' || !item.path.startsWith('/parrainage/')));
     }
-    return navItems; // Admin and providers see all items
+    // Admin and super admin
+    return navItems.filter(item => !item.path.startsWith('/parrainage/'));
   };
 
   const filteredNavItems = getFilteredNavItems();
@@ -140,6 +176,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 >
                   <item.icon className={`mr-3 h-5 w-5 ${isActive ? 'text-brand-orange' : (isSoberMode ? 'text-slate-400' : 'text-slate-400')}`} />
                   <span className="flex-1">{item.label}</span>
+                  {item.path === '/admin/filleuls' && pendingClientsCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                      {pendingClientsCount}
+                    </span>
+                  )}
                   {item.path === '/secretariat' && unreadChatClientsCount > 0 && (
                     <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
                       {unreadChatClientsCount}

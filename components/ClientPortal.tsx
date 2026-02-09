@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData } from '../context/DataContext';
 import { Document, Contract } from '../types';
 import QRCodeManager from './ScanPage';
@@ -24,6 +24,7 @@ import {
     Mail,
     Award,
     Package,
+    Megaphone,
     AlertCircle,
     AlertTriangle,
     Bell,
@@ -198,6 +199,8 @@ const ClientPortal: React.FC = () => {
 
     // Mobile Menu State
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [isReferrer, setIsReferrer] = useState(false);
+    const [referralCode, setReferralCode] = useState('');
 
     // Modals
     const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -218,6 +221,7 @@ const ClientPortal: React.FC = () => {
     const [isDrawing, setIsDrawing] = useState(false);
     const [hasSignature, setHasSignature] = useState(false);
     const [showSignatureModal, setShowSignatureModal] = useState(false);
+    const [isSubmittingSignature, setIsSubmittingSignature] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [isCallInitiator, setIsCallInitiator] = useState(false);
@@ -258,54 +262,34 @@ const ClientPortal: React.FC = () => {
     }, [showNotifDropdown]);
 
     useEffect(() => {
-        if (client) {
-            if (profileLoadTimeoutRef.current) {
-                clearTimeout(profileLoadTimeoutRef.current);
-                profileLoadTimeoutRef.current = null;
-            }
-            return;
+        try {
+            const v = String(localStorage.getItem('mkt_client_is_referrer') || '').trim();
+            setIsReferrer(v === '1' || v.toLowerCase() === 'true');
+        } catch {
+            setIsReferrer(false);
         }
+    }, [currentUser?.id, showMobileMenu]);
 
-        if (!activeClientId) return;
-        if (currentUser?.role !== 'client') return;
-        if (profileLoadTimeoutRef.current) return;
+    useEffect(() => {
+        try {
+            const code = String(localStorage.getItem('mkt_client_referral_code') || '').trim();
+            setReferralCode(code);
+        } catch {
+            setReferralCode('');
+        }
+    }, [currentUser?.id]);
 
-        profileLoadTimeoutRef.current = window.setTimeout(() => {
-            try {
-                localStorage.setItem('presta_session_expired', '1');
-            } catch { }
-
-            try {
-                localStorage.removeItem('presta_auth_recovery');
-                localStorage.removeItem('presta_current_user');
-                localStorage.removeItem('presta_session_persistent');
-                localStorage.removeItem('presta_session_extended');
-            } catch { }
-
-            try {
-                sessionStorage.clear();
-            } catch { }
-
-            try {
-                const cookies = document.cookie ? document.cookie.split(';') : [];
-                cookies.forEach((cookie) => {
-                    const eqPos = cookie.indexOf('=');
-                    const name = (eqPos > -1 ? cookie.substr(0, eqPos) : cookie).trim();
-                    if (!name) return;
-                    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-                });
-            } catch { }
-
-            logout(true);
-        }, 30000);
-
-        return () => {
-            if (profileLoadTimeoutRef.current) {
-                clearTimeout(profileLoadTimeoutRef.current);
-                profileLoadTimeoutRef.current = null;
-            }
-        };
-    }, [activeClientId, client, currentUser?.role, logout]);
+    const referralLink = useMemo(() => {
+        const code = String(referralCode || '').trim();
+        if (!code) return '';
+        try {
+            const base = typeof window !== 'undefined' ? String(window.location.origin || '').trim() : '';
+            if (!base) return '';
+            return `${base}/parrainage/inscription?code=${encodeURIComponent(code)}`;
+        } catch {
+            return '';
+        }
+    }, [referralCode]);
 
     useEffect(() => {
         if (activeTab !== 'messages') return;
@@ -472,6 +456,7 @@ const ClientPortal: React.FC = () => {
         if (selectedQuoteId && canvasRef.current) {
             const dataUrl = canvasRef.current.toDataURL();
             try {
+                setIsSubmittingSignature(true);
                 await signQuoteWithData(selectedQuoteId, dataUrl);
                 setQuoteModalOpen(false);
                 endReadingSession(); // Terminer la session de lecture
@@ -480,6 +465,8 @@ const ClientPortal: React.FC = () => {
             } catch (error) {
                 console.error('Erreur lors de la signature:', error);
                 // Ne pas afficher de message d'erreur ici car la notification est déjà gérée dans signQuoteWithData
+            } finally {
+                setIsSubmittingSignature(false);
             }
         }
     };
@@ -1418,6 +1405,30 @@ const ClientPortal: React.FC = () => {
                             <User className="w-4 h-4" /> Mon Profil
                         </button>
                         <button
+                            onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Package className="w-4 h-4" /> Inscrire un filleul
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/parrainage/mes-points'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <History className="w-4 h-4" /> Mes points parrainage
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/flyers'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Megaphone className="w-4 h-4" /> Offres / Flyers
+                        </button>
+                        <button
                             onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
@@ -1435,6 +1446,10 @@ const ClientPortal: React.FC = () => {
                     <button onClick={() => setActiveTab('messages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><MessageSquare className="w-4 h-4" /> Messages</button>
                     <button onClick={() => setActiveTab('qr-scans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><QrCode className="w-4 h-4" /> QR Code & Pointage</button>
                     <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><User className="w-4 h-4" /> Mon Profil</button>
+                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
+                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
+                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
+                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
                     <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
                 </nav>
 
@@ -1521,6 +1536,33 @@ const ClientPortal: React.FC = () => {
 
                     {activeTab === 'planning' && (
                         <div className="space-y-6">
+                            {isReferrer && referralLink ? (
+                                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+                                    <div className="text-sm font-extrabold text-slate-800">Ton lien de parrainage</div>
+                                    <div className="text-xs text-slate-500 mt-1">Partage ce lien pour que tes filleuls s’inscrivent automatiquement avec ton code.</div>
+                                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                                        <input
+                                            value={referralLink}
+                                            readOnly
+                                            className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(referralLink);
+                                                    showToast('Lien copié ✅', 'success');
+                                                } catch {
+                                                    showToast('Impossible de copier le lien', 'warning');
+                                                }
+                                            }}
+                                            className="px-4 py-2 rounded-xl font-extrabold text-xs bg-brand-blue text-white hover:bg-teal-700"
+                                        >
+                                            Copier
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
                             <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
 
                             <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 sm:p-5 shadow-sm">
@@ -2670,10 +2712,17 @@ const ClientPortal: React.FC = () => {
                                     <div className="flex flex-col gap-3">
                                         <button
                                             onClick={submitSignature}
-                                            disabled={!termsAccepted || !hasSignature}
+                                            disabled={!termsAccepted || !hasSignature || isSubmittingSignature}
                                             className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                                         >
-                                            Signer et Valider
+                                            {isSubmittingSignature ? (
+                                                <span className="inline-flex items-center justify-center gap-2">
+                                                    <Loader className="w-4 h-4 animate-spin" />
+                                                    Signature en cours...
+                                                </span>
+                                            ) : (
+                                                'Signer et Valider'
+                                            )}
                                         </button>
                                     </div>
                                 </div>
@@ -2789,10 +2838,17 @@ const ClientPortal: React.FC = () => {
                                                 </button>
                                                 <button
                                                     onClick={submitSignature}
-                                                    disabled={!termsAccepted || !hasSignature}
+                                                    disabled={!termsAccepted || !hasSignature || isSubmittingSignature}
                                                     className="w-full py-3 bg-brand-blue text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                                                 >
-                                                    Signer et Valider
+                                                    {isSubmittingSignature ? (
+                                                        <span className="inline-flex items-center justify-center gap-2">
+                                                            <Loader className="w-4 h-4 animate-spin" />
+                                                            Signature en cours...
+                                                        </span>
+                                                    ) : (
+                                                        'Signer et Valider'
+                                                    )}
                                                 </button>
                                                 <button
                                                     onClick={() => handleRefuse(selectedQuote.id)}
@@ -2986,7 +3042,7 @@ const ClientPortal: React.FC = () => {
         </div>
         )}
         </div>
-    )}
+    );
+};
 
-    
 export default ClientPortal;

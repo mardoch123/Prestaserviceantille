@@ -63,6 +63,34 @@ serve(async (req: Request) => {
             `;
             break;
 
+        case 'lead_client_validated':
+            htmlContent += `
+                <h2 style="color: #2A9D8F;">✅ Nouveau client validé</h2>
+                <p>Une demande d'inscription (parrainage) a été validée et le compte client a été créé.</p>
+                <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 5px 0;"><strong>Nom :</strong> ${context.client_name || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Email :</strong> ${context.client_email || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Téléphone :</strong> ${context.client_phone || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Adresse :</strong> ${context.address || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Ville :</strong> ${context.city || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Code parrain :</strong> ${context.referral_code || '—'}</p>
+                </div>
+                <p style="font-size: 12px; color: #777;">Lead ID: ${context.lead_id || ''} — Client ID: ${context.created_client_id || ''}</p>
+            `;
+            break;
+
+        case 'lead_client_validated_referrer':
+            htmlContent += `
+                <h2 style="color: #264653;">🎉 Votre filleul a été validé</h2>
+                <p>Bonne nouvelle ! Votre filleul a été validé et son compte a été créé.</p>
+                <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 5px 0;"><strong>Filleul :</strong> ${context.client_name || ''}</p>
+                    <p style="margin: 5px 0;"><strong>Email :</strong> ${context.client_email || ''}</p>
+                </div>
+                <p style="font-size: 12px; color: #777;">Code parrain : ${context.referral_code || '—'}</p>
+            `;
+            break;
+
         case 'welcome_provider':
             htmlContent += `
                 <h2 style="color: #264653;">Bienvenue dans l'équipe, ${context.name} !</h2>

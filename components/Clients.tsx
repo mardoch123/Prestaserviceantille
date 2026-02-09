@@ -4,6 +4,8 @@ import { useData } from '../context/DataContext';
 import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
+import { createReferralValidated } from '../modules/marketing/referralClient';
 import { 
   Users, 
   Filter, 
@@ -28,11 +30,16 @@ import {
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
+  const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<any | null>(null);
+  const [clientStatusUpdatingId, setClientStatusUpdatingId] = useState<string | null>(null);
+  const [leadUpdatingId, setLeadUpdatingId] = useState<string | null>(null);
+  const [openLeadMenuId, setOpenLeadMenuId] = useState<string | null>(null);
+  const [selectedLeadDetails, setSelectedLeadDetails] = useState<any | null>(null);
+  const leadMenuRootRef = React.useRef<HTMLDivElement | null>(null);
   
   // Liste des départements/communes de la Martinique
   const martiniqueDepartments = [
@@ -155,6 +162,29 @@ const Clients: React.FC = () => {
           .replace(/\s+/g, ' ')
           .trim();
   };
+
+  const toggleLeadMenu = (leadId: string) => {
+    setOpenLeadMenuId((prev) => (prev === leadId ? null : leadId));
+  };
+
+  useEffect(() => {
+    if (!openLeadMenuId) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      const root = leadMenuRootRef.current;
+      if (!root) {
+        setOpenLeadMenuId(null);
+        return;
+      }
+
+      const target = e.target as Node | null;
+      if (target && root.contains(target)) return;
+      setOpenLeadMenuId(null);
+    };
+
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [openLeadMenuId]);
 
   const filteredClients = useMemo(() => {
     let result = clients;
@@ -282,6 +312,179 @@ const Clients: React.FC = () => {
         alert("Erreur lors de l'enregistrement: " + err.message);
     } finally {
         setIsSubmitting(false);
+    }
+  };
+
+  const pendingLeads = useMemo(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return [] as any[];
+    return (clientLeads || []).filter((l: any) => String(l?.status || '') === 'pending');
+  }, [clientLeads, currentUser?.role]);
+
+  const validateLead = async (lead: any) => {
+    if (!lead?.id) return;
+    if (leadUpdatingId) return;
+    if (!isSupabaseConfigured) return;
+
+    setLeadUpdatingId(String(lead.id));
+    try {
+      const fullName = String(lead.full_name || lead.fullName || '').trim();
+      const email = String(lead.email || '').trim();
+      const phone = String(lead.phone || '').trim();
+      const address = String(lead.address || '').trim();
+      const city = String(lead.city || '').trim();
+      const referralCode = String(lead.referral_code || lead.referralCode || '').trim();
+
+      if (!fullName || !email) {
+        showToast('Lead invalide (nom/email manquant).', 'error');
+        return;
+      }
+
+      const password = await addClient({
+        name: fullName,
+        city: city || '-',
+        address: address || '-',
+        phone: phone || '-',
+        email,
+        pack: '-',
+        status: 'active',
+        since: getMartiniqueToday(),
+        packsConsumed: 0,
+        loyaltyHoursAvailable: 0,
+      });
+
+      if (!password) {
+        showToast("Création du client échouée.", 'error');
+        return;
+      }
+
+      let createdClientId: string | null = null;
+      try {
+        const { data: createdClient } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('email', email)
+          .order('since', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        createdClientId = createdClient?.id || null;
+      } catch {
+        createdClientId = null;
+      }
+
+      if (referralCode) {
+        try {
+          await createReferralValidated({
+            referral_code: referralCode,
+            referred_full_name: fullName,
+            referred_email: email,
+            referred_phone: phone || null,
+            referred_client_id: createdClientId,
+            source_request_id: null,
+          });
+        } catch { }
+      }
+
+      try {
+        await supabase
+          .from('client_leads')
+          .update({
+            status: 'validated',
+            validated_at: new Date().toISOString(),
+            validated_by: currentUser?.id || null,
+            created_client_id: createdClientId,
+          })
+          .eq('id', lead.id);
+      } catch { }
+
+      try {
+        const subject = 'Nouveau client validé (lead)';
+        const ctx = {
+          lead_id: lead.id,
+          client_email: email,
+          client_name: fullName,
+          client_phone: phone,
+          city,
+          address,
+          referral_code: referralCode || null,
+          created_client_id: createdClientId,
+        };
+
+        await supabase.from('mkt_notification_outbox').insert({
+          channel: 'email',
+          template: 'lead_client_validated',
+          to_user_type: 'admin',
+          to_user_id: null,
+          to_email: companySettings?.email || null,
+          title: subject,
+          body: subject,
+          data: ctx,
+        });
+
+        if (referralCode) {
+          const { data: refData } = await supabase.rpc('mkt_get_referrer_public_by_code', { p_referral_code: referralCode });
+          const refEmail = String((refData as any)?.email || '').trim();
+          if (refEmail) {
+            await supabase.from('mkt_notification_outbox').insert({
+              channel: 'email',
+              template: 'lead_client_validated_referrer',
+              to_user_type: 'client',
+              to_user_id: null,
+              to_email: refEmail,
+              title: 'Votre filleul a été validé',
+              body: 'Votre filleul a été validé.',
+              data: ctx,
+            });
+          }
+        }
+      } catch { }
+
+      await refreshData();
+      showToast('Lead approuvé: client créé et lead validé.', 'success');
+    } catch {
+      showToast("Erreur lors de la validation du lead.", 'error');
+    } finally {
+      setLeadUpdatingId(null);
+    }
+  };
+
+  const rejectLead = async (lead: any) => {
+    if (!lead?.id) return;
+    if (leadUpdatingId) return;
+    if (!isSupabaseConfigured) return;
+
+    setLeadUpdatingId(String(lead.id));
+    try {
+      await supabase
+        .from('client_leads')
+        .update({
+          status: 'rejected',
+          validated_at: new Date().toISOString(),
+          validated_by: currentUser?.id || null,
+        })
+        .eq('id', lead.id);
+
+      await refreshData();
+      showToast('Lead refusé.', 'success');
+    } catch {
+      showToast('Erreur lors du refus du lead.', 'error');
+    } finally {
+      setLeadUpdatingId(null);
+    }
+  };
+
+  const setClientStatus = async (clientId: string, status: 'active' | 'prospect') => {
+    if (!clientId) return;
+    if (clientStatusUpdatingId) return;
+
+    setClientStatusUpdatingId(clientId);
+    try {
+      await updateClient(clientId, { status });
+      await refreshData();
+      showToast(status === 'active' ? 'Client approuvé.' : 'Client refusé.', 'success');
+    } catch {
+      showToast("Impossible de mettre à jour le statut du client.", 'error');
+    } finally {
+      setClientStatusUpdatingId(null);
     }
   };
 
@@ -587,7 +790,6 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
-                                        
                                         <button 
                                             onClick={() => openEditModal(client)}
                                             className="text-slate-400 hover:text-brand-blue p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200"

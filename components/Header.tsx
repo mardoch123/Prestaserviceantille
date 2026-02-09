@@ -205,12 +205,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                 )}
             </div>
         )}
-        <div className="hidden md:flex items-center gap-2 text-xs font-bold text-slate-500 bg-white border border-beige-200 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2 text-[11px] sm:text-xs font-bold text-slate-500 bg-white border border-beige-200 rounded-lg px-2 sm:px-3 py-2">
           <Briefcase className="w-4 h-4 text-slate-400" />
           <select
             value={serviceTypeFilter}
             onChange={(e) => setServiceTypeFilter(e.target.value as any)}
-            className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+            className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-700 outline-none cursor-pointer max-w-[150px] sm:max-w-none"
             title="Filtrer par type de service"
           >
             {(serviceTypeOptions || ['all']).map((opt: any) => (

@@ -24,6 +24,10 @@ import {
   Wifi,
   Lock,
   Briefcase,
+  Award,
+  Package,
+  History,
+  Megaphone,
   LogOut,
   Bell,
   AlertTriangle,
@@ -65,6 +69,39 @@ const ProviderPortal: React.FC = () => {
   // Mobile menu state
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  const [isReferrer, setIsReferrer] = useState(false);
+  const [referralCode, setReferralCode] = useState('');
+
+  useEffect(() => {
+    try {
+      const v = String(localStorage.getItem('mkt_client_is_referrer') || '').trim();
+      setIsReferrer(v === '1' || v.toLowerCase() === 'true');
+    } catch {
+      setIsReferrer(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const code = String(localStorage.getItem('mkt_client_referral_code') || '').trim();
+      setReferralCode(code);
+    } catch {
+      setReferralCode('');
+    }
+  }, []);
+
+  const referralLink = useMemo(() => {
+    const code = String(referralCode || '').trim();
+    if (!code) return '';
+    try {
+      const base = typeof window !== 'undefined' ? String(window.location.origin || '').trim() : '';
+      if (!base) return '';
+      return `${base}/parrainage/inscription?code=${encodeURIComponent(code)}`;
+    } catch {
+      return '';
+    }
+  }, [referralCode]);
   
   // Notification State
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -560,6 +597,34 @@ const ProviderPortal: React.FC = () => {
                        >
                            <CalendarX className="w-4 h-4" /> Absences
                        </button>
+
+                       <div className="border-t border-slate-200 pt-4 mt-4">
+                           <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
+                           <button
+                               onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; setShowMobileMenu(false); }}
+                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                           >
+                               <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
+                           </button>
+                           <button
+                               onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; setShowMobileMenu(false); }}
+                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                           >
+                               <Package className="w-4 h-4" /> Inscrire un filleul
+                           </button>
+                           <button
+                               onClick={() => { window.location.href = '/parrainage/mes-points'; setShowMobileMenu(false); }}
+                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                           >
+                               <History className="w-4 h-4" /> Mes points parrainage
+                           </button>
+                           <button
+                               onClick={() => { window.location.href = '/flyers'; setShowMobileMenu(false); }}
+                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                           >
+                               <Megaphone className="w-4 h-4" /> Offres / Flyers
+                           </button>
+                       </div>
                        
                        <div className="border-t border-slate-200 pt-4 mt-4">
                            <button 
@@ -601,6 +666,14 @@ const ProviderPortal: React.FC = () => {
                 >
                     <CalendarX className="w-4 h-4" /> Absences
                 </button>
+
+                <div className="border-t border-slate-200 pt-4 mt-4">
+                    <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
+                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
+                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
+                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
+                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
+                </div>
            </nav>
 
            {/* Main Content */}
@@ -608,6 +681,33 @@ const ProviderPortal: React.FC = () => {
                <div className="max-w-7xl mx-auto">
                    {activeTab === 'dashboard' && (
                        <div className="space-y-6">
+                           {isReferrer && referralLink ? (
+                               <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+                                   <div className="text-sm font-extrabold text-slate-800">Ton lien de parrainage</div>
+                                   <div className="text-xs text-slate-500 mt-1">Partage ce lien pour que tes filleuls s’inscrivent automatiquement avec ton code.</div>
+                                   <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                                       <input
+                                           value={referralLink}
+                                           readOnly
+                                           className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50"
+                                       />
+                                       <button
+                                           type="button"
+                                           onClick={async () => {
+                                               try {
+                                                   await navigator.clipboard.writeText(referralLink);
+                                                   showToast('Lien copié ✅', 'success');
+                                               } catch {
+                                                   showToast('Impossible de copier le lien', 'warning');
+                                               }
+                                           }}
+                                           className="px-4 py-2 rounded-xl font-extrabold text-xs bg-brand-blue text-white hover:bg-teal-700"
+                                       >
+                                           Copier
+                                       </button>
+                                   </div>
+                               </div>
+                           ) : null}
                            <h2 className="text-2xl font-bold text-slate-800 font-serif">Mes Missions</h2>
                            {providerMissions.length === 0 ? (
                                <div className="bg-white p-10 rounded-2xl shadow-sm text-center border border-slate-200">

@@ -148,6 +148,7 @@ interface DataContextType {
     deleteMissions: (ids: string[]) => Promise<void>;
 
     clients: Client[];
+    clientLeads: any[];
     addClient: (client: CreateClientDTO) => Promise<string | null>; // Returns generated password
     updateClient: (id: string, data: Partial<Client>) => Promise<void>;
     deleteClients: (ids: string[]) => Promise<void>;
@@ -294,6 +295,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const [missions, setMissions] = useState<Mission[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [clientLeads, setClientLeads] = useState<any[]>([]);
     const [providers, setProviders] = useState<Provider[]>([]);
     const [documents, setDocuments] = useState<Document[]>([]);
     const [packs, setPacks] = useState<Pack[]>([]);
@@ -535,9 +537,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSimulatedProviderId(null);
         setMissions([]);
         setClients([]);
+        setClientLeads([]);
         setProviders([]);
         setDocuments([]);
         setVisitScans([]);
+        setMissionChangeRequests([]);
+        setNotifications([]);
+        setContactForms([]);
+        setVisitScans([]);
+        setMissionChangeRequests([]);
+        if (currentUser && String(currentUser.id || '').startsWith('demo-user-')) return;
+        void enterDemoMode(demoRole as any);
     };
 
     useEffect(() => {
@@ -585,6 +595,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const updateDocument = async (id: string, updates: Partial<Document>): Promise<Document | null> => {
         const dbUpdates: any = { ...updates };
+        if (dbUpdates.status !== undefined) {
+            const v = typeof dbUpdates.status === 'string' ? dbUpdates.status.trim() : dbUpdates.status;
+            if (!v) {
+                delete dbUpdates.status;
+            } else {
+                dbUpdates.status = v;
+            }
+        }
         if (dbUpdates.clientId !== undefined) { dbUpdates.client_id = dbUpdates.clientId; delete dbUpdates.clientId; }
         if (dbUpdates.clientName !== undefined) { dbUpdates.client_name = dbUpdates.clientName; delete dbUpdates.clientName; }
         if (dbUpdates.unitPrice !== undefined) { dbUpdates.unit_price = dbUpdates.unitPrice; delete dbUpdates.unitPrice; }
@@ -1476,7 +1494,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
                         if (result.error) {
-                            console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error.message);
+                            console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error);
                             return null;
                         }
 
@@ -1526,10 +1544,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
 
                 let [
-                    cData, pData, mData, dData, packData, ctData,
+                    cData, leadsData, pData, mData, dData, packData, ctData,
                     rData, eData, msgData, notifData, cfData, settingsData, vsData, vrData, leavesData, gcData, mcrData
                 ] = await Promise.all([
                     fetchTable('clients'),
+                    fetchTable('client_leads'),
                     fetchTable('providers'),
                     fetchTable('missions'),
                     fetchTable('documents'),
@@ -1552,6 +1571,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const retryJobs: Promise<void>[] = [];
                 if (!cData) retryJobs.push(fetchTable('clients').then(r => { cData = r; }));
+                if (!leadsData) retryJobs.push(fetchTable('client_leads').then(r => { leadsData = r; }));
                 if (!pData) retryJobs.push(fetchTable('providers').then(r => { pData = r; }));
                 if (!mData) retryJobs.push(fetchTable('missions').then(r => { mData = r; }));
                 if (!dData) retryJobs.push(fetchTable('documents').then(r => { dData = r; }));
@@ -1580,6 +1600,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     });
 
                     setClients(enrichedClients);
+                }
+
+                if (Array.isArray(leadsData) && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')) {
+                    setClientLeads(leadsData as any);
+                } else {
+                    setClientLeads([]);
                 }
 
                 if (pData) {
@@ -2250,6 +2276,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         setCurrentUser(null);
                         setMissions([]);
                         setClients([]);
+                        setClientLeads([]);
                         setProviders([]);
                         setDocuments([]);
                         localStorage.removeItem('presta_current_user');
@@ -3449,6 +3476,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         const finalId = doc.id && String(doc.id).trim() ? doc.id : generateUUID();
+        const safeStatus = (typeof (doc as any).status === 'string' && String((doc as any).status).trim()) ? String((doc as any).status).trim() : 'pending';
         const dbDocData = {
             id: finalId,
             ref: doc.ref,
@@ -3464,7 +3492,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             total_ht: doc.totalHT,
             total_ttc: doc.totalTTC,
             tax_credit_enabled: doc.taxCreditEnabled,
-            status: doc.status,
+            status: safeStatus,
             slots_data: doc.slotsData,
             pack_id: doc.packId || null,
             reminder_sent: false,
@@ -3617,9 +3645,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const updateDocumentStatus = async (id: string, status: string) => {
         const oldDoc = documents.find(d => d.id === id);
-        const { error } = await supabase.from('documents').update({ status }).eq('id', id);
+        const nextStatus = typeof status === 'string' && status.trim() ? status.trim() : 'pending';
+        console.log('[updateDocumentStatus] Updating document status:', { id, status, nextStatus });
+        const { error } = await supabase
+            .from('documents')
+            .update({ status: nextStatus } as any)
+            .eq('id', id);
         if (!error) {
-            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: status as any } : d));
+            setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: nextStatus as any } : d));
             if (oldDoc && oldDoc.status !== 'signed' && status === 'signed') {
                 const updatedDoc = documents.find(d => d.id === id);
                 if (updatedDoc) {
@@ -3931,11 +3964,38 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const now = getMartiniqueNowISO();
         console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);
-        const documentUpdates: any = { status: 'signed', signature_date: now };
-        if (signatureData) {
-            documentUpdates.signature_data = signatureData;
+
+        const statusToSet = 'signed';
+        if (!statusToSet || !String(statusToSet).trim()) {
+            throw new Error('[signQuoteWithData] Invalid status computed');
         }
-        const { error } = await supabase.from('documents').update(documentUpdates).eq('id', id);
+
+        const payload: any = { status: statusToSet, signature_date: now };
+        if (signatureData) payload.signature_data = signatureData;
+
+        console.log('[signQuoteWithData] Updating documents row:', { id, payload });
+
+        let error: any = null;
+        {
+            const rpcRes = await supabase.rpc('sign_quote', {
+                p_id: id,
+                p_signature_data: signatureData || null,
+                p_signature_date: now
+            } as any);
+            if (rpcRes?.error) {
+                const msg = String(rpcRes.error.message || '');
+                const code = String((rpcRes.error as any).code || '');
+                const notFound = code === 'PGRST202' || msg.toLowerCase().includes('could not find the function') || msg.toLowerCase().includes('function sign_quote');
+                if (!notFound) {
+                    error = rpcRes.error;
+                }
+            }
+        }
+
+        if (!error) {
+            const res = await supabase.from('documents').update(payload).eq('id', id);
+            error = res.error;
+        }
 
         if (error) {
             console.error('Erreur Supabase update documents (signature):', error);
@@ -4871,6 +4931,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setSimulatedProviderId(null);
         setMissions([]);
         setClients([]);
+        setClientLeads([]);
         setProviders([]);
         setDocuments([]);
         setVisitScans([]);
@@ -5577,7 +5638,7 @@ return (
 
         missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
 
-        clients, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+        clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
 
         providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
 
