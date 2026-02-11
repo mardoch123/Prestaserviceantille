@@ -161,6 +161,19 @@ serve(async (req: Request) => {
             `;
             break;
 
+        case 'quote_expired_client':
+            htmlContent += `
+                <h2 style="color: #E76F51;">⏳ Votre devis a expiré</h2>
+                <p>Bonjour ${context.clientName || 'Client'},</p>
+                <p>Votre devis <strong>${context.quoteRef || ''}</strong> a expiré (délai de 24h dépassé).</p>
+                <p>Vous pouvez demander un nouveau devis à tout moment.</p>
+                <p style="text-align: center; margin-top: 30px;">
+                    <a href="${context.link || 'https://prestaservicesantilles.com/'}" style="background-color: #2A9D8F; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Faire une nouvelle demande</a>
+                </p>
+                <p style="font-size: 12px; color: #777; margin-top: 20px;">Si vous avez besoin d’aide, vous pouvez répondre à cet email.</p>
+            `;
+            break;
+
         case 'admin_mission_cancelled':
             htmlContent += `
                 <h2 style="color: #E76F51;">🚨 Annulation Prestataire</h2>
@@ -177,6 +190,19 @@ serve(async (req: Request) => {
                 <h2 style="color: #264653;">Nouveau Document Disponible</h2>
                 <p>Un nouveau document (${context.type}) référence <strong>${context.ref}</strong> est disponible dans votre espace.</p>
                 <p><strong>Montant :</strong> ${context.total} €</p>
+            `;
+            break;
+
+        case 'quote_expiration_notification':
+            htmlContent += `
+                <h2 style="color: #E76F51;">⏳ Votre devis est sur le point d'expirer</h2>
+                <p>Bonjour ${context.clientName || 'Client'},</p>
+                <p>Votre devis <strong>${context.quoteRef || ''}</strong> est sur le point d'expirer (délai de 24h).</p>
+                <p>Vous pouvez demander un nouveau devis à tout moment.</p>
+                <p style="text-align: center; margin-top: 30px;">
+                    <a href="${context.link || 'https://prestaservicesantilles.com/'}" style="background-color: #2A9D8F; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Faire une nouvelle demande</a>
+                </p>
+                <p style="font-size: 12px; color: #777; margin-top: 20px;">Si vous avez besoin d’aide, vous pouvez répondre à cet email.</p>
             `;
             break;
 

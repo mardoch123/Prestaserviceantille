@@ -99,6 +99,20 @@ const AdminFlyersPage: React.FC = () => {
   }, []);
 
   const openCreate = () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const toLocalInput = (d: Date) => {
+      const yy = d.getFullYear();
+      const mm = pad(d.getMonth() + 1);
+      const dd = pad(d.getDate());
+      const hh = pad(d.getHours());
+      const mi = pad(d.getMinutes());
+      return `${yy}-${mm}-${dd}T${hh}:${mi}`;
+    };
+
+    const now = new Date();
+    const monthLater = new Date(now);
+    monthLater.setMonth(monthLater.getMonth() + 1);
+
     setImageMode('url');
     setForm({
       title: '',
@@ -108,8 +122,8 @@ const AdminFlyersPage: React.FC = () => {
       normal_price: '',
       promo_price: '',
       observations: '',
-      starts_at: '',
-      ends_at: '',
+      starts_at: toLocalInput(now),
+      ends_at: toLocalInput(monthLater),
       is_active: true,
       is_featured: false,
       featured_rank: '',
@@ -264,7 +278,7 @@ const AdminFlyersPage: React.FC = () => {
         <div className="fixed inset-0 z-[9999]">
           <button className="absolute inset-0 bg-black/40" onClick={() => setFormOpen(false)} aria-label="Fermer" />
           <div className="absolute inset-x-0 top-10 px-4">
-            <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+            <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div className="text-lg font-extrabold text-slate-800">{form.id ? 'Modifier un flyer' : 'Créer un flyer'}</div>
                 <button
@@ -277,11 +291,17 @@ const AdminFlyersPage: React.FC = () => {
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-4 overflow-y-auto">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Titre</label>
-                    <input value={form.title} onChange={(e) => setForm((s) => ({ ...s, title: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      value={form.title}
+                      onChange={(e) => setForm((s) => ({ ...s, title: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                      placeholder="Ex: -20% sur le ménage (Semaine spéciale)"
+                    />
+                    <div className="text-[11px] text-slate-500 mt-1">Titre court et clair (recommandé: 5 à 60 caractères).</div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between">
@@ -297,7 +317,12 @@ const AdminFlyersPage: React.FC = () => {
                     </div>
 
                     {imageMode === 'url' ? (
-                      <input value={form.image_url} onChange={(e) => setForm((s) => ({ ...s, image_url: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" placeholder="https://..." />
+                      <input
+                        value={form.image_url}
+                        onChange={(e) => setForm((s) => ({ ...s, image_url: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                        placeholder="Lien direct vers une image (PNG/JPG). Ex: https://..."
+                      />
                     ) : (
                       <input
                         type="file"
@@ -326,27 +351,54 @@ const AdminFlyersPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                  <textarea value={form.description} onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-24" />
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-24"
+                    placeholder="Décris l’offre en 2-4 lignes (ce qui est inclus, conditions, zone géographique, etc.)"
+                  />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Observations</label>
-                  <textarea value={form.observations} onChange={(e) => setForm((s) => ({ ...s, observations: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-20" />
+                  <textarea
+                    value={form.observations}
+                    onChange={(e) => setForm((s) => ({ ...s, observations: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-20"
+                    placeholder="Informations complémentaires (ex: limité aux 20 premières demandes, hors week-end, etc.)"
+                  />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">URL cible (clic sur l’offre)</label>
-                  <input value={form.target_url} onChange={(e) => setForm((s) => ({ ...s, target_url: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                  <input
+                    value={form.target_url}
+                    onChange={(e) => setForm((s) => ({ ...s, target_url: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                    placeholder="Page web à ouvrir au clic (optionnel). Ex: https://prestataire.com/offre"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Prix normal</label>
-                    <input value={form.normal_price} onChange={(e) => setForm((s) => ({ ...s, normal_price: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      value={form.normal_price}
+                      onChange={(e) => setForm((s) => ({ ...s, normal_price: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                      placeholder="Ex: 120"
+                      inputMode="decimal"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Prix promo</label>
-                    <input value={form.promo_price} onChange={(e) => setForm((s) => ({ ...s, promo_price: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      value={form.promo_price}
+                      onChange={(e) => setForm((s) => ({ ...s, promo_price: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                      placeholder="Ex: 89"
+                      inputMode="decimal"
+                    />
                   </div>
                   <div className="flex items-end gap-3">
                     <label className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
@@ -360,18 +412,42 @@ const AdminFlyersPage: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="text-[11px] text-slate-500">
+                  - <strong>Actif</strong> : l’offre peut être affichée au public (si les dates le permettent).
+                  <br />
+                  - <strong>Mis en avant</strong> : affiche l’offre dans le slider / pop-up “Offre du moment”.
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Début promo</label>
-                    <input type="datetime-local" value={form.starts_at} onChange={(e) => setForm((s) => ({ ...s, starts_at: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      type="datetime-local"
+                      value={form.starts_at}
+                      onChange={(e) => setForm((s) => ({ ...s, starts_at: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                    />
+                    <div className="text-[11px] text-slate-500 mt-1">Début d’affichage de l’offre (prérempli : aujourd’hui).</div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Fin promo</label>
-                    <input type="datetime-local" value={form.ends_at} onChange={(e) => setForm((s) => ({ ...s, ends_at: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      type="datetime-local"
+                      value={form.ends_at}
+                      onChange={(e) => setForm((s) => ({ ...s, ends_at: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                    />
+                    <div className="text-[11px] text-slate-500 mt-1">Fin d’affichage de l’offre (prérempli : +1 mois).</div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Ordre slider</label>
-                    <input value={form.featured_rank} onChange={(e) => setForm((s) => ({ ...s, featured_rank: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-4 py-3" />
+                    <input
+                      value={form.featured_rank}
+                      onChange={(e) => setForm((s) => ({ ...s, featured_rank: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                      placeholder="Ex: 1 (le plus haut)"
+                      inputMode="numeric"
+                    />
                     <div className="text-[11px] text-slate-500 mt-1">Plus petit = plus haut.</div>
                   </div>
                 </div>

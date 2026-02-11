@@ -42,6 +42,11 @@ export interface Leave {
     status: 'pending' | 'approved' | 'rejected';
 }
 
+export interface WeeklyTimeRange {
+    start: string; // HH:mm
+    end: string; // HH:mm
+}
+
 export interface Provider {
     id: string;
     firstName: string; // first_name en DB
@@ -56,6 +61,7 @@ export interface Provider {
     initialPassword?: string; // Stored specifically for admin viewing (not secure for prod, but requested)
     isActive?: boolean; // Champ pour vérifier si le prestataire est actif (dérivé de status)
     nonInterventionDays?: number[]; // 0=Dimanche ... 6=Samedi
+    nonInterventionHours?: Record<number, WeeklyTimeRange[]>; // plages horaires récurrentes par jour de semaine
 }
 
 // DTO for creating a provider (no ID)

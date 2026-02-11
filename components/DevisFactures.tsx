@@ -130,6 +130,83 @@ const DevisFactures: React.FC = () => {
     // Planification Prévisionnelle Enhancements
     const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
 
+    const [providersModalOpen, setProvidersModalOpen] = useState(false);
+    const [providersModalTitle, setProvidersModalTitle] = useState('');
+    const [providersModalItems, setProvidersModalItems] = useState<any[]>([]);
+
+    const getAvailableProvidersForSlot = (slot: InterventionSlot): any[] => {
+        if (!slot?.date) return [];
+
+        const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        if (!slotStart.isValid() || !slotEnd.isValid()) return [];
+
+        const conflictingMissions = missions.filter(m => {
+            if (m.status === 'cancelled' || !m.date) return false;
+            const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            if (!mStart.isValid() || !mEnd.isValid()) return false;
+            return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
+        });
+
+        return providers.filter((provider: any) => {
+            const isActive = provider.status === 'Active';
+            if (!isActive) return false;
+
+            const day = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            const nonWorkingDays = (provider as any)?.nonInterventionDays;
+            if (Array.isArray(nonWorkingDays) && nonWorkingDays.includes(day)) return false;
+
+            const hourRanges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+                ? (provider as any).nonInterventionHours[day]
+                : undefined;
+            if (Array.isArray(hourRanges) && hourRanges.length > 0) {
+                const s = String(slot.startTime || '').slice(0, 5);
+                const e = String(slot.endTime || '').slice(0, 5);
+                const blocked = hourRanges.some((r: any) => {
+                    const rStart = String(r?.start || '').slice(0, 5);
+                    const rEnd = String(r?.end || '').slice(0, 5);
+                    if (!rStart || !rEnd) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (blocked) return false;
+            }
+
+            const hasLeave = provider.leaves && provider.leaves.some((leave: any) => {
+                const startTime = leave?.startTime ? String(leave.startTime).slice(0, 5) : '00:00';
+                const endTime = leave?.endTime ? String(leave.endTime).slice(0, 5) : '23:59';
+
+                const leaveStart = dayjs.tz(`${leave.startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                const leaveEnd = dayjs.tz(`${leave.endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                if (!leaveStart.isValid() || !leaveEnd.isValid()) return false;
+
+                return slotStart.valueOf() < leaveEnd.valueOf() && slotEnd.valueOf() > leaveStart.valueOf();
+            });
+            if (hasLeave) return false;
+
+            const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
+            if (hasConflict) return false;
+
+            return true;
+        });
+    };
+
+    const slotAvailability = useMemo(() => {
+        const map = new Map<string, any[]>();
+        (interventionSlots || []).forEach((slot) => {
+            if (!slot?.id) return;
+            map.set(slot.id, getAvailableProvidersForSlot(slot));
+        });
+        return map;
+    }, [interventionSlots, providers, missions]);
+
+    const openProvidersModal = (slot: InterventionSlot) => {
+        const list = slotAvailability.get(slot.id) || [];
+        setProvidersModalItems(list);
+        setProvidersModalTitle(`${slot.date} ${slot.startTime}-${slot.endTime}`);
+        setProvidersModalOpen(true);
+    };
+
     // Use Case Logic States
     const [packSpecificConfig, setPackSpecificConfig] = useState<{
         frequencyChoice?: string; // "4j x 3h" or "3j x 4h" for Tranquility
@@ -625,14 +702,35 @@ const DevisFactures: React.FC = () => {
             const isActive = provider.status === 'Active';
             if (!isActive) return false;
 
-            const hasLeave = provider.leaves && provider.leaves.some(leave => {
-                const leaveStart = toMartiniqueDayStart(leave.startDate);
-                const leaveEnd = toMartiniqueDayEnd(leave.endDate);
-                const slotDate = toMartiniqueDayStart(slot.date);
-                if (!leaveStart || !leaveEnd || !slotDate) return false;
-                return slotDate.valueOf() >= leaveStart.valueOf() && slotDate.valueOf() <= leaveEnd.valueOf();
-            });
+            const day = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            const nonWorkingDays = (provider as any)?.nonInterventionDays;
+            if (Array.isArray(nonWorkingDays) && nonWorkingDays.includes(day)) return false;
 
+            const hourRanges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+                ? (provider as any).nonInterventionHours[day]
+                : undefined;
+            if (Array.isArray(hourRanges) && hourRanges.length > 0) {
+                const s = String(slot.startTime || '').slice(0, 5);
+                const e = String(slot.endTime || '').slice(0, 5);
+                const blocked = hourRanges.some((r: any) => {
+                    const rStart = String(r?.start || '').slice(0, 5);
+                    const rEnd = String(r?.end || '').slice(0, 5);
+                    if (!rStart || !rEnd) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (blocked) return false;
+            }
+
+            const hasLeave = provider.leaves && provider.leaves.some(leave => {
+                const startTime = (leave as any)?.startTime ? String((leave as any).startTime).slice(0, 5) : '00:00';
+                const endTime = (leave as any)?.endTime ? String((leave as any).endTime).slice(0, 5) : '23:59';
+
+                const leaveStart = dayjs.tz(`${leave.startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                const leaveEnd = dayjs.tz(`${leave.endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                if (!leaveStart.isValid() || !leaveEnd.isValid()) return false;
+
+                return slotStart.valueOf() < leaveEnd.valueOf() && slotEnd.valueOf() > leaveStart.valueOf();
+            });
             if (hasLeave) return false;
 
             const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
@@ -1081,13 +1179,41 @@ const DevisFactures: React.FC = () => {
                     return false;
                 }
 
+                const day = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+                const nonWorkingDays = (provider as any)?.nonInterventionDays;
+                if (Array.isArray(nonWorkingDays) && nonWorkingDays.includes(day)) {
+                    console.log(`Provider ${provider.firstName} ${provider.lastName} non working day: ${day}`);
+                    return false;
+                }
+
+                const hourRanges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+                    ? (provider as any).nonInterventionHours[day]
+                    : undefined;
+                if (Array.isArray(hourRanges) && hourRanges.length > 0) {
+                    const s = String(slot.startTime || '').slice(0, 5);
+                    const e = String(slot.endTime || '').slice(0, 5);
+                    const blocked = hourRanges.some((r: any) => {
+                        const rStart = String(r?.start || '').slice(0, 5);
+                        const rEnd = String(r?.end || '').slice(0, 5);
+                        if (!rStart || !rEnd) return false;
+                        return s < rEnd && e > rStart;
+                    });
+                    if (blocked) {
+                        console.log(`Provider ${provider.firstName} ${provider.lastName} non working hours: ${s}-${e}`);
+                        return false;
+                    }
+                }
+
                 // Vérifier si le prestataire a des congés à cette date
                 const hasLeave = provider.leaves && provider.leaves.some(leave => {
-                    const leaveStart = toMartiniqueDayStart(leave.startDate);
-                    const leaveEnd = toMartiniqueDayEnd(leave.endDate);
-                    const slotDate = toMartiniqueDayStart(slot.date);
-                    if (!leaveStart || !leaveEnd || !slotDate) return false;
-                    return slotDate.valueOf() >= leaveStart.valueOf() && slotDate.valueOf() <= leaveEnd.valueOf();
+                    const startTime = (leave as any)?.startTime ? String((leave as any).startTime).slice(0, 5) : '00:00';
+                    const endTime = (leave as any)?.endTime ? String((leave as any).endTime).slice(0, 5) : '23:59';
+
+                    const leaveStart = dayjs.tz(`${leave.startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                    const leaveEnd = dayjs.tz(`${leave.endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                    if (!leaveStart.isValid() || !leaveEnd.isValid()) return false;
+
+                    return slotStart.valueOf() < leaveEnd.valueOf() && slotEnd.valueOf() > leaveStart.valueOf();
                 });
 
                 if (hasLeave) {
@@ -2732,7 +2858,10 @@ const DevisFactures: React.FC = () => {
                                                         </div>
                                                     ) : (
                                                         <div className="divide-y divide-slate-100">
-                                                            {interventionSlots.map((slot, index) => (
+                                                            {interventionSlots.map((slot, index) => {
+                                                                const avail = slotAvailability.get(slot.id) || [];
+                                                                const availCount = avail.length;
+                                                                return (
                                                                 <div key={slot.id} className="p-4 space-y-3">
                                                                     <div className="flex justify-between items-center">
                                                                         <span className="text-sm font-bold text-slate-700">Créneau {index + 1}</span>
@@ -2772,8 +2901,30 @@ const DevisFactures: React.FC = () => {
                                                                     <div className="text-xs text-slate-500">
                                                                         Durée : {slot.duration.toFixed(1)}h
                                                                     </div>
+
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="text-xs font-bold text-slate-500">
+                                                                            Prestataires disponibles :
+                                                                        </div>
+                                                                        {availCount === 0 && (
+                                                                            <span title="Aucun prestataire disponible">
+                                                                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                                                                            </span>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => openProvidersModal(slot)}
+                                                                            className={`text-xs font-extrabold px-3 py-1 rounded-full border ${availCount === 0
+                                                                                ? 'bg-red-50 text-red-700 border-red-200'
+                                                                                : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                                                            }`}
+                                                                        >
+                                                                            {availCount}
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </div>
                                                     )}
                                                 </div>
@@ -2891,9 +3042,17 @@ const DevisFactures: React.FC = () => {
                                                 </div>
 
                                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Aucun créneau défini. Cliquez sur générer ou ajoutez manuellement.</div>) : (
-                                                    interventionSlots.map((slot, index) => (
+                                                    interventionSlots.map((slot, index) => {
+                                                        const avail = slotAvailability.get(slot.id) || [];
+                                                        const availCount = avail.length;
+                                                        return (
                                                         <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50">
                                                             <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
+                                                            {availCount === 0 && (
+                                                                <span title="Aucun prestataire disponible">
+                                                                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                                                                </span>
+                                                            )}
                                                             <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
                                                             <div className="flex items-center gap-1">
                                                                 <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
@@ -2901,9 +3060,21 @@ const DevisFactures: React.FC = () => {
                                                                 <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
                                                             </div>
                                                             <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openProvidersModal(slot)}
+                                                                className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${availCount === 0
+                                                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                                                    : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                                                }`}
+                                                                title="Voir les prestataires disponibles"
+                                                            >
+                                                                {availCount}
+                                                            </button>
                                                             <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
                                                         </div>
-                                                    ))
+                                                        );
+                                                    })
                                                 )}
 
                                                 {/* Total calculation */}
@@ -3342,6 +3513,46 @@ const DevisFactures: React.FC = () => {
                                     Marquer signé
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {providersModalOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[80vh] flex flex-col">
+                        <div className="p-4 border-b border-slate-100 bg-cream-50 flex items-center justify-between">
+                            <div>
+                                <div className="text-xs text-slate-500">Disponibilités</div>
+                                <div className="text-sm font-extrabold text-slate-800">{providersModalTitle}</div>
+                            </div>
+                            <button
+                                onClick={() => setProvidersModalOpen(false)}
+                                className="p-2 hover:bg-slate-200 rounded-full transition"
+                                aria-label="Fermer"
+                            >
+                                <X className="w-5 h-5 text-slate-500" />
+                            </button>
+                        </div>
+
+                        <div className="p-4 overflow-y-auto">
+                            {providersModalItems.length === 0 ? (
+                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-3">
+                                    Aucun prestataire disponible sur ce créneau.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {providersModalItems.map((p: any) => (
+                                        <div key={p.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-800 text-sm truncate">{p.firstName} {p.lastName}</div>
+                                                <div className="text-xs text-slate-500 truncate">{p.specialty || ''}</div>
+                                            </div>
+                                            <div className="text-xs font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-full">Dispo</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

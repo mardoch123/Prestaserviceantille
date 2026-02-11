@@ -191,6 +191,16 @@ const ClientPortal: React.FC = () => {
         setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
     };
 
+    const isQuoteExpired = (doc: any): boolean => {
+        if (!doc) return true;
+        if (String(doc.status || '') === 'expired') return true;
+        const createdAtRaw = (doc as any)?.created_at || (doc as any)?.createdAt;
+        if (!createdAtRaw) return false; // fallback: if we can't read created_at, don't hide by time
+        const createdAtMs = new Date(createdAtRaw).getTime();
+        if (!Number.isFinite(createdAtMs)) return false;
+        return (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+    };
+
     // Notification State
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [showAllNotifsModal, setShowAllNotifsModal] = useState(false);
@@ -1952,6 +1962,9 @@ const ClientPortal: React.FC = () => {
                                                     {doc.status === 'pending' && <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-bold">À régler</span>}
                                                     {doc.status === 'converted' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs font-bold">Facturé</span>}
                                                     {doc.status === 'rejected' && <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold">Refusé</span>}
+                                                    {doc.type === 'Devis' && doc.status === 'sent' && isQuoteExpired(doc) && (
+                                                        <span className="bg-slate-200 text-slate-700 px-2 py-1 rounded-full text-xs font-bold">Expiré</span>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -2057,7 +2070,7 @@ const ClientPortal: React.FC = () => {
                                                     </button>
                                                 )}
 
-                                                {doc.type === 'Devis' && doc.status === 'sent' && (
+                                                {doc.type === 'Devis' && doc.status === 'sent' && !isQuoteExpired(doc) && (
                                                     <button
                                                         onClick={() => openQuoteModal(doc.id)}
                                                         className="flex-1 bg-brand-orange text-white text-xs font-bold px-3 py-2 rounded hover:bg-orange-600 transition flex items-center justify-center gap-1"
@@ -2242,6 +2255,17 @@ const ClientPortal: React.FC = () => {
                                             </div>
                                         </div>
                                     )}
+                                </div>
+                            )}
+
+                            {selectedQuote && selectedQuote.status === 'sent' && isQuoteExpired(selectedQuote) && (
+                                <div className="w-full md:w-1/3 bg-white flex flex-col p-6 border-t md:border-t-0 md:border-l border-slate-200">
+                                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                        <Lock className="w-4 h-4" /> Devis expiré
+                                    </h4>
+                                    <div className="text-sm text-slate-700 bg-orange-50 border border-orange-200 rounded-xl p-4">
+                                        Ce devis a expiré (délai de 24h dépassé). La signature est désactivée.
+                                    </div>
                                 </div>
                             )}
 
@@ -2458,7 +2482,7 @@ const ClientPortal: React.FC = () => {
                         <div className="p-4 border-b bg-cream-50 flex justify-between items-center">
                             <h3 className="font-serif font-bold text-xl text-slate-800">Consultation du Devis {selectedQuote.ref}</h3>
                             <div className="flex items-center gap-2">
-                                {selectedQuote.status === 'sent' && (
+                                {selectedQuote.status === 'sent' && !isQuoteExpired(selectedQuote) && (
                                     <>
                                         <button
                                             onClick={() => handleDownloadContract(selectedQuote)}
@@ -2674,7 +2698,7 @@ const ClientPortal: React.FC = () => {
                             </div>
 
                             {/* Signature Pad - Only show for quotes that can be signed */}
-                            {selectedQuote.status === 'sent' && (
+                            {selectedQuote.status === 'sent' && !isQuoteExpired(selectedQuote) && (
                                 <div className="hidden md:block md:w-1/3 bg-white flex flex-col p-6 md:sticky md:top-6">
                                     <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                                         <PenTool className="w-4 h-4" /> Zone de Signature
@@ -2729,7 +2753,7 @@ const ClientPortal: React.FC = () => {
                             )}
 
                             {/* Mobile Action Buttons */}
-                            {selectedQuote.status === 'sent' && (
+                            {selectedQuote.status === 'sent' && !isQuoteExpired(selectedQuote) && (
                                 <div className="md:hidden fixed bottom-24 right-4 z-40 flex flex-col gap-2">
                                     <button
                                         onClick={() => handleDownloadContract(selectedQuote)}
@@ -2763,7 +2787,7 @@ const ClientPortal: React.FC = () => {
                             )}
 
                             {/* Mobile Signature Modal */}
-                            {showSignatureModal && (
+                            {showSignatureModal && !isQuoteExpired(selectedQuote) && (
                                 <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm p-4 flex items-center justify-center md:hidden">
                                     <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
                                         <div className="flex items-center justify-between p-4 border-b">

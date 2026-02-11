@@ -114,7 +114,8 @@ const Providers: React.FC = () => {
     phone: '',
     email: '',
     status: 'Active',
-    nonInterventionDays: [] as number[]
+    nonInterventionDays: [] as number[],
+    nonInterventionHours: {} as Record<number, Array<{ start: string; end: string }>>
   });
 
   const [leaveForm, setLeaveForm] = useState({
@@ -196,7 +197,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [] });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {} });
       setIsModalOpen(true);
   };
 
@@ -210,9 +211,62 @@ const Providers: React.FC = () => {
           phone: provider.phone,
           email: provider.email,
           status: provider.status,
-          nonInterventionDays: Array.isArray(provider?.nonInterventionDays) ? provider.nonInterventionDays : []
+          nonInterventionDays: Array.isArray(provider?.nonInterventionDays) ? provider.nonInterventionDays : [],
+          nonInterventionHours: (provider?.nonInterventionHours && typeof provider.nonInterventionHours === 'object') ? provider.nonInterventionHours : {}
       });
       setIsModalOpen(true);
+  };
+
+  const addNonInterventionRange = (day: number) => {
+      setFormData(prev => {
+          const current = (prev as any).nonInterventionHours && typeof (prev as any).nonInterventionHours === 'object'
+              ? (prev as any).nonInterventionHours
+              : {};
+          const ranges = Array.isArray(current[day]) ? current[day] : [];
+          return {
+              ...prev,
+              nonInterventionHours: {
+                  ...current,
+                  [day]: [...ranges, { start: '08:00', end: '10:00' }]
+              }
+          };
+      });
+  };
+
+  const updateNonInterventionRange = (day: number, index: number, key: 'start' | 'end', value: string) => {
+      setFormData(prev => {
+          const current = (prev as any).nonInterventionHours && typeof (prev as any).nonInterventionHours === 'object'
+              ? (prev as any).nonInterventionHours
+              : {};
+          const ranges = Array.isArray(current[day]) ? current[day].slice() : [];
+          if (!ranges[index]) return prev;
+          ranges[index] = { ...ranges[index], [key]: value };
+          return {
+              ...prev,
+              nonInterventionHours: {
+                  ...current,
+                  [day]: ranges
+              }
+          };
+      });
+  };
+
+  const removeNonInterventionRange = (day: number, index: number) => {
+      setFormData(prev => {
+          const current = (prev as any).nonInterventionHours && typeof (prev as any).nonInterventionHours === 'object'
+              ? (prev as any).nonInterventionHours
+              : {};
+          const ranges = Array.isArray(current[day]) ? current[day].slice() : [];
+          const nextRanges = ranges.filter((_: any, i: number) => i !== index);
+          const next = { ...current, [day]: nextRanges };
+          if (nextRanges.length === 0) {
+              delete (next as any)[day];
+          }
+          return {
+              ...prev,
+              nonInterventionHours: next
+          };
+      });
   };
 
   const toggleNonInterventionDay = (day: number) => {
@@ -236,7 +290,8 @@ const Providers: React.FC = () => {
                   phone: formData.phone,
                   email: formData.email,
                   status: formData.status as any,
-                  nonInterventionDays: formData.nonInterventionDays
+                  nonInterventionDays: formData.nonInterventionDays,
+                  nonInterventionHours: formData.nonInterventionHours
               });
               showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
               setIsModalOpen(false);
@@ -249,7 +304,8 @@ const Providers: React.FC = () => {
                   phone: formData.phone,
                   email: formData.email,
                   status: formData.status as 'Active',
-                  nonInterventionDays: formData.nonInterventionDays
+                  nonInterventionDays: formData.nonInterventionDays,
+                  nonInterventionHours: formData.nonInterventionHours
               });
               
               setIsModalOpen(false);
@@ -262,7 +318,7 @@ const Providers: React.FC = () => {
               }
           }
           // Reset form
-          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [] });
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {} });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
           showToast("Une erreur est survenue.");
@@ -577,7 +633,7 @@ Lien de connexion : https://presta-antilles.app/login`);
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[90vh]">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-xl font-serif font-bold text-slate-800">{isEditMode ? 'Modifier Prestataire' : 'Nouveau Prestataire'}</h3>
@@ -588,7 +644,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto">
                      <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">Nom</label>
@@ -652,6 +708,63 @@ Lien de connexion : https://presta-antilles.app/login`);
                         </div>
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Heures de non-interventions (récurrent)</label>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+                            {NON_INTERVENTION_DAY_OPTIONS.map(d => {
+                                const ranges = (formData.nonInterventionHours && Array.isArray((formData.nonInterventionHours as any)[d.value]))
+                                    ? (formData.nonInterventionHours as any)[d.value]
+                                    : [];
+                                return (
+                                    <div key={`hours-${d.value}`} className="bg-white border border-slate-200 rounded-lg p-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-xs font-bold text-slate-700">{d.label}</div>
+                                            <button
+                                                type="button"
+                                                onClick={() => addNonInterventionRange(d.value)}
+                                                className="text-xs font-bold text-brand-blue hover:underline"
+                                            >
+                                                + Ajouter une plage
+                                            </button>
+                                        </div>
+
+                                        {ranges.length > 0 ? (
+                                            <div className="mt-3 space-y-2">
+                                                {ranges.map((r: any, idx: number) => (
+                                                    <div key={`range-${d.value}-${idx}`} className="flex items-center gap-2">
+                                                        <input
+                                                            type="time"
+                                                            value={r.start || '08:00'}
+                                                            onChange={(e) => updateNonInterventionRange(d.value, idx, 'start', e.target.value)}
+                                                            className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                                        />
+                                                        <span className="text-xs text-slate-500">à</span>
+                                                        <input
+                                                            type="time"
+                                                            value={r.end || '10:00'}
+                                                            onChange={(e) => updateNonInterventionRange(d.value, idx, 'end', e.target.value)}
+                                                            className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeNonInterventionRange(d.value, idx)}
+                                                            className="ml-auto p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                                            title="Supprimer"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="mt-2 text-xs text-slate-400">Aucune plage</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                      <div className="grid grid-cols-2 gap-4">
                          <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">
@@ -698,7 +811,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                         </div>
                     )}
 
-                     <div className="pt-4 flex justify-end gap-3">
+                     <div className="pt-4 flex justify-end gap-3 sticky bottom-0 bg-white pb-1">
                         <button 
                             type="button"
                             onClick={() => setIsModalOpen(false)}

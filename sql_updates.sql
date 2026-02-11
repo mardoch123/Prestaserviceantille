@@ -3,6 +3,128 @@
 -- 1. Ajouter le champ hasTaxCredit à la table documents
 ALTER TABLE documents ADD COLUMN hasTaxCredit BOOLEAN DEFAULT FALSE;
 
+-- Ajout des indisponibilités horaires récurrentes des prestataires (par jour de semaine)
+-- Format: JSONB { "0": [{"start":"08:00","end":"10:00"}], "1": [...] }
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS non_intervention_hours JSONB DEFAULT '{}'::jsonb;
+
+-- ================================
+-- Devis: expiration automatique à +24h et blocage de signature
+-- ================================
+
+-- 1) Expire tous les devis "sent" non signés dont created_at a plus de 24h
+CREATE OR REPLACE FUNCTION expire_quotes_older_than_24h()
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  updated_count INTEGER;
+BEGIN
+  UPDATE documents
+  SET status = 'expired'
+  WHERE type = 'Devis'
+    AND status = 'sent'
+    AND created_at < (now() - interval '24 hours');
+
+  GET DIAGNOSTICS updated_count = ROW_COUNT;
+  RETURN updated_count;
+END;
+$$;
+
+-- 2) Empêche la signature d'un devis expiré (ou trop ancien)
+CREATE OR REPLACE FUNCTION prevent_signing_expired_quotes()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.type = 'Devis' AND NEW.status = 'signed' AND (OLD.status IS DISTINCT FROM 'signed') THEN
+    IF OLD.status = 'expired' OR OLD.created_at < (now() - interval '24 hours') THEN
+      RAISE EXCEPTION 'Quote expired: signature blocked';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_prevent_signing_expired_quotes ON documents;
+CREATE TRIGGER trigger_prevent_signing_expired_quotes
+  BEFORE UPDATE OF status ON documents
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_signing_expired_quotes();
+
+-- 3) Exécution automatique quotidienne (Supabase pg_cron)
+-- NOTE: à exécuter dans Supabase SQL Editor. Le job tourne côté DB, pas besoin de backend.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Idempotent: supprimer le job si déjà existant, puis le recréer
+SELECT cron.unschedule(jobid)
+FROM cron.job
+WHERE jobname = 'expire-quotes-daily';
+SELECT cron.schedule(
+  'expire-quotes-daily',
+  '0 1 * * *',
+  $$SELECT expire_quotes_older_than_24h();$$
+);
+
+-- 4) Envoi email client à l'expiration (via outbox + dispatcher)
+-- Nécessite que le module marketing (mkt_notification_outbox) soit installé.
+CREATE OR REPLACE FUNCTION public.enqueue_quote_expired_email()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_email text;
+  v_client_name text;
+BEGIN
+  IF NEW.type = 'Devis' AND NEW.status = 'expired' AND (OLD.status IS DISTINCT FROM NEW.status) THEN
+    BEGIN
+      SELECT c.email, c.name INTO v_email, v_client_name
+      FROM public.clients c
+      WHERE c.id::text = NEW.client_id::text
+      LIMIT 1;
+    EXCEPTION WHEN undefined_table THEN
+      v_email := NULL;
+      v_client_name := NULL;
+    WHEN others THEN
+      v_email := NULL;
+      v_client_name := NULL;
+    END;
+
+    IF v_email IS NOT NULL AND length(trim(v_email)) > 0 THEN
+      BEGIN
+        INSERT INTO public.mkt_notification_outbox (channel, template, to_user_type, to_email, title, body, data)
+        VALUES (
+          'email',
+          'quote_expired_client',
+          'client',
+          v_email,
+          'Votre devis a expiré',
+          'Votre devis a expiré (délai 24h). Vous pouvez demander un nouveau devis à tout moment.',
+          jsonb_build_object(
+            'clientName', COALESCE(v_client_name, 'Client'),
+            'quoteRef', COALESCE(NEW.ref::text, NEW.id::text),
+            'link', 'https://prestaservicesantilles.com/'
+          )
+        );
+      EXCEPTION
+        WHEN undefined_table THEN NULL;
+        WHEN undefined_column THEN NULL;
+        WHEN others THEN NULL;
+      END;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_enqueue_quote_expired_email ON public.documents;
+CREATE TRIGGER trigger_enqueue_quote_expired_email
+AFTER UPDATE OF status ON public.documents
+FOR EACH ROW
+EXECUTE FUNCTION public.enqueue_quote_expired_email();
+
 -- 2. Créer un index pour optimiser la recherche de scans multiples
 CREATE INDEX idx_scans_client_timestamp ON scans(clientId, timestamp);
 

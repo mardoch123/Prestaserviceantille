@@ -147,6 +147,8 @@ const Clients: React.FC = () => {
   // État pour le filtre par ville
   const [cityFilter, setCityFilter] = useState('');
 
+  const [sortOption, setSortOption] = useState<'since_desc' | 'alpha_asc' | 'alpha_desc' | 'last_intervention_desc' | 'next_intervention_asc'>('since_desc');
+
   useEffect(() => {
     if (location.state) {
         const state = location.state as { filter?: string; applyFilter?: boolean };
@@ -235,8 +237,64 @@ const Clients: React.FC = () => {
       result = result.filter(c => normalizeForSearch(c.status || '').includes(q));
     }
 
+    const getClientMissionDates = (clientId: string) => {
+      const list = (missions || [])
+        .filter((m: any) => String(m?.clientId || '') === String(clientId))
+        .filter((m: any) => String(m?.status || '') !== 'cancelled')
+        .filter((m: any) => !!m?.date);
+
+      const todayStr = getMartiniqueToday();
+
+      const last = list
+        .filter((m: any) => String(m?.date) <= todayStr)
+        .map((m: any) => String(m.date))
+        .sort((a: string, b: string) => b.localeCompare(a))[0];
+
+      const next = list
+        .filter((m: any) => String(m?.date) >= todayStr)
+        .map((m: any) => String(m.date))
+        .sort((a: string, b: string) => a.localeCompare(b))[0];
+
+      return { last: last || null, next: next || null };
+    };
+
+    const getSinceMs = (c: any) => {
+      const raw = (c as any)?.since;
+      const ms = raw ? new Date(raw).getTime() : NaN;
+      return Number.isFinite(ms) ? ms : 0;
+    };
+
+    const getNameKey = (c: any) => normalizeForSearch(String((c as any)?.name || ''));
+
+    result = result.slice().sort((a: any, b: any) => {
+      if (sortOption === 'since_desc') {
+        return getSinceMs(b) - getSinceMs(a);
+      }
+      if (sortOption === 'alpha_asc') {
+        return getNameKey(a).localeCompare(getNameKey(b));
+      }
+      if (sortOption === 'alpha_desc') {
+        return getNameKey(b).localeCompare(getNameKey(a));
+      }
+      if (sortOption === 'last_intervention_desc') {
+        const aLast = getClientMissionDates(a.id).last || '';
+        const bLast = getClientMissionDates(b.id).last || '';
+        if (aLast !== bLast) return bLast.localeCompare(aLast);
+        return getSinceMs(b) - getSinceMs(a);
+      }
+      if (sortOption === 'next_intervention_asc') {
+        const aNext = getClientMissionDates(a.id).next;
+        const bNext = getClientMissionDates(b.id).next;
+        if (aNext && bNext && aNext !== bNext) return aNext.localeCompare(bNext);
+        if (aNext && !bNext) return -1;
+        if (!aNext && bNext) return 1;
+        return getSinceMs(b) - getSinceMs(a);
+      }
+      return 0;
+    });
+
     return result;
-  }, [filteredClients, columnFilters]);
+  }, [filteredClients, columnFilters, sortOption, missions]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -690,6 +748,21 @@ Lien de connexion : https://presta-antilles.app/login`);
                     value={cityFilter}
                     onChange={(value) => setCityFilter(value)}
                     className="min-w-[220px]"
+                />
+              </div>
+              <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
+                <Clock className="w-4 h-4 text-slate-400 ml-2 mr-2" />
+                <SearchableSelect
+                    options={[
+                        { value: 'since_desc', label: "Ordre d'inscription (récent → ancien)" },
+                        { value: 'alpha_asc', label: 'Nom (A → Z)' },
+                        { value: 'alpha_desc', label: 'Nom (Z → A)' },
+                        { value: 'last_intervention_desc', label: 'Dernière intervention (récent → ancien)' },
+                        { value: 'next_intervention_asc', label: 'Prochaine intervention (bientôt → tard)' }
+                    ]}
+                    value={sortOption}
+                    onChange={(value) => setSortOption(value as any)}
+                    className="min-w-[260px]"
                 />
               </div>
               <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>

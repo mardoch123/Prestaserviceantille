@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -18,10 +18,13 @@ import {
   Gift,
   UserPlus,
   UserRoundPlus,
+  ChevronDown,
+  ChevronRight,
   X
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 
 const navItems: NavItem[] = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
@@ -57,6 +60,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
   const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads } = useData();
 
+  const [isMarketingOpen, setIsMarketingOpen] = React.useState(false);
+
   const isClientReferrer = useMemo(() => {
     if (currentUser?.role !== 'client') return false;
     try {
@@ -90,6 +95,51 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return (clientLeads || []).filter((l: any) => String(l?.status || '') === 'pending').length;
   }, [currentUser?.role, clientLeads]);
 
+  const [newOfferInterestedCount, setNewOfferInterestedCount] = useState(0);
+  const [newReferrersCount, setNewReferrersCount] = useState(0);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return;
+    if (!isSupabaseConfigured) return;
+
+    let cancelled = false;
+
+    const loadMarketingCounts = async () => {
+      try {
+        const reqRes = await supabase
+          .from('mkt_customer_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'new');
+        const reqCount = reqRes?.count || 0;
+
+        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const refRes = await supabase
+          .from('mkt_referrers')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', since);
+        const refCount = refRes?.count || 0;
+
+        if (cancelled) return;
+        setNewOfferInterestedCount(Number(reqCount) || 0);
+        setNewReferrersCount(Number(refCount) || 0);
+      } catch {
+        if (cancelled) return;
+        setNewOfferInterestedCount(0);
+        setNewReferrersCount(0);
+      }
+    };
+
+    loadMarketingCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.role]);
+
+  const marketingNewTotalCount = useMemo(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return 0;
+    return (pendingClientsCount || 0) + (newOfferInterestedCount || 0) + (newReferrersCount || 0);
+  }, [currentUser?.role, pendingClientsCount, newOfferInterestedCount, newReferrersCount]);
+
   // Filter navigation items based on user role
   const getFilteredNavItems = () => {
     if (currentUser?.role === 'client') {
@@ -108,10 +158,32 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       return navItems.filter(item => item.path !== '/demo-accounts' && !item.path.startsWith('/admin/') && (item.path === '/parrainage/mes-filleuls' || !item.path.startsWith('/parrainage/')));
     }
     // Admin and super admin
-    return navItems.filter(item => !item.path.startsWith('/parrainage/'));
+    return navItems
+      .filter(item => !item.path.startsWith('/parrainage/'))
+      .filter(item => ![
+        '/admin/flyers',
+        '/admin/flyer-requests',
+        '/admin/filleuls',
+        '/admin/referrals',
+        '/admin/referrers-performance',
+        '/admin/rewards'
+      ].includes(item.path));
   };
 
   const filteredNavItems = getFilteredNavItems();
+
+  const marketingNavItems = useMemo(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return [];
+    const wanted = [
+      '/admin/flyers',
+      '/admin/flyer-requests',
+      '/admin/filleuls',
+      '/admin/referrals',
+      '/admin/referrers-performance',
+      '/admin/rewards'
+    ];
+    return navItems.filter(i => wanted.includes(i.path));
+  }, [currentUser?.role]);
 
   return (
     <>
@@ -194,6 +266,71 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 </Link>
               );
             })}
+
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && marketingNavItems.length > 0 && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMarketingOpen(v => !v)}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                    isSoberMode
+                      ? 'text-slate-200 hover:bg-slate-800/70 hover:text-white'
+                      : 'text-slate-600 hover:bg-white/50 hover:text-slate-800'
+                  }`}
+                >
+                  <Megaphone className={`mr-3 h-5 w-5 ${isSoberMode ? 'text-slate-400' : 'text-slate-400'}`} />
+                  <span className="flex-1">Marketing</span>
+                  {marketingNewTotalCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold mr-2">
+                      {marketingNewTotalCount}
+                    </span>
+                  )}
+                  {isMarketingOpen ? (
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  )}
+                </button>
+
+                {isMarketingOpen && (
+                  <div className="mt-1 ml-4 space-y-1">
+                    {marketingNavItems.map((item) => {
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => { if(window.innerWidth < 768) onClose(); }}
+                          className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            isActive
+                              ? (isSoberMode ? 'bg-slate-800 text-white shadow-sm' : 'bg-white text-brand-blue shadow-sm')
+                              : (isSoberMode ? 'text-slate-200 hover:bg-slate-800/70 hover:text-white' : 'text-slate-600 hover:bg-white/50 hover:text-slate-800')
+                          }`}
+                        >
+                          <item.icon className={`mr-3 h-4 w-4 ${isActive ? 'text-brand-orange' : (isSoberMode ? 'text-slate-400' : 'text-slate-400')}`} />
+                          <span className="flex-1">{item.label}</span>
+                          {item.path === '/admin/filleuls' && pendingClientsCount > 0 && (
+                            <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                              {pendingClientsCount}
+                            </span>
+                          )}
+                          {item.path === '/admin/flyer-requests' && newOfferInterestedCount > 0 && (
+                            <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                              {newOfferInterestedCount}
+                            </span>
+                          )}
+                          {item.path === '/admin/referrers-performance' && newReferrersCount > 0 && (
+                            <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                              {newReferrersCount}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </nav>
           
           <div className="p-4 border-t border-beige-200 shrink-0">

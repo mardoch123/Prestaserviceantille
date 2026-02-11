@@ -157,13 +157,13 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
                 </div>
               </button>
 
-              <div className="px-5 pb-5">
+              <div className="px-5 pb-5 sticky bottom-0 bg-white">
                 <button
                   onClick={() => {
                     onClose();
                     navigate(`/flyers/${current.id}/request`);
                   }}
-                  className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
+                  className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600 opacity-100"
                 >
                   Faire une demande
                 </button>

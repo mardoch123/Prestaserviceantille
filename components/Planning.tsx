@@ -39,6 +39,16 @@ const Planning: React.FC = () => {
       setTimeout(() => setToast({ show: false, message: '', type }), 3000);
   };
 
+  const isQuoteExpired = (doc: any): boolean => {
+      if (!doc) return true;
+      if (String(doc.status || '') === 'expired') return true;
+      const createdAtRaw = (doc as any)?.created_at || (doc as any)?.createdAt;
+      if (!createdAtRaw) return false;
+      const createdAtMs = new Date(createdAtRaw).getTime();
+      if (!Number.isFinite(createdAtMs)) return false;
+      return (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+  };
+
   // Selection State for Unassigned Missions
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
   const [assignProviderId, setAssignProviderId] = useState<string>('');
@@ -151,7 +161,8 @@ const Planning: React.FC = () => {
 
       const provisional = (documents || [])
           .filter(d => d.type === 'Devis')
-          .filter(d => d.status !== 'signed')
+          .filter(d => d.status === 'sent')
+          .filter(d => !isQuoteExpired(d))
           .filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter))
           .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
           .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
@@ -160,8 +171,10 @@ const Planning: React.FC = () => {
               startTime: slot?.startTime,
               endTime: slot?.endTime,
               duration: typeof slot?.duration === 'number' ? slot.duration : 0,
+              service: d.description || 'Devis',
               clientId: d.clientId,
               clientName: d.clientName,
+              providerId: null,
               providerName: 'À assigner',
               status: 'planned' as const,
               sourceDocumentId: d.id
@@ -248,6 +261,25 @@ const Planning: React.FC = () => {
       return Array.isArray(days) && days.includes(day);
   };
 
+  const isProviderNonWorkingHours = (providerId: string, dateStr: string, startTime: string, endTime: string) => {
+      const provider = providers.find(p => p.id === providerId);
+      if (!provider) return false;
+      const day = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+      const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+          ? (provider as any).nonInterventionHours[day]
+          : undefined;
+      if (!Array.isArray(ranges) || ranges.length === 0) return false;
+
+      const s = String(startTime || '').slice(0, 5);
+      const e = String(endTime || '').slice(0, 5);
+      return ranges.some((r: any) => {
+          const rStart = String(r?.start || '').slice(0, 5);
+          const rEnd = String(r?.end || '').slice(0, 5);
+          if (!rStart || !rEnd) return false;
+          return s < rEnd && e > rStart;
+      });
+  };
+
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const { name, value } = e.target;
       setMissionForm(prev => ({ ...prev, [name]: value }));
@@ -303,6 +335,10 @@ const Planning: React.FC = () => {
 
               if (provider && isProviderNonWorkingDay(provider.id, dateStr)) {
                   throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : ne travaille pas aujourd'hui.`);
+              }
+
+              if (provider && isProviderNonWorkingHours(provider.id, dateStr, missionForm.startTime, missionForm.endTime)) {
+                  throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : indisponible sur ce créneau horaire.`);
               }
 
               await addMission({
@@ -473,6 +509,10 @@ const Planning: React.FC = () => {
                   showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`, 'warning');
                   return;
               }
+              if (isProviderNonWorkingHours(provider.id, mission.date, mission.startTime, mission.endTime)) {
+                  showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible sur ce créneau horaire.`, 'warning');
+                  return;
+              }
               // Ensure we are using valid IDs from refreshed data
               await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
               
@@ -511,6 +551,7 @@ const Planning: React.FC = () => {
   const [editMissionOriginalProviderId, setEditMissionOriginalProviderId] = useState<string>('');
 
   const [isProvisionalDetailsModalOpen, setIsProvisionalDetailsModalOpen] = useState(false);
+  const [selectedProvisionalDetails, setSelectedProvisionalDetails] = useState<any>(null);
 
   const detailClient = selectedMissionDetails?.clientId ? clients.find(c => c.id === selectedMissionDetails.clientId) : undefined;
 
@@ -606,8 +647,9 @@ const Planning: React.FC = () => {
       }
   };
 
-  const handleProvisionalMissionClick = (e: React.MouseEvent) => {
+  const handleProvisionalMissionClick = (item: any, e: React.MouseEvent) => {
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          setSelectedProvisionalDetails(item);
           setIsProvisionalDetailsModalOpen(true);
       }
   };
@@ -1029,10 +1071,12 @@ const Planning: React.FC = () => {
                                         <div
                                             key={item.id}
                                             className="bg-orange-100 p-3 rounded text-sm cursor-pointer hover:bg-orange-200 transition border-l-4 border-orange-500"
-                                            onClick={(e) => handleProvisionalMissionClick(e)}
+                                            onClick={(e) => handleProvisionalMissionClick(item, e)}
                                         >
                                             <p className="font-bold text-orange-900 truncate">{item.clientName}</p>
                                             <p className="text-xs text-orange-800 mt-1">{item.startTime} - {item.endTime}</p>
+                                            <p className="text-xs font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
+                                            <p className="text-xs text-orange-800 truncate">{item.service || 'Devis'}</p>
                                             <p className="text-xs italic text-orange-700 truncate">En attente</p>
                                         </div>
                                     ))}
@@ -1111,13 +1155,15 @@ const Planning: React.FC = () => {
                                     <div
                                         key={item.id}
                                         className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
-                                        onClick={(e) => handleProvisionalMissionClick(e)}
+                                        onClick={(e) => handleProvisionalMissionClick(item, e)}
                                     >
                                         <div className="flex justify-between">
                                             <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
                                             <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
                                         <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
+                                        <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
                                         <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
                                     </div>
                                 ))
@@ -1723,14 +1769,37 @@ const Planning: React.FC = () => {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
-                        <h3 className="text-lg font-serif font-bold text-slate-800">Statut</h3>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Détails (En attente)</h3>
                     </div>
-                    <button onClick={() => setIsProvisionalDetailsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                    <button
+                        onClick={() => {
+                            setIsProvisionalDetailsModalOpen(false);
+                            setSelectedProvisionalDetails(null);
+                        }}
+                        className="p-2 hover:bg-slate-200 rounded-full transition"
+                    >
                         <X className="w-5 h-5 text-slate-500" />
                     </button>
                 </div>
                 <div className="p-6">
                     <p className="text-sm font-bold text-orange-700">En attente de validation par le client</p>
+
+                    <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="text-slate-500">Client</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.clientName || '—'}</div>
+                            <div className="text-slate-500">Date</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.date || '—'}</div>
+                            <div className="text-slate-500">Horaire</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.startTime || '—'} - {selectedProvisionalDetails?.endTime || '—'}</div>
+                            <div className="text-slate-500">Prestataire</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.providerName || 'À assigner'}</div>
+                            <div className="text-slate-500">Service</div>
+                            <div className="font-bold text-brand-blue">{selectedProvisionalDetails?.service || 'Devis'}</div>
+                            <div className="text-slate-500">Devis</div>
+                            <div className="font-bold text-slate-800 text-xs">{selectedProvisionalDetails?.sourceDocumentId || '—'}</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

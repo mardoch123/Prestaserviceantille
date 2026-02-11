@@ -7,6 +7,43 @@ type RequestRow = MktCustomerRequest & { flyerTitle?: string | null };
 
 const statusOptions: MktCustomerRequestStatus[] = ['new', 'contacted', 'qualified', 'converted', 'closed', 'spam'];
 
+const statusLabelFr = (s: MktCustomerRequestStatus | string | null | undefined) => {
+  const v = String(s || '').trim();
+  switch (v) {
+    case 'new':
+      return 'Nouveau';
+    case 'contacted':
+      return 'Contacté';
+    case 'qualified':
+      return 'Qualifié';
+    case 'converted':
+      return 'Converti';
+    case 'closed':
+      return 'Clos';
+    case 'spam':
+      return 'Spam';
+    default:
+      return v || '-';
+  }
+};
+
+const eventTypeLabelFr = (t: string | null | undefined) => {
+  const v = String(t || '').trim();
+  switch (v) {
+    case 'status_change':
+      return 'Changement de statut';
+    case 'note':
+      return 'Note';
+    case 'request_created':
+      return 'Demande créée';
+    case 'created':
+      return 'Créé';
+    default:
+      if (/request\s*created/i.test(v)) return 'Demande créée';
+      return v || '-';
+  }
+};
+
 const AdminCustomerRequestsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<RequestRow[]>([]);
@@ -188,7 +225,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
                           onClick={(e) => e.stopPropagation()}
                         >
                           {statusOptions.map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                            <option key={s} value={s}>{statusLabelFr(s)}</option>
                           ))}
                         </select>
                       </td>
@@ -235,11 +272,11 @@ const AdminCustomerRequestsPage: React.FC = () => {
                 <div className="mt-5 space-y-3">
                   {history.map((h) => (
                     <div key={h.id} className="border border-slate-100 rounded-xl p-3 bg-slate-50">
-                      <div className="text-xs font-bold text-slate-700">{h.event_type}</div>
+                      <div className="text-xs font-bold text-slate-700">{eventTypeLabelFr(h.event_type)}</div>
                       <div className="text-[11px] text-slate-500">{new Date(h.created_at).toLocaleString()}</div>
                       {h.note ? <div className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">{h.note}</div> : null}
                       {h.from_status || h.to_status ? (
-                        <div className="text-xs text-slate-600 mt-2">{h.from_status || ''} → {h.to_status || ''}</div>
+                        <div className="text-xs text-slate-600 mt-2">{statusLabelFr(h.from_status)} → {statusLabelFr(h.to_status)}</div>
                       ) : null}
                     </div>
                   ))}

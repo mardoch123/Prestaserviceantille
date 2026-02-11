@@ -138,11 +138,13 @@ const FlyerRequestPage: React.FC = () => {
         ) : null}
 
         {!loading && flyer && !sent ? (
-          <div className="mt-6 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-            <h1 className="text-xl font-extrabold text-slate-800">Faire une demande</h1>
-            <div className="text-sm text-slate-600 mt-1">Offre: {flyer.title}</div>
+          <div className="mt-6 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-6 pt-6">
+              <h1 className="text-xl font-extrabold text-slate-800">Faire une demande</h1>
+              <div className="text-sm text-slate-600 mt-1">Offre: {flyer.title}</div>
+            </div>
 
-            <form onSubmit={onSubmit} className="mt-6 space-y-4">
+            <form onSubmit={onSubmit} className="mt-6 space-y-4 px-6 pb-6">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Nom & prénom</label>
                 <input
@@ -189,20 +191,22 @@ const FlyerRequestPage: React.FC = () => {
                 <div className="text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3">{error}</div>
               ) : null}
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700 disabled:opacity-60 disabled:hover:bg-brand-blue flex items-center justify-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Envoi...
-                  </>
-                ) : (
-                  'Envoyer la demande'
-                )}
-              </button>
+              <div className="sticky bottom-0 -mx-6 px-6 pt-4 pb-6 bg-white border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700 disabled:opacity-60 disabled:hover:bg-brand-blue flex items-center justify-center gap-2 opacity-100"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Envoi...
+                    </>
+                  ) : (
+                    'Envoyer ma demande'
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         ) : null}

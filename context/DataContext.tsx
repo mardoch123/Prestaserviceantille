@@ -1617,6 +1617,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         nonInterventionDays: Array.isArray(p.non_intervention_days)
                             ? p.non_intervention_days
                             : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
+                        nonInterventionHours: (p.non_intervention_hours && typeof p.non_intervention_hours === 'object')
+                            ? p.non_intervention_hours
+                            : ((p.nonInterventionHours && typeof p.nonInterventionHours === 'object') ? p.nonInterventionHours : {}),
                         leaves: leavesData ? leavesData.map((l: any) => ({
                             id: l.id,
                             providerId: l.provider_id,
@@ -2888,6 +2891,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 email: providerData.email,
                 status: providerData.status,
                 non_intervention_days: Array.isArray((providerData as any).nonInterventionDays) ? (providerData as any).nonInterventionDays : [],
+                non_intervention_hours: ((providerData as any).nonInterventionHours && typeof (providerData as any).nonInterventionHours === 'object')
+                    ? (providerData as any).nonInterventionHours
+                    : {},
                 hours_worked: 0,
                 rating: 5
             };
@@ -2924,6 +2930,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     nonInterventionDays: Array.isArray(newProvider.non_intervention_days)
                         ? newProvider.non_intervention_days
                         : (Array.isArray((providerData as any).nonInterventionDays) ? (providerData as any).nonInterventionDays : []),
+                    nonInterventionHours: (newProvider.non_intervention_hours && typeof newProvider.non_intervention_hours === 'object')
+                        ? newProvider.non_intervention_hours
+                        : (((providerData as any).nonInterventionHours && typeof (providerData as any).nonInterventionHours === 'object') ? (providerData as any).nonInterventionHours : {}),
                     leaves: []
                 }]);
 
@@ -3211,6 +3220,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (Array.isArray(days) && days.includes(day)) {
                 throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
             }
+
+            const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+                ? (provider as any).nonInterventionHours[day]
+                : undefined;
+            if (Array.isArray(ranges) && ranges.length > 0) {
+                const s = String(existingMission.startTime || '').slice(0, 5);
+                const e = String(existingMission.endTime || '').slice(0, 5);
+                const hasHourBlock = ranges.some((r: any) => {
+                    const rStart = String(r?.start || '').slice(0, 5);
+                    const rEnd = String(r?.end || '').slice(0, 5);
+                    if (!rStart || !rEnd) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (hasHourBlock) {
+                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible sur ce créneau horaire.`);
+                }
+            }
         }
 
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
@@ -3327,6 +3353,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (data.specialty) dbData.specialty = data.specialty;
         if (data.status) dbData.status = data.status;
         if (Array.isArray((data as any).nonInterventionDays)) dbData.non_intervention_days = (data as any).nonInterventionDays;
+        if ((data as any).nonInterventionHours && typeof (data as any).nonInterventionHours === 'object') {
+            dbData.non_intervention_hours = (data as any).nonInterventionHours;
+        }
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if (!error) {
             setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
@@ -3870,6 +3899,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const signQuoteWithData = async (id: string, signatureData: string, signedBy: 'client' | 'admin' = 'client') => {
+        // Enforce expiration window (24h) and block signature if quote is expired
+        {
+            const { data: dbDoc, error: dbDocError } = await supabase
+                .from('documents')
+                .select('id, type, status, created_at, ref')
+                .eq('id', id)
+                .maybeSingle();
+
+            if (dbDocError) throw dbDocError;
+            if (dbDoc && String((dbDoc as any).type) === 'Devis') {
+                const createdAtRaw = (dbDoc as any).created_at;
+                const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
+                const expirationMs = 24 * 60 * 60 * 1000;
+                const isTooOld = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) > expirationMs : false;
+                const currentStatus = String((dbDoc as any).status || '');
+
+                if (currentStatus === 'expired' || isTooOld) {
+                    if (currentStatus !== 'expired') {
+                        // Best-effort: mark expired in DB
+                        await supabase.from('documents').update({ status: 'expired' }).eq('id', id);
+                        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'expired' as any } : d));
+                    }
+                    throw new Error('Devis expiré : signature impossible (délai 24h dépassé)');
+                }
+            }
+        }
+
         // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
         const docToSign = documents.find(d => d.id === id);
         // ...
