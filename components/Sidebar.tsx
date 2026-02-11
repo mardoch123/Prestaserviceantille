@@ -92,7 +92,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const pendingClientsCount = useMemo(() => {
     if (currentUser?.role !== 'admin') return 0;
-    return (clientLeads || []).filter((l: any) => String(l?.status || '') === 'pending').length;
+    return (clientLeads || [])
+      .filter((l: any) => String(l?.status || '') === 'pending')
+      .filter((l: any) => !l?.admin_seen_at)
+      .length;
   }, [currentUser?.role, clientLeads]);
 
   const [newOfferInterestedCount, setNewOfferInterestedCount] = useState(0);
@@ -110,13 +113,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           .from('mkt_customer_requests')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'new');
-        const reqCount = reqRes?.count || 0;
-
-        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        // Only count unseen by admin
+        // (requires mkt_customer_requests.admin_seen_at)
+        // Note: chained filters work with head:true
+        
+        // Re-run the query with admin_seen_at null for accurate unseen count
+        const reqResUnseen = await supabase
+          .from('mkt_customer_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'new')
+          .is('admin_seen_at', null);
+        const reqCount = (reqResUnseen?.count ?? reqRes?.count ?? 0) || 0;
         const refRes = await supabase
           .from('mkt_referrers')
           .select('id', { count: 'exact', head: true })
-          .gte('created_at', since);
+          .is('admin_seen_at', null);
         const refCount = refRes?.count || 0;
 
         if (cancelled) return;

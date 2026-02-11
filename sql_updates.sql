@@ -8,6 +8,14 @@ ALTER TABLE documents ADD COLUMN hasTaxCredit BOOLEAN DEFAULT FALSE;
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS non_intervention_hours JSONB DEFAULT '{}'::jsonb;
 
 -- ================================
+-- Admin badges "non vus" (Option B)
+-- ==================f==============
+-- Ces champs permettent d'afficher un compteur "non vu" dans la Sidebar admin.
+ALTER TABLE public.client_leads ADD COLUMN IF NOT EXISTS admin_seen_at timestamptz;
+ALTER TABLE public.mkt_customer_requests ADD COLUMN IF NOT EXISTS admin_seen_at timestamptz;
+ALTER TABLE public.mkt_referrers ADD COLUMN IF NOT EXISTS admin_seen_at timestamptz;
+
+-- ================================
 -- Devis: expiration automatique à +24h et blocage de signature
 -- ================================
 

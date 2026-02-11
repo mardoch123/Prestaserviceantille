@@ -34,6 +34,22 @@ const AdminReferralLeadsPage: React.FC = () => {
         const items = (data as any).items;
         if (Array.isArray(items)) {
           setLeads(items as any);
+
+          // Mark unseen leads as seen by admin (best-effort)
+          try {
+            const unseenIds = (items as any[])
+              .filter((l: any) => !l?.admin_seen_at)
+              .map((l: any) => l?.id)
+              .filter(Boolean);
+            if (unseenIds.length) {
+              await supabase
+                .from('client_leads')
+                .update({ admin_seen_at: new Date().toISOString() })
+                .in('id', unseenIds);
+            }
+          } catch {
+            // ignore
+          }
           return;
         }
       }

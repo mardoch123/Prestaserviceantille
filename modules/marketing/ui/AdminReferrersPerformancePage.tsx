@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Search, Filter, Users, Gift } from 'lucide-react';
 import { adminListReferrersPerformance } from '../client';
 import type { MktAdminReferrerPerformanceRow } from '../client';
+import { supabase, isSupabaseConfigured } from '../../../utils/supabaseClient';
 
 const AdminReferrersPerformancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,6 +47,21 @@ const AdminReferrersPerformancePage: React.FC = () => {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    // Mark unseen referrers as seen by admin (best-effort)
+    (async () => {
+      try {
+        await supabase
+          .from('mkt_referrers')
+          .update({ admin_seen_at: new Date().toISOString() })
+          .is('admin_seen_at', null);
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   return (

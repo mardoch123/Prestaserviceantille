@@ -91,6 +91,22 @@ const AdminCustomerRequestsPage: React.FC = () => {
       }));
 
       setRows(mapped);
+
+      // Mark unseen requests as seen by admin (best-effort)
+      try {
+        const unseenIds = (data as any[])
+          .filter((r: any) => !r?.admin_seen_at)
+          .map((r: any) => r?.id)
+          .filter(Boolean);
+        if (unseenIds.length) {
+          await supabase
+            .from('mkt_customer_requests')
+            .update({ admin_seen_at: new Date().toISOString() })
+            .in('id', unseenIds);
+        }
+      } catch {
+        // ignore
+      }
     } finally {
       setLoading(false);
     }
