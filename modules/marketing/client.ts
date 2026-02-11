@@ -57,10 +57,13 @@ export type MktAdminReferrerPerformanceDetails = {
 
 export async function listActiveFlyers(): Promise<MktFlyer[]> {
   if (!isSupabaseConfigured) return [];
+  const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from('mkt_flyers')
     .select('*')
     .eq('is_active', true)
+    .or(`starts_at.is.null,starts_at.lte.${nowIso}`)
+    .or(`ends_at.is.null,ends_at.gte.${nowIso}`)
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];
@@ -393,10 +396,13 @@ export async function getMyReferrerProfile(): Promise<MktReferrer | null> {
 
 export async function listActivePromotions(): Promise<MktPromotion[]> {
   if (!isSupabaseConfigured) return [];
+  const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from('mkt_promotions')
     .select('*')
     .eq('is_active', true)
+    .or(`starts_at.is.null,starts_at.lte.${nowIso}`)
+    .or(`ends_at.is.null,ends_at.gte.${nowIso}`)
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];

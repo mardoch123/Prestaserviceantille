@@ -131,6 +131,16 @@ const AdminFlyersPage: React.FC = () => {
     setFormOpen(true);
   };
 
+  const getStatusLabel = (f: MktFlyer) => {
+    const now = Date.now();
+    if (!f?.is_active) return 'Désactivé';
+    const startMs = f?.starts_at ? new Date(f.starts_at).getTime() : NaN;
+    const endMs = f?.ends_at ? new Date(f.ends_at).getTime() : NaN;
+    if (Number.isFinite(startMs) && now < startMs) return 'Programmé';
+    if (Number.isFinite(endMs) && now > endMs) return 'Expiré';
+    return 'Actif';
+  };
+
   const openEdit = (f: MktFlyer) => {
     setImageMode('url');
     setForm({
@@ -195,6 +205,16 @@ const AdminFlyersPage: React.FC = () => {
     await load();
   };
 
+  const toggleActive = async (f: MktFlyer) => {
+    if (!canUse) return;
+    if (!f?.id) return;
+    await supabase
+      .from('mkt_flyers')
+      .update({ is_active: !f.is_active })
+      .eq('id', f.id);
+    await load();
+  };
+
   return (
     <div className="h-full w-full overflow-y-auto p-6">
       <div className="flex items-center justify-between gap-3">
@@ -225,6 +245,7 @@ const AdminFlyersPage: React.FC = () => {
               <thead className="bg-slate-50">
                 <tr className="text-left text-slate-600">
                   <th className="px-4 py-3">Titre</th>
+                  <th className="px-4 py-3">Statut</th>
                   <th className="px-4 py-3">Actif</th>
                   <th className="px-4 py-3">Début</th>
                   <th className="px-4 py-3">Fin</th>
@@ -243,6 +264,7 @@ const AdminFlyersPage: React.FC = () => {
                       </button>
                       <div className="text-xs text-slate-500 line-clamp-1">{r.description || ''}</div>
                     </td>
+                    <td className="px-4 py-3 font-bold text-slate-700">{getStatusLabel(r)}</td>
                     <td className="px-4 py-3 font-bold">{r.is_active ? 'Oui' : 'Non'}</td>
                     <td className="px-4 py-3 text-xs text-slate-600">{r.starts_at ? new Date(r.starts_at).toLocaleString() : '-'}</td>
                     <td className="px-4 py-3 text-xs text-slate-600">{r.ends_at ? new Date(r.ends_at).toLocaleString() : '-'}</td>
@@ -250,6 +272,12 @@ const AdminFlyersPage: React.FC = () => {
                     <td className="px-4 py-3 font-extrabold text-brand-orange">{r.promo_price === null ? '-' : `${Number(r.promo_price).toFixed(2)} €`}</td>
                     <td className="px-4 py-3 font-bold">{(r as any).is_featured ? `Oui (#${(r as any).featured_rank ?? '-'})` : 'Non'}</td>
                     <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => toggleActive(r)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-slate-700 hover:bg-slate-100"
+                      >
+                        {r.is_active ? 'Désactiver' : 'Activer'}
+                      </button>
                       <button
                         onClick={() => remove(r.id)}
                         className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-red-700 hover:bg-red-50"
@@ -263,7 +291,7 @@ const AdminFlyersPage: React.FC = () => {
 
                 {rows.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-slate-600" colSpan={8}>
+                    <td className="px-4 py-8 text-center text-slate-600" colSpan={9}>
                       Aucun flyer.
                     </td>
                   </tr>
