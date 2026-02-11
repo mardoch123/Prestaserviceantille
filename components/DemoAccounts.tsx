@@ -77,12 +77,21 @@ const DemoAccounts: React.FC = () => {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'authorization': `Bearer ${token}`,
         },
+        cache: 'no-store',
       });
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(payload?.error || 'Erreur lors du chargement');
+        const details = typeof payload?.details === 'string' ? payload.details : '';
+        if (res.status === 401 && details) {
+          setError(details);
+        } else if (res.status === 403) {
+          setError('Accès interdit (admin requis).');
+        } else {
+          setError(payload?.error || 'Erreur lors du chargement');
+        }
         return;
       }
 
@@ -136,7 +145,9 @@ const DemoAccounts: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'authorization': `Bearer ${token}`,
         },
+        cache: 'no-store',
         body: JSON.stringify({ role: selectedRole }),
       });
 
@@ -179,7 +190,9 @@ const DemoAccounts: React.FC = () => {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'authorization': `Bearer ${token}`,
         },
+        cache: 'no-store',
       });
 
       const payload = await res.json().catch(() => ({}));
