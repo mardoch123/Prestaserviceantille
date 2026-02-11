@@ -112,6 +112,7 @@ const isValidEmail = (email: string): boolean => {
 export type EmailTemplateType =
     // Mission-related emails
     | 'reminder_48h'
+    | 'client_mission_cancelled'
     | 'provider_mission_assigned'
     | 'admin_mission_report'
     | 'mission_report'

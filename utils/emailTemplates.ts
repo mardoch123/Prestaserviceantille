@@ -85,21 +85,24 @@ Ce message vous a été envoyé automatiquement via notre système sécurisé.
                     'Bienvenue !',
                     `Bonjour ${context.name || 'Client'},
 
-Nous sommes ravis de vous accueillir chez ${companyName} ! Votre compte client a été créé avec succès.
+Bienvenue chez ${companyName}. Votre compte client a été créé avec succès.
 
 VOS IDENTIFIANTS DE CONNEXION :
 - Email : ${context.login || context.email}
 - Mot de passe : ${context.password}
 
-Vous pouvez vous connecter dès maintenant à votre espace client pour :
-- Consulter vos missions en cours et à venir
-- Suivre vos documents (devis, factures, contrats)
-- Gérer vos informations personnelles
-- Contacter notre équipe
+ACCÉDER À VOTRE ESPACE CLIENT :
+${context.link || 'https://www.prestaservicesantilles.com/'}
 
-Accédez à votre espace ici : ${context.link || 'https://www.prestaservicesantilles.com/'}
+AVANCE IMMÉDIATE (CRÉATION DE COMPTE) :
+https://avance-immediate.fr/auto-declaration/1758065687734
 
-Conseil de sécurité : Nous vous recommandons de changer votre mot de passe lors de votre première connexion.`
+Vous pouvez utiliser votre espace client pour :
+- consulter vos prestations à venir,
+- suivre vos documents (devis, factures, contrats),
+- nous contacter.
+
+Conseil de sécurité : changez votre mot de passe lors de votre première connexion.`
                 )
             };
 
@@ -143,9 +146,32 @@ DÉTAILS DE L'INTERVENTION :
 - Date : ${context.date || 'À confirmer'}
 - Heure : ${context.time || context.startTime || 'À confirmer'}
 
-IMPORTANT : À partir de maintenant, toute annulation de votre part sera considérée comme tardive. La mission sera facturée à 50% (hors SAP) conformément à nos conditions générales.
+IMPORTANT : À partir de maintenant, toute annulation de votre part sera considérée comme tardive. La prestation sera due à 100% conformément à nos conditions.
 
 Si vous avez des questions, n'hésitez pas à nous contacter rapidement.`
+                )
+            };
+
+        case 'client_mission_cancelled':
+            return {
+                subject: `Confirmation d’annulation de votre prestation`,
+                message: createTextEmail(
+                    'Annulation confirmée',
+                    `Bonjour ${context.clientName || 'Client'},
+
+Nous confirmons la prise en compte de votre demande d’annulation.
+
+DÉTAILS DE LA PRESTATION :
+- Date : ${context.date || 'N/A'}
+- Heure : ${context.time || context.startTime || 'N/A'}
+- Service : ${context.service || 'N/A'}
+
+RAPPEL IMPORTANT (CONDITIONS D’ANNULATION) :
+${context.policyText || "Toute annulation à moins de 48h entraîne une facturation à 100% de la prestation."}
+
+Si vous souhaitez reprogrammer une prestation, vous pouvez nous contacter :
+📧 ${companyEmail} | 📞 ${companyPhone}
+`
                 )
             };
 
@@ -243,7 +269,7 @@ DÉTAILS :
 - Client : ${context.clientName || 'N/A'}
 - Date de la mission : ${context.date || 'N/A'}
 
-FACTURATION : Cette mission doit être facturée à 50% conformément aux CGV.
+FACTURATION : Cette mission doit être facturée à 100% conformément aux conditions.
 
 Gérer la facturation : https://www.prestaservicesantilles.com/admin`
                 )

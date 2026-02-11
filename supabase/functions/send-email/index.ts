@@ -57,6 +57,11 @@ serve(async (req: Request) => {
                     <p style="margin: 5px 0;"><strong>Votre identifiant :</strong> ${context.login}</p>
                     <p style="margin: 5px 0;"><strong>Mot de passe provisoire :</strong> <span style="font-family: monospace; font-size: 16px; color: #E76F51;">${context.password}</span></p>
                 </div>
+                <div style="background-color: #fff7ed; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #fed7aa;">
+                    <p style="margin: 0 0 8px 0;"><strong>Avance Immédiate :</strong></p>
+                    <p style="margin: 0; font-size: 13px;">Pour créer votre compte Avance Immédiate, utilisez ce lien :</p>
+                    <p style="margin: 8px 0 0 0; word-break: break-word;"><a href="https://avance-immediate.fr/auto-declaration/1758065687734">https://avance-immediate.fr/auto-declaration/1758065687734</a></p>
+                </div>
                 <p style="text-align: center; margin-top: 30px;">
                     <a href="${context.link}" style="background-color: #E76F51; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Accéder à mon espace</a>
                 </p>
@@ -121,7 +126,7 @@ serve(async (req: Request) => {
                 <p>Ceci est un rappel pour votre intervention prévue le :</p>
                 <p style="font-size: 18px; text-align: center;"><strong>📅 ${context.date} à ${context.time}</strong></p>
                 <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-                <p style="color: #E76F51; font-weight: bold; font-size: 12px;">⚠️ IMPORTANT : Conformément à nos conditions générales, nous vous rappelons que toute annulation à moins de 48h de l'intervention entraînera une facturation.</p>
+                <p style="color: #E76F51; font-weight: bold; font-size: 12px;">⚠️ IMPORTANT : Toute annulation à moins de 48h entraîne une facturation à 100% de la prestation.</p>
             `;
             break;
 

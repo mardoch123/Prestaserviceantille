@@ -1933,7 +1933,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             : 'http://localhost:3001/recordings';
                         await supabase.from('missions').update({ reminder_48h_sent: true }).eq('id', m.id);
                         await addNotification('admin', 'info', 'Rappel 48h Envoyé', `Rappel annulation envoyé au client ${m.clientName} pour le ${m.date}.`, undefined);
-                        await addNotification('client', 'info', 'Rappel Intervention', `Votre intervention du ${m.date} ne peut plus être annulée sans frais.`, m.clientId);
+                        await addNotification('client', 'alert', 'Rappel Intervention', `Votre intervention du ${m.date} est à moins de 48h. Toute annulation entraîne une facturation à 100%.`, m.clientId);
                     }
                 }
             }
@@ -3174,9 +3174,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     lateCancellation: isLate
                 } : mission));
 
+                // EMAIL CLIENT (confirmation détaillée)
+                try {
+                    const client = clients.find(c => c.id === m.clientId);
+                    if (client && client.email) {
+                        const policyText = isLate
+                            ? "Votre annulation intervient à moins de 48h de l'intervention : la prestation est due à 100%."
+                            : "Votre annulation intervient à plus de 48h : aucune facturation liée à l'annulation ne s'applique.";
+
+                        await sendEmail(client.email, 'Confirmation d’annulation de votre prestation', 'client_mission_cancelled', {
+                            clientName: m.clientName,
+                            date: m.date,
+                            time: m.startTime,
+                            startTime: m.startTime,
+                            service: m.service,
+                            policyText,
+                        });
+                    }
+                } catch {
+                    // ignore
+                }
+
                 if (isLate) {
-                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée moins de 48h à l'avance. Elle est considérée comme réalisée et sera facturée à 50% (Hors SAP).`, m.clientId);
-                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 50%.`, undefined, 'tab:planning');
+                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée à moins de 48h. Conformément à nos conditions, la prestation est due à 100%.`, m.clientId);
+                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 100%.`, undefined, 'tab:planning');
                     // EMAIL ADMIN
                     await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
                         clientName: m.clientName,
