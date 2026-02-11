@@ -1,5 +1,34 @@
 import { getSupabaseAdminClient } from './_lib/supabaseAdmin.js';
 
+function extractSupabaseRefFromUrl(url) {
+  try {
+    const u = new URL(String(url || ''));
+    // https://<ref>.supabase.co
+    const host = String(u.host || '');
+    const first = host.split('.')[0];
+    return first || '';
+  } catch {
+    return '';
+  }
+}
+
+function decodeJwtIssuerRef(accessToken) {
+  try {
+    const parts = String(accessToken || '').split('.');
+    if (parts.length < 2) return '';
+    const payloadB64 = parts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const padded = payloadB64 + '='.repeat((4 - (payloadB64.length % 4)) % 4);
+    const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+    const iss = String(payload?.iss || '');
+    // iss: https://<ref>.supabase.co/auth/v1
+    return extractSupabaseRefFromUrl(iss);
+  } catch {
+    return '';
+  }
+}
+
 async function getUserFromAuthHeader(req) {
   const auth = req.headers.authorization || req.headers.Authorization || '';
   const raw = String(auth || '');
@@ -69,7 +98,19 @@ export default async function handler(req, res) {
     const user = await getUserFromAuthHeader(req);
 
     if (!user) {
-      res.status(401).json({ error: 'Unauthorized', details: 'Invalid or expired token (or wrong Supabase project)' });
+      const authHeader = req.headers.authorization || req.headers.Authorization || '';
+      const raw = String(authHeader || '');
+      const m = raw.match(/Bearer\s+([^,\s]+)/i);
+      const token = m && m[1] ? m[1] : '';
+      const tokenRef = decodeJwtIssuerRef(token);
+      const envRef = extractSupabaseRefFromUrl(process.env.SUPABASE_URL);
+      const refHint = tokenRef && envRef && tokenRef !== envRef
+        ? ` (token ref: ${tokenRef}, env ref: ${envRef})`
+        : (tokenRef || envRef) ? ` (token ref: ${tokenRef || 'unknown'}, env ref: ${envRef || 'unknown'})` : '';
+      res.status(401).json({
+        error: 'Unauthorized',
+        details: `Invalid or expired token (or wrong Supabase project)${refHint}`
+      });
       return;
     }
 
