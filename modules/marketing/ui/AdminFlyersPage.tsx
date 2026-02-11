@@ -48,6 +48,8 @@ const AdminFlyersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rows, setRows] = useState<MktFlyer[]>([]);
+  const [actionError, setActionError] = useState<string>('');
+  const [togglingId, setTogglingId] = useState<string>('');
 
   const [formOpen, setFormOpen] = useState(false);
   const [imageMode, setImageMode] = useState<'url' | 'upload'>('url');
@@ -77,6 +79,7 @@ const AdminFlyersPage: React.FC = () => {
 
     setLoading(true);
     try {
+      setActionError('');
       const { data, error } = await supabase
         .from('mkt_flyers')
         .select('*')
@@ -208,11 +211,27 @@ const AdminFlyersPage: React.FC = () => {
   const toggleActive = async (f: MktFlyer) => {
     if (!canUse) return;
     if (!f?.id) return;
-    await supabase
-      .from('mkt_flyers')
-      .update({ is_active: !f.is_active })
-      .eq('id', f.id);
-    await load();
+
+    if (togglingId) return;
+    setTogglingId(f.id);
+    setActionError('');
+    try {
+      const { error } = await supabase
+        .from('mkt_flyers')
+        .update({ is_active: !f.is_active })
+        .eq('id', f.id);
+
+      if (error) {
+        setActionError(String(error.message || error));
+        return;
+      }
+
+      await load();
+    } catch (e: any) {
+      setActionError(String(e?.message || e || 'Erreur lors de la mise à jour'));
+    } finally {
+      setTogglingId('');
+    }
   };
 
   return (
@@ -240,6 +259,11 @@ const AdminFlyersPage: React.FC = () => {
         </div>
       ) : (
         <div className="mt-6 bg-white border border-slate-100 rounded-2xl overflow-hidden">
+          {actionError ? (
+            <div className="p-4 border-b border-red-100 bg-red-50 text-red-800 text-sm font-bold">
+              {actionError}
+            </div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-[1000px] w-full text-sm">
               <thead className="bg-slate-50">
@@ -274,6 +298,7 @@ const AdminFlyersPage: React.FC = () => {
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => toggleActive(r)}
+                        disabled={togglingId === r.id}
                         className="inline-flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-slate-700 hover:bg-slate-100"
                       >
                         {r.is_active ? 'Désactiver' : 'Activer'}
