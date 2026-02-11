@@ -2,9 +2,11 @@ import { getSupabaseAdminClient } from './_lib/supabaseAdmin.js';
 
 async function getUserFromAuthHeader(req) {
   const auth = req.headers.authorization || req.headers.Authorization || '';
-  const parts = String(auth).split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
-  const accessToken = parts[1];
+  const raw = String(auth || '');
+  // Robust extraction: allow values like "Bearer <token>, Bearer <token>" (merged headers)
+  const match = raw.match(/Bearer\s+([^,\s]+)/i);
+  const accessToken = match && match[1] ? match[1] : '';
+  if (!accessToken) return null;
 
   const admin = getSupabaseAdminClient();
   const { data, error } = await admin.auth.getUser(accessToken);
@@ -56,7 +58,8 @@ export default async function handler(req, res) {
     }
 
     const authHeader = req.headers.authorization || req.headers.Authorization || '';
-    const hasBearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ');
+    const rawAuth = String(authHeader || '');
+    const hasBearer = /Bearer\s+/i.test(rawAuth);
     if (!hasBearer) {
       res.status(401).json({ error: 'Unauthorized', details: 'Missing Authorization: Bearer <token>' });
       return;

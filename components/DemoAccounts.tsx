@@ -77,7 +77,6 @@ const DemoAccounts: React.FC = () => {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
       });
@@ -145,7 +144,6 @@ const DemoAccounts: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
-          'authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
         body: JSON.stringify({ role: selectedRole }),
@@ -190,7 +188,6 @@ const DemoAccounts: React.FC = () => {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
       });
