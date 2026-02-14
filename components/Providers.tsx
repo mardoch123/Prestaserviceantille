@@ -60,11 +60,24 @@ const NON_INTERVENTION_DAY_OPTIONS: Array<{ value: number; label: string }> = [
     { value: 0, label: 'Dimanche' }
 ];
 
+const getDayLabel = (dayIndex: number) => {
+  return NON_INTERVENTION_DAY_OPTIONS.find(d => d.value === dayIndex)?.label || String(dayIndex);
+};
+
+const getProviderCreatedAtMs = (p: any) => {
+  const raw = p?.created_at || p?.createdAt || p?.created || p?.created_on;
+  const ms = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+};
+
 const Providers: React.FC = () => {
-  const { providers, missions, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
+  const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
+
+  const [sortKey, setSortKey] = useState<'inscription' | 'name' | 'hours' | 'status' | 'planned_missions'>('inscription');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -79,6 +92,29 @@ const Providers: React.FC = () => {
   const [isProviderDetailsOpen, setIsProviderDetailsOpen] = useState(false);
   const [selectedProviderDetailsId, setSelectedProviderDetailsId] = useState<string | null>(null);
 
+  const [isNonInterventionDetailsOpen, setIsNonInterventionDetailsOpen] = useState(false);
+  const [nonInterventionProviderId, setNonInterventionProviderId] = useState<string | null>(null);
+
+  const selectedNonInterventionProvider = useMemo(() => {
+    if (!nonInterventionProviderId) return null;
+    return (providers || []).find(p => p.id === nonInterventionProviderId) || null;
+  }, [providers, nonInterventionProviderId]);
+
+  const [isMissionDetailsOpen, setIsMissionDetailsOpen] = useState(false);
+  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
+
+  const selectedMissionDetails = useMemo(() => {
+    if (!selectedMissionId) return null;
+    return (missions || []).find((m: any) => String(m?.id || '') === String(selectedMissionId)) || null;
+  }, [missions, selectedMissionId]);
+
+  const selectedMissionClient = useMemo(() => {
+    if (!selectedMissionDetails) return null;
+    const clientId = (selectedMissionDetails as any)?.clientId;
+    if (!clientId) return null;
+    return (clients || []).find((c: any) => String(c?.id || '') === String(clientId)) || null;
+  }, [clients, selectedMissionDetails]);
+
   const selectedProviderDetails = useMemo(() => {
     if (!selectedProviderDetailsId) return null;
     return (providers || []).find(p => p.id === selectedProviderDetailsId) || null;
@@ -89,6 +125,10 @@ const Providers: React.FC = () => {
     const list = (missions || []).filter((m: any) => String(m?.providerId || '') === String(selectedProviderDetailsId));
     return list.slice().sort((a: any, b: any) => String(b?.date || '').localeCompare(String(a?.date || '')));
   }, [missions, selectedProviderDetailsId]);
+
+  const providerPlannedMissions = useMemo(() => {
+    return providerMissions.filter(m => m.status === 'planned');
+  }, [providerMissions]);
 
   const providerMissionStats = useMemo(() => {
     const total = providerMissions.length;
@@ -146,6 +186,28 @@ const Providers: React.FC = () => {
     return result;
   }, [providers, filterStatus, searchQuery]);
 
+  const plannedMissionsCountByProvider = useMemo(() => {
+    const map = new Map<string, number>();
+    (missions || []).forEach((m: any) => {
+      if (m?.status !== 'planned') return;
+      const pid = String(m?.providerId || '');
+      if (!pid) return;
+      map.set(pid, (map.get(pid) || 0) + 1);
+    });
+    return map;
+  }, [missions]);
+
+  const inProgressMissionsCountByProvider = useMemo(() => {
+    const map = new Map<string, number>();
+    (missions || []).forEach((m: any) => {
+      if (m?.status !== 'in_progress') return;
+      const pid = String(m?.providerId || '');
+      if (!pid) return;
+      map.set(pid, (map.get(pid) || 0) + 1);
+    });
+    return map;
+  }, [missions]);
+
   // Filtres par colonne (tableau)
   const [columnFilters, setColumnFilters] = useState({
     name: '',
@@ -188,6 +250,34 @@ const Providers: React.FC = () => {
 
     return result;
   }, [filteredProviders, columnFilters]);
+
+  const sortedProviders = useMemo(() => {
+    const list = (columnFilteredProviders || []).slice();
+    const dir = sortDirection === 'asc' ? 1 : -1;
+
+    list.sort((a: any, b: any) => {
+      if (sortKey === 'inscription') {
+        return (getProviderCreatedAtMs(a) - getProviderCreatedAtMs(b)) * dir;
+      }
+      if (sortKey === 'hours') {
+        return ((Number(a?.hoursWorked) || 0) - (Number(b?.hoursWorked) || 0)) * dir;
+      }
+      if (sortKey === 'status') {
+        return String(a?.status || '').localeCompare(String(b?.status || '')) * dir;
+      }
+      if (sortKey === 'planned_missions') {
+        const ca = plannedMissionsCountByProvider.get(String(a?.id || '')) || 0;
+        const cb = plannedMissionsCountByProvider.get(String(b?.id || '')) || 0;
+        return (ca - cb) * dir;
+      }
+      // name
+      const na = `${a?.lastName || ''} ${a?.firstName || ''}`.trim().toLowerCase();
+      const nb = `${b?.lastName || ''} ${b?.firstName || ''}`.trim().toLowerCase();
+      return na.localeCompare(nb) * dir;
+    });
+
+    return list;
+  }, [columnFilteredProviders, plannedMissionsCountByProvider, sortDirection, sortKey]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -375,10 +465,10 @@ Lien de connexion : https://presta-antilles.app/login`);
   };
 
   const toggleSelectAll = () => {
-      if (selectedIds.size === columnFilteredProviders.length) {
+      if (selectedIds.size === sortedProviders.length) {
           setSelectedIds(new Set());
       } else {
-          setSelectedIds(new Set(columnFilteredProviders.map(p => p.id)));
+          setSelectedIds(new Set(sortedProviders.map(p => p.id)));
       }
   };
 
@@ -447,12 +537,38 @@ Lien de connexion : https://presta-antilles.app/login`);
           <p className="text-sm text-slate-500 mt-1">Suivi des équipes et heures travaillées</p>
         </div>
         
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-wrap">
             {selectedIds.size > 0 && (
                <button onClick={confirmBulkDelete} className="bg-red-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
                    <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
                </button>
             )}
+
+           <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
+            <span className="text-xs font-bold text-slate-500 ml-2 mr-2">Trier</span>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as any)}
+              className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
+              title="Trier par"
+            >
+              <option value="inscription">Inscription</option>
+              <option value="name">Nom</option>
+              <option value="hours">Heures</option>
+              <option value="status">Statut</option>
+              <option value="planned_missions">Missions planifiées</option>
+            </select>
+            <select
+              value={sortDirection}
+              onChange={(e) => setSortDirection(e.target.value as any)}
+              className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
+              title="Sens de tri"
+            >
+              <option value="desc">↓</option>
+              <option value="asc">↑</option>
+            </select>
+          </div>
+
            <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
             <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
             <select 
@@ -552,8 +668,8 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                    {columnFilteredProviders.length > 0 ? (
-                        columnFilteredProviders.map(p => (
+                    {sortedProviders.length > 0 ? (
+                        sortedProviders.map(p => (
                             <tr key={p.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(p.id) ? 'bg-blue-50' : ''}`}>
                                 <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(p.id)} className="text-slate-400 hover:text-brand-blue">
@@ -570,9 +686,68 @@ Lien de connexion : https://presta-antilles.app/login`);
                                         className="hover:underline"
                                         title="Voir fiche prestataire"
                                     >
-                                        {p.firstName} {p.lastName}
+                                        {(() => {
+                                          const cnt = inProgressMissionsCountByProvider.get(String(p.id)) || 0;
+                                          return (
+                                            <span>
+                                              {cnt > 0 && (
+                                                <span className="mr-1 text-xs font-bold text-blue-700">({cnt})</span>
+                                              )}
+                                              {p.firstName} {p.lastName}
+                                            </span>
+                                          );
+                                        })()}
                                     </button>
-                                    {p.leaves.length > 0 && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded">Congés déclarés</span>}
+                                    <div className="mt-1 text-[11px] font-medium text-slate-600">
+                                      {(() => {
+                                        const planned = (missions || [])
+                                          .filter((m: any) => String(m?.providerId || '') === String(p.id) && m?.status === 'planned')
+                                          .slice()
+                                          .sort((a: any, b: any) => String(a?.date || '').localeCompare(String(b?.date || '')));
+
+                                        if (planned.length === 0) return null;
+
+                                        return (
+                                          <div className="flex flex-col gap-1">
+                                            {planned.slice(0, 3).map((m: any) => (
+                                              <button
+                                                key={`planned-mini-${p.id}-${m.id}`}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedMissionId(m.id);
+                                                  setIsMissionDetailsOpen(true);
+                                                }}
+                                                className="text-left truncate hover:underline"
+                                                title="Voir les détails de la mission"
+                                              >
+                                                {m.date} {m.startTime}-{m.endTime} · {m.clientName}
+                                              </button>
+                                            ))}
+                                            {planned.length > 3 && (
+                                              <div className="text-[10px] text-slate-400">+{planned.length - 3} autre(s)</div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                    </div>
+                                    {Array.isArray((p as any).nonInterventionDays) && (p as any).nonInterventionDays.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setNonInterventionProviderId(p.id);
+                                          setIsNonInterventionDetailsOpen(true);
+                                        }}
+                                        className="ml-2 text-[10px] bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded hover:bg-orange-200 transition"
+                                        title="Voir les détails des non-interventions"
+                                      >
+                                        {(p as any).nonInterventionDays
+                                          .slice()
+                                          .sort((a: number, b: number) => a - b)
+                                          .map((d: number) => getDayLabel(d))
+                                          .join(', ')}
+                                      </button>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 text-slate-600">
                                     <div className="flex flex-col text-xs">
@@ -869,6 +1044,46 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                          <CalendarX className="w-4 h-4 text-slate-500" /> Jours de non-intervention
+                        </div>
+
+                        {Array.isArray((selectedProviderDetails as any).nonInterventionDays) && (selectedProviderDetails as any).nonInterventionDays.length > 0 ? (
+                          <div className="space-y-2">
+                            {(selectedProviderDetails as any).nonInterventionDays
+                              .slice()
+                              .sort((a: number, b: number) => a - b)
+                              .map((day: number) => {
+                                const ranges = ((selectedProviderDetails as any).nonInterventionHours && typeof (selectedProviderDetails as any).nonInterventionHours === 'object')
+                                  ? (selectedProviderDetails as any).nonInterventionHours[day]
+                                  : null;
+                                const list = Array.isArray(ranges) ? ranges : [];
+                                return (
+                                  <div key={`ni-${day}`} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                    <div className="font-bold text-slate-800 text-sm">{getDayLabel(day)}</div>
+                                    <div className="text-xs text-slate-600 mt-1">
+                                      {list.length > 0 ? (
+                                        <div className="flex flex-col gap-1">
+                                          {list.map((r: any, idx: number) => (
+                                            <div key={`ni-${day}-${idx}`}>
+                                              {r?.start || '00:00'} - {r?.end || '23:59'}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div>Toute la journée</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-slate-400">Aucun jour de non-intervention défini.</div>
+                        )}
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
                             <div className="font-bold text-slate-800 flex items-center gap-2"><Clock className="w-4 h-4 text-slate-500" /> Statistiques missions</div>
                             <div className="text-xs text-slate-500">Total heures (missions): <span className="font-bold text-slate-700">{providerMissionStats.totalHours.toFixed(2)}h</span></div>
@@ -898,31 +1113,135 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-lg p-4">
-                        <div className="font-bold text-slate-800 mb-3">Missions récentes</div>
-                        {providerMissions.length === 0 ? (
-                            <div className="text-sm text-slate-400">Aucune mission trouvée pour ce prestataire.</div>
+                        <div className="font-bold text-slate-800 mb-3">Missions programmées</div>
+                        {providerPlannedMissions.length === 0 ? (
+                            <div className="text-sm text-slate-400">Aucune mission programmée pour ce prestataire.</div>
                         ) : (
                             <div className="space-y-2">
-                                {providerMissions.slice(0, 10).map((m: any) => (
-                                    <div key={m.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                {providerPlannedMissions.map((m: any) => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedMissionId(m.id);
+                                        setIsMissionDetailsOpen(true);
+                                      }}
+                                      className="w-full text-left flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition"
+                                      title="Voir les détails de la mission"
+                                    >
                                         <div className="min-w-0">
                                             <div className="font-bold text-slate-800 text-sm truncate">{m.date} {m.startTime}-{m.endTime}</div>
                                             <div className="text-xs text-slate-600 truncate">{m.service}</div>
                                             <div className="text-xs text-slate-500 truncate">Client: {m.clientName}</div>
                                         </div>
                                         <div className="ml-3">
-                                            {m.status === 'completed' && <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded">Terminée</span>}
-                                            {m.status === 'planned' && <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded">Planifiée</span>}
-                                            {m.status === 'in_progress' && <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded">En cours</span>}
-                                            {m.status === 'cancelled' && <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-1 rounded">Annulée</span>}
+                                            <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded">Planifiée</span>
                                         </div>
-                                    </div>
+                                    </button>
                                 ))}
                             </div>
                         )}
                     </div>
                 </div>
             </div>
+        </div>
+      )}
+
+      {isNonInterventionDetailsOpen && selectedNonInterventionProvider && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+              <div>
+                <h3 className="text-xl font-serif font-bold text-slate-800">Non-interventions</h3>
+                <p className="text-xs text-slate-500 mt-1">{selectedNonInterventionProvider.firstName} {selectedNonInterventionProvider.lastName}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsNonInterventionDetailsOpen(false);
+                  setNonInterventionProviderId(null);
+                }}
+                className="p-2 hover:bg-slate-200 rounded-full transition"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              {Array.isArray((selectedNonInterventionProvider as any).nonInterventionDays) && (selectedNonInterventionProvider as any).nonInterventionDays.length > 0 ? (
+                <div className="space-y-3">
+                  {(selectedNonInterventionProvider as any).nonInterventionDays
+                    .slice()
+                    .sort((a: number, b: number) => a - b)
+                    .map((day: number) => {
+                      const ranges = ((selectedNonInterventionProvider as any).nonInterventionHours && typeof (selectedNonInterventionProvider as any).nonInterventionHours === 'object')
+                        ? (selectedNonInterventionProvider as any).nonInterventionHours[day]
+                        : null;
+                      const list = Array.isArray(ranges) ? ranges : [];
+                      return (
+                        <div key={`nid-${day}`} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                          <div className="font-bold text-slate-800">{getDayLabel(day)}</div>
+                          <div className="text-sm text-slate-600 mt-2">
+                            {list.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {list.map((r: any, idx: number) => (
+                                  <div key={`nid-${day}-${idx}`}>
+                                    {r?.start || '00:00'} - {r?.end || '23:59'}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div>Toute la journée</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-400">Aucun jour de non-intervention défini.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isMissionDetailsOpen && selectedMissionDetails && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+              <div>
+                <h3 className="text-xl font-serif font-bold text-slate-800">Détails mission</h3>
+                <p className="text-xs text-slate-500 mt-1">{(selectedMissionDetails as any).date} {(selectedMissionDetails as any).startTime}-{(selectedMissionDetails as any).endTime}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsMissionDetailsOpen(false);
+                  setSelectedMissionId(null);
+                }}
+                className="p-2 hover:bg-slate-200 rounded-full transition"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 text-sm">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="font-bold text-slate-800 mb-2">Mission</div>
+                <div className="text-slate-700"><span className="text-slate-500">Service:</span> <span className="font-semibold">{(selectedMissionDetails as any).service || '—'}</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Durée:</span> <span className="font-semibold">{Number((selectedMissionDetails as any).duration || 0)}h</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Statut:</span> <span className="font-semibold">{(selectedMissionDetails as any).status}</span></div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="font-bold text-slate-800 mb-2">Client</div>
+                <div className="text-slate-700"><span className="text-slate-500">Nom:</span> <span className="font-semibold">{(selectedMissionDetails as any).clientName || '—'}</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Adresse:</span> <span className="font-semibold">{(selectedMissionClient as any)?.address || '—'}</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Ville:</span> <span className="font-semibold">{(selectedMissionClient as any)?.city || '—'}</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Téléphone:</span> <span className="font-semibold">{(selectedMissionClient as any)?.phone || '—'}</span></div>
+                <div className="text-slate-700"><span className="text-slate-500">Email:</span> <span className="font-semibold">{(selectedMissionClient as any)?.email || '—'}</span></div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
