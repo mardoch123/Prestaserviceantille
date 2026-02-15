@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { supabase, isSupabaseConfigured } from '../../../utils/supabaseClient';
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import type { MktFlyer } from '../types';
@@ -11,7 +13,6 @@ type FlyerForm = {
   target_url: string;
   normal_price: string;
   promo_price: string;
-  observations: string;
   starts_at: string;
   ends_at: string;
   is_active: boolean;
@@ -44,6 +45,18 @@ const fileToDataUrl = (file: File): Promise<string> => {
   });
 };
 
+const stripHtml = (value: string) => {
+  const v = String(value || '');
+  try {
+    if (typeof window === 'undefined') return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const div = document.createElement('div');
+    div.innerHTML = v;
+    return String(div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+};
+
 const AdminFlyersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,7 +73,6 @@ const AdminFlyersPage: React.FC = () => {
     target_url: '',
     normal_price: '',
     promo_price: '',
-    observations: '',
     starts_at: '',
     ends_at: '',
     is_active: true,
@@ -124,7 +136,6 @@ const AdminFlyersPage: React.FC = () => {
       target_url: '',
       normal_price: '',
       promo_price: '',
-      observations: '',
       starts_at: toLocalInput(now),
       ends_at: toLocalInput(monthLater),
       is_active: true,
@@ -154,7 +165,6 @@ const AdminFlyersPage: React.FC = () => {
       target_url: f.target_url || '',
       normal_price: f.normal_price === null || f.normal_price === undefined ? '' : String(f.normal_price),
       promo_price: f.promo_price === null || f.promo_price === undefined ? '' : String(f.promo_price),
-      observations: f.observations || '',
       starts_at: toInputDatetimeLocal(f.starts_at),
       ends_at: toInputDatetimeLocal(f.ends_at),
       is_active: !!f.is_active,
@@ -180,7 +190,6 @@ const AdminFlyersPage: React.FC = () => {
         target_url: String(form.target_url || '').trim() || null,
         normal_price: String(form.normal_price || '').trim() === '' ? null : Number(form.normal_price),
         promo_price: String(form.promo_price || '').trim() === '' ? null : Number(form.promo_price),
-        observations: String(form.observations || '').trim() || null,
         starts_at: fromInputDatetimeLocal(form.starts_at),
         ends_at: fromInputDatetimeLocal(form.ends_at),
         is_active: !!form.is_active,
@@ -286,7 +295,7 @@ const AdminFlyersPage: React.FC = () => {
                       <button onClick={() => openEdit(r)} className="font-extrabold text-slate-800 hover:underline">
                         {r.title}
                       </button>
-                      <div className="text-xs text-slate-500 line-clamp-1">{r.description || ''}</div>
+                      <div className="text-xs text-slate-500 line-clamp-1">{stripHtml(r.description || '')}</div>
                     </td>
                     <td className="px-4 py-3 font-bold text-slate-700">{getStatusLabel(r)}</td>
                     <td className="px-4 py-3 font-bold">{r.is_active ? 'Oui' : 'Non'}</td>
@@ -404,22 +413,21 @@ const AdminFlyersPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-24"
-                    placeholder="Décris l’offre en 2-4 lignes (ce qui est inclus, conditions, zone géographique, etc.)"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Observations</label>
-                  <textarea
-                    value={form.observations}
-                    onChange={(e) => setForm((s) => ({ ...s, observations: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-3 min-h-20"
-                    placeholder="Informations complémentaires (ex: limité aux 20 premières demandes, hors week-end, etc.)"
-                  />
+                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={form.description}
+                      onChange={(value: string) => setForm((s) => ({ ...s, description: String(value || '') }))}
+                      modules={{
+                        toolbar: [
+                          ['bold', 'italic', 'underline'],
+                          [{ list: 'ordered' }, { list: 'bullet' }],
+                          ['link'],
+                          ['clean'],
+                        ],
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div>

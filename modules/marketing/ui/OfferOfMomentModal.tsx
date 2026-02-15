@@ -17,6 +17,18 @@ const formatPrice = (value: number | null | undefined) => {
   return `${n.toFixed(2)} €`;
 };
 
+const stripHtml = (value: string) => {
+  const v = String(value || '');
+  try {
+    if (typeof window === 'undefined') return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const div = document.createElement('div');
+    div.innerHTML = v;
+    return String(div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+};
+
 const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
   const navigate = useNavigate();
 
@@ -133,7 +145,7 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
                 <div className="p-5">
                   <div className="text-lg font-extrabold text-slate-800 leading-snug">{current.title}</div>
                   {current.description ? (
-                    <div className="mt-2 text-sm text-slate-600 line-clamp-3">{current.description}</div>
+                    <div className="mt-2 text-sm text-slate-600 line-clamp-3">{stripHtml(current.description)}</div>
                   ) : null}
 
                   {(normal || promo) ? (
@@ -146,12 +158,6 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
                       {promo ? (
                         <div className="text-base font-extrabold text-brand-orange">{promo}</div>
                       ) : null}
-                    </div>
-                  ) : null}
-
-                  {current.observations ? (
-                    <div className="mt-4 text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-xl p-3">
-                      {current.observations}
                     </div>
                   ) : null}
                 </div>

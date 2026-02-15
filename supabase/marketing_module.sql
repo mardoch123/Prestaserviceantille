@@ -1870,6 +1870,8 @@ create index if not exists mkt_outbox_status_idx on public.mkt_notification_outb
 create or replace function public.mkt_on_new_customer_request()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 begin
   insert into public.mkt_customer_request_events (request_id, event_type, note, payload)

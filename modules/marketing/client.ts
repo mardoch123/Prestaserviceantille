@@ -422,14 +422,24 @@ export async function createCustomerRequest(input: CreateMktCustomerRequestInput
     referral_code: input.referral_code ?? null,
   };
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('mkt_customer_requests')
-    .insert(payload)
-    .select('*')
-    .single();
+    .insert(payload);
 
-  if (error || !data) return null;
-  return data as any;
+  if (error) return null;
+  return {
+    id: '',
+    full_name: payload.full_name,
+    email: payload.email,
+    phone: payload.phone,
+    message: payload.message,
+    source_flyer_id: payload.source_flyer_id,
+    source_promotion_id: payload.source_promotion_id,
+    referral_code: payload.referral_code,
+    status: 'new',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as any;
 }
 
 export async function createReferrerLead(input: CreateMktReferrerInput): Promise<MktReferrer | null> {

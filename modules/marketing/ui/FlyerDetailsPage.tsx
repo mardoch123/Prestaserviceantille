@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { getFlyerById } from '../client';
 import type { MktFlyer } from '../types';
 
@@ -20,6 +21,19 @@ const FlyerDetailsPage: React.FC = () => {
 
   const normal = useMemo(() => formatPrice(flyer?.normal_price), [flyer?.normal_price]);
   const promo = useMemo(() => formatPrice(flyer?.promo_price), [flyer?.promo_price]);
+
+  const safeDescriptionHtml = useMemo(() => {
+    const raw = String(flyer?.description || '');
+    if (!raw.trim()) return '';
+    try {
+      return DOMPurify.sanitize(raw, {
+        ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'a'],
+        ALLOWED_ATTR: ['href', 'target', 'rel'],
+      });
+    } catch {
+      return raw;
+    }
+  }, [flyer?.description]);
 
   useEffect(() => {
     let mounted = true;
@@ -85,8 +99,11 @@ const FlyerDetailsPage: React.FC = () => {
             <div className="p-6">
               <h1 className="text-2xl font-extrabold text-slate-800 leading-snug">{flyer.title}</h1>
 
-              {flyer.description ? (
-                <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{flyer.description}</p>
+              {safeDescriptionHtml ? (
+                <div
+                  className="mt-3 text-sm text-slate-700 prose prose-slate max-w-none"
+                  dangerouslySetInnerHTML={{ __html: safeDescriptionHtml }}
+                />
               ) : null}
 
               {(normal || promo) ? (
@@ -99,12 +116,6 @@ const FlyerDetailsPage: React.FC = () => {
                   {promo ? (
                     <div className="text-base font-extrabold text-brand-orange">{promo}</div>
                   ) : null}
-                </div>
-              ) : null}
-
-              {flyer.observations ? (
-                <div className="mt-5 text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded-xl p-4">
-                  {flyer.observations}
                 </div>
               ) : null}
 

@@ -64,6 +64,7 @@ const ClientPortal: React.FC = () => {
         documents,
         missions,
         simulatedClientId,
+        simulatedProviderId,
         signQuoteWithData,
         alertPopup, setAlertPopup,
         refuseQuote,
@@ -118,7 +119,25 @@ const ClientPortal: React.FC = () => {
     const clientDocs = client ? documents.filter(d => d.clientId === client.id) : [];
 
     // Get client missions
-    const clientMissions = client ? missions.filter(m => m.clientId === client.id || m.clientName === client.name) : [];
+    const connectedProviderId = useMemo(() => {
+        // If the connected user is a provider, use their related entity id
+        if (currentUser?.role === 'provider') {
+            return String(currentUser?.relatedEntityId || '').trim() || null;
+        }
+        // If we are in simulation mode, use simulated provider id when available
+        return String((simulatedProviderId as any) || '').trim() || null;
+    }, [currentUser?.role, (currentUser as any)?.relatedEntityId, simulatedProviderId]);
+
+    const clientMissions = useMemo(() => {
+        if (!client) return [];
+
+        const base = missions.filter((m: any) => m.clientId === client.id || m.clientName === client.name);
+        // If we can identify a provider, restrict missions to that provider
+        if (connectedProviderId) {
+            return base.filter((m: any) => String(m?.providerId || '').trim() === connectedProviderId);
+        }
+        return base;
+    }, [client, missions, connectedProviderId]);
 
     const clientPendingChangeRequests = useMemo(() => {
         if (!client) return [];

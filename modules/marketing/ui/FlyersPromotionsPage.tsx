@@ -12,6 +12,18 @@ const formatPrice = (value: number | null | undefined) => {
   return `${n.toFixed(2)} €`;
 };
 
+const stripHtml = (value: string) => {
+  const v = String(value || '');
+  try {
+    if (typeof window === 'undefined') return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const div = document.createElement('div');
+    div.innerHTML = v;
+    return String(div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+};
+
 const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () => void }> = ({ flyer, onClick, onRequest }) => {
   const normal = formatPrice(flyer.normal_price);
   const promo = formatPrice(flyer.promo_price);
@@ -42,7 +54,7 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
         </div>
 
         {flyer.description ? (
-          <p className="mt-2 text-sm text-slate-600 line-clamp-3">{flyer.description}</p>
+          <p className="mt-2 text-sm text-slate-600 line-clamp-3">{stripHtml(flyer.description)}</p>
         ) : null}
 
         {(normal || promo) ? (
@@ -55,12 +67,6 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
             {promo ? (
               <div className="text-sm font-extrabold text-brand-orange">{promo}</div>
             ) : null}
-          </div>
-        ) : null}
-
-        {flyer.observations ? (
-          <div className="mt-3 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg p-2">
-            {flyer.observations}
           </div>
         ) : null}
 
