@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { createReferrerLead } from '../client';
+import { createReferrerLead, mktEmailExistsGlobal } from '../client';
+import { useData } from '../../../context/DataContext';
 
 const lambdaCookieKey = 'mkt_lambda_referral_code';
 
@@ -36,6 +37,7 @@ const randomCode = () => {
 
 const BecomeReferrerPage: React.FC = () => {
   const navigate = useNavigate();
+  const { companySettings } = useData();
 
   const existingCookieCode = String(getCookie(lambdaCookieKey) || '').trim();
 
@@ -65,13 +67,35 @@ const BecomeReferrerPage: React.FC = () => {
       return;
     }
 
+    const name = String(fullName || '').trim();
+    const mail = String(email || '').trim();
+    const tel = String(phone || '').trim();
+    if (!name) {
+      setError('Nom requis.');
+      return;
+    }
+    if (!mail) {
+      setError('Email requis.');
+      return;
+    }
+    if (!tel) {
+      setError('Téléphone requis.');
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const exists = await mktEmailExistsGlobal(mail);
+      if (exists) {
+        setError('Cet email existe déjà.');
+        return;
+      }
+
       const res = await createReferrerLead({
         referral_code: code,
-        full_name: String(fullName || '').trim() || null,
-        email: String(email || '').trim() || null,
-        phone: String(phone || '').trim() || null,
+        full_name: name,
+        email: mail,
+        phone: tel,
         is_lambda: true,
         pack_ultime6_threshold: 1500,
       } as any);
@@ -106,6 +130,14 @@ const BecomeReferrerPage: React.FC = () => {
 
         {sent ? (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <div className="text-lg font-extrabold text-slate-800">Tu es désormais parrain</div>
             <div className="text-sm text-slate-600 mt-2">
               Code parrain : <span className="font-extrabold text-slate-800">{referralCode}</span>
@@ -131,6 +163,14 @@ const BecomeReferrerPage: React.FC = () => {
           </div>
         ) : (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <h1 className="text-xl font-extrabold text-slate-800">Devenir parrain</h1>
             <div className="text-sm text-slate-600 mt-1">
               Toute personne peut devenir parrain, même sans prestation. Ce profil sera marqué comme <span className="font-bold">parrain lambda</span>.
@@ -157,7 +197,7 @@ const BecomeReferrerPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nom (optionnel)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nom</label>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -167,7 +207,7 @@ const BecomeReferrerPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email (optionnel)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
                   <input
                     type="email"
                     value={email}
@@ -176,7 +216,7 @@ const BecomeReferrerPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone (optionnel)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}

@@ -55,6 +55,16 @@ export type MktAdminReferrerPerformanceDetails = {
   }>;
 };
 
+export async function mktEmailExistsGlobal(email: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const e = String(email || '').trim();
+  if (!e) return false;
+  const { data, error } = await supabase.rpc('mkt_email_exists_global', { p_email: e });
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('email_check_failed');
+  return (data as any).ok === true && (data as any).exists === true;
+}
+
 export async function listActiveFlyers(): Promise<MktFlyer[]> {
   if (!isSupabaseConfigured) return [];
   const nowIso = new Date().toISOString();
@@ -660,6 +670,19 @@ export async function adminGrantReward(referrerId: string, rewardId: string, poi
     p_reward_id: rewardId,
     p_points_cost: pointsCostOverride === null || pointsCostOverride === undefined ? null : Number(pointsCostOverride),
     p_note: note ?? null,
+  });
+  if (error || !data) return null;
+  return data as any;
+}
+
+export async function adminSetReferrerStatus(referrerId: string, status: 'active' | 'blocked', reason?: string): Promise<{ ok: boolean } | null> {
+  if (!isSupabaseConfigured) return null;
+  const rid = String(referrerId || '').trim();
+  if (!rid) return null;
+  const { data, error } = await supabase.rpc('mkt_admin_set_referrer_status', {
+    p_referrer_id: rid,
+    p_status: status,
+    p_reason: reason ?? null,
   });
   if (error || !data) return null;
   return data as any;

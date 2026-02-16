@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { createCustomerRequest, getFlyerById } from '../client';
 import type { MktFlyer } from '../types';
+import { useData } from '../../../context/DataContext';
 
 type FormState = {
   full_name: string;
@@ -14,6 +15,7 @@ type FormState = {
 const FlyerRequestPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { companySettings } = useData();
 
   const [loading, setLoading] = useState(true);
   const [flyer, setFlyer] = useState<MktFlyer | null>(null);
@@ -96,9 +98,7 @@ const FlyerRequestPage: React.FC = () => {
             <ArrowLeft className="w-4 h-4" />
             Retour
           </button>
-          <div className="text-right">
-            <div className="text-xs text-slate-500">Demande</div>
-          </div>
+          <div />
         </div>
 
         {loading ? (
@@ -116,11 +116,20 @@ const FlyerRequestPage: React.FC = () => {
 
         {!loading && flyer && sent ? (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
-            <div className="text-lg font-extrabold text-slate-800">Demande envoyée</div>
-            <div className="text-sm text-slate-600 mt-2">
-              Merci. L’équipe va te recontacter rapidement.
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+
+              <div className="mt-4 text-lg font-extrabold text-slate-800">Demande envoyée</div>
+              <div className="text-sm text-slate-600 mt-2">
+                Merci. L’équipe va te recontacter rapidement.
+              </div>
             </div>
-            <div className="mt-6 flex gap-3">
+            <div className="mt-6 flex flex-wrap gap-3 justify-center">
               <button
                 onClick={() => navigate(`/flyers/${flyer.id}`)}
                 className="bg-slate-100 text-slate-800 px-4 py-3 rounded-xl font-extrabold hover:bg-slate-200"
@@ -140,6 +149,14 @@ const FlyerRequestPage: React.FC = () => {
         {!loading && flyer && !sent ? (
           <div className="mt-6 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 pt-6">
+              <div className="flex flex-col items-center text-center">
+                {companySettings?.logoUrl ? (
+                  <img src={companySettings.logoUrl} alt="Logo" className="h-12 w-auto object-contain" />
+                ) : null}
+                {companySettings?.name ? (
+                  <div className="mt-2 text-xs font-extrabold text-slate-800">{companySettings.name}</div>
+                ) : null}
+              </div>
               <h1 className="text-xl font-extrabold text-slate-800">Faire une demande</h1>
               <div className="text-sm text-slate-600 mt-1">Offre: {flyer.title}</div>
             </div>

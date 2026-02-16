@@ -101,7 +101,7 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
       />
 
       <div className="absolute inset-x-0 top-10 px-4">
-        <div className="max-w-xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden max-h-[calc(100vh-5rem)] flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <div>
               <div className="text-xs text-slate-500">Pop-up</div>
@@ -126,40 +126,48 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
               Aucune offre disponible.
             </div>
           ) : current ? (
-            <div>
+            <div className="flex-1 min-h-0 flex flex-col">
               <button
                 onClick={() => {
                   onClose();
                   navigate(`/flyers/${current.id}`);
                 }}
-                className="w-full text-left"
+                className="w-full text-left flex-1 min-h-0 overflow-y-auto"
               >
-                {current.image_url ? (
-                  <div className="w-full h-52 bg-slate-100 overflow-hidden">
-                    <img src={current.image_url} alt={current.title} className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <div className="w-full h-52 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
-                )}
-
-                <div className="p-5">
-                  <div className="text-lg font-extrabold text-slate-800 leading-snug">{current.title}</div>
-                  {current.description ? (
-                    <div className="mt-2 text-sm text-slate-600 line-clamp-3">{stripHtml(current.description)}</div>
-                  ) : null}
-
-                  {(normal || promo) ? (
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                      {normal ? (
-                        <div className={`text-base font-extrabold ${promo ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                          {normal}
-                        </div>
-                      ) : null}
-                      {promo ? (
-                        <div className="text-base font-extrabold text-brand-orange">{promo}</div>
-                      ) : null}
+                <div className="flex flex-col md:flex-row">
+                  {current.image_url ? (
+                    <div className="relative w-full md:w-1/2 bg-slate-100 overflow-hidden h-[40vh] max-h-[380px]">
+                      <img
+                        src={current.image_url}
+                        alt={current.title}
+                        className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
+                        aria-hidden="true"
+                      />
+                      <img src={current.image_url} alt={current.title} className="relative w-full h-full object-contain" />
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="w-full md:w-1/2 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[40vh] max-h-[380px]" />
+                  )}
+
+                  <div className="p-5 md:w-1/2">
+                    <div className="text-lg font-extrabold text-slate-800 leading-snug">{current.title}</div>
+                    {current.description ? (
+                      <div className="mt-2 text-sm text-slate-600 line-clamp-3">{stripHtml(current.description)}</div>
+                    ) : null}
+
+                    {(normal || promo) ? (
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        {normal ? (
+                          <div className={`text-base font-extrabold ${promo ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                            {normal}
+                          </div>
+                        ) : null}
+                        {promo ? (
+                          <div className="text-base font-extrabold text-brand-orange">{promo}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </button>
 

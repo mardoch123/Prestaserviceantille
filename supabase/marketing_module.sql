@@ -405,6 +405,85 @@ $$;
 
 grant execute on function public.mkt_get_referrer_public_profile_by_contact(text, text) to anon, authenticated;
 
+create or replace function public.mkt_email_exists_global(p_email text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email text;
+  v_exists boolean := false;
+begin
+  v_email := lower(trim(coalesce(p_email,'')));
+  if v_email = '' then
+    return jsonb_build_object('ok', true, 'exists', false);
+  end if;
+
+  begin
+    if exists (select 1 from public.users u where lower(u.email) = v_email limit 1) then
+      v_exists := true;
+    end if;
+  exception
+    when undefined_table then null;
+    when undefined_column then null;
+    when others then null;
+  end;
+
+  if not v_exists then
+    begin
+      if exists (select 1 from public.clients c where lower(c.email) = v_email limit 1) then
+        v_exists := true;
+      end if;
+    exception
+      when undefined_table then null;
+      when undefined_column then null;
+      when others then null;
+    end;
+  end if;
+
+  if not v_exists then
+    begin
+      if exists (select 1 from public.providers p where lower(p.email) = v_email limit 1) then
+        v_exists := true;
+      end if;
+    exception
+      when undefined_table then null;
+      when undefined_column then null;
+      when others then null;
+    end;
+  end if;
+
+  if not v_exists then
+    begin
+      if exists (select 1 from public.mkt_referrers r where lower(coalesce(r.email,'')) = v_email limit 1) then
+        v_exists := true;
+      end if;
+    exception
+      when undefined_table then null;
+      when undefined_column then null;
+      when others then null;
+    end;
+  end if;
+
+  if not v_exists then
+    begin
+      if exists (select 1 from public.client_leads l where lower(coalesce(l.email,'')) = v_email limit 1) then
+        v_exists := true;
+      end if;
+    exception
+      when undefined_table then null;
+      when undefined_column then null;
+      when others then null;
+    end;
+  end if;
+
+  return jsonb_build_object('ok', true, 'exists', v_exists);
+end;
+$$;
+
+grant execute on function public.mkt_email_exists_global(text) to anon, authenticated;
+
 create or replace function public.mkt_get_referrer_public_by_code(p_referral_code text)
 returns jsonb
 language plpgsql

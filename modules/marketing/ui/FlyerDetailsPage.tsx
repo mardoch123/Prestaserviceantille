@@ -89,11 +89,17 @@ const FlyerDetailsPage: React.FC = () => {
         {!loading && flyer ? (
           <div className="mt-6 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             {flyer.image_url ? (
-              <div className="w-full h-64 bg-slate-100 overflow-hidden">
-                <img src={flyer.image_url} alt={flyer.title} className="w-full h-full object-cover" />
+              <div className="relative w-full bg-slate-100 overflow-hidden h-[35vh] max-h-[320px]">
+                <img
+                  src={flyer.image_url}
+                  alt={flyer.title}
+                  className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
+                  aria-hidden="true"
+                />
+                <img src={flyer.image_url} alt={flyer.title} className="relative w-full h-full object-contain" />
               </div>
             ) : (
-              <div className="w-full h-64 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
+              <div className="w-full bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[35vh] max-h-[320px]" />
             )}
 
             <div className="p-6">

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
 import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy } from 'lucide-react';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 const Login: React.FC = () => {
+    const navigate = useNavigate();
     const { login, companySettings, addClient, addProvider } = useData();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -275,7 +277,7 @@ const Login: React.FC = () => {
 
             <div className="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white relative z-10">
                 <div className="text-center mb-8">
-                    <div className="w-32 h-32 mx-auto mb-4 flex items-center justify-center">
+                    <div className="w-32 h-32 mx-auto mb-2 flex items-center justify-center">
                         {companySettings?.logoUrl ? (
                             <img src={companySettings.logoUrl} alt="Logo Entreprise" className="w-full h-full object-contain drop-shadow-md" />
                         ) : (
@@ -284,6 +286,8 @@ const Login: React.FC = () => {
                             </div>
                         )}
                     </div>
+                    <div className="text-sm font-extrabold text-slate-700 tracking-wide">Menage - Repassage - Jardinage</div>
+                    <div className="w-28 h-px bg-slate-200 mx-auto mt-3 mb-3" />
                     <h1 className="text-2xl font-serif font-bold text-slate-800">Espace Connexion</h1>
                     <p className="text-slate-500 text-sm mt-2">Accédez à votre tableau de bord</p>
                 </div>
@@ -330,6 +334,16 @@ const Login: React.FC = () => {
                         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Se connecter"}
                     </button>
                 </form>
+
+                <div className="mt-4">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/parrainage/devenir-parrain')}
+                        className="w-full bg-brand-orange hover:bg-orange-600 text-white font-extrabold py-3 rounded-xl shadow-lg transition"
+                    >
+                        Devenir parrain
+                    </button>
+                </div>
 
                 {/* Development Tools Section - Hidden in production */}
                 {!isProduction && false && (

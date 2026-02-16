@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { createClientLead } from '../client.ts';
+import { createClientLead, mktEmailExistsGlobal } from '../client.ts';
 import { useData } from '../../../context/DataContext';
 import SearchableSelect from '../../../components/SearchableSelect';
 
@@ -13,7 +13,7 @@ const useQuery = () => {
 const RegisterFilleulPage: React.FC = () => {
   const navigate = useNavigate();
   const query = useQuery();
-  const { currentUser } = useData();
+  const { currentUser, companySettings } = useData();
 
   const clientReferrerCodeKey = 'mkt_client_referral_code';
 
@@ -101,15 +101,47 @@ const RegisterFilleulPage: React.FC = () => {
       return;
     }
 
+    const name = String(fullName || '').trim();
+    const mail = String(email || '').trim();
+    const tel = String(phone || '').trim();
+    const addr = String(address || '').trim();
+    const cty = String(city || '').trim();
+    if (!name) {
+      setError('Nom requis.');
+      return;
+    }
+    if (!mail) {
+      setError('Email requis.');
+      return;
+    }
+    if (!tel) {
+      setError('Téléphone requis.');
+      return;
+    }
+    if (!addr) {
+      setError('Adresse requise.');
+      return;
+    }
+    if (!cty) {
+      setError('Ville requise.');
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const exists = await mktEmailExistsGlobal(mail);
+      if (exists) {
+        setError('Cet email existe déjà.');
+        return;
+      }
+
       const res = await createClientLead({
         referral_code: code,
-        full_name: String(fullName || '').trim(),
-        email: String(email || '').trim(),
-        phone: String(phone || '').trim() || null,
-        address: String(address || '').trim() || null,
-        city: String(city || '').trim() || null,
+        full_name: name,
+        email: mail,
+        phone: tel,
+        address: addr,
+        city: cty,
         service_type: null,
       } as any);
 
@@ -155,6 +187,14 @@ const RegisterFilleulPage: React.FC = () => {
 
         {sent ? (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <div className="text-lg font-extrabold text-slate-800">Filleul inscrit</div>
             <div className="text-sm text-slate-600 mt-2">Le filleul est activé automatiquement.</div>
             <div className="mt-6">
@@ -168,6 +208,14 @@ const RegisterFilleulPage: React.FC = () => {
           </div>
         ) : (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <h1 className="text-xl font-extrabold text-slate-800">Inscrire un filleul</h1>
             <div className="text-sm text-slate-600 mt-1">Le parrain peut inscrire un proche.</div>
 
@@ -207,7 +255,7 @@ const RegisterFilleulPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nom du filleul (optionnel)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nom du filleul</label>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -217,7 +265,7 @@ const RegisterFilleulPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email du filleul (optionnel)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Email du filleul</label>
                   <input
                     type="email"
                     value={email}
@@ -226,7 +274,7 @@ const RegisterFilleulPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone du filleul (optionnel)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone du filleul</label>
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -236,7 +284,7 @@ const RegisterFilleulPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Adresse (optionnel)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Adresse</label>
                 <input
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
@@ -246,7 +294,7 @@ const RegisterFilleulPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Ville (optionnel)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Ville</label>
                 <SearchableSelect
                   options={martiniqueCities.map((c) => ({ value: c, label: c }))}
                   value={city}

@@ -305,6 +305,7 @@ const Secretariat: React.FC = () => {
     const [packStep, setPackStep] = useState(1);
     const [packForm, setPackForm] = useState<Partial<PackWithSchedules>>({
         type: 'ponctuel',
+        date: getMartiniqueToday(),
         hours: 3,
         frequency: 'Ponctuelle', // Default per PDF
         priceHT: 0,
@@ -321,6 +322,16 @@ const Secretariat: React.FC = () => {
 
     // Pack editing state
     const [editingPackId, setEditingPackId] = useState<string | null>(null);
+
+    const [agendaFilters, setAgendaFilters] = useState({
+        search: '',
+        startDate: '',
+        endDate: '',
+        client: '',
+        provider: '',
+        service: '',
+        time: ''
+    });
 
     // --- CONTRACT EDIT STATE ---
     const [contractForm, setContractForm] = useState<Partial<Contract>>({ name: '', content: '' });
@@ -637,8 +648,11 @@ const Secretariat: React.FC = () => {
     const handlePrevPackStep = () => setPackStep(prev => prev - 1);
 
     const handleSavePack = async () => {
+        const defaultPackDate = getMartiniqueToday();
+        const packDate = String((packForm as any)?.date || '').trim() || defaultPackDate;
+
         // Vérifier si une date est obligatoire et sélectionnée
-        if (packForm.frequency === 'Ponctuelle' && !packForm.date) {
+        if (packForm.frequency === 'Ponctuelle' && !String((packForm as any)?.date || '').trim()) {
             showToast("La date est obligatoire pour les packs ponctuels. Veuillez sélectionner une date.", 'error');
             return;
         }
@@ -659,6 +673,7 @@ const Secretariat: React.FC = () => {
                 name: packForm.name || 'Pack',
                 mainService: packForm.mainService || 'Service',
                 description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                date: packDate,
                 hours: packForm.hours || 3,
                 frequency: packForm.frequency || 'Ponctuelle',
                 type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
@@ -683,6 +698,7 @@ const Secretariat: React.FC = () => {
                 name: packForm.name || 'Nouveau Pack',
                 mainService: packForm.mainService || 'Service',
                 description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                date: packDate,
                 hours: packForm.hours || 3,
                 frequency: packForm.frequency || 'Ponctuelle',
                 type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
@@ -752,6 +768,7 @@ const Secretariat: React.FC = () => {
         setEditingPackId(null);
         setPackForm({
             type: 'ponctuel',
+            date: getMartiniqueToday(),
             hours: 3,
             frequency: 'Ponctuelle',
             priceTTC: 0,
@@ -1289,6 +1306,48 @@ const Secretariat: React.FC = () => {
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }, [missions, serviceTypeFilter]);
 
+    const filteredAgendaMissions = useMemo(() => {
+        const q = String(agendaFilters.search || '').trim().toLowerCase();
+        const qClient = String(agendaFilters.client || '').trim().toLowerCase();
+        const qProvider = String(agendaFilters.provider || '').trim().toLowerCase();
+        const qService = String(agendaFilters.service || '').trim().toLowerCase();
+        const qTime = String(agendaFilters.time || '').trim().toLowerCase();
+
+        const start = String(agendaFilters.startDate || '').trim();
+        const end = String(agendaFilters.endDate || '').trim();
+        const startT = start ? new Date(start).getTime() : null;
+        const endT = end ? new Date(end).getTime() : null;
+
+        return (agendaMissions || []).filter((m: any) => {
+            const dateT = new Date(m?.date || '').getTime();
+            if (startT !== null && Number.isFinite(dateT) && dateT < startT) return false;
+            if (endT !== null && Number.isFinite(dateT) && dateT > endT) return false;
+
+            const clientName = String(m?.clientName || '').toLowerCase();
+            const providerName = String(m?.providerName || '').toLowerCase();
+            const service = String(m?.service || '').toLowerCase();
+            const startTime = String(m?.startTime || '').toLowerCase();
+            const endTime = String(m?.endTime || '').toLowerCase();
+
+            if (qClient && !clientName.includes(qClient)) return false;
+            if (qProvider && !providerName.includes(qProvider)) return false;
+            if (qService && !service.includes(qService)) return false;
+            if (qTime && !(startTime.includes(qTime) || endTime.includes(qTime) || `${startTime} - ${endTime}`.includes(qTime))) return false;
+
+            if (!q) return true;
+            const hay = [
+                clientName,
+                providerName,
+                service,
+                startTime,
+                endTime,
+                String(m?.location || '').toLowerCase(),
+                String(m?.status || '').toLowerCase()
+            ].join(' | ');
+            return hay.includes(q);
+        });
+    }, [agendaMissions, agendaFilters]);
+
     // Expenses Stats (Computed from Filtered)
     const totalExpenses = filteredExpenses.reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -1657,14 +1716,93 @@ const Secretariat: React.FC = () => {
                                 Voir Planning Complet <ArrowRight className="w-4 h-4" />
                             </button>
                         </div>
-                        {agendaMissions.length === 0 ? (
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6">
+                            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+                                <div className="flex items-center gap-2 text-slate-500 font-bold text-sm bg-slate-50 px-3 py-2 rounded whitespace-nowrap">
+                                    <Filter className="w-4 h-4" /> Filtres
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+                                    <div className="flex items-center gap-2 w-full">
+                                        <Calendar className="w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="date"
+                                            value={agendaFilters.startDate}
+                                            onChange={e => setAgendaFilters({ ...agendaFilters, startDate: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs flex-1"
+                                        />
+                                    </div>
+                                    <span className="text-slate-300 hidden sm:inline">-</span>
+                                    <div className="flex items-center gap-2 w-full">
+                                        <input
+                                            type="date"
+                                            value={agendaFilters.endDate}
+                                            onChange={e => setAgendaFilters({ ...agendaFilters, endDate: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs flex-1"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="relative w-full lg:max-w-xs">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        value={agendaFilters.search}
+                                        onChange={e => setAgendaFilters({ ...agendaFilters, search: e.target.value })}
+                                        placeholder="Recherche (client, intervenant, service, heure...)"
+                                        className="w-full border rounded-lg pl-9 pr-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                    />
+                                </div>
+
+                                <input
+                                    type="text"
+                                    value={agendaFilters.client}
+                                    onChange={e => setAgendaFilters({ ...agendaFilters, client: e.target.value })}
+                                    placeholder="Client"
+                                    className="w-full lg:w-44 border rounded-lg px-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                />
+
+                                <input
+                                    type="text"
+                                    value={agendaFilters.provider}
+                                    onChange={e => setAgendaFilters({ ...agendaFilters, provider: e.target.value })}
+                                    placeholder="Intervenant"
+                                    className="w-full lg:w-44 border rounded-lg px-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                />
+
+                                <input
+                                    type="text"
+                                    value={agendaFilters.service}
+                                    onChange={e => setAgendaFilters({ ...agendaFilters, service: e.target.value })}
+                                    placeholder="Service"
+                                    className="w-full lg:w-44 border rounded-lg px-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                />
+
+                                <input
+                                    type="text"
+                                    value={agendaFilters.time}
+                                    onChange={e => setAgendaFilters({ ...agendaFilters, time: e.target.value })}
+                                    placeholder="Heure (ex: 08:00)"
+                                    className="w-full lg:w-36 border rounded-lg px-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                />
+
+                                <button
+                                    onClick={() => setAgendaFilters({ search: '', startDate: '', endDate: '', client: '', provider: '', service: '', time: '' })}
+                                    className="text-xs font-bold text-slate-600 hover:text-slate-800 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+                                >
+                                    Réinitialiser
+                                </button>
+                            </div>
+                        </div>
+
+                        {filteredAgendaMissions.length === 0 ? (
                             <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-lg">
                                 <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
                                 Aucune mission planifiée prochainement.
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {agendaMissions.map(mission => (
+                                {filteredAgendaMissions.map(mission => (
                                     <div key={mission.id} className="flex items-center p-4 border rounded-lg hover:shadow-sm bg-white transition border-slate-200">
                                         <div className="flex flex-col items-center justify-center w-16 h-16 bg-blue-50 rounded-lg text-brand-blue mr-4">
                                             <span className="text-xs font-bold uppercase">{new Date(mission.date).toLocaleString('default', { month: 'short' })}</span>

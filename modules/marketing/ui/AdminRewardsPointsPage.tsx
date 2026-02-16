@@ -133,9 +133,22 @@ const AdminRewardsPointsPage: React.FC = () => {
   };
 
   const removeReward = async (id: string) => {
-    if (!id) return;
-    await deleteRewardAdmin(id);
-    await load();
+    const rid = String(id || '').trim();
+    if (!rid) return;
+    const okConfirm = window.confirm('Supprimer cette récompense ?');
+    if (!okConfirm) return;
+
+    setError(null);
+    try {
+      const ok = await deleteRewardAdmin(rid);
+      if (!ok) {
+        setError("Impossible de supprimer cette récompense. Elle est peut-être déjà utilisée (attributions) ou bloquée par les règles de sécurité.");
+        return;
+      }
+      await load();
+    } catch (e: any) {
+      setError(String(e?.message || "Impossible de supprimer cette récompense."));
+    }
   };
 
   const openCreateRule = () => {

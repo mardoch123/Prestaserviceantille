@@ -31,13 +31,19 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
   return (
     <div className="w-full text-left bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-shadow">
       {flyer.image_url ? (
-        <div className="w-full h-44 bg-slate-100 overflow-hidden">
+        <div className="relative w-full aspect-[2/3] bg-slate-100 overflow-hidden">
           <button onClick={onClick} className="w-full h-full">
-            <img src={flyer.image_url} alt={flyer.title} className="w-full h-full object-cover" />
+            <img
+              src={flyer.image_url}
+              alt={flyer.title}
+              className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
+              aria-hidden="true"
+            />
+            <img src={flyer.image_url} alt={flyer.title} className="relative w-full h-full object-contain" />
           </button>
         </div>
       ) : (
-        <button onClick={onClick} className="w-full h-44 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
+        <button onClick={onClick} className="w-full aspect-[2/3] bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
       )}
 
       <div className="p-4">
