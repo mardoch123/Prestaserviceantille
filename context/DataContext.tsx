@@ -166,6 +166,22 @@ interface DataContextType {
     documents: Document[];
     addDocument: (doc: Document) => Promise<void>;
     updateDocument: (id: string, updates: Partial<Document>) => Promise<Document | null>;
+    upsertDocumentDraft: (draft: {
+        id: string;
+        ref: string;
+        clientId: string;
+        clientName: string;
+        packId?: string | null;
+        category?: string;
+        description?: string;
+        unitPrice?: number;
+        quantity?: number;
+        tvaRate?: number;
+        totalHT?: number;
+        totalTTC?: number;
+        taxCreditEnabled?: boolean;
+        slotsData?: any[];
+    }) => Promise<Document | null>;
     updateDocumentStatus: (id: string, status: string) => Promise<void>;
     deleteDocument: (id: string) => Promise<void>;
     deleteDocuments: (ids: string[]) => Promise<void>;
@@ -372,6 +388,105 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             alert('Vous êtes en mode démo');
         } catch { }
+    };
+
+    const upsertDocumentDraft = async (draft: {
+        id: string;
+        ref: string;
+        clientId: string;
+        clientName: string;
+        packId?: string | null;
+        category?: string;
+        description?: string;
+        unitPrice?: number;
+        quantity?: number;
+        tvaRate?: number;
+        totalHT?: number;
+        totalTTC?: number;
+        taxCreditEnabled?: boolean;
+        slotsData?: any[];
+    }): Promise<Document | null> => {
+        if (isDemoMode) {
+            demoBlocked();
+            return null;
+        }
+
+        const id = String(draft?.id || '').trim();
+        if (!id) return null;
+        const ref = String(draft?.ref || '').trim();
+        if (!ref) return null;
+
+        const clientId = String(draft?.clientId || '').trim();
+        if (!clientId) return null;
+        const clientName = String(draft?.clientName || '').trim() || 'Client';
+
+        const dbDocData: any = {
+            id,
+            ref,
+            client_id: clientId,
+            client_name: clientName,
+            date: getMartiniqueToday(),
+            type: 'Devis',
+            category: String(draft?.category || 'pack'),
+            description: String(draft?.description || ''),
+            unit_price: Number.isFinite(draft?.unitPrice as any) ? Number(draft?.unitPrice) : 0,
+            quantity: Number.isFinite(draft?.quantity as any) ? Number(draft?.quantity) : 1,
+            tva_rate: Number.isFinite(draft?.tvaRate as any) ? Number(draft?.tvaRate) : 0,
+            total_ht: Number.isFinite(draft?.totalHT as any) ? Number(draft?.totalHT) : 0,
+            total_ttc: Number.isFinite(draft?.totalTTC as any) ? Number(draft?.totalTTC) : 0,
+            tax_credit_enabled: !!draft?.taxCreditEnabled,
+            status: 'draft',
+            slots_data: Array.isArray(draft?.slotsData) ? draft.slotsData : [],
+            pack_id: draft?.packId ? String(draft.packId) : null,
+            reminder_sent: false,
+        };
+
+        let { data, error } = await supabase
+            .from('documents')
+            .upsert(dbDocData, { onConflict: 'id' } as any)
+            .select()
+            .maybeSingle();
+
+        if (error) {
+            const msg = String((error as any)?.message || '').toLowerCase();
+            if (msg.includes('pack_id') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))) {
+                const retryDocData: any = { ...dbDocData };
+                delete retryDocData.pack_id;
+                ({ data, error } = await supabase
+                    .from('documents')
+                    .upsert(retryDocData, { onConflict: 'id' } as any)
+                    .select()
+                    .maybeSingle());
+            }
+        }
+
+        if (error || !data) {
+            console.warn('[upsertDocumentDraft] Unable to upsert draft document:', error);
+            return null;
+        }
+
+        const mapped: Document = {
+            ...data,
+            clientId: (data as any).client_id,
+            clientName: (data as any).client_name,
+            unitPrice: (data as any).unit_price,
+            tvaRate: (data as any).tva_rate,
+            totalHT: (data as any).total_ht,
+            totalTTC: (data as any).total_ttc,
+            taxCreditEnabled: (data as any).tax_credit_enabled,
+            slotsData: (data as any).slots_data,
+            reminderSent: (data as any).reminder_sent,
+            recurrenceEndDate: (data as any).recurrence_end_date,
+            packId: (data as any).pack_id,
+        } as any;
+
+        setDocuments(prev => {
+            const exists = prev.some(d => String((d as any).id) === String(mapped.id));
+            if (!exists) return [...prev, mapped];
+            return prev.map(d => String((d as any).id) === String(mapped.id) ? { ...d, ...mapped } : d);
+        });
+
+        return mapped;
     };
 
     const enterDemoMode = async (
@@ -594,6 +709,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const updateDocument = async (id: string, updates: Partial<Document>): Promise<Document | null> => {
+        const oldDoc = documents.find(d => String((d as any).id) === String(id));
         const dbUpdates: any = { ...updates };
         if (dbUpdates.status !== undefined) {
             const v = typeof dbUpdates.status === 'string' ? dbUpdates.status.trim() : dbUpdates.status;
@@ -659,6 +775,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } as any;
 
         setDocuments(prev => prev.map(d => d.id === id ? { ...d, ...mapped } : d));
+
+        try {
+            const oldStatus = String((oldDoc as any)?.status || '').trim();
+            const newStatus = String((mapped as any)?.status || '').trim();
+            if (String((mapped as any)?.type || '') === 'Devis' && oldStatus !== 'validated' && newStatus === 'validated') {
+                await generateMissionsFromDocument(mapped);
+            }
+        } catch (e) {
+            console.warn('[updateDocument] generateMissionsFromDocument (validated) ignored:', e);
+        }
         return mapped;
     };
 
@@ -1305,12 +1431,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             totalHT: d.total_ht || d.totalHT,
             totalTTC: d.total_ttc || d.totalTTC,
             taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-            slotsData: d.slots_data,
-            reminderSent: d.reminder_sent,
+            slotsData: d.slots_data || d.slotsData,
+            reminderSent: d.reminder_sent || d.reminderSent,
             signatureData: d.signature_data,
             signatureDate: d.signature_date,
             recurrenceEndDate: d.recurrence_end_date,
-            frequency: d.frequency
+            frequency: d.frequency,
+            packId: d.pack_id || d.packId
         });
 
         console.log('[DocumentsSubscription] Setting up subscription for admin');
@@ -1388,12 +1515,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             totalHT: d.total_ht || d.totalHT,
             totalTTC: d.total_ttc || d.totalTTC,
             taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-            slotsData: d.slots_data,
-            reminderSent: d.reminder_sent,
+            slotsData: d.slots_data || d.slotsData,
+            reminderSent: d.reminder_sent || d.reminderSent,
             signatureData: d.signature_data,
             signatureDate: d.signature_date,
             recurrenceEndDate: d.recurrence_end_date,
-            frequency: d.frequency
+            frequency: d.frequency,
+            packId: d.pack_id || d.packId
         });
 
         const filter = `client_id=eq.${clientId}`;
@@ -1667,12 +1795,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         totalHT: d.total_ht || d.totalHT,
                         totalTTC: d.total_ttc || d.totalTTC,
                         taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-                        slotsData: d.slots_data,
-                        reminderSent: d.reminder_sent,
-                        signatureData: d.signature_data,
-                        signatureDate: d.signature_date,
-                        recurrenceEndDate: d.recurrence_end_date,
-                        frequency: d.frequency
+                        slotsData: d.slots_data || d.slotsData,
+                        reminderSent: d.reminder_sent || d.reminderSent,
+                        signatureData: d.signature_data || d.signatureData,
+                        signatureDate: d.signature_date || d.signatureDate,
+                        recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
+                        frequency: d.frequency,
+                        packId: d.pack_id || d.packId
                     })));
                 }
                 if (packData) {
@@ -2075,12 +2204,31 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Generic fallback for non-admin users if no profile found
                 if (!userObj) {
                     console.log("[FetchProfile] Using generic user fallback");
+                    const metaRoleRaw = (authUser as any)?.user_metadata?.role;
+                    const metaRole = (metaRoleRaw === 'client' || metaRoleRaw === 'provider') ? metaRoleRaw : null;
+                    const metaRelatedEntityId = (authUser as any)?.user_metadata?.relatedEntityId;
                     userObj = {
                         id: authUser.id,
                         email: authUser.email || '',
                         name: authUser.email?.split('@')[0] || 'Utilisateur',
-                        role: 'client'
+                        role: metaRole || 'client',
+                        relatedEntityId: metaRelatedEntityId || undefined,
                     } as User;
+
+                    // Best-effort: persist this profile to users table to avoid losing role on next login
+                    try {
+                        await supabase
+                            .from('users')
+                            .upsert({
+                                id: authUser.id,
+                                email: authUser.email || '',
+                                name: userObj.name,
+                                role: userObj.role,
+                                related_entity_id: userObj.relatedEntityId || null,
+                            } as any, { onConflict: 'id' } as any);
+                    } catch (e) {
+                        console.warn('[FetchProfile] Unable to upsert fallback profile into users table (ignored):', e);
+                    }
                 }
             }
 
@@ -3567,7 +3715,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         if (data) {
             const newDoc = data[0];
-            setDocuments(prev => [...prev, {
+            const mappedDoc: Document = {
                 ...newDoc,
                 clientId: newDoc.client_id,
                 clientName: newDoc.client_name,
@@ -3578,8 +3726,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 taxCreditEnabled: newDoc.tax_credit_enabled,
                 slotsData: newDoc.slots_data,
                 reminderSent: newDoc.reminder_sent,
-                recurrenceEndDate: newDoc.recurrence_end_date
-            }]);
+                recurrenceEndDate: newDoc.recurrence_end_date,
+                packId: (newDoc as any).pack_id
+            } as any;
+            setDocuments(prev => [...prev, mappedDoc]);
+
+            try {
+                const st = String((mappedDoc as any)?.status || '').trim();
+                if (String((mappedDoc as any)?.type || '') === 'Devis' && st === 'validated') {
+                    await generateMissionsFromDocument(mappedDoc);
+                }
+            } catch (e) {
+                console.warn('[addDocument] generateMissionsFromDocument (validated) ignored:', e);
+            }
 
             // Envoyer une notification au client lors de la création du devis
             await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${doc.type} ${doc.ref}) de ${doc.totalTTC.toFixed(2)} € est disponible pour consultation.`, doc.clientId, `document:${newDoc.id}`);
@@ -5697,80 +5856,86 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             } else {
                 throw new Error('Impossible d\'ouvrir la fenêtre d\'impression');
             }
+
+            // Fallback timeout in case images don't load
+            setTimeout(() => {
+                if (!printWindow.closed) {
+                    console.log('Printing due to timeout');
+                    printWindow.print();
+                    printWindow.close();
+                }
+            }, 3000);
         } catch (error: any) {
             console.error('Error generating contract document:', error);
         }
     };
+ 
+     return (
+         <DataContext.Provider value={{
+             exitDemoMode,
+             companySettings, updateCompanySettings,
 
-return (
-    <DataContext.Provider value={{
-        isSoberMode,
-        setIsSoberMode,
-        toggleSoberMode,
-        isDemoMode,
-        demoRole,
-        enterDemoMode,
-        exitDemoMode,
-        companySettings, updateCompanySettings,
+             isSoberMode, setIsSoberMode, toggleSoberMode,
 
-        missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
-
-        clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
-
-        providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
-
-        documents, addDocument, updateDocument, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
-
-        packs, addPack, updatePack, deletePacks,
-
-        contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
-
-        reminders, addReminder, toggleReminder,
-
-        expenses, addExpense, updateExpense,
-
-        messages, replyToClient, sendClientMessage, markClientMessagesRead,
-
-        notifications, markNotificationRead, addNotification,
-
-        contactForms, submitContactForm, markContactFormRead,
-
-        visitScans, registerScan,
-
-        alertPopup, setAlertPopup,
-        currentUser, login, logout,
-        simulatedClientId, setSimulatedClientId,
-        simulatedProviderId, setSimulatedProviderId,
-        activeStream, startLiveStream, stopLiveStream,
-        videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
-        generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
-        isOnline, pendingSyncCount, loading,
-        extendReadingSession, endReadingSession, isReadingDocument,
-        connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
-        getAvailableSlots, refreshData, sendEmail,
-
-        serviceTypeFilter,
-        serviceTypeOptions,
-        setServiceTypeFilter,
-        missionChangeRequests,
-        requestMissionReschedule,
-        respondToMissionReschedule
-    }}>
-        {children}
-    </DataContext.Provider>
-);
-
-};
-
-export const useData = () => {
-    const context = useContext(DataContext);
-    if (context === undefined) {
-        // More detailed error for debugging
-        console.error('[DataContext] useData called outside DataProvider. This might be due to hot module reload.');
-        console.error('[DataContext] Current location:', window.location.href);
-        console.error('[DataContext] Try refreshing the page if this persists.');
-
-        throw new Error('useData must be used within a DataProvider. If you see this after a hot reload, refresh the page (F5).');
-    }
-    return context;
-};
+             isDemoMode, demoRole, enterDemoMode,
+ 
+             missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
+ 
+             clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+ 
+             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
+ 
+             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+ 
+             packs, addPack, updatePack, deletePacks,
+ 
+             contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
+ 
+             reminders, addReminder, toggleReminder,
+ 
+             expenses, addExpense, updateExpense,
+ 
+             messages, replyToClient, sendClientMessage, markClientMessagesRead,
+ 
+             notifications, markNotificationRead, addNotification,
+ 
+             contactForms, submitContactForm, markContactFormRead,
+ 
+             visitScans, registerScan,
+ 
+             alertPopup, setAlertPopup,
+             currentUser, login, logout,
+             simulatedClientId, setSimulatedClientId,
+             simulatedProviderId, setSimulatedProviderId,
+             activeStream, startLiveStream, stopLiveStream,
+             videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
+             generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
+             isOnline, pendingSyncCount, loading,
+             extendReadingSession, endReadingSession, isReadingDocument,
+             connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
+             getAvailableSlots, refreshData, sendEmail,
+ 
+             serviceTypeFilter,
+             serviceTypeOptions,
+             setServiceTypeFilter,
+             missionChangeRequests,
+             requestMissionReschedule,
+             respondToMissionReschedule
+         }}>
+             {children}
+         </DataContext.Provider>
+     );
+ };
+ 
+ export const useData = () => {
+     const context = useContext(DataContext);
+     if (context === undefined) {
+         // More detailed error for debugging
+         console.error('[DataContext] useData called outside DataProvider. This might be due to hot module reload.');
+         console.error('[DataContext] Current location:', window.location.href);
+         console.error('[DataContext] Try refreshing the page if this persists.');
+ 
+         throw new Error('useData must be used within a DataProvider. If you see this after a hot reload, refresh the page (F5).');
+     }
+     return context;
+ };

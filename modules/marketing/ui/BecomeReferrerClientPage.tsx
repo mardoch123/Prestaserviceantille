@@ -13,7 +13,7 @@ const randomCode = () => {
 
 const BecomeReferrerClientPage: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, clients } = useData();
+  const { currentUser, clients, companySettings } = useData();
 
   const clientReferrerFlagKey = 'mkt_client_is_referrer';
   const clientReferrerCodeKey = 'mkt_client_referral_code';
@@ -151,6 +151,14 @@ const BecomeReferrerClientPage: React.FC = () => {
           </div>
         ) : sent ? (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <div className="text-lg font-extrabold text-slate-800">Tu es désormais parrain</div>
             <div className="text-sm text-slate-600 mt-2">
               Code parrain : <span className="font-extrabold text-slate-800">{referralCode}</span>
@@ -176,6 +184,14 @@ const BecomeReferrerClientPage: React.FC = () => {
           </div>
         ) : (
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col items-center text-center">
+              {companySettings?.logoUrl ? (
+                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+              ) : null}
+              {companySettings?.name ? (
+                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
+              ) : null}
+            </div>
             <h1 className="text-xl font-extrabold text-slate-800">Devenir parrain</h1>
             <div className="text-sm text-slate-600 mt-1">
               En tant que client, tu peux devenir <span className="font-bold">parrain normal</span>.

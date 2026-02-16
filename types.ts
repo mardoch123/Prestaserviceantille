@@ -243,7 +243,7 @@ export interface Document {
     taxCreditEnabled: boolean;
     hasTaxCredit?: boolean; // Champ pour indiquer si le crédit d'impôt est activé
 
-    status: 'signed' | 'sent' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected' | 'draft';
+    status: 'signed' | 'sent' | 'validated' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected' | 'draft';
 
     linkedInvoiceId?: string; // Self-referencing FK for converting Quote -> Invoice
 

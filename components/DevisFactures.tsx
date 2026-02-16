@@ -1300,7 +1300,7 @@ const DevisFactures: React.FC = () => {
             }
         }
         // If it's a draft quote, open edit modal directly (with existing slots/hours)
-        if (String(doc?.type || '') === 'Devis' && String(doc?.status || '') === 'draft') {
+        if (String(doc?.type || '') === 'Devis' && (String(doc?.status || '') === 'draft')) {
             openDuplicateModal(doc);
             return;
         }
@@ -1477,9 +1477,14 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleSuccess = async () => {
+    const handleSuccess = async (mode?: 'send' | 'validate_only') => {
         setIsSubmitting(true);
         try {
+            const existingDoc = editingDocumentId ? (documents || []).find((d: any) => String(d?.id || '') === String(editingDocumentId || '')) : null;
+            const prevStatus = String((existingDoc as any)?.status || '');
+            const isValidateOnly = modalMode === 'devis' && mode === 'validate_only';
+            const nextQuoteStatus = isValidateOnly ? 'validated' : 'sent';
+
             if (!selectedClientId) {
                 showToast('Veuillez sélectionner un client', 'warning');
                 setIsSubmitting(false);
@@ -1608,7 +1613,7 @@ const DevisFactures: React.FC = () => {
                 totalHT: totalHT,
                 totalTTC: totalTTC,
                 taxCreditEnabled: taxCreditActive,
-                status: modalMode === 'devis' ? 'sent' : 'paid',
+                status: modalMode === 'devis' ? (nextQuoteStatus as any) : 'paid',
                 slotsData: interventionSlots.length > 0 ? interventionSlots : (modalMode === 'devis' ? interventionSlots : undefined),
                 packId: serviceType === 'pack' ? selectedPackId : undefined,
             };
@@ -1640,8 +1645,10 @@ const DevisFactures: React.FC = () => {
                 deleteLocalDraftById(localDraftId);
             }
 
-            // GÉNÉRATION AUTOMATIQUE DU CONTRAT LORS DE LA CRÉATION D'UN DEVIS
-            if (modalMode === 'devis') {
+            const isSendingQuoteNow = modalMode === 'devis' && nextQuoteStatus === 'sent' && prevStatus !== 'sent';
+
+            // GÉNÉRATION AUTOMATIQUE DU CONTRAT LORS DE L'ENVOI D'UN DEVIS
+            if (isSendingQuoteNow) {
                 const client = clients.find(c => c.id === selectedClientId);
                 const pack = packs.find(p => p.id === selectedPackId);
 
@@ -1678,8 +1685,8 @@ const DevisFactures: React.FC = () => {
                 }
             }
 
-            // NOTIFICATION POUR LE CLIENT: Envoyer une notification lors de la création du devis
-            if (modalMode === 'devis') {
+            // NOTIFICATION POUR LE CLIENT: Envoyer une notification lors de l'envoi du devis
+            if (isSendingQuoteNow) {
                 await addNotification(
                     'client',
                     'info',
@@ -1690,32 +1697,14 @@ const DevisFactures: React.FC = () => {
                 );
             }
 
-            if (modalMode === 'facture' && interventionSlots.length > 0) {
-                for (const slot of interventionSlots) {
-                    if (slot.date) {
-                        await addMission({
-                            id: '',
-                            date: slot.date,
-                            startTime: slot.startTime,
-                            endTime: slot.endTime,
-                            duration: slot.duration,
-                            clientName,
-                            clientId: selectedClientId,
-                            service: finalDescription,
-                            providerId: null,
-                            providerName: 'À assigner',
-                            status: 'planned',
-                            color: 'gray',
-                            source: 'devis'
-                        });
-                    }
-                }
-            }
-
             setIsDraftDirty(false);
             setLocalDraftId(null);
             closeModal({ skipAutosave: true });
-            showToast(modalMode === 'devis' ? 'Devis envoyé (Valable 24h) !' : 'Facture générée avec succès !');
+            if (modalMode === 'devis') {
+                showToast(isValidateOnly ? 'Devis validé (non envoyé) !' : 'Devis envoyé (Valable 24h) !');
+            } else {
+                showToast('Facture générée avec succès !');
+            }
         } catch (e: any) {
             showToast("Erreur création document: " + e.message, 'error');
         } finally {
@@ -2023,15 +2012,11 @@ const DevisFactures: React.FC = () => {
             }
             const packNameRaw = String((d.packName || '') as any).trim();
             if (packNameRaw) {
-                const byName = packs.find(p => p.name === packNameRaw);
-                if (byName) return byName;
-                const byNameLoose = packs.find(p => p.name.toLowerCase() === packNameRaw.toLowerCase());
-                if (byNameLoose) return byNameLoose;
+                return packs.find(p => p.name === packNameRaw) || packs.find(p => p.name.toLowerCase() === packNameRaw.toLowerCase());
             }
             const descriptionRaw = String((d.description || '') as any);
             if (descriptionRaw) {
-                const byDesc = packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
-                if (byDesc) return byDesc;
+                return packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
             }
             return undefined;
         };
@@ -2129,8 +2114,10 @@ const DevisFactures: React.FC = () => {
                             { value: 'draft', label: 'Brouillons' },
                             { value: 'sent', label: 'Devis envoyés' },
                             { value: 'signed', label: 'Devis signés' },
+                            { value: 'rejected', label: 'Refusés' },
                             { value: 'converted', label: 'Facturés' },
-                            { value: 'paid', label: 'Payées' }
+                            { value: 'expired', label: 'Expirés' },
+                            { value: 'validated', label: 'Validés' },
                         ]}
                         value={filterStatus}
                         onChange={(value) => setFilterStatus(value)}
@@ -2221,7 +2208,8 @@ const DevisFactures: React.FC = () => {
                                                                 { value: 'signed', label: 'Signé' },
                                                                 { value: 'rejected', label: 'Refusé' },
                                                                 { value: 'converted', label: 'Facturé' },
-                                                                { value: 'expired', label: 'Expiré' }
+                                                                { value: 'expired', label: 'Expiré' },
+                                                                { value: 'validated', label: 'Validé' },
                                                             ]
                                                             : [
                                                                 { value: 'pending', label: 'En attente' },
@@ -2251,7 +2239,9 @@ const DevisFactures: React.FC = () => {
                                                             ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
                                                             ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
                                                             ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}`}
+                                                            ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
+                                                            ${doc.status === 'validated' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                        }`}
                                                     />
                                                 )}
                                             </div>
@@ -2523,7 +2513,8 @@ const DevisFactures: React.FC = () => {
                                                                     { value: 'signed', label: 'Signé' },
                                                                     { value: 'rejected', label: 'Refusé' },
                                                                     { value: 'converted', label: 'Facturé' },
-                                                                    { value: 'expired', label: 'Expiré' }
+                                                                    { value: 'expired', label: 'Expiré' },
+                                                                    { value: 'validated', label: 'Validé' },
                                                                 ]
                                                                 : [
                                                                     { value: 'pending', label: 'En attente' },
@@ -2553,7 +2544,9 @@ const DevisFactures: React.FC = () => {
                                                                 ${doc.status === 'paid' ? 'bg-teal-100 text-teal-800 border-teal-200' : ''}
                                                                 ${doc.status === 'converted' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
                                                                 ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                                                ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}`}
+                                                                ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
+                                                                ${doc.status === 'validated' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                            }`}
                                                         />
                                                     )}
                                                 </div>
@@ -2847,7 +2840,7 @@ const DevisFactures: React.FC = () => {
                                                 {/* Affichage des créneaux existants */}
                                                 <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                                                     {interventionSlots.length === 0 ? (
-                                                        <div className="p-4 text-center text-slate-500 text-sm">
+                                                        <div className="p-4 text-center text-slate-400 text-sm">
                                                             <p>Aucun créneau planifié</p>
                                                             <button
                                                                 onClick={addNewSlot}
@@ -3079,7 +3072,7 @@ const DevisFactures: React.FC = () => {
 
                                                 {/* Total calculation */}
                                                 {interventionSlots.length > 0 && (
-                                                    <div className="p-3 bg-slate-50 text-right text-xs font-bold text-slate-600 border-t border-slate-200">
+                                                    <div className="p-3 bg-slate-50 text-right text-xs font-bold text-slate-600 border-t border-slate-100">
                                                         Total : <span className="text-brand-blue text-sm">{interventionSlots.reduce((acc, s) => acc + s.duration, 0)} heures</span>
                                                     </div>
                                                 )}
@@ -3093,14 +3086,53 @@ const DevisFactures: React.FC = () => {
                                     </section>
                                 )}
                                 <div className="flex justify-end">
-                                    <button
-                                        className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
-                                        onClick={handleSuccess}
-                                        disabled={!selectedClientId || isSubmitting}
-                                    >
-                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                        {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
-                                    </button>
+                                    {modalMode === 'devis' && (() => {
+                                        const existingDoc = editingDocumentId ? (documents || []).find((d: any) => String(d?.id || '') === String(editingDocumentId || '')) : null;
+                                        const prevStatus = String((existingDoc as any)?.status || '');
+                                        if (prevStatus === 'validated') {
+                                            return (
+                                                <button
+                                                    className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
+                                                    onClick={() => handleSuccess('send')}
+                                                    disabled={!selectedClientId || isSubmitting}
+                                                >
+                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                                    {isSubmitting ? 'Traitement...' : 'Envoyer'}
+                                                </button>
+                                            );
+                                        }
+                                        return (
+                                            <div className="flex gap-3">
+                                                <button
+                                                    className="px-6 py-2 rounded-lg bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 flex items-center gap-2 disabled:opacity-50"
+                                                    onClick={() => handleSuccess('validate_only')}
+                                                    disabled={!selectedClientId || isSubmitting}
+                                                >
+                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                    {isSubmitting ? 'Traitement...' : 'Valider'}
+                                                </button>
+                                                <button
+                                                    className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
+                                                    onClick={() => handleSuccess('send')}
+                                                    disabled={!selectedClientId || isSubmitting}
+                                                >
+                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                    {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {modalMode !== 'devis' && (
+                                        <button
+                                            className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
+                                            onClick={() => handleSuccess('send')}
+                                            disabled={!selectedClientId || isSubmitting}
+                                        >
+                                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                            {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
