@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { createReferrerLead, mktEmailExistsGlobal } from '../client';
 import { useData } from '../../../context/DataContext';
+import MarketingPublicShell from './MarketingPublicShell';
 
 const lambdaCookieKey = 'mkt_lambda_referral_code';
 
@@ -113,141 +114,116 @@ const BecomeReferrerPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-cream-50 font-sans">
-      <div className="max-w-xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
-          </button>
-          <div className="text-right">
-            <div className="text-xs text-slate-500">Parrainage</div>
+    <MarketingPublicShell
+      title="Parrainage"
+      subtitle="Devenir parrain"
+      onBack={() => navigate(-1)}
+      logoUrl={companySettings?.logoUrl}
+      brandName={companySettings?.name}
+      maxWidthClassName="max-w-xl"
+    >
+      {sent ? (
+        <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
+          <div className="text-lg font-extrabold text-slate-800">Tu es désormais parrain</div>
+          <div className="text-sm text-slate-600 mt-2">
+            Code parrain : <span className="font-extrabold text-slate-800">{referralCode}</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Profil : parrain lambda • Seuil Pack Ultime 6 : 1500 points
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => navigate(`/parrainage/inscrire-filleul?code=${encodeURIComponent(referralCode)}`)}
+              className="bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
+            >
+              Inscrire un filleul
+            </button>
+            <button
+              onClick={() => navigate('/flyers')}
+              className="bg-slate-100 text-slate-800 px-4 py-3 rounded-xl font-extrabold hover:bg-slate-200"
+            >
+              Voir les offres
+            </button>
           </div>
         </div>
-
-        {sent ? (
-          <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
-            <div className="flex flex-col items-center text-center">
-              {companySettings?.logoUrl ? (
-                <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
-              ) : null}
-              {companySettings?.name ? (
-                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
-              ) : null}
-            </div>
-            <div className="text-lg font-extrabold text-slate-800">Tu es désormais parrain</div>
-            <div className="text-sm text-slate-600 mt-2">
-              Code parrain : <span className="font-extrabold text-slate-800">{referralCode}</span>
-            </div>
-            <div className="text-xs text-slate-500 mt-2">
-              Profil : parrain lambda • Seuil Pack Ultime 6 : 1500 points
-            </div>
-
-            <div className="mt-6 flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => navigate(`/parrainage/inscrire-filleul?code=${encodeURIComponent(referralCode)}`)}
-                className="bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
-              >
-                Inscrire un filleul
-              </button>
-              <button
-                onClick={() => navigate('/flyers')}
-                className="bg-slate-100 text-slate-800 px-4 py-3 rounded-xl font-extrabold hover:bg-slate-200"
-              >
-                Voir les offres
-              </button>
-            </div>
+      ) : (
+        <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+          <div className="text-sm text-slate-600 mt-1">
+            Toute personne peut devenir parrain, même sans prestation. Ce profil sera marqué comme <span className="font-bold">parrain lambda</span>.
           </div>
-        ) : (
-          <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex flex-col items-center text-center">
-              {companySettings?.logoUrl ? (
-                <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
-              ) : null}
-              {companySettings?.name ? (
-                <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
-              ) : null}
-            </div>
-            <h1 className="text-xl font-extrabold text-slate-800">Devenir parrain</h1>
-            <div className="text-sm text-slate-600 mt-1">
-              Toute personne peut devenir parrain, même sans prestation. Ce profil sera marqué comme <span className="font-bold">parrain lambda</span>.
-            </div>
-            <div className="text-xs text-slate-500 mt-2">Seuil Pack Ultime 6 : 1500 points</div>
+          <div className="text-xs text-slate-500 mt-2">Seuil Pack Ultime 6 : 1500 points</div>
 
-            <form onSubmit={onSubmit} className="mt-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Code parrain</label>
-                <div className="flex gap-2">
-                  <input
-                    value={referralCode}
-                    onChange={(e) => setReferralCode(e.target.value)}
-                    className="flex-1 border border-slate-200 rounded-xl px-4 py-3"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setReferralCode(randomCode())}
-                    className="px-4 py-3 rounded-xl font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200"
-                  >
-                    Générer
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nom</label>
+          <form onSubmit={onSubmit} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Code parrain</label>
+              <div className="flex gap-2">
                 <input
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value)}
+                  className="flex-1 border border-slate-200 rounded-xl px-4 py-3"
+                />
+                <button
+                  type="button"
+                  onClick={() => setReferralCode(randomCode())}
+                  className="px-4 py-3 rounded-xl font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200"
+                >
+                  Générer
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Nom</label>
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full border border-slate-200 rounded-xl px-4 py-3"
                 />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-3"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-3"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3"
+                />
               </div>
+            </div>
 
-              {error ? (
-                <div className="text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3">{error}</div>
-              ) : null}
+            {error ? (
+              <div className="text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3">{error}</div>
+            ) : null}
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700 disabled:opacity-60 flex items-center justify-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Création...
-                  </>
-                ) : (
-                  'Valider'
-                )}
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
-    </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Création...
+                </>
+              ) : (
+                'Valider'
+              )}
+            </button>
+          </form>
+        </div>
+      )}
+    </MarketingPublicShell>
   );
 };
 

@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listActiveFlyers, listActivePromotions } from '../client';
 import type { MktFlyer, MktPromotion } from '../types';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useData } from '../../../context/DataContext';
+import MarketingPublicShell from './MarketingPublicShell';
 
 const formatPrice = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '';
@@ -120,7 +121,7 @@ const PromotionRow: React.FC<{ promo: MktPromotion }> = ({ promo }) => {
 
 const FlyersPromotionsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser } = useData();
+  const { currentUser, companySettings } = useData();
   const [loading, setLoading] = useState(true);
   const [flyers, setFlyers] = useState<MktFlyer[]>([]);
   const [promotions, setPromotions] = useState<MktPromotion[]>([]);
@@ -160,87 +161,77 @@ const FlyersPromotionsPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-cream-50 font-sans">
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
+    <MarketingPublicShell
+      title="Flyers & Promotions"
+      subtitle="Accès libre"
+      onBack={() => navigate(-1)}
+      logoUrl={companySettings?.logoUrl}
+      brandName={companySettings?.name}
+      rightActions={
+        <>
+          {!isClientReferrer ? (
+            <button
+              onClick={() => navigate('/parrainage/devenir-parrain')}
+              className="bg-brand-blue text-white px-3 py-2 rounded-xl font-extrabold hover:bg-teal-700 text-xs"
+            >
+              Devenir parrain
+            </button>
+          ) : null}
           <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900"
+            onClick={() => navigate('/parrainage/inscrire-filleul')}
+            className="bg-brand-orange text-white px-3 py-2 rounded-xl font-extrabold hover:bg-orange-600 text-xs"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
+            Inscrire un filleul
           </button>
-
-          <div className="flex items-center gap-2">
-            {!isClientReferrer ? (
-              <button
-                onClick={() => navigate('/parrainage/devenir-parrain')}
-                className="hidden sm:inline-flex bg-brand-blue text-white px-3 py-2 rounded-xl font-extrabold hover:bg-teal-700 text-xs"
-              >
-                Devenir parrain
-              </button>
-            ) : null}
-            <button
-              onClick={() => navigate('/parrainage/inscrire-filleul')}
-              className="hidden sm:inline-flex bg-brand-orange text-white px-3 py-2 rounded-xl font-extrabold hover:bg-orange-600 text-xs"
-            >
-              Inscrire un filleul
-            </button>
-            <button
-              onClick={() => navigate('/parrainage/mes-points')}
-              className="hidden sm:inline-flex bg-slate-900 text-white px-3 py-2 rounded-xl font-extrabold hover:bg-slate-800 text-xs"
-            >
-              Mes points
-            </button>
-
-            <div className="text-right">
-              <h1 className="text-xl font-extrabold text-slate-800">Flyers & Promotions</h1>
-              <div className="text-xs text-slate-500">Accès libre</div>
-            </div>
-          </div>
+          <button
+            onClick={() => navigate('/parrainage/mes-points')}
+            className="bg-slate-900 text-white px-3 py-2 rounded-xl font-extrabold hover:bg-slate-800 text-xs"
+          >
+            Mes points
+          </button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="mt-10 flex items-center justify-center gap-2 text-slate-600">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          Chargement...
         </div>
+      ) : null}
 
-        {loading ? (
-          <div className="mt-10 flex items-center justify-center gap-2 text-slate-600">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Chargement...
+      {!loading && !hasAny ? (
+        <div className="mt-8 bg-white border border-slate-100 rounded-xl p-6 text-center text-slate-700">
+          Aucun flyer ou promotion disponible pour le moment.
+        </div>
+      ) : null}
+
+      {!loading && flyers.length > 0 ? (
+        <section className="mt-6">
+          <h2 className="text-sm font-extrabold text-slate-700 mb-3">Flyers</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {flyers.map((flyer) => (
+              <FlyerCard
+                key={flyer.id}
+                flyer={flyer}
+                onClick={() => navigate(`/flyers/${flyer.id}`)}
+                onRequest={() => navigate(`/flyers/${flyer.id}/request`)}
+              />
+            ))}
           </div>
-        ) : null}
+        </section>
+      ) : null}
 
-        {!loading && !hasAny ? (
-          <div className="mt-8 bg-white border border-slate-100 rounded-xl p-6 text-center text-slate-700">
-            Aucun flyer ou promotion disponible pour le moment.
+      {!loading && promotions.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="text-sm font-extrabold text-slate-700 mb-3">Promotions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {promotions.map((promo) => (
+              <PromotionRow key={promo.id} promo={promo} />
+            ))}
           </div>
-        ) : null}
-
-        {!loading && flyers.length > 0 ? (
-          <section className="mt-6">
-            <h2 className="text-sm font-extrabold text-slate-700 mb-3">Flyers</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {flyers.map((flyer) => (
-                <FlyerCard
-                  key={flyer.id}
-                  flyer={flyer}
-                  onClick={() => navigate(`/flyers/${flyer.id}`)}
-                  onRequest={() => navigate(`/flyers/${flyer.id}/request`)}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {!loading && promotions.length > 0 ? (
-          <section className="mt-8">
-            <h2 className="text-sm font-extrabold text-slate-700 mb-3">Promotions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {promotions.map((promo) => (
-                <PromotionRow key={promo.id} promo={promo} />
-              ))}
-            </div>
-          </section>
-        ) : null}
-      </div>
-    </div>
+        </section>
+      ) : null}
+    </MarketingPublicShell>
   );
 };
 

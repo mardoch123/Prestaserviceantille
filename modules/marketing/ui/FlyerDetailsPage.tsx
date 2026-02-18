@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { getFlyerById } from '../client';
 import type { MktFlyer } from '../types';
+import { useData } from '../../../context/DataContext';
+import MarketingPublicShell from './MarketingPublicShell';
 
 const formatPrice = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '';
@@ -15,6 +17,7 @@ const formatPrice = (value: number | null | undefined) => {
 const FlyerDetailsPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { companySettings } = useData();
 
   const [loading, setLoading] = useState(true);
   const [flyer, setFlyer] = useState<MktFlyer | null>(null);
@@ -57,101 +60,90 @@ const FlyerDetailsPage: React.FC = () => {
   }, [id]);
 
   return (
-    <div className="min-h-screen bg-cream-50 font-sans">
-      <div className="max-w-3xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
-          </button>
-
-          <div className="text-right">
-            <div className="text-xs text-slate-500">Détails</div>
-          </div>
+    <MarketingPublicShell
+      title={flyer ? flyer.title : 'Flyer'}
+      subtitle="Détails"
+      onBack={() => navigate(-1)}
+      logoUrl={companySettings?.logoUrl}
+      brandName={companySettings?.name}
+      maxWidthClassName="max-w-3xl"
+    >
+      {loading ? (
+        <div className="mt-10 flex items-center justify-center gap-2 text-slate-600">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          Chargement...
         </div>
+      ) : null}
 
-        {loading ? (
-          <div className="mt-10 flex items-center justify-center gap-2 text-slate-600">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Chargement...
-          </div>
-        ) : null}
+      {!loading && !flyer ? (
+        <div className="mt-8 bg-white border border-slate-100 rounded-xl p-6 text-center text-slate-700">
+          Flyer introuvable.
+        </div>
+      ) : null}
 
-        {!loading && !flyer ? (
-          <div className="mt-8 bg-white border border-slate-100 rounded-xl p-6 text-center text-slate-700">
-            Flyer introuvable.
-          </div>
-        ) : null}
+      {!loading && flyer ? (
+        <div className="mt-6 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          {flyer.image_url ? (
+            <div className="relative w-full bg-slate-100 overflow-hidden h-[28vh] max-h-[260px]">
+              <img
+                src={flyer.image_url}
+                alt={flyer.title}
+                className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
+                aria-hidden="true"
+              />
+              <img src={flyer.image_url} alt={flyer.title} className="relative w-full h-full object-contain" />
+            </div>
+          ) : (
+            <div className="w-full bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[28vh] max-h-[260px]" />
+          )}
 
-        {!loading && flyer ? (
-          <div className="mt-6 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            {flyer.image_url ? (
-              <div className="relative w-full bg-slate-100 overflow-hidden h-[28vh] max-h-[260px]">
-                <img
-                  src={flyer.image_url}
-                  alt={flyer.title}
-                  className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
-                  aria-hidden="true"
-                />
-                <img src={flyer.image_url} alt={flyer.title} className="relative w-full h-full object-contain" />
+          <div className="p-6">
+            {safeDescriptionHtml ? (
+              <div
+                className="text-sm text-slate-700 prose prose-slate max-w-none"
+                dangerouslySetInnerHTML={{ __html: safeDescriptionHtml }}
+              />
+            ) : null}
+
+            {(normal || promo) ? (
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                {normal ? (
+                  <div className={`text-base font-extrabold ${promo ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                    {normal}
+                  </div>
+                ) : null}
+                {promo ? (
+                  <div className="text-base font-extrabold text-brand-orange">{promo}</div>
+                ) : null}
               </div>
-            ) : (
-              <div className="w-full bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[28vh] max-h-[260px]" />
-            )}
+            ) : null}
 
-            <div className="p-6">
-              <h1 className="text-2xl font-extrabold text-slate-800 leading-snug">{flyer.title}</h1>
-
-              {safeDescriptionHtml ? (
-                <div
-                  className="mt-3 text-sm text-slate-700 prose prose-slate max-w-none"
-                  dangerouslySetInnerHTML={{ __html: safeDescriptionHtml }}
-                />
-              ) : null}
-
-              {(normal || promo) ? (
-                <div className="mt-5 flex flex-wrap items-center gap-3">
-                  {normal ? (
-                    <div className={`text-base font-extrabold ${promo ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                      {normal}
-                    </div>
-                  ) : null}
-                  {promo ? (
-                    <div className="text-base font-extrabold text-brand-orange">{promo}</div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {flyer.target_url ? (
-                <div className="mt-6">
-                  <a
-                    href={flyer.target_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700"
-                  >
-                    Voir l'offre
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                </div>
-              ) : null}
-
-              <div className="mt-4">
-                <button
-                  onClick={() => navigate(`/flyers/${flyer.id}/request`)}
-                  className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
+            {flyer.target_url ? (
+              <div className="mt-6">
+                <a
+                  href={flyer.target_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 bg-brand-blue text-white px-4 py-3 rounded-xl font-extrabold hover:bg-teal-700"
                 >
-                  Faire une demande
-                </button>
+                  Voir l'offre
+                  <ExternalLink className="w-4 h-4" />
+                </a>
               </div>
+            ) : null}
+
+            <div className="mt-4">
+              <button
+                onClick={() => navigate(`/flyers/${flyer.id}/request`)}
+                className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
+              >
+                Faire une demande
+              </button>
             </div>
           </div>
-        ) : null}
-      </div>
-    </div>
+        </div>
+      ) : null}
+    </MarketingPublicShell>
   );
 };
 

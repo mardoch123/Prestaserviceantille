@@ -34,6 +34,7 @@ import {
     SlidersHorizontal,
     XCircle,
     Download,
+    RotateCcw,
     X,
     Calendar,
     Filter,
@@ -50,7 +51,7 @@ import {
     formatMartiniqueDate,
     formatMartiniqueDateTime
 } from '../src/utils/martiniqueTime';
-import { ContractPDF } from './PDFComponents';
+import { ContractPDF, SignedQuotePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
@@ -60,7 +61,7 @@ import LiveVideoManager from './LiveVideoManager';
 import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
-type Tab = 'packs' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'live-videos';
+type Tab = 'packs' | 'devis' | 'absences' | 'agenda' | 'messaging' | 'expenses' | 'live-videos';
 
 // Type for intervention schedules (compatible with existing ScheduleOption)
 type InterventionSchedule = {
@@ -147,6 +148,8 @@ const Secretariat: React.FC = () => {
     const [modalType, setModalType] = useState<'pack' | 'contract' | 'reminder' | 'expense'>('pack');
     const navigate = useNavigate();
     const location = useLocation();
+
+    const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
 
     // Fonction pour calculer la durée totale d'un pack
     const calculatePackDuration = (pack: any) => {
@@ -286,6 +289,268 @@ const Secretariat: React.FC = () => {
             }
         }
     }, [location]);
+
+    const secretariatQuotes = useMemo(() => {
+        return (documents || [])
+            .filter((d: any) => String(d?.type || '') === 'Devis')
+            .map((d: any) => {
+                const clientId = String(d?.clientId || d?.client_id || '').trim();
+                const client = (clients || []).find((c: any) => String(c?.id || '') === clientId);
+                return {
+                    ...d,
+                    clientName: String(d?.clientName || d?.client_name || client?.name || '').trim(),
+                };
+            })
+            .slice()
+            .sort((a: any, b: any) => new Date((b as any).created_at || b.date || '').getTime() - new Date((a as any).created_at || a.date || '').getTime());
+    }, [documents, clients]);
+
+    const [quoteFilters, setQuoteFilters] = useState({
+        search: '',
+        status: '',
+        startDate: '',
+        endDate: ''
+    });
+
+    const filteredSecretariatQuotes = useMemo(() => {
+        const s = String(quoteFilters.search || '').trim().toLowerCase();
+        const status = String(quoteFilters.status || '').trim().toLowerCase();
+        const start = quoteFilters.startDate ? new Date(`${quoteFilters.startDate}T00:00:00`).getTime() : null;
+        const end = quoteFilters.endDate ? new Date(`${quoteFilters.endDate}T23:59:59`).getTime() : null;
+
+        return (secretariatQuotes || []).filter((doc: any) => {
+            if (status && String(doc?.status || '').toLowerCase() !== status) return false;
+
+            const dRaw = (doc as any)?.created_at || doc?.date || '';
+            const ts = dRaw ? new Date(dRaw).getTime() : NaN;
+            if (start !== null && Number.isFinite(ts) && ts < start) return false;
+            if (end !== null && Number.isFinite(ts) && ts > end) return false;
+
+            if (!s) return true;
+
+            const ref = String(doc?.ref || '').toLowerCase();
+            const clientName = String(doc?.clientName || doc?.client_name || '').toLowerCase();
+            const notes = String(doc?.description || '').toLowerCase();
+            const packName = String((doc as any)?.packName || '').toLowerCase();
+            const statusText = String(doc?.status || '').toLowerCase();
+            const dateText = String(doc?.date || doc?.created_at || '').toLowerCase();
+
+            return (
+                ref.includes(s) ||
+                clientName.includes(s) ||
+                notes.includes(s) ||
+                packName.includes(s) ||
+                statusText.includes(s) ||
+                dateText.includes(s)
+            );
+        });
+    }, [secretariatQuotes, quoteFilters.search, quoteFilters.status, quoteFilters.startDate, quoteFilters.endDate]);
+
+    const toggleQuoteSelection = (id: string) => {
+        setSelectedQuoteIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAllQuotes = () => {
+        setSelectedQuoteIds(prev => {
+            if (prev.size > 0 && prev.size === filteredSecretariatQuotes.length) return new Set();
+            return new Set(filteredSecretariatQuotes.map((d: any) => String(d.id)));
+        });
+    };
+
+    const parseQuoteDescriptionMeta = (rawValue: any) => {
+        const raw = String(rawValue || '');
+        const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+        const meta: { pack?: string; duree?: string; lieu?: string; description?: string } = {};
+        parts.forEach((p) => {
+            const [k, ...rest] = p.split(':').map(x => x.trim());
+            const v = rest.join(':').trim();
+            const key = String(k || '').toLowerCase();
+            if (!key) return;
+            if (key.includes('pack')) meta.pack = v;
+            else if (key.includes('dur')) meta.duree = v;
+            else if (key.includes('lieu') || key.includes('adresse') || key.includes('address')) meta.lieu = v;
+            else if (key.includes('desc')) meta.description = v;
+        });
+        return meta;
+    };
+
+    const handleDownloadQuotePdf = async (doc: any) => {
+        try {
+            const quoteId = String(doc?.id || '').trim();
+            if (!quoteId) return;
+
+            const clientId = String(doc?.clientId || (doc as any)?.client_id || '').trim();
+            const client = clients.find(c => String(c?.id || '') === clientId);
+            if (!client) {
+                showToast('Client introuvable pour ce devis.', 'error');
+                return;
+            }
+
+            const sanitizeFilenamePart = (v: any) =>
+                String(v || '')
+                    .replace(/[\\/:*?\"<>|]/g, '_')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+            const refPart = sanitizeFilenamePart(doc?.ref || '');
+
+            const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+                return await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.naturalWidth || img.width;
+                            canvas.height = img.naturalHeight || img.height;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) return reject(new Error('Canvas context not available'));
+                            ctx.drawImage(img, 0, 0);
+                            resolve(canvas.toDataURL('image/png'));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    img.onerror = () => reject(new Error('Image decode failed'));
+                    img.src = dataUrl;
+                });
+            };
+
+            const ensurePngDataUrl = async (value: any): Promise<any> => {
+                if (!value || typeof value !== 'string') return value;
+                if (!value.startsWith('data:image/')) return value;
+                if (value.startsWith('data:image/png')) return value;
+                try {
+                    return await convertDataUrlToPng(value);
+                } catch {
+                    return value;
+                }
+            };
+
+            const resolvedTvaRate = (() => {
+                const raw = (doc as any)?.tvaRate;
+                const n = typeof raw === 'number' ? raw : Number(raw);
+                return Number.isFinite(n) ? n : 0;
+            })();
+
+            const logoBase64 = resolvedTvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+            const clientSignature = await ensurePngDataUrl((doc as any).signatureData || null);
+
+            const safeNumber = (v: any) => {
+                const n = typeof v === 'number' ? v : Number(v);
+                return Number.isFinite(n) ? n : 0;
+            };
+
+            const totalHT = safeNumber((doc as any).totalHT ?? (doc as any).total_ht ?? (doc as any).totalht);
+            const totalTTC = safeNumber((doc as any).totalTTC ?? (doc as any).total_ttc ?? (doc as any).totalttc);
+
+            const packNameFromId = (doc as any).packId
+                ? (packs.find((p: any) => String(p.id) === String((doc as any).packId))?.name || '')
+                : '';
+            const packNameFromField = String((doc as any).packName || '').trim();
+            const descLower = String(doc.description || '').toLowerCase();
+            const packNameFromText = String(
+                (packs || []).find((p: any) => {
+                    const n = String(p?.name || '').toLowerCase();
+                    return n && descLower.includes(n);
+                })?.name || ''
+            );
+            const packName = packNameFromId || packNameFromField || packNameFromText || '';
+
+            const meta = parseQuoteDescriptionMeta((doc as any).description);
+            const resolvedLocation =
+                String((doc as any).location || (doc as any).address || (doc as any).lieu || '').trim() ||
+                String(meta.lieu || '').trim() ||
+                undefined;
+
+            const pdfData = {
+                ref: doc.ref,
+                date: doc.date,
+                signed: doc.status === 'signed',
+                status: doc.status,
+                tvaRate: resolvedTvaRate,
+                taxCreditEnabled: !!((doc as any).hasTaxCredit || (doc as any).taxCreditEnabled),
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                clientSignature,
+                companySignature,
+                companyStamp,
+                logoBase64,
+                subtotal: totalHT,
+                tax: totalTTC && totalHT ? (totalTTC - totalHT) : 0,
+                total: totalTTC,
+                notes: doc.description || '',
+                packId: doc.packId,
+                packName,
+                items: [
+                    {
+                        description: packName || meta.pack || doc.description || 'Service standard',
+                        location: resolvedLocation,
+                        quantity: 1,
+                        unitPrice: totalHT,
+                        total: totalHT
+                    }
+                ],
+                slotsData: (doc as any).slotsData || (doc as any).slots_data || []
+            };
+
+            const blob = await pdf(<SignedQuotePDF doc={pdfData} packs={packs as any} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Devis_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Devis téléchargé avec succès.');
+        } catch (e: any) {
+            showToast('Erreur téléchargement devis.', 'error');
+        }
+    };
+
+    const renewSelectedExpiredQuotes = async () => {
+        const ids = Array.from(selectedQuoteIds);
+        if (ids.length === 0) return;
+
+        const expiredIds = ids.filter(id => {
+            const doc = filteredSecretariatQuotes.find((d: any) => String(d?.id || '') === String(id));
+            return String(doc?.status || '') === 'expired';
+        });
+
+        if (expiredIds.length === 0) {
+            showToast("Aucun devis expiré sélectionné.", 'warning');
+            return;
+        }
+
+        const ok = window.confirm(`Renouveler ${expiredIds.length} devis expiré(s) ? Ils repasseront en Envoyé et seront re-signables.`);
+        if (!ok) return;
+
+        const nowIso = new Date().toISOString();
+        try {
+            const { supabase } = await import('../utils/supabaseClient');
+            const res = await supabase
+                .from('documents')
+                .update({ status: 'sent', created_at: nowIso })
+                .in('id', expiredIds)
+                .select();
+            if (res.error) throw res.error;
+
+            setSelectedQuoteIds(new Set());
+            showToast(`${expiredIds.length} devis renouvelé(s).`, 'success');
+        } catch (e: any) {
+            showToast('Erreur renouvellement devis.', 'error');
+        }
+    };
 
     // Scroll to bottom of chat
     useEffect(() => {
@@ -1450,6 +1715,12 @@ const Secretariat: React.FC = () => {
                     <PackagePlus className="w-4 h-4" /> Packs & Contrats
                 </button>
                 <button
+                    onClick={() => setActiveTab('devis')}
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'devis' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
+                >
+                    <FileText className="w-4 h-4" /> Devis
+                </button>
+                <button
                     onClick={() => setActiveTab('absences')}
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'absences' ? 'bg-white text-brand-blue shadow-sm' : 'text-slate-500'}`}
                 >
@@ -1643,6 +1914,12 @@ const Secretariat: React.FC = () => {
                                         </div>
                                         <div>
                                             <p className="font-bold text-slate-700">{contract.name}</p>
+                                            <p className="text-xs text-slate-500 font-medium">
+                                                {(() => {
+                                                    const c = clients.find(cl => String(cl?.id || '') === String((contract as any)?.clientId || ''));
+                                                    return c?.name ? `Client: ${c.name}` : 'Client: —';
+                                                })()}
+                                            </p>
                                             <div className="flex items-center gap-2 mt-1">
                                                 {contract.status === 'draft' && <span className="text-xs bg-slate-200 text-slate-600 px-2 rounded font-bold">Brouillon</span>}
                                                 {contract.status === 'pending_validation' && <span className="text-xs bg-orange-200 text-orange-800 px-2 rounded font-bold">En attente validation</span>}
@@ -1703,6 +1980,150 @@ const Secretariat: React.FC = () => {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'devis' && (
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-700">Devis</h3>
+                                <p className="text-xs text-slate-500">Téléchargement + renouvellement des devis expirés.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={toggleSelectAllQuotes}
+                                    className="text-xs font-bold text-slate-600 hover:text-slate-800 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+                                >
+                                    {selectedQuoteIds.size > 0 && selectedQuoteIds.size === filteredSecretariatQuotes.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                                </button>
+                                <button
+                                    onClick={renewSelectedExpiredQuotes}
+                                    disabled={selectedQuoteIds.size === 0}
+                                    className="bg-brand-orange text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-orange-600 disabled:opacity-50"
+                                >
+                                    <RotateCcw className="w-4 h-4" /> Renouveler expirés
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
+                                <div className="relative w-full lg:max-w-sm">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        value={quoteFilters.search}
+                                        onChange={e => setQuoteFilters({ ...quoteFilters, search: e.target.value })}
+                                        placeholder="Recherche (client, ref, statut, date, contenu...)"
+                                        className="w-full border rounded-lg pl-9 pr-3 py-2 text-xs outline-none focus:border-brand-blue"
+                                    />
+                                </div>
+
+                                <select
+                                    value={quoteFilters.status}
+                                    onChange={e => setQuoteFilters({ ...quoteFilters, status: e.target.value })}
+                                    className="w-full lg:w-48 border rounded-lg px-3 py-2 text-xs outline-none focus:border-brand-blue bg-white"
+                                >
+                                    <option value="">Tous les statuts</option>
+                                    <option value="sent">Envoyé</option>
+                                    <option value="signed">Signé</option>
+                                    <option value="expired">Expiré</option>
+                                    <option value="draft">Brouillon</option>
+                                </select>
+
+                                <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+                                    <div className="flex items-center gap-2 w-full">
+                                        <Calendar className="w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="date"
+                                            value={quoteFilters.startDate}
+                                            onChange={e => setQuoteFilters({ ...quoteFilters, startDate: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs flex-1"
+                                        />
+                                    </div>
+                                    <span className="text-slate-300 hidden sm:inline">-</span>
+                                    <div className="flex items-center gap-2 w-full">
+                                        <input
+                                            type="date"
+                                            value={quoteFilters.endDate}
+                                            onChange={e => setQuoteFilters({ ...quoteFilters, endDate: e.target.value })}
+                                            className="border rounded px-2 py-1 text-xs flex-1"
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => setQuoteFilters({ search: '', status: '', startDate: '', endDate: '' })}
+                                    className="text-xs font-bold text-slate-600 hover:text-slate-800 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+                                >
+                                    Réinitialiser
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table className="min-w-full divide-y divide-slate-100">
+                                <thead className="bg-slate-50">
+                                    <tr>
+                                        <th className="px-4 py-3 w-10"></th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-600">Réf</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-600">Client</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-600">Date</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-600">Statut</th>
+                                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-600">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 bg-white">
+                                    {filteredSecretariatQuotes.map((doc: any) => (
+                                        <tr key={doc.id} className={selectedQuoteIds.has(String(doc.id)) ? 'bg-blue-50' : ''}>
+                                            <td className="px-4 py-3">
+                                                <button
+                                                    onClick={() => toggleQuoteSelection(String(doc.id))}
+                                                    className="text-slate-400 hover:text-brand-blue"
+                                                >
+                                                    {selectedQuoteIds.has(String(doc.id)) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                                </button>
+                                            </td>
+                                            <td className="px-4 py-3 text-sm font-bold text-slate-800">{doc.ref}</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700">{doc.clientName}</td>
+                                            <td className="px-4 py-3 text-sm text-slate-600">{doc.date}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`text-xs font-bold px-2 py-1 rounded ${doc.status === 'expired' ? 'bg-red-100 text-red-800' : doc.status === 'sent' ? 'bg-orange-100 text-orange-800' : doc.status === 'signed' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'}`}>
+                                                    {doc.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="inline-flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => handleDownloadQuotePdf(doc)}
+                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
+                                                        title="Télécharger le devis"
+                                                    >
+                                                        <Download className="w-4 h-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => window.open(`/documents/${doc.ref}`, '_blank')}
+                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
+                                                        title="Ouvrir la page du document"
+                                                    >
+                                                        <ExternalLink className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+
+                                    {filteredSecretariatQuotes.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                                                Aucun devis.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}
