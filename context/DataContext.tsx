@@ -3673,11 +3673,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
+        const generateDocumentRef = (type: string) => {
+            const prefix = String(type || '').toLowerCase().includes('facture') ? 'FAC' : 'DEV';
+            const year = new Date().getFullYear();
+            const ts = Date.now().toString(36).toUpperCase();
+            const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+            return `${prefix}-${year}-${ts}${rand}`;
+        };
+
         const finalId = doc.id && String(doc.id).trim() ? doc.id : generateUUID();
         const safeStatus = (typeof (doc as any).status === 'string' && String((doc as any).status).trim()) ? String((doc as any).status).trim() : 'pending';
+        const initialRef = String((doc as any)?.ref || '').trim() || generateDocumentRef(String((doc as any)?.type || ''));
         const dbDocData = {
             id: finalId,
-            ref: doc.ref,
+            ref: initialRef,
             client_id: doc.clientId,
             client_name: doc.clientName,
             date: doc.date,
@@ -3697,7 +3706,32 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             frequency: doc.frequency,
             recurrence_end_date: doc.recurrenceEndDate
         };
-        let { data, error } = await supabase.from('documents').insert(dbDocData).select();
+
+        const tryInsertWithUniqueRef = async () => {
+            let attempt = 0;
+            let lastError: any = null;
+            let payload: any = { ...dbDocData };
+
+            while (attempt < 3) {
+                const res = await supabase.from('documents').insert(payload).select();
+                if (!res.error) return res;
+
+                lastError = res.error;
+                const msg = String((res.error as any)?.message || '').toLowerCase();
+                const isDuplicateRef = msg.includes('documents_ref_key') || (msg.includes('duplicate') && msg.includes('ref'));
+                if (!isDuplicateRef) return res;
+
+                attempt += 1;
+                payload = {
+                    ...payload,
+                    ref: generateDocumentRef(String((doc as any)?.type || ''))
+                };
+            }
+
+            return { data: null, error: lastError } as any;
+        };
+
+        let { data, error } = await tryInsertWithUniqueRef();
 
         if (error) {
             const msg = String((error as any)?.message || '').toLowerCase();
@@ -3741,21 +3775,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // Envoyer une notification au client lors de la création du devis
-            await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${doc.type} ${doc.ref}) de ${doc.totalTTC.toFixed(2)} € est disponible pour consultation.`, doc.clientId, `document:${newDoc.id}`);
+            await addNotification('client', 'info', 'Nouveau Devis Disponible', `Un nouveau devis (${mappedDoc.type} ${mappedDoc.ref}) de ${mappedDoc.totalTTC.toFixed(2)} € est disponible pour consultation.`, mappedDoc.clientId, `document:${newDoc.id}`);
 
             // Envoyer une notification à l'admin
-            await addNotification('admin', 'success', 'Devis Créé', `Devis ${doc.ref} créé pour ${doc.clientName} - Montant: ${doc.totalTTC.toFixed(2)} €`, undefined, `document:${newDoc.id}`);
+            await addNotification('admin', 'success', 'Devis Créé', `Devis ${mappedDoc.ref} créé pour ${mappedDoc.clientName} - Montant: ${mappedDoc.totalTTC.toFixed(2)} €`, undefined, `document:${newDoc.id}`);
 
             const client = clients.find(c => c.id === doc.clientId);
             if (client && client.email) {
-                await sendEmail(client.email, 'Nouveau devis disponible', 'quote_created', {
-                    clientName: client.name,
-                    quoteRef: doc.ref,
-                    amount: doc.totalTTC.toFixed(2)
-                });
+                // Send email for quote/invoice
+                try {
+                    await sendEmail(client.email, 'Nouveau devis disponible', 'quote_created', {
+                        clientName: client.name,
+                        quoteRef: newDoc.ref, // Utiliser le ref réellement inséré
+                        amount: doc.totalTTC.toFixed(2)
+                    });
 
-                // Notification supplémentaire lors de l'envoi par email
-                await addNotification('client', 'info', 'Devis Envoyé par Email', `Le devis ${doc.ref} a été envoyé à votre adresse email ${client.email}.`, doc.clientId, `document:${newDoc.id}`);
+                    // Notification supplémentaire lors de l'envoi par email
+                    await addNotification('client', 'info', 'Devis Envoyé par Email', `Le devis ${mappedDoc.ref} a été envoyé à votre adresse email ${client.email}.`, mappedDoc.clientId, `document:${newDoc.id}`);
+                } catch (e) {
+                    console.warn('[addDocument] sendEmail failed (ignored):', e);
+                }
             }
         }
     };

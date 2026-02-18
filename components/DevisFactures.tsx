@@ -1424,7 +1424,10 @@ const DevisFactures: React.FC = () => {
 
     const getOrCreateDraftRef = () => {
         if (prefilledRef) return prefilledRef;
-        const ref = `DEV-DRAFT-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`;
+        const year = new Date().getFullYear();
+        const ts = Date.now().toString(36).toUpperCase();
+        const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const ref = `DEV-DRAFT-${year}-${ts}${rand}`;
         setPrefilledRef(ref);
         return ref;
     };
@@ -1742,7 +1745,11 @@ const DevisFactures: React.FC = () => {
             }
 
             
-            const ref = prefilledRef || `${modalMode === 'devis' ? 'DEV' : 'FAC'}-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`;
+            const trimmedPrefilledRef = String(prefilledRef || '').trim();
+            const isDraftRef = /^((DEV|FAC)-DRAFT-)/i.test(trimmedPrefilledRef);
+            const ref = (!trimmedPrefilledRef || isDraftRef)
+                ? ''
+                : trimmedPrefilledRef;
 
             const docToPersist: Document = {
                 id: editingDocumentId || '',
