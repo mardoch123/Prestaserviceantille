@@ -150,6 +150,7 @@ const Secretariat: React.FC = () => {
     const location = useLocation();
 
     const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
+    const [renewingQuoteId, setRenewingQuoteId] = useState<string | null>(null);
 
     // Fonction pour calculer la durée totale d'un pack
     const calculatePackDuration = (pack: any) => {
@@ -515,6 +516,36 @@ const Secretariat: React.FC = () => {
             showToast('Devis téléchargé avec succès.');
         } catch (e: any) {
             showToast('Erreur téléchargement devis.', 'error');
+        }
+    };
+
+    const renewSingleExpiredQuote = async (doc: any) => {
+        const id = String(doc?.id || '').trim();
+        if (!id) return;
+        if (String(doc?.status || '') !== 'expired') return;
+
+        const ok = window.confirm(`Renouveler le devis ${doc?.ref || ''} ? Il repassera en Envoyé et sera re-signable.`);
+        if (!ok) return;
+
+        const nowIso = new Date().toISOString();
+        const today = getMartiniqueToday();
+        try {
+            setRenewingQuoteId(id);
+            const { supabase } = await import('../utils/supabaseClient');
+            const res = await supabase
+                .from('documents')
+                .update({ status: 'sent', created_at: nowIso, date: today })
+                .eq('id', id)
+                .select();
+            if (res.error) throw res.error;
+
+            showToast('Devis renouvelé.', 'success');
+            window.location.reload();
+        } catch (e: any) {
+            console.error('[renewSingleExpiredQuote] error:', e);
+            showToast(`Erreur renouvellement devis: ${e?.message || e}`, 'error');
+        } finally {
+            setRenewingQuoteId(null);
         }
     };
 
@@ -2096,6 +2127,16 @@ const Secretariat: React.FC = () => {
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <div className="inline-flex items-center gap-2">
+                                                    {String(doc?.status || '') === 'expired' && (
+                                                        <button
+                                                            onClick={() => renewSingleExpiredQuote(doc)}
+                                                            disabled={renewingQuoteId === String(doc?.id || '')}
+                                                            className="text-slate-400 hover:text-brand-orange p-1 hover:bg-slate-100 rounded transition disabled:opacity-50"
+                                                            title="Renouveler (repasse en Envoyé)"
+                                                        >
+                                                            <RotateCcw className="w-4 h-4" />
+                                                        </button>
+                                                    )}
                                                     <button
                                                         onClick={() => handleDownloadQuotePdf(doc)}
                                                         className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"

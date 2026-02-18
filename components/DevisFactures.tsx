@@ -131,6 +131,45 @@ const DevisFactures: React.FC = () => {
         });
     };
 
+    const renewExpiredQuote = async (doc: any, e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        const id = String(doc?.id || '').trim();
+        if (!id) return;
+        if (isLocalDraftDocId(id)) return;
+        if (String(doc?.type || '') !== 'Devis') return;
+        if (String(doc?.status || '') !== 'expired') return;
+
+        const ok = window.confirm(`Renouveler le devis ${doc?.ref || ''} ? Il repassera en Envoyé et sera re-signable.`);
+        if (!ok) return;
+
+        const key = `renew:${id}`;
+        const nowIso = new Date().toISOString();
+        const today = getMartiniqueToday();
+
+        try {
+            startAction(key);
+            const res = await supabase
+                .from('documents')
+                .update({ status: 'sent', created_at: nowIso, date: today })
+                .eq('id', id)
+                .select()
+                .maybeSingle();
+            if (res.error) throw res.error;
+
+            showToast('Devis renouvelé.', 'success');
+            window.location.reload();
+        } catch (err: any) {
+            console.error('[DevisFactures] renewExpiredQuote error:', err);
+            showToast(`Erreur renouvellement devis: ${err?.message || err}`, 'error');
+        } finally {
+            stopAction(key);
+        }
+    };
+
     // Planification Prévisionnelle Enhancements
     const [interventionSlots, setInterventionSlots] = useState<InterventionSlot[]>([]);
 
@@ -2410,6 +2449,19 @@ const DevisFactures: React.FC = () => {
 
                                     {/* Actions */}
                                     <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                                        {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' && (
+                                            <button
+                                                onClick={(e) => renewExpiredQuote(doc, e)}
+                                                disabled={loadingActions.has(`renew:${doc.id}`)}
+                                                className="text-slate-400 hover:text-brand-orange p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
+                                                title="Renouveler le devis"
+                                            >
+                                                {loadingActions.has(`renew:${doc.id}`)
+                                                    ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
+                                                    : <RotateCcw className="w-4 h-4 pointer-events-none" />
+                                                }
+                                            </button>
+                                        )}
                                         {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
                                             <button
                                                 onClick={(e) => {
@@ -2715,6 +2767,20 @@ const DevisFactures: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-center gap-2">
+
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' && (
+                                                    <button
+                                                        onClick={(e) => renewExpiredQuote(doc, e)}
+                                                        disabled={loadingActions.has(`renew:${doc.id}`)}
+                                                        className="text-slate-400 hover:text-brand-orange p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
+                                                        title="Renouveler le devis"
+                                                    >
+                                                        {loadingActions.has(`renew:${doc.id}`)
+                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
+                                                            : <RotateCcw className="w-4 h-4 pointer-events-none" />
+                                                        }
+                                                    </button>
+                                                )}
 
                                                 {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
                                                     <button
