@@ -31,7 +31,7 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
   return (
     <div className="w-full text-left bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-shadow">
       {flyer.image_url ? (
-        <div className="relative w-full aspect-[2/3] bg-slate-100 overflow-hidden">
+        <div className="relative w-full aspect-[3/2] bg-slate-100 overflow-hidden">
           <button onClick={onClick} className="w-full h-full">
             <img
               src={flyer.image_url}
@@ -43,10 +43,10 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
           </button>
         </div>
       ) : (
-        <button onClick={onClick} className="w-full aspect-[2/3] bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
+        <button onClick={onClick} className="w-full aspect-[3/2] bg-gradient-to-br from-brand-blue/10 to-brand-orange/10" />
       )}
 
-      <div className="p-4">
+      <div className="p-3">
         <div className="flex items-start justify-between gap-3">
           <button onClick={onClick} className="text-left">
             <h3 className="text-lg font-bold text-slate-800 leading-snug">{flyer.title}</h3>
@@ -60,7 +60,7 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
         </div>
 
         {flyer.description ? (
-          <p className="mt-2 text-sm text-slate-600 line-clamp-3">{stripHtml(flyer.description)}</p>
+          <p className="mt-2 text-sm text-slate-600 line-clamp-2">{stripHtml(flyer.description)}</p>
         ) : null}
 
         {(normal || promo) ? (
@@ -79,7 +79,7 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
         <div className="mt-4">
           <button
             onClick={onRequest}
-            className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
+            className="w-full bg-brand-orange text-white px-4 py-2 rounded-xl font-extrabold hover:bg-orange-600"
           >
             Faire une demande
           </button>

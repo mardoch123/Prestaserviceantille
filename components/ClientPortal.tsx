@@ -217,7 +217,7 @@ const ClientPortal: React.FC = () => {
         if (!createdAtRaw) return false; // fallback: if we can't read created_at, don't hide by time
         const createdAtMs = new Date(createdAtRaw).getTime();
         if (!Number.isFinite(createdAtMs)) return false;
-        return (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+        return (Date.now() - createdAtMs) > (48 * 60 * 60 * 1000);
     };
 
     // Notification State
@@ -2283,7 +2283,7 @@ const ClientPortal: React.FC = () => {
                                         <Lock className="w-4 h-4" /> Devis expiré
                                     </h4>
                                     <div className="text-sm text-slate-700 bg-orange-50 border border-orange-200 rounded-xl p-4">
-                                        Ce devis a expiré (délai de 24h dépassé). La signature est désactivée.
+                                        Ce devis a expiré (délai de 48h dépassé). La signature est désactivée.
                                     </div>
                                 </div>
                             )}

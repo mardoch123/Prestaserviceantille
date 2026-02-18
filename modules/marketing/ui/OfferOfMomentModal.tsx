@@ -136,7 +136,7 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
               >
                 <div className="flex flex-col md:flex-row">
                   {current.image_url ? (
-                    <div className="relative w-full md:w-1/2 bg-slate-100 overflow-hidden h-[40vh] max-h-[380px]">
+                    <div className="relative w-full md:w-1/2 bg-slate-100 overflow-hidden h-[32vh] max-h-[280px]">
                       <img
                         src={current.image_url}
                         alt={current.title}
@@ -146,7 +146,7 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
                       <img src={current.image_url} alt={current.title} className="relative w-full h-full object-contain" />
                     </div>
                   ) : (
-                    <div className="w-full md:w-1/2 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[40vh] max-h-[380px]" />
+                    <div className="w-full md:w-1/2 bg-gradient-to-br from-brand-blue/10 to-brand-orange/10 h-[32vh] max-h-[280px]" />
                   )}
 
                   <div className="p-5 md:w-1/2">

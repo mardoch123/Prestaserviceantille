@@ -170,7 +170,7 @@ serve(async (req: Request) => {
             htmlContent += `
                 <h2 style="color: #E76F51;">⏳ Votre devis a expiré</h2>
                 <p>Bonjour ${context.clientName || 'Client'},</p>
-                <p>Votre devis <strong>${context.quoteRef || ''}</strong> a expiré (délai de 24h dépassé).</p>
+                <p>Votre devis <strong>${context.quoteRef || ''}</strong> a expiré (délai de 48h dépassé).</p>
                 <p>Vous pouvez demander un nouveau devis à tout moment.</p>
                 <p style="text-align: center; margin-top: 30px;">
                     <a href="${context.link || 'https://prestaservicesantilles.com/'}" style="background-color: #2A9D8F; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Faire une nouvelle demande</a>
@@ -202,7 +202,7 @@ serve(async (req: Request) => {
             htmlContent += `
                 <h2 style="color: #E76F51;">⏳ Votre devis est sur le point d'expirer</h2>
                 <p>Bonjour ${context.clientName || 'Client'},</p>
-                <p>Votre devis <strong>${context.quoteRef || ''}</strong> est sur le point d'expirer (délai de 24h).</p>
+                <p>Votre devis <strong>${context.quoteRef || ''}</strong> est sur le point d'expirer (délai de 48h).</p>
                 <p>Vous pouvez demander un nouveau devis à tout moment.</p>
                 <p style="text-align: center; margin-top: 30px;">
                     <a href="${context.link || 'https://prestaservicesantilles.com/'}" style="background-color: #2A9D8F; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Faire une nouvelle demande</a>

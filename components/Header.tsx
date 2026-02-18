@@ -88,7 +88,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       setShowNotifications(false);
       
       // Redirections intelligentes selon le type de notification
-      if (notif.link && notif.link.startsWith('mission:')) {
+      if (typeof notif.link === 'string' && notif.link.startsWith('/')) {
+          navigate(notif.link);
+      } else if (notif.link && notif.link.startsWith('mission:')) {
           const missionId = notif.link.split(':')[1];
           setSelectedMissionReportId(missionId);
       } else if (notif.link && notif.link.startsWith('tab:planning:mission-change:')) {

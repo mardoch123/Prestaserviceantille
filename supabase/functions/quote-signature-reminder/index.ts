@@ -170,7 +170,7 @@ serve(async (req: Request) => {
     const force = Boolean(body.force);
 
     const now = Date.now();
-    const expirationMs = 24 * 60 * 60 * 1000;
+    const expirationMs = 48 * 60 * 60 * 1000;
 
     const fetchDocs = async () => {
       if (mode === 'single') {

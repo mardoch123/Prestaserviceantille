@@ -4063,7 +4063,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
         if (!Number.isFinite(createdAtMs)) throw new Error('Date de création du devis manquante');
 
-        const expirationMs = 24 * 60 * 60 * 1000;
+        const expirationMs = 48 * 60 * 60 * 1000;
         const expiresAtMs = createdAtMs + expirationMs;
         const remainingMs = expiresAtMs - Date.now();
         if (remainingMs <= 0) throw new Error('Devis expiré');
@@ -4091,7 +4091,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (dbDoc && String((dbDoc as any).type) === 'Devis') {
                 const createdAtRaw = (dbDoc as any).created_at;
                 const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
-                const expirationMs = 24 * 60 * 60 * 1000;
+                const expirationMs = 48 * 60 * 60 * 1000;
                 const isTooOld = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) > expirationMs : false;
                 const currentStatus = String((dbDoc as any).status || '');
 
@@ -4101,7 +4101,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         await supabase.from('documents').update({ status: 'expired' }).eq('id', id);
                         setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'expired' as any } : d));
                     }
-                    throw new Error('Devis expiré : signature impossible (délai 24h dépassé)');
+                    throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
                 }
             }
         }

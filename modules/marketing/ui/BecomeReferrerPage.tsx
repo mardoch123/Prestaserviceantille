@@ -132,7 +132,7 @@ const BecomeReferrerPage: React.FC = () => {
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
             <div className="flex flex-col items-center text-center">
               {companySettings?.logoUrl ? (
-                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+                <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
               ) : null}
               {companySettings?.name ? (
                 <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
@@ -165,7 +165,7 @@ const BecomeReferrerPage: React.FC = () => {
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
             <div className="flex flex-col items-center text-center">
               {companySettings?.logoUrl ? (
-                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+                <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
               ) : null}
               {companySettings?.name ? (
                 <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>

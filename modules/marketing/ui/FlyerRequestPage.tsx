@@ -66,11 +66,17 @@ const FlyerRequestPage: React.FC = () => {
       return;
     }
 
+    const email = String(form.email || '').trim();
+    if (!email) {
+      setError('Email requis.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await createCustomerRequest({
         full_name: fullName,
-        email: String(form.email || '').trim() || null,
+        email,
         phone: String(form.phone || '').trim() || null,
         message: String(form.message || '').trim() || null,
         source_flyer_id: flyerId || null,
@@ -118,7 +124,7 @@ const FlyerRequestPage: React.FC = () => {
           <div className="mt-8 bg-white border border-slate-100 rounded-2xl p-6">
             <div className="flex flex-col items-center text-center">
               {companySettings?.logoUrl ? (
-                <img src={companySettings.logoUrl} alt="Logo" className="h-14 w-auto object-contain" />
+                <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
               ) : null}
               {companySettings?.name ? (
                 <div className="mt-2 text-sm font-extrabold text-slate-800">{companySettings.name}</div>
@@ -151,7 +157,7 @@ const FlyerRequestPage: React.FC = () => {
             <div className="px-6 pt-6">
               <div className="flex flex-col items-center text-center">
                 {companySettings?.logoUrl ? (
-                  <img src={companySettings.logoUrl} alt="Logo" className="h-12 w-auto object-contain" />
+                  <img src={companySettings.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
                 ) : null}
                 {companySettings?.name ? (
                   <div className="mt-2 text-xs font-extrabold text-slate-800">{companySettings.name}</div>

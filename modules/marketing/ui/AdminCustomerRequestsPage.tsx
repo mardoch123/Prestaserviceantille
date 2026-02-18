@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../../../utils/supabaseClient';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, Trash2 } from 'lucide-react';
 import type { MktCustomerRequest, MktCustomerRequestStatus } from '../types';
 
 type RequestRow = MktCustomerRequest & { flyerTitle?: string | null };
@@ -51,6 +51,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const canUse = useMemo(() => isSupabaseConfigured, []);
 
@@ -192,6 +193,55 @@ const AdminCustomerRequestsPage: React.FC = () => {
 
   const selected = selectedId ? rows.find((r) => r.id === selectedId) || null : null;
 
+  const allSelected = rows.length > 0 && selectedIds.size === rows.length;
+
+  const toggleRowSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (rows.length === 0) return prev;
+      if (prev.size === rows.length) return new Set();
+      return new Set(rows.map((r) => r.id));
+    });
+  };
+
+  const bulkDeleteSelected = async () => {
+    if (!canUse) return;
+    if (saving) return;
+    if (selectedIds.size === 0) return;
+
+    const ok = window.confirm(`Supprimer ${selectedIds.size} demande(s) ?`);
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      const ids = Array.from(selectedIds);
+      try {
+        await supabase.from('mkt_customer_request_events').delete().in('request_id', ids);
+      } catch {
+        // ignore
+      }
+
+      await supabase.from('mkt_customer_requests').delete().in('id', ids);
+
+      setSelectedIds(new Set());
+      if (selectedId && ids.includes(selectedId)) {
+        setSelectedId(null);
+        setHistory([]);
+      }
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="h-full w-full overflow-y-auto p-6">
       <div>
@@ -208,10 +258,30 @@ const AdminCustomerRequestsPage: React.FC = () => {
       ) : (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-white border border-slate-100 rounded-2xl overflow-hidden">
+            <div className="p-3 border-b border-slate-100 bg-white flex items-center justify-between gap-3">
+              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                />
+                Tout sélectionner
+              </label>
+
+              <button
+                onClick={bulkDeleteSelected}
+                disabled={saving || selectedIds.size === 0}
+                className="inline-flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-xl font-extrabold hover:bg-red-700 disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Supprimer la sélection ({selectedIds.size})
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-[980px] w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-left text-slate-600">
+                    <th className="px-4 py-3 w-10"></th>
                     <th className="px-4 py-3">Client</th>
                     <th className="px-4 py-3">Flyer</th>
                     <th className="px-4 py-3">Date</th>
@@ -225,6 +295,13 @@ const AdminCustomerRequestsPage: React.FC = () => {
                       className={`border-t border-slate-100 cursor-pointer ${selectedId === r.id ? 'bg-brand-blue/5' : ''}`}
                       onClick={() => setSelectedId(r.id)}
                     >
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(r.id)}
+                          onChange={() => toggleRowSelection(r.id)}
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="font-extrabold text-slate-800">{r.full_name}</div>
                         <div className="text-xs text-slate-500">{r.email || ''} {r.phone ? `• ${r.phone}` : ''}</div>
@@ -250,7 +327,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
 
                   {rows.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-8 text-center text-slate-600" colSpan={4}>
+                      <td className="px-4 py-8 text-center text-slate-600" colSpan={5}>
                         Aucune demande.
                       </td>
                     </tr>

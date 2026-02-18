@@ -16,11 +16,11 @@ ALTER TABLE public.mkt_customer_requests ADD COLUMN IF NOT EXISTS admin_seen_at 
 ALTER TABLE public.mkt_referrers ADD COLUMN IF NOT EXISTS admin_seen_at timestamptz;
 
 -- ================================
--- Devis: expiration automatique à +24h et blocage de signature
+-- Devis: expiration automatique à +48h et blocage de signature
 -- ================================
 
--- 1) Expire tous les devis "sent" non signés dont created_at a plus de 24h
-CREATE OR REPLACE FUNCTION expire_quotes_older_than_24h()
+-- 1) Expire tous les devis "sent" non signés dont created_at a plus de 48h
+CREATE OR REPLACE FUNCTION expire_quotes_older_than_48h()
 RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
@@ -31,7 +31,7 @@ BEGIN
   SET status = 'expired'
   WHERE type = 'Devis'
     AND status = 'sent'
-    AND created_at < (now() - interval '24 hours');
+    AND created_at < (now() - interval '48 hours');
 
   GET DIAGNOSTICS updated_count = ROW_COUNT;
   RETURN updated_count;
@@ -45,7 +45,7 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   IF NEW.type = 'Devis' AND NEW.status = 'signed' AND (OLD.status IS DISTINCT FROM 'signed') THEN
-    IF OLD.status = 'expired' OR OLD.created_at < (now() - interval '24 hours') THEN
+    IF OLD.status = 'expired' OR OLD.created_at < (now() - interval '48 hours') THEN
       RAISE EXCEPTION 'Quote expired: signature blocked';
     END IF;
   END IF;
@@ -70,7 +70,7 @@ WHERE jobname = 'expire-quotes-daily';
 SELECT cron.schedule(
   'expire-quotes-daily',
   '0 1 * * *',
-  $$SELECT expire_quotes_older_than_24h();$$
+  $$SELECT expire_quotes_older_than_48h();$$
 );
 
 -- 4) Envoi email client à l'expiration (via outbox + dispatcher)
@@ -108,7 +108,7 @@ BEGIN
           'client',
           v_email,
           'Votre devis a expiré',
-          'Votre devis a expiré (délai 24h). Vous pouvez demander un nouveau devis à tout moment.',
+          'Votre devis a expiré (délai 48h). Vous pouvez demander un nouveau devis à tout moment.',
           jsonb_build_object(
             'clientName', COALESCE(v_client_name, 'Client'),
             'quoteRef', COALESCE(NEW.ref::text, NEW.id::text),

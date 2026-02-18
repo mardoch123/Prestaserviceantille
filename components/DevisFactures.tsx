@@ -8,6 +8,7 @@ import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { supabase } from '../utils/supabaseClient';
 
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
@@ -59,7 +60,7 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -108,6 +109,9 @@ const DevisFactures: React.FC = () => {
     const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set());
     const [prefilledRef, setPrefilledRef] = useState<string>('');
     const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+    const [editingDocumentStatus, setEditingDocumentStatus] = useState<string>('');
+
+    const isPrefillingFromDbRef = useRef(false);
 
     const [loadingActions, setLoadingActions] = useState<Set<string>>(new Set());
 
@@ -434,6 +438,7 @@ const DevisFactures: React.FC = () => {
         setModalMode(nextMode);
         setIsModalOpen(true);
         setEditingDocumentId(String(doc?.id || ''));
+        setEditingDocumentStatus(String(doc?.status || ''));
 
         setLocalDraftId(null);
         setIsDraftBlocked(false);
@@ -441,24 +446,87 @@ const DevisFactures: React.FC = () => {
 
         // Prefill the form with the existing document values
         setSelectedClientId(String(doc?.clientId || ''));
-        setServiceType((doc?.category === 'custom' ? 'custom' : 'pack') as any);
-        setSelectedPackId(String(doc?.packId || ''));
+        const initialPackId = String(doc?.packId || '');
+        if (initialPackId) {
+            setServiceType('pack');
+        } else {
+            setServiceType((doc?.category === 'custom' ? 'custom' : 'pack') as any);
+        }
+        setSelectedPackId(initialPackId);
         setPackQuantity(Number(doc?.quantity || 1));
         setUnitPrice(Number(doc?.unitPrice || 0));
         setCustomDescription(String(doc?.description || ''));
         setTvaRate((Number(doc?.tvaRate || 0) as any));
         setTaxCreditActive(!!doc?.taxCreditEnabled);
-        setInterventionSlots(Array.isArray(doc?.slotsData) ? doc.slotsData : []);
+        setInterventionSlots(normalizeSlots(doc?.slotsData));
         setPackSpecificConfig({});
         setCustomLines([]);
 
         setPrefilledRef(String(doc?.ref || ''));
+
+        // Best-effort: fetch the latest persisted draft/validated data from DB so pack/slots are restored.
+        void (async () => {
+            try {
+                const docId = String(doc?.id || '').trim();
+                if (!docId) return;
+                const status = String(doc?.status || '').trim().toLowerCase();
+                const type = String(doc?.type || '').trim().toLowerCase();
+                if (type !== 'devis') return;
+                if (status !== 'draft' && status !== 'validated') return;
+
+                console.log('[DevisFactures] Prefill from DB for', { docId, status });
+
+                const { data: dbDoc, error } = await supabase
+                    .from('documents')
+                    .select('*')
+                    .eq('id', docId)
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn('[DevisFactures] Prefill DB fetch error (possible RLS):', error);
+                    return;
+                }
+                if (!dbDoc) {
+                    console.warn('[DevisFactures] Prefill DB fetch returned null (possible RLS) for', docId);
+                    return;
+                }
+
+                const clientId = String((dbDoc as any).client_id || (dbDoc as any).clientId || '');
+                const packIdRaw = (dbDoc as any).pack_id ?? (dbDoc as any).packId;
+                const packId = packIdRaw ? String(packIdRaw) : '';
+                const slots = (dbDoc as any).slots_data || (dbDoc as any).slotsData;
+
+                console.log('[DevisFactures] Prefill DB values:', {
+                    clientId,
+                    packId,
+                    slotsCount: Array.isArray(slots) ? slots.length : null,
+                });
+
+                // Prevent pack-change effect from wiping restored slots.
+                isPrefillingFromDbRef.current = true;
+                try {
+                    if (clientId) setSelectedClientId(clientId);
+                    if (packId) {
+                        setServiceType('pack');
+                        setSelectedPackId(packId);
+                    }
+                    setInterventionSlots(normalizeSlots(slots));
+                } finally {
+                    setTimeout(() => {
+                        isPrefillingFromDbRef.current = false;
+                    }, 0);
+                }
+            } catch (e) {
+                console.warn('[DevisFactures] Prefill DB fetch unexpected error:', e);
+            }
+        })();
     };
 
     const openLocalDraftModal = (draft: QuoteDraft) => {
         setModalMode('devis');
         setIsModalOpen(true);
         setEditingDocumentId(null);
+        setEditingDocumentStatus('draft');
         setLocalDraftId(String(draft.id || ''));
         setIsDraftBlocked(false);
         setIsDraftDirty(false);
@@ -575,6 +643,25 @@ const DevisFactures: React.FC = () => {
         return diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
     };
 
+    const normalizeSlot = (raw: any, fallbackIndex: number): InterventionSlot | null => {
+        if (!raw || typeof raw !== 'object') return null;
+        const id = String(raw.id || raw.slotId || raw.slot_id || `slot-${fallbackIndex}`);
+        const date = String(raw.date || raw.day || raw.slotDate || raw.slot_date || '');
+        const startTime = String(raw.startTime || raw.start_time || raw.start || '');
+        const endTime = String(raw.endTime || raw.end_time || raw.end || '');
+        const durationRaw = raw.duration ?? raw.hours ?? raw.totalHours;
+        const duration = Number.isFinite(durationRaw) ? Number(durationRaw) : calculateDuration(startTime, endTime);
+        if (!date) return null;
+        return { id, date, startTime, endTime, duration };
+    };
+
+    const normalizeSlots = (slots: any): InterventionSlot[] => {
+        if (!Array.isArray(slots)) return [];
+        return slots
+            .map((s, idx) => normalizeSlot(s, idx))
+            .filter(Boolean) as InterventionSlot[];
+    };
+
     // Helper to add hours to time string
     const addHoursToTime = (time: string, hoursToAdd: number): string => {
         const [h, m] = time.split(':').map(Number);
@@ -586,6 +673,9 @@ const DevisFactures: React.FC = () => {
 
     useEffect(() => {
         if (serviceType === 'pack' && selectedPackId) {
+            if (isPrefillingFromDbRef.current) {
+                return;
+            }
             const pack = packs.find(p => p.id === selectedPackId);
             if (pack) {
                 setUnitPrice(pack.priceTTC);
@@ -1291,6 +1381,12 @@ const DevisFactures: React.FC = () => {
     };
 
     const openDetailModal = (doc: any) => {
+        console.log('[DevisFactures] openDetailModal click:', {
+            id: doc?.id,
+            ref: doc?.ref,
+            type: doc?.type,
+            status: doc?.status,
+        });
         if (isLocalDraftDocId(String(doc?.id || ''))) {
             const draftId = parseLocalDraftIdFromDocId(String(doc?.id || ''));
             const draft = localQuoteDrafts.find(d => String(d.id) === String(draftId));
@@ -1299,8 +1395,10 @@ const DevisFactures: React.FC = () => {
                 return;
             }
         }
-        // If it's a draft quote, open edit modal directly (with existing slots/hours)
-        if (String(doc?.type || '') === 'Devis' && (String(doc?.status || '') === 'draft')) {
+        // If it's a draft/validated quote, open edit modal directly (with existing slots/hours)
+        const type = String(doc?.type || '').trim().toLowerCase();
+        const status = String(doc?.status || '').trim().toLowerCase();
+        if (type === 'devis' && (status === 'draft' || status === 'validated')) {
             openDuplicateModal(doc);
             return;
         }
@@ -1373,6 +1471,54 @@ const DevisFactures: React.FC = () => {
             userId: String(currentUser?.id || 'anonymous'),
             form: buildDraftFormState()
         };
+
+        try {
+            const clientId = String(selectedClientId || '').trim();
+            if (clientId) {
+                const client = clients.find(c => String(c.id) === clientId);
+
+                const persistedStatus = String(editingDocumentStatus || '').trim();
+                const shouldPreserveValidated = persistedStatus === 'validated';
+
+                if (shouldPreserveValidated) {
+                    // Do NOT overwrite validated -> draft.
+                    void (async () => {
+                        const payload: any = {
+                            client_id: clientId,
+                            client_name: String(client?.name || ''),
+                            pack_id: selectedPackId ? String(selectedPackId) : null,
+                            slots_data: Array.isArray(interventionSlots) ? interventionSlots : [],
+                        };
+                        console.log('[DevisFactures] Autosave validated (preserve status) update:', { id, payload });
+                        const { error } = await supabase
+                            .from('documents')
+                            .update(payload)
+                            .eq('id', id);
+                        if (error) console.warn('[DevisFactures] Autosave validated update error (possible RLS):', error);
+                    })();
+                } else {
+                    console.log('[DevisFactures] Autosave draft upsert:', { id, clientId, packId: selectedPackId, slotsCount: interventionSlots?.length });
+                    void upsertDocumentDraft({
+                        id,
+                        ref,
+                        clientId,
+                        clientName: String(client?.name || ''),
+                        packId: selectedPackId ? String(selectedPackId) : null,
+                        category: serviceType,
+                        description: String(customDescription || ''),
+                        unitPrice: Number(unitPrice || 0),
+                        quantity: Number(packQuantity || 1),
+                        tvaRate: Number(tvaRate || 0),
+                        totalHT: 0,
+                        totalTTC: 0,
+                        taxCreditEnabled: !!taxCreditActive,
+                        slotsData: Array.isArray(interventionSlots) ? interventionSlots : [],
+                    });
+                }
+            }
+        } catch {
+            // ignore
+        }
 
         setLocalDraftId(id);
         upsertLocalDraft(draft);
@@ -1701,7 +1847,7 @@ const DevisFactures: React.FC = () => {
             setLocalDraftId(null);
             closeModal({ skipAutosave: true });
             if (modalMode === 'devis') {
-                showToast(isValidateOnly ? 'Devis validé (non envoyé) !' : 'Devis envoyé (Valable 24h) !');
+                showToast(isValidateOnly ? 'Devis validé (non envoyé) !' : 'Devis envoyé (Valable 48h) !');
             } else {
                 showToast('Facture générée avec succès !');
             }
@@ -3142,7 +3288,7 @@ const DevisFactures: React.FC = () => {
                                     {modalMode === 'devis' && (
                                         <div className="text-right text-xs">
                                             <p className="text-slate-500">Durée de validité du devis</p>
-                                            <p className="font-bold text-red-600">24 heures</p>
+                                            <p className="font-bold text-red-600">48 heures</p>
                                         </div>
                                     )}
                                 </div>
@@ -3152,7 +3298,7 @@ const DevisFactures: React.FC = () => {
                                     <div className="bg-orange-50 p-3 rounded-lg border border-orange-200 mb-4 text-xs text-orange-800 flex items-start gap-2">
                                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                                         <p>
-                                            <strong>Attention :</strong> Si ce devis n’est pas validé par le client sous 24h, les dates prévisionnelles indiquées ci-contre ne seront pas bloquées.
+                                            <strong>Attention :</strong> Si ce devis n’est pas validé par le client sous 48h, les dates prévisionnelles indiquées ci-contre ne seront pas bloquées.
                                         </p>
                                     </div>
                                 )}

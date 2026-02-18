@@ -18,6 +18,32 @@ import type {
   MktRewardRule,
 } from './types';
 
+async function mktAutoCreateClientBestEffort(input: {
+  full_name?: string;
+  email?: string;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+}) {
+  if (!isSupabaseConfigured) return;
+  const email = String(input?.email || '').trim();
+  if (!email) return;
+
+  try {
+    await supabase.functions.invoke('mkt-auto-create-client', {
+      body: {
+        full_name: input?.full_name ?? null,
+        email,
+        phone: input?.phone ?? null,
+        address: input?.address ?? null,
+        city: input?.city ?? null,
+      },
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export type MktAdminReferrerPerformanceRow = {
   id: string;
   referral_code: string;
@@ -184,6 +210,14 @@ export async function createClientLead(input: CreateClientLeadInput): Promise<Cl
   if (insertError) {
     throw new Error(insertError.message);
   }
+
+  await mktAutoCreateClientBestEffort({
+    full_name: payload.full_name,
+    email: payload.email ?? undefined,
+    phone: payload.phone,
+    address: payload.address,
+    city: payload.city,
+  });
 
   return payload as any;
 }
@@ -437,6 +471,14 @@ export async function createCustomerRequest(input: CreateMktCustomerRequestInput
     .insert(payload);
 
   if (error) return null;
+
+  await mktAutoCreateClientBestEffort({
+    full_name: payload.full_name,
+    email: payload.email ?? undefined,
+    phone: payload.phone,
+    address: null,
+    city: null,
+  });
   return {
     id: '',
     full_name: payload.full_name,

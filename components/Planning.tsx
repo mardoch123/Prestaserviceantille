@@ -46,7 +46,7 @@ const Planning: React.FC = () => {
       if (!createdAtRaw) return false;
       const createdAtMs = new Date(createdAtRaw).getTime();
       if (!Number.isFinite(createdAtMs)) return false;
-      return (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+      return (Date.now() - createdAtMs) > (48 * 60 * 60 * 1000);
   };
 
   // Selection State for Unassigned Missions
@@ -1766,7 +1766,7 @@ const Planning: React.FC = () => {
 
       {isProvisionalDetailsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[75vh]">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-lg font-serif font-bold text-slate-800">Détails (En attente)</h3>
@@ -1781,7 +1781,7 @@ const Planning: React.FC = () => {
                         <X className="w-5 h-5 text-slate-500" />
                     </button>
                 </div>
-                <div className="p-6">
+                <div className="p-6 overflow-y-auto flex-1 min-h-0">
                     <p className="text-sm font-bold text-orange-700">En attente de validation par le client</p>
 
                     <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm">
