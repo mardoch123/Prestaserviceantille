@@ -789,6 +789,28 @@ const Planning: React.FC = () => {
                         <Flag className="w-3 h-3" /> Ajouter un Rappel
                     </button>
 
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+                        <div className="text-xs font-bold text-slate-700 mb-2">Légende</div>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
+                            <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-orange-400"></span>
+                                En attente de validation
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-brand-blue"></span>
+                                Assignée
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                                Non assignée
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+                                Devis signé
+                            </div>
+                        </div>
+                    </div>
+
                     {unassignedMissions.length === 0 ? (
                         <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
                     ) : (
@@ -1254,29 +1276,7 @@ const Planning: React.FC = () => {
            <Briefcase className="w-6 h-6" />
        </button>
 
-       <div className="md:hidden fixed bottom-4 left-4 right-4 z-40">
-            <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-lg px-4 py-3">
-                <div className="text-xs font-bold text-slate-700 mb-2">Légende</div>
-                <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
-                    <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-orange-400"></span>
-                        En attente de validation
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-brand-blue"></span>
-                        Assignée
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-red-500"></span>
-                        Non assignée
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-purple-500"></span>
-                        Devis signé
-                    </div>
-                </div>
-            </div>
-       </div>
+       {/* Légende déplacée dans le panneau "Actions & Missions" sur mobile pour ne pas masquer la vue */}
 
        {/* Footer Stats - Updated to reflect filtered items */}
        <div className="bg-slate-200 p-4 mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center font-bold text-slate-800 rounded-lg">
@@ -1766,7 +1766,7 @@ const Planning: React.FC = () => {
 
       {isProvisionalDetailsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[75vh]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[68vh]">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-lg font-serif font-bold text-slate-800">Détails (En attente)</h3>
