@@ -3642,7 +3642,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Validation for Pack Ultime 6 - must have 6 hours in one day
         if (doc.type === 'Devis' && doc.packId) {
             const pack = packs.find(p => p.id === doc.packId);
-            if (pack && pack.name.includes('Ultime 6')) {
+            const normalizedPackName = String(pack?.name || '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, ' ');
+            if (pack && normalizedPackName === 'pack ultime 6') {
                 let totalHours = 0;
                 let hasMultipleDays = false;
                 const firstDate = doc.slotsData && doc.slotsData.length > 0 ? doc.slotsData[0].date : null;

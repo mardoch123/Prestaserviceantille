@@ -157,6 +157,7 @@ const ProviderPortal: React.FC = () => {
   const [photos, setPhotos] = useState<string[]>([]);
   const [video, setVideo] = useState<string | undefined>(undefined);
   const [cancelReason, setCancelReason] = useState('');
+  const [isSubmittingExecution, setIsSubmittingExecution] = useState(false);
 
   // Leaves Form
   const [leaveForm, setLeaveForm] = useState({ start: '', end: '', startTime: '08:00', endTime: '18:00' });
@@ -354,34 +355,58 @@ const ProviderPortal: React.FC = () => {
       setVideo(undefined);
   };
 
-  const handleSubmitExecution = () => {
-      if(!selectedMissionId) return;
+  const handleSubmitExecution = async () => {
+      if (!selectedMissionId) return;
+      if (isSubmittingExecution) return;
 
       if (executionStep === 'start') {
           if (photos.length < 5) {
               alert('Il faut obligatoirement 5 photos minimum avant chantier.');
               return;
           }
-          startMission(selectedMissionId, remark, photos, video);
-          showToast('Mission démarrée. Client notifié.');
-      } else if (executionStep === 'end') {
+      }
+      if (executionStep === 'end') {
           if (photos.length < 5) {
               alert('Il faut obligatoirement 5 photos minimum fin de chantier.');
               return;
           }
-          endMission(selectedMissionId, remark, photos, video);
-          showToast('Mission terminée. Rapport envoyé.');
-      } else if (executionStep === 'cancel') {
+      }
+      if (executionStep === 'cancel') {
           if (!cancelReason.trim()) {
               alert('Motif obligatoire.');
               return;
           }
-          cancelMissionByProvider(selectedMissionId, cancelReason);
-          showToast('Mission annulée. Secrétariat notifié.');
       }
 
-      setExecutionStep(null);
-      setSelectedMissionId(null);
+      setIsSubmittingExecution(true);
+      try {
+          if (executionStep === 'start') {
+              await startMission(selectedMissionId, remark, photos, video);
+              showToast('Mission démarrée. Client notifié.');
+              window.location.reload();
+              return;
+          }
+          if (executionStep === 'end') {
+              await endMission(selectedMissionId, remark, photos, video);
+              showToast('Mission terminée. Rapport envoyé.');
+              window.location.reload();
+              return;
+          }
+          if (executionStep === 'cancel') {
+              await cancelMissionByProvider(selectedMissionId, cancelReason);
+              showToast('Mission annulée. Secrétariat notifié.');
+              window.location.reload();
+              return;
+          }
+
+          setExecutionStep(null);
+          setSelectedMissionId(null);
+      } catch (e: any) {
+          console.error(e);
+          showToast("Erreur lors de l'envoi. Veuillez réessayer.", 'error');
+      } finally {
+          setIsSubmittingExecution(false);
+      }
   };
 
   const handleSubmitLeave = (e: React.FormEvent) => {
@@ -1235,11 +1260,21 @@ const ProviderPortal: React.FC = () => {
                    <div className="p-4 border-t bg-slate-50 md:rounded-b-2xl shrink-0">
                        <button 
                             onClick={handleSubmitExecution}
-                            className={`w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 ${executionStep === 'cancel' ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-blue hover:bg-blue-700'}`}
+                            disabled={isSubmittingExecution}
+                            className={`w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 ${executionStep === 'cancel' ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-blue hover:bg-blue-700'} ${isSubmittingExecution ? 'opacity-70 cursor-not-allowed' : ''}`}
                        >
-                           {executionStep === 'start' && 'Démarrer la mission'}
-                           {executionStep === 'end' && 'Terminer et Envoyer'}
-                           {executionStep === 'cancel' && 'Confirmer Annulation'}
+                           {isSubmittingExecution ? (
+                               <>
+                                   <div className="w-5 h-5 border-2 border-white/60 border-t-white rounded-full animate-spin"></div>
+                                   Envoi en cours...
+                               </>
+                           ) : (
+                               <>
+                                   {executionStep === 'start' && 'Démarrer la mission'}
+                                   {executionStep === 'end' && 'Terminer et Envoyer'}
+                                   {executionStep === 'cancel' && 'Confirmer Annulation'}
+                               </>
+                           )}
                        </button>
                    </div>
                </div>

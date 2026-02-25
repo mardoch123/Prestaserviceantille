@@ -616,10 +616,20 @@ const DevisFactures: React.FC = () => {
         return customLines.reduce((total, line) => total + (line.unitPrice * line.quantity), 0);
     };
 
+    const isPackUltime6Name = (name: any): boolean => {
+        const normalized = String(name || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+        return normalized === 'pack ultime 6';
+    };
+
     // Fonction pour calculer la durée totale d'un pack (identique à Secretariat.tsx)
     const calculatePackDuration = (pack: any) => {
         const frequency = pack.frequency || '';
         let days = 1;
+
+        const isUltime6 = isPackUltime6Name(pack?.name);
 
         // D'abord, vérifier si la description contient un nombre de jours explicite
         if (pack.description && pack.description.includes('(')) {
@@ -641,7 +651,7 @@ const DevisFactures: React.FC = () => {
 
         // Si aucun nombre trouvé dans la description, utiliser les valeurs par défaut selon la fréquence
         if (days === 1) {
-            if (frequency.includes('Ultime 6')) {
+            if (isUltime6) {
                 days = 1;
             } else if (frequency.includes('Tranquility')) {
                 days = frequency.includes('4j') ? 4 : 3;
@@ -728,7 +738,7 @@ const DevisFactures: React.FC = () => {
                 if (pack.name.includes("Tranquility")) {
                     // Default to first option
                     setPackSpecificConfig({ frequencyChoice: "4j_3h" });
-                } else if (pack.name.includes("Ultime 6")) {
+                } else if (isPackUltime6Name(pack.name)) {
                     // Auto generate single slot 6h
                     setInterventionSlots([{
                         id: 'slot-ultime',
@@ -786,7 +796,7 @@ const DevisFactures: React.FC = () => {
                     duration: hours
                 });
             }
-        } else if (pack.name.includes("Ultime 6")) {
+        } else if (isPackUltime6Name(pack.name)) {
             // Pack ULTIME 6: 6h en une seule journée de 9h à 15h
             newSlots.push({
                 id: `slot-ultime-6`,
@@ -875,6 +885,8 @@ const DevisFactures: React.FC = () => {
         const frequency = pack.frequency || '';
         let days = 1;
 
+        const isUltime6 = isPackUltime6Name(pack?.name);
+
         if (pack.description && pack.description.includes('(')) {
             const daysMatch = pack.description.match(/\((\d+)\s*jours?\)/i);
             if (daysMatch) {
@@ -893,7 +905,7 @@ const DevisFactures: React.FC = () => {
         }
 
         if (days === 1) {
-            if (frequency.includes('Ultime 6')) {
+            if (isUltime6) {
                 days = 1;
             } else if (frequency.includes('Tranquility')) {
                 days = frequency.includes('4j') ? 4 : 3;
@@ -941,7 +953,7 @@ const DevisFactures: React.FC = () => {
                     endTime: addHoursToTime('09:00', hours)
                 });
             }
-        } else if (pack.name.includes("Ultime 6")) {
+        } else if (isPackUltime6Name(pack.name)) {
             sessions.push({ duration: 6, startTime: '09:00', endTime: '15:00' });
         } else if (pack.name.includes("personnalisé")) {
             const days = packSpecificConfig.customDays || 1;
@@ -1066,6 +1078,8 @@ const DevisFactures: React.FC = () => {
                         const frequency = pack.frequency || '';
                         let days = 1;
 
+                        const isUltime6 = isPackUltime6Name(pack?.name);
+
                         // D'abord, vérifier si la description contient un nombre de jours explicite
                         if (pack.description && pack.description.includes('(')) {
                             const daysMatch = pack.description.match(/\((\d+)\s*jours?\)/i);
@@ -1086,7 +1100,7 @@ const DevisFactures: React.FC = () => {
 
                         // Si aucun nombre trouvé dans la description, utiliser les valeurs par défaut selon la fréquence
                         if (days === 1) {
-                            if (frequency.includes('Ultime 6')) {
+                            if (isUltime6) {
                                 days = 1;
                             } else if (frequency.includes('Tranquility')) {
                                 days = frequency.includes('4j') ? 4 : 3;
@@ -1118,7 +1132,7 @@ const DevisFactures: React.FC = () => {
                     };
 
                     // Validation des créneaux pour les packs spécifiques
-                    if (pack.name.includes("Ultime 6") && Math.abs(dur - 6) > 0.01) {
+                    if (isPackUltime6Name(pack.name) && Math.abs(dur - 6) > 0.01) {
                         showToast("Le pack 'Ultime 6' requiert exactement 6h par séance.", 'error');
                         return; // Annuler la modification
                     }
@@ -1150,7 +1164,7 @@ const DevisFactures: React.FC = () => {
         if (serviceType === 'pack' && selectedPackId) {
             const pack = packs.find(p => p.id === selectedPackId);
             if (pack) {
-                if (pack.name.includes("Ultime 6") && interventionSlots.length >= 1) {
+                if (isPackUltime6Name(pack.name) && interventionSlots.length >= 1) {
                     showToast("Le pack 'Ultime 6' ne permet qu'une seule séance de 6h.");
                     return;
                 }
@@ -1178,7 +1192,7 @@ const DevisFactures: React.FC = () => {
         if (serviceType === 'pack' && selectedPackId) {
             const pack = packs.find(p => p.id === selectedPackId);
             if (pack) {
-                if (pack.name.includes("Ultime 6")) {
+                if (isPackUltime6Name(pack.name)) {
                     defaultDuration = 6;
                 } else if (pack.name.includes("Tranquility")) {
                     defaultDuration = packSpecificConfig.frequencyChoice === "4j_3h" ? 3 : 4;
@@ -1189,7 +1203,7 @@ const DevisFactures: React.FC = () => {
         // Force 6h pour Pack Ultime 6 si détecté dans le nom du pack sélectionné
         if (serviceType === 'pack' && selectedPackId) {
             const pack = packs.find(p => p.id === selectedPackId);
-            if (pack && pack.name.includes("Ultime 6")) {
+            if (pack && isPackUltime6Name(pack.name)) {
                 defaultDuration = 6;
             }
         }
@@ -1224,6 +1238,8 @@ const DevisFactures: React.FC = () => {
             return { isValid: false, message: 'Pack non trouvé' };
         }
 
+        const isUltime6 = isPackUltime6Name(pack?.name);
+
         const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
         const sessionCount = interventionSlots.length;
 
@@ -1239,7 +1255,7 @@ const DevisFactures: React.FC = () => {
         }
 
         // Validation du nombre de séances selon le pack
-        if (pack.name.includes("Ultime 6") && sessionCount !== 1) {
+        if (isUltime6 && sessionCount !== 1) {
             return {
                 isValid: false,
                 message: `Le pack "Ultime 6" ne permet qu'une seule séance de 6h. Vous avez planifié ${sessionCount} séance(s).`
@@ -1247,7 +1263,7 @@ const DevisFactures: React.FC = () => {
         }
 
         // Message de succès pour Pack Ultime 6 correctement configuré
-        if (pack.name.includes("Ultime 6") && sessionCount === 1 && Math.abs(totalHours - 6) <= 0.01) {
+        if (isUltime6 && sessionCount === 1 && Math.abs(totalHours - 6) <= 0.01) {
             return {
                 isValid: true,
                 message: `Pack Ultime 6 correctement configuré : 6h sur une journée (9h-15h).`
@@ -3196,7 +3212,7 @@ const DevisFactures: React.FC = () => {
                                         )}
 
                                         {/* CAS 2: PACK ULTIME 6 (6h) */}
-                                        {packNameIncludes('Ultime 6') && (
+                                        {isPackUltime6Name(packs.find(p => p.id === selectedPackId)?.name) && (
                                             <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 mb-4 space-y-4 animate-in fade-in">
                                                 <div className="flex items-center gap-2 text-purple-800 font-bold text-sm">
                                                     <Zap className="w-4 h-4" /> Pack Ultime 6 (Journée unique)

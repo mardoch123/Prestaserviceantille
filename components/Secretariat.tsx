@@ -158,6 +158,12 @@ const Secretariat: React.FC = () => {
         const frequency = pack.frequency || '';
         let days = 1; // Par défaut, 1 jour
 
+        const normalizedPackName = String(pack?.name || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+        const isUltime6 = normalizedPackName === 'pack ultime 6';
+
         // D'abord, vérifier si la description contient un nombre de jours explicite
         if (pack.description && pack.description.includes('(')) {
             console.log('Description found:', pack.description);
@@ -188,7 +194,7 @@ const Secretariat: React.FC = () => {
         // Si aucun nombre trouvé dans la description, utiliser les valeurs par défaut selon la fréquence
         if (days === 1) {
             // Gérer les différents types de fréquence
-            if (frequency.includes('Ultime 6')) {
+            if (isUltime6) {
                 days = 1; // Pack Ultime 6 = 1 jour
             } else if (frequency.includes('Tranquility')) {
                 days = frequency.includes('4j') ? 4 : 3; // Tranquility = 3 ou 4 jours
@@ -1949,6 +1955,22 @@ const Secretariat: React.FC = () => {
                                                 {(() => {
                                                     const c = clients.find(cl => String(cl?.id || '') === String((contract as any)?.clientId || ''));
                                                     return c?.name ? `Client: ${c.name}` : 'Client: —';
+                                                })()}
+                                            </p>
+                                            <p className="text-xs text-slate-500 font-medium">
+                                                {(() => {
+                                                    const rawDate =
+                                                        (contract as any)?.generatedAt ||
+                                                        (contract as any)?.createdAt ||
+                                                        (contract as any)?.validationRequestedAt ||
+                                                        (contract as any)?.validatedAt ||
+                                                        (contract as any)?.validationDate ||
+                                                        (contract as any)?.signedAt;
+
+                                                    if (!rawDate) return 'Date: —';
+                                                    const d = new Date(rawDate);
+                                                    if (Number.isNaN(d.getTime())) return 'Date: —';
+                                                    return `Date: ${d.toLocaleDateString('fr-FR')}`;
                                                 })()}
                                             </p>
                                             <div className="flex items-center gap-2 mt-1">
