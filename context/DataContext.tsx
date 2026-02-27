@@ -291,6 +291,7 @@ interface DataContextType {
     missionChangeRequests: MissionChangeRequest[];
     requestMissionReschedule: (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => Promise<void>;
     respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
+    loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -1638,6 +1639,124 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
+                const mapClients = (cData: any[], packData: any[] | null, ctData: any[] | null) => {
+                    return cData.map((c: any) => {
+                        const clientContracts = (ctData || []).filter((contract: any) =>
+                            contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
+                        );
+                        const associatedPacks = (packData || []).filter((pack: any) =>
+                            clientContracts.some((contract: any) => contract.packId === pack.id)
+                        );
+                        const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
+                        return {
+                            ...c,
+                            packsConsumed: c.packs_consumed || 0,
+                            loyaltyHoursAvailable: c.loyalty_hours_available || 0,
+                            hasLeftReview: c.has_left_review,
+                            initialPassword: c.initial_password,
+                            pack: packName && packName !== '-' ? packName : null
+                        };
+                    });
+                };
+
+                const mapProviders = (pData: any[], leavesData: any[] | null) => {
+                    return pData.map((p: any) => ({
+                        ...p,
+                        firstName: p.first_name || p.firstName,
+                        lastName: p.last_name || p.lastName,
+                        hoursWorked: p.hours_worked || p.hoursWorked,
+                        nonInterventionDays: Array.isArray(p.non_intervention_days)
+                            ? p.non_intervention_days
+                            : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
+                        nonInterventionHours: (p.non_intervention_hours && typeof p.non_intervention_hours === 'object')
+                            ? p.non_intervention_hours
+                            : ((p.nonInterventionHours && typeof p.nonInterventionHours === 'object') ? p.nonInterventionHours : {}),
+                        leaves: leavesData ? leavesData.map((l: any) => ({
+                            id: l.id,
+                            providerId: l.provider_id,
+                            startDate: l.start_date,
+                            endDate: l.end_date,
+                            startTime: l.start_time,
+                            endTime: l.end_time,
+                            status: l.status
+                        })).filter((l: any) => l.providerId === p.id) : [],
+                    }));
+                };
+
+                const mapMissions = (mData: any[]) => {
+                    return mData.map((m: any) => ({
+                        ...m,
+                        dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+                        startTime: m.start_time || m.startTime,
+                        endTime: m.end_time || m.endTime,
+                        clientId: m.client_id || m.clientId,
+                        clientName: m.client_name || m.clientName,
+                        providerId: m.provider_id || m.providerId,
+                        providerName: m.provider_name || m.providerName,
+                        startPhotos: m.start_photos || m.startPhotos,
+                        endPhotos: m.end_photos || m.endPhotos,
+                        startVideo: m.start_video || m.startVideo,
+                        endVideo: m.end_video,
+                        startRemark: m.start_remark,
+                        endRemark: m.end_remark,
+                        cancellationReason: m.cancellation_reason || m.cancellationReason,
+                        lateCancellation: m.late_cancellation || m.lateCancellation,
+                        reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
+                        reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+                        reportSent: m.report_sent || m.reportSent,
+                        sourceDocumentId: m.source_document_id || m.sourceDocumentId
+                    }));
+                };
+
+                const fetchMissionsWindow = async (timeout: number = 25000, select = '*') => {
+                    try {
+                        console.log('[RefreshData] Fetching missions (windowed)...');
+                        const start = dayjs().subtract(3, 'month').format('YYYY-MM-DD');
+                        const end = dayjs().add(3, 'month').format('YYYY-MM-DD');
+                        const pageSize = 500;
+                        const pageTimeout = 12000;
+                        let page = 0;
+                        let all: any[] = [];
+                        const startTime = Date.now();
+                        while (true) {
+                            if (Date.now() - startTime > timeout) {
+                                throw new Error('Timeout fetching missions');
+                            }
+                            const timeoutPromise = new Promise((_, reject) => {
+                                setTimeout(() => reject(new Error('Timeout fetching missions')), pageTimeout);
+                            });
+                            const fetchPromise = supabase
+                                .from('missions')
+                                .select(select)
+                                .gte('date', start)
+                                .lte('date', end)
+                                .order('date', { ascending: true })
+                                .order('start_time', { ascending: true })
+                                .range(page * pageSize, page * pageSize + pageSize - 1);
+                            const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+                            const data = result?.data;
+                            const error = result?.error;
+                            if (error) {
+                                console.warn('[RefreshData] Failed to fetch missions (windowed):', error);
+                                return null;
+                            }
+                            const batch = data || [];
+                            all = all.concat(batch);
+                            if (batch.length < pageSize) break;
+                            page += 1;
+                        }
+                        console.log('[RefreshData] Successfully fetched missions (windowed):', all.length, 'items');
+                        return all;
+                    } catch (err: any) {
+                        if (err instanceof Error && err.message.includes('Timeout')) {
+                            console.warn('[RefreshData] Timeout fetching missions (windowed), skipping...');
+                        } else {
+                            console.error('[RefreshData] Exception fetching missions (windowed):', err);
+                        }
+                        return null;
+                    }
+                };
+
                 const fetchMissionChangeRequests = async (timeout: number = 15000) => {
                     try {
                         console.log('[RefreshData] Fetching mission_change_requests...');
@@ -1671,161 +1790,116 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
-                let [
-                    cData, leadsData, pData, mData, dData, packData, ctData,
-                    rData, eData, msgData, notifData, cfData, settingsData, vsData, vrData, leavesData, gcData, mcrData
-                ] = await Promise.all([
-                    fetchTable('clients'),
-                    fetchTable('client_leads'),
-                    fetchTable('providers'),
-                    fetchTable('missions'),
-                    fetchTable('documents'),
-                    fetchTable('packs'),
-                    fetchTable('contracts'),
-                    fetchTable('reminders'),
-                    fetchTable('expenses'),
-                    fetchTable('messages'),
-                    fetchTable('notifications'),
-                    fetchTable('contact_forms'),
-                    fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null),
-                    fetchTable('visit_scans'),
-                    fetchTable('video_recordings'),
-                    fetchTable('leaves'),
-                    fetchTable('generic_contracts'),
-                    fetchMissionChangeRequests(15000)
+                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+                const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
+                const clientSelect = '*';
+                const reminderSelect = 'id,date,text,notify_email,completed';
+
+                const [cData, pData, mData, rData] = await Promise.all([
+                    fetchTable('clients', clientSelect, 20000),
+                    fetchTable('providers', providerSelect, 20000),
+                    fetchMissionsWindow(25000, missionSelect),
+                    fetchTable('reminders', reminderSelect, 20000)
                 ]);
 
-                console.log("[RefreshData] All fetches completed, processing data...");
-
-                const retryJobs: Promise<void>[] = [];
-                if (!cData) retryJobs.push(fetchTable('clients').then(r => { cData = r; }));
-                if (!leadsData) retryJobs.push(fetchTable('client_leads').then(r => { leadsData = r; }));
-                if (!pData) retryJobs.push(fetchTable('providers').then(r => { pData = r; }));
-                if (!mData) retryJobs.push(fetchTable('missions').then(r => { mData = r; }));
-                if (!dData) retryJobs.push(fetchTable('documents').then(r => { dData = r; }));
-                if (retryJobs.length) await Promise.all(retryJobs);
-
-                if (cData) {
-                    const enrichedClients = cData.map((c: any) => {
-                        const clientContracts = ctData?.filter((contract: any) =>
-                            contract.name && contract.name.toLowerCase().includes(c.name.toLowerCase())
-                        ) || [];
-
-                        const associatedPacks = packData?.filter((pack: any) =>
-                            clientContracts.some((contract: any) => contract.packId === pack.id)
-                        ) || [];
-
-                        const packName = associatedPacks.length > 0 ? associatedPacks[0].name : c.pack;
-
-                        return {
-                            ...c,
-                            packsConsumed: c.packs_consumed || 0,
-                            loyaltyHoursAvailable: c.loyalty_hours_available || 0,
-                            hasLeftReview: c.has_left_review,
-                            initialPassword: c.initial_password,
-                            pack: packName && packName !== '-' ? packName : null
-                        };
-                    });
-
-                    setClients(enrichedClients);
-                }
-
-                if (Array.isArray(leadsData) && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')) {
-                    setClientLeads(leadsData as any);
-                } else {
-                    setClientLeads([]);
-                }
-
-                if (pData) {
-                    setProviders(pData.map((p: any) => ({
-                        ...p,
-                        firstName: p.first_name || p.firstName,
-                        lastName: p.last_name || p.lastName,
-                        hoursWorked: p.hours_worked || p.hoursWorked,
-                        nonInterventionDays: Array.isArray(p.non_intervention_days)
-                            ? p.non_intervention_days
-                            : (Array.isArray(p.nonInterventionDays) ? p.nonInterventionDays : []),
-                        nonInterventionHours: (p.non_intervention_hours && typeof p.non_intervention_hours === 'object')
-                            ? p.non_intervention_hours
-                            : ((p.nonInterventionHours && typeof p.nonInterventionHours === 'object') ? p.nonInterventionHours : {}),
-                        leaves: leavesData ? leavesData.map((l: any) => ({
-                            id: l.id,
-                            providerId: l.provider_id,
-                            startDate: l.start_date,
-                            endDate: l.end_date,
-                            startTime: l.start_time,
-                            endTime: l.end_time,
-                            status: l.status
-                        })).filter((l: any) => l.providerId === p.id) : [],
-                    })));
-                }
-
+                if (cData) setClients(mapClients(cData, null, null));
+                if (pData) setProviders(mapProviders(pData, null));
                 if (mData) {
-                    const mappedMissions = mData.map((m: any) => ({
-                        ...m,
-                        dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
-                        startTime: m.start_time || m.startTime,
-                        endTime: m.end_time || m.endTime,
-                        clientId: m.client_id || m.clientId,
-                        clientName: m.client_name || m.clientName,
-                        providerId: m.provider_id || m.providerId,
-                        providerName: m.provider_name || m.providerName,
-                        startPhotos: m.start_photos || m.startPhotos,
-                        endPhotos: m.end_photos || m.endPhotos,
-                        startVideo: m.start_video || m.startVideo,
-                        endVideo: m.end_video,
-                        startRemark: m.start_remark,
-                        endRemark: m.end_remark,
-                        cancellationReason: m.cancellation_reason || m.cancellationReason,
-                        lateCancellation: m.late_cancellation || m.lateCancellation,
-                        reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
-                        reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
-                        reportSent: m.report_sent || m.reportSent
-                    }));
+                    const mappedMissions = mapMissions(mData);
                     setMissions(mappedMissions);
                     checkUpcomingReminders(mappedMissions);
+                } else {
+                    try {
+                        setAlertPopup({ show: true, message: 'Planning indisponible (timeout). Réessayez.' });
+                    } catch { }
                 }
-                if (dData) {
-                    setDocuments(dData.map((d: any) => ({
-                        ...d,
-                        clientId: d.client_id || d.clientId,
-                        clientName: d.client_name || d.clientName,
-                        unitPrice: d.unit_price || d.unitPrice,
-                        tvaRate: d.tva_rate || d.tvaRate,
-                        totalHT: d.total_ht || d.totalHT,
-                        totalTTC: d.total_ttc || d.totalTTC,
-                        taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-                        slotsData: d.slots_data || d.slotsData,
-                        reminderSent: d.reminder_sent || d.reminderSent,
-                        signatureData: d.signature_data || d.signatureData,
-                        signatureDate: d.signature_date || d.signatureDate,
-                        recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
-                        frequency: d.frequency,
-                        packId: d.pack_id || d.packId
+                if (rData) {
+                    setReminders(rData.map((r: any) => ({
+                        ...r,
+                        notifyEmail: r.notify_email || r.notifyEmail
                     })));
                 }
-                if (packData) {
-                    setPacks(packData.map((p: any) => {
-                        const desc = p.description || '';
-                        const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
-                        const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
 
-                        return {
-                            ...p,
-                            mainService: p.main_service || p.mainService,
-                            priceTTC: p.price_ttc || p.priceTTC,
-                            priceHT: p.price_ht || p.priceHT,
-                            priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
-                            suppliesIncluded: p.supplies_included || p.suppliesIncluded,
-                            suppliesDetails: p.supplies_details || p.suppliesDetails,
-                            isSap: p.is_sap || p.isSap,
-                            contractType: p.contract_type || p.contractType,
-                            quantity: p.quantity || '',
-                            location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
-                            frequency: freq
-                        };
-                    }));
-                }
+                void (async () => {
+                    let leadsData = await fetchTable('client_leads');
+                    let dData = await fetchTable('documents');
+                    let packData = await fetchTable('packs');
+                    let ctData = await fetchTable('contracts');
+                    let eData = await fetchTable('expenses');
+                    let msgData = await fetchTable('messages');
+                    let notifData = await fetchTable('notifications');
+                    let cfData = await fetchTable('contact_forms');
+                    let settingsData = await fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null);
+                    let vsData = await fetchTable('visit_scans');
+                    let vrData = await fetchTable('video_recordings');
+                    let leavesData = await fetchTable('leaves');
+                    let gcData = await fetchTable('generic_contracts');
+                    let mcrData = await fetchMissionChangeRequests(15000);
+
+                    let cData2 = cData;
+                    if (!cData2) cData2 = await fetchTable('clients', clientSelect, 20000);
+                    if (cData2) setClients(mapClients(cData2, packData || null, ctData || null));
+
+                    let pData2 = pData;
+                    if (!pData2) pData2 = await fetchTable('providers', providerSelect, 20000);
+                    if (pData2) setProviders(mapProviders(pData2, leavesData || null));
+
+                    if (!mData) {
+                        const mData2 = await fetchMissionsWindow(25000, missionSelect);
+                        if (mData2) {
+                            const mappedMissions = mapMissions(mData2);
+                            setMissions(mappedMissions);
+                            checkUpcomingReminders(mappedMissions);
+                        }
+                    }
+
+                    if (Array.isArray(leadsData) && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')) {
+                        setClientLeads(leadsData as any);
+                    } else {
+                        setClientLeads([]);
+                    }
+
+                    if (dData) {
+                        setDocuments(dData.map((d: any) => ({
+                            ...d,
+                            clientId: d.client_id || d.clientId,
+                            clientName: d.client_name || d.clientName,
+                            unitPrice: d.unit_price || d.unitPrice,
+                            tvaRate: d.tva_rate || d.tvaRate,
+                            totalHT: d.total_ht || d.totalHT,
+                            totalTTC: d.total_ttc || d.totalTTC,
+                            taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+                            slotsData: d.slots_data || d.slotsData,
+                            reminderSent: d.reminder_sent || d.reminderSent,
+                            signatureData: d.signature_data || d.signatureData,
+                            signatureDate: d.signature_date || d.signatureDate,
+                            recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
+                            frequency: d.frequency,
+                            packId: d.pack_id || d.packId
+                        })));
+                    }
+                    if (packData) {
+                        setPacks(packData.map((p: any) => {
+                            const desc = p.description || '';
+                            const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
+                            const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
+
+                            return {
+                                ...p,
+                                mainService: p.main_service || p.mainService,
+                                priceTTC: p.price_ttc || p.priceTTC,
+                                priceHT: p.price_ht || p.priceHT,
+                                priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
+                                suppliesIncluded: p.supplies_included || p.suppliesIncluded,
+                                suppliesDetails: p.supplies_details || p.suppliesDetails,
+                                isSap: p.is_sap || p.isSap,
+                                contractType: p.contract_type || p.contractType,
+                                quantity: p.quantity || '',
+                                location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
+                                frequency: freq
+                            };
+                        }));
+                    }
                 if (ctData) {
                     console.log('Loading contracts from DB:', ctData.map((c: any) => ({ id: c.id, client_id: c.client_id, pack_id: c.pack_id })));
                     setContracts(ctData.map((c: any) => ({
@@ -1975,6 +2049,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     });
                 }
 
+                })();
+
                 setIsOnline(true);
 
             } catch (error: any) {
@@ -1994,6 +2070,84 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         } finally {
             refreshInFlightRef.current = null;
         }
+    };
+
+    const loadMissionsForRange = async (start: string, end: string, onProgress?: (progress: number) => void) => {
+        if (isDemoMode) return;
+        if (!isSupabaseConfigured) return;
+        const startStr = String(start || '').trim();
+        const endStr = String(end || '').trim();
+        if (!startStr || !endStr) return;
+        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+        const pageSize = 500;
+        const pageTimeout = 12000;
+        const totalTimeout = 25000;
+        let page = 0;
+        let all: any[] = [];
+        const startTime = Date.now();
+        if (onProgress) onProgress(8);
+        while (true) {
+            if (Date.now() - startTime > totalTimeout) {
+                break;
+            }
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Timeout fetching missions')), pageTimeout);
+            });
+            const fetchPromise = supabase
+                .from('missions')
+                .select(missionSelect)
+                .gte('date', startStr)
+                .lte('date', endStr)
+                .order('date', { ascending: true })
+                .order('start_time', { ascending: true })
+                .range(page * pageSize, page * pageSize + pageSize - 1);
+            const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+            if (result?.error) {
+                console.warn('[loadMissionsForRange] Failed to fetch missions:', result.error);
+                return;
+            }
+            const batch = result?.data || [];
+            all = all.concat(batch);
+            if (batch.length < pageSize) break;
+            page += 1;
+            if (onProgress) onProgress(Math.min(90, 15 + page * 15));
+        }
+        if (onProgress) onProgress(95);
+        if (!all.length) {
+            if (onProgress) onProgress(100);
+            return;
+        }
+        const mapped = all.map((m: any) => ({
+            ...m,
+            dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+            startTime: m.start_time || m.startTime,
+            endTime: m.end_time || m.endTime,
+            clientId: m.client_id || m.clientId,
+            clientName: m.client_name || m.clientName,
+            providerId: m.provider_id || m.providerId,
+            providerName: m.provider_name || m.providerName,
+            startPhotos: m.start_photos || m.startPhotos,
+            endPhotos: m.end_photos || m.endPhotos,
+            startVideo: m.start_video || m.startVideo,
+            endVideo: m.end_video,
+            startRemark: m.start_remark,
+            endRemark: m.end_remark,
+            cancellationReason: m.cancellation_reason || m.cancellationReason,
+            lateCancellation: m.late_cancellation || m.lateCancellation,
+            reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
+            reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+            reportSent: m.report_sent || m.reportSent,
+            sourceDocumentId: m.source_document_id || m.sourceDocumentId
+        }));
+        setMissions(prev => {
+            const byId = new Map<string, Mission>();
+            prev.forEach(m => byId.set(String(m.id), m));
+            mapped.forEach((m: any) => byId.set(String(m.id), m));
+            const merged = Array.from(byId.values());
+            checkUpcomingReminders(merged);
+            return merged;
+        });
+        if (onProgress) onProgress(100);
     };
 
     const updateMission = async (id: string, data: Partial<Mission>) => {
@@ -2386,6 +2540,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         if (!isSupabaseConfigured) return;
 
+        const refreshWithTimeout = async (timeoutMs: number) => {
+            const timeoutPromise = new Promise(resolve => {
+                setTimeout(() => resolve('timeout'), timeoutMs);
+            });
+            const result = await Promise.race([refreshData().then(() => 'done'), timeoutPromise]);
+            if (result === 'timeout') {
+                console.warn('[AuthStateChange] refreshData timeout, continuing');
+            }
+        };
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log("[AuthStateChange] Event:", event, "Session:", session ? "exists" : "null");
             if (!mounted) {
@@ -2408,7 +2572,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 // Ensure data is refreshed whenever auth state confirms a session
                 console.log("[AuthStateChange] Refreshing application data...");
-                await refreshData();
+                await refreshWithTimeout(15000);
                 console.log("[AuthStateChange] Setting loading to false - session ready");
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
@@ -5963,7 +6127,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              setServiceTypeFilter,
              missionChangeRequests,
              requestMissionReschedule,
-             respondToMissionReschedule
+            respondToMissionReschedule,
+            loadMissionsForRange
          }}>
              {children}
          </DataContext.Provider>

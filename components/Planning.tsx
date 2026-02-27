@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import dayjs from 'dayjs';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
@@ -10,7 +10,7 @@ import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule } = useData(); 
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange } = useData(); 
   const navigate = useNavigate();
 
   const submitLockRef = useRef(false);
@@ -26,6 +26,9 @@ const Planning: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
+  const [planningLoading, setPlanningLoading] = useState(false);
+  const [planningProgress, setPlanningProgress] = useState(0);
+  const [encouragementIndex, setEncouragementIndex] = useState(0);
   
   // Modal & Toast
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -96,6 +99,63 @@ const Planning: React.FC = () => {
   };
 
   const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+
+  const lastRangeRef = useRef<string>('');
+
+  useEffect(() => {
+      let startStr = '';
+      let endStr = '';
+      if (customDateRange && startDate && endDate) {
+          startStr = startDate;
+          endStr = endDate;
+      } else {
+          startStr = weekStart.format('YYYY-MM-DD');
+          endStr = weekEnd.format('YYYY-MM-DD');
+      }
+      if (!startStr || !endStr) return;
+      const key = `${startStr}_${endStr}`;
+      if (lastRangeRef.current === key) return;
+      lastRangeRef.current = key;
+      let active = true;
+      const run = async () => {
+          try {
+              setPlanningLoading(true);
+              setPlanningProgress(5);
+              if (loadMissionsForRange) {
+                  await loadMissionsForRange(startStr, endStr, (p) => {
+                      if (active) setPlanningProgress(p);
+                  });
+              }
+              if (active) setPlanningProgress(100);
+          } finally {
+              if (active) {
+                  setTimeout(() => {
+                      if (active) setPlanningLoading(false);
+                  }, 300);
+              }
+          }
+      };
+      run();
+      return () => {
+          active = false;
+      };
+  }, [customDateRange, startDate, endDate, weekStart, weekEnd, loadMissionsForRange]);
+
+  const encouragementMessages = [
+      'On prépare votre planning… encore un instant.',
+      'Merci pour votre patience, tout arrive.',
+      'Vos missions se chargent, vous êtes presque prêt.',
+      'On optimise l’affichage pour une navigation fluide.',
+      'Dernières étapes, le planning est en route.'
+  ];
+
+  useEffect(() => {
+      if (!planningLoading) return;
+      const timer = setInterval(() => {
+          setEncouragementIndex(prev => (prev + 1) % encouragementMessages.length);
+      }, 2500);
+      return () => clearInterval(timer);
+  }, [planningLoading, encouragementMessages.length]);
 
   // Format date range for display
   const dateRangeString = `Semaine du ${weekStart.format('DD/MM/YYYY')} au ${weekEnd.format('DD/MM/YYYY')}`;
@@ -895,6 +955,25 @@ const Planning: React.FC = () => {
                </button>
            </div>
       </div>
+
+      {planningLoading && (
+        <div className="mb-3 md:mb-6 bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-700 font-bold">
+                    <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
+                    Chargement du planning
+                </div>
+                <div className="text-sm font-bold text-slate-600">{Math.min(100, Math.max(0, Math.round(planningProgress)))}%</div>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div
+                    className="bg-brand-blue h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, Math.round(planningProgress)))}%` }}
+                />
+            </div>
+            <div className="text-sm text-slate-500 italic">{encouragementMessages[encouragementIndex]}</div>
+        </div>
+      )}
 
        {/* Filters & Navigation */}
        <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
@@ -2081,7 +2160,7 @@ const Planning: React.FC = () => {
                             className="w-full sm:w-auto px-6 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition flex items-center justify-center gap-2"
                         >
                             <FileText className="w-4 h-4" />
-                            Voir le devis
+                            <span className="text-sm text-slate-700">Voir le devis</span>
                         </button>
                     )}
                     <button
@@ -2089,7 +2168,7 @@ const Planning: React.FC = () => {
                         className="w-full sm:w-auto px-6 py-2 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-50 transition flex items-center justify-center gap-2"
                     >
                         <CopyIcon className="w-4 h-4" />
-                        Copier les infos
+                        <span className="text-sm text-slate-700">Copier les infos</span>
                     </button>
                     <button
                         onClick={() => {
@@ -2098,13 +2177,13 @@ const Planning: React.FC = () => {
                         }}
                         className="w-full sm:w-auto px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:opacity-90 transition"
                     >
-                        Modifier
+                        <span className="text-sm text-white">Modifier</span>
                     </button>
                     <button 
                         onClick={() => { setIsDetailsModalOpen(false); setSelectedMissionDetails(null); }}
                         className="w-full sm:w-auto px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
                     >
-                        Fermer
+                        <span className="text-sm text-slate-600">Fermer</span>
                     </button>
                     <button 
                         onClick={() => { 
@@ -2114,7 +2193,7 @@ const Planning: React.FC = () => {
                         }}
                         className="w-full sm:w-auto px-6 py-2 bg-red-100 text-red-600 font-bold rounded-lg hover:bg-red-200 transition"
                     >
-                        Sélectionner
+                        <span className="text-sm text-red-600">Sélectionner</span>
                     </button>
                 </div>
             </div>
