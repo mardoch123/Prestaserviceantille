@@ -679,27 +679,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } catch { }
     }, [serviceTypeFilter]);
 
-    const cacheClients = (data: any[]) => {
-        try {
-            const raw = JSON.stringify(data || []);
-            if (raw.length <= 4000000) {
-                localStorage.setItem('presta_cached_clients', raw);
-            }
-        } catch { }
-    };
-
-    useEffect(() => {
-        try {
-            if (clients.length) return;
-            const raw = localStorage.getItem('presta_cached_clients');
-            if (!raw) return;
-            const parsed = JSON.parse(raw || '[]');
-            if (Array.isArray(parsed)) {
-                setClients(parsed as any);
-            }
-        } catch { }
-    }, []);
-
     const serviceTypeOptions = useMemo(() => {
         const items: Array<{ text?: string | null }> = [];
         (missions || []).forEach((m: any) => items.push({ text: m?.service }));
@@ -1823,11 +1802,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('reminders', reminderSelect, 20000)
                 ]);
 
-                if (cData) {
-                    const mappedClients = mapClients(cData, null, null);
-                    setClients(mappedClients);
-                    cacheClients(mappedClients);
-                }
+                if (cData) setClients(mapClients(cData, null, null));
                 if (pData) setProviders(mapProviders(pData, null));
                 if (mData) {
                     const mappedMissions = mapMissions(mData);
@@ -1863,11 +1838,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                     let cData2 = cData;
                     if (!cData2) cData2 = await fetchTable('clients', clientSelect, 20000);
-                    if (cData2) {
-                        const mappedClients = mapClients(cData2, packData || null, ctData || null);
-                        setClients(mappedClients);
-                        cacheClients(mappedClients);
-                    }
+                    if (cData2) setClients(mapClients(cData2, packData || null, ctData || null));
 
                     let pData2 = pData;
                     if (!pData2) pData2 = await fetchTable('providers', providerSelect, 20000);
