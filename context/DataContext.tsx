@@ -52,6 +52,33 @@ function addMonths(date: Date, months: number): Date {
     return result;
 }
 
+// Colonnes minimales pour le planning + suivi mission.
+// On évite de charger les médias volumineux (photos/vidéos) au refresh global,
+// car cela peut provoquer des timeouts PostgREST sur de gros volumes.
+const MISSIONS_SELECT_COLUMNS = [
+    'id',
+    'date',
+    'start_time',
+    'end_time',
+    'duration',
+    'client_id',
+    'client_name',
+    'provider_id',
+    'provider_name',
+    'service',
+    'status',
+    'color',
+    'source',
+    'start_remark',
+    'end_remark',
+    'cancellation_reason',
+    'late_cancellation',
+    'reminder_48h_sent',
+    'reminder_72h_sent',
+    'report_sent',
+    'source_document_id'
+].join(',');
+
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
@@ -380,7 +407,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             ] = await Promise.all([
                 fetchTable('clients'),
                 fetchTable('providers'),
-                fetchTable('missions'),
+                fetchTable('missions', MISSIONS_SELECT_COLUMNS, 25000),
                 fetchTable('documents'),
                 fetchTable('packs'),
                 fetchTable('contracts'),
@@ -474,7 +501,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     lateCancellation: m.late_cancellation || m.lateCancellation,
                     reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                     reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
-                    reportSent: m.report_sent || m.reportSent
+                    reportSent: m.report_sent || m.reportSent,
+                    sourceDocumentId: m.source_document_id || m.sourceDocumentId
                 }));
                 setMissions(mappedMissions);
                 checkUpcomingReminders(mappedMissions); // Trigger 48h check
