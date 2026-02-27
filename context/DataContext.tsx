@@ -291,7 +291,7 @@ interface DataContextType {
     missionChangeRequests: MissionChangeRequest[];
     requestMissionReschedule: (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => Promise<void>;
     respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
-    loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<void>;
+    loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<boolean>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -678,6 +678,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             localStorage.setItem('presta_service_type_filter', String(serviceTypeFilter || 'all'));
         } catch { }
     }, [serviceTypeFilter]);
+
+    const cacheClients = (data: any[]) => {
+        try {
+            const raw = JSON.stringify(data || []);
+            if (raw.length <= 4000000) {
+                localStorage.setItem('presta_cached_clients', raw);
+            }
+        } catch { }
+    };
+
+    useEffect(() => {
+        try {
+            if (clients.length) return;
+            const raw = localStorage.getItem('presta_cached_clients');
+            if (!raw) return;
+            const parsed = JSON.parse(raw || '[]');
+            if (Array.isArray(parsed)) {
+                setClients(parsed as any);
+            }
+        } catch { }
+    }, []);
 
     const serviceTypeOptions = useMemo(() => {
         const items: Array<{ text?: string | null }> = [];
@@ -1802,7 +1823,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('reminders', reminderSelect, 20000)
                 ]);
 
-                if (cData) setClients(mapClients(cData, null, null));
+                if (cData) {
+                    const mappedClients = mapClients(cData, null, null);
+                    setClients(mappedClients);
+                    cacheClients(mappedClients);
+                }
                 if (pData) setProviders(mapProviders(pData, null));
                 if (mData) {
                     const mappedMissions = mapMissions(mData);
@@ -1838,7 +1863,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                     let cData2 = cData;
                     if (!cData2) cData2 = await fetchTable('clients', clientSelect, 20000);
-                    if (cData2) setClients(mapClients(cData2, packData || null, ctData || null));
+                    if (cData2) {
+                        const mappedClients = mapClients(cData2, packData || null, ctData || null);
+                        setClients(mappedClients);
+                        cacheClients(mappedClients);
+                    }
 
                     let pData2 = pData;
                     if (!pData2) pData2 = await fetchTable('providers', providerSelect, 20000);
@@ -2073,11 +2102,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const loadMissionsForRange = async (start: string, end: string, onProgress?: (progress: number) => void) => {
-        if (isDemoMode) return;
-        if (!isSupabaseConfigured) return;
+        if (isDemoMode) return false;
+        if (!isSupabaseConfigured) return false;
         const startStr = String(start || '').trim();
         const endStr = String(end || '').trim();
-        if (!startStr || !endStr) return;
+        if (!startStr || !endStr) return false;
         const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
         const pageSize = 500;
         const pageTimeout = 12000;
@@ -2088,7 +2117,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (onProgress) onProgress(8);
         while (true) {
             if (Date.now() - startTime > totalTimeout) {
-                break;
+                if (onProgress) onProgress(100);
+                return false;
             }
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('Timeout fetching missions')), pageTimeout);
@@ -2104,7 +2134,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
             if (result?.error) {
                 console.warn('[loadMissionsForRange] Failed to fetch missions:', result.error);
-                return;
+                if (onProgress) onProgress(100);
+                return false;
             }
             const batch = result?.data || [];
             all = all.concat(batch);
@@ -2115,7 +2146,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (onProgress) onProgress(95);
         if (!all.length) {
             if (onProgress) onProgress(100);
-            return;
+            return true;
         }
         const mapped = all.map((m: any) => ({
             ...m,
@@ -2148,6 +2179,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return merged;
         });
         if (onProgress) onProgress(100);
+        return true;
     };
 
     const updateMission = async (id: string, data: Partial<Mission>) => {

@@ -101,6 +101,7 @@ const Planning: React.FC = () => {
   const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
 
   const lastRangeRef = useRef<string>('');
+  const pendingRangeRef = useRef<string>('');
 
   useEffect(() => {
       let startStr = '';
@@ -114,17 +115,34 @@ const Planning: React.FC = () => {
       }
       if (!startStr || !endStr) return;
       const key = `${startStr}_${endStr}`;
-      if (lastRangeRef.current === key) return;
-      lastRangeRef.current = key;
+      if (lastRangeRef.current === key || pendingRangeRef.current === key) return;
+      pendingRangeRef.current = key;
       let active = true;
       const run = async () => {
           try {
               setPlanningLoading(true);
               setPlanningProgress(5);
               if (loadMissionsForRange) {
-                  await loadMissionsForRange(startStr, endStr, (p) => {
-                      if (active) setPlanningProgress(p);
-                  });
+                  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 12000));
+                  const result = await Promise.race([
+                      loadMissionsForRange(startStr, endStr, (p) => {
+                          if (active) setPlanningProgress(p);
+                      }),
+                      timeoutPromise
+                  ]);
+                  if (result === 'timeout') {
+                      if (active) {
+                          setPlanningProgress(100);
+                          showToast('Chargement prolongé, le planning continue en arrière-plan.', 'warning');
+                      }
+                      pendingRangeRef.current = '';
+                      return;
+                  }
+                  if (result === true) {
+                      lastRangeRef.current = key;
+                  } else {
+                      pendingRangeRef.current = '';
+                  }
               }
               if (active) setPlanningProgress(100);
           } finally {
@@ -133,6 +151,7 @@ const Planning: React.FC = () => {
                       if (active) setPlanningLoading(false);
                   }, 300);
               }
+              pendingRangeRef.current = '';
           }
       };
       run();
@@ -156,6 +175,17 @@ const Planning: React.FC = () => {
       }, 2500);
       return () => clearInterval(timer);
   }, [planningLoading, encouragementMessages.length]);
+
+  useEffect(() => {
+      if (!planningLoading) return;
+      const timer = setInterval(() => {
+          setPlanningProgress(prev => {
+              if (prev >= 90) return prev;
+              return Math.min(90, prev + 2);
+          });
+      }, 600);
+      return () => clearInterval(timer);
+  }, [planningLoading]);
 
   // Format date range for display
   const dateRangeString = `Semaine du ${weekStart.format('DD/MM/YYYY')} au ${weekEnd.format('DD/MM/YYYY')}`;
