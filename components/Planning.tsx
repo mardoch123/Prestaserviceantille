@@ -31,6 +31,7 @@ const Planning: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [isQuickPlanModalOpen, setIsQuickPlanModalOpen] = useState(false);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
 
@@ -738,6 +739,33 @@ const Planning: React.FC = () => {
       return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée' };
   };
 
+  const normalizeCommune = (value: string): string => {
+      const v = String(value || '').trim();
+      if (!v) return '';
+      return v.replace(/bassin\s*pointe/ig, 'Basse-Pointe');
+  };
+
+  const applyStatsFilter = (scope: 'day-planned' | 'week-all' | 'week-completed') => {
+      if (scope === 'day-planned') {
+          const d = getMartiniqueToday();
+          setCustomDateRange(true);
+          setStartDate(d);
+          setEndDate(d);
+          setSelectedStatus('planned');
+      } else if (scope === 'week-all') {
+          setCustomDateRange(false);
+          setStartDate('');
+          setEndDate('');
+          setSelectedStatus('all');
+      } else if (scope === 'week-completed') {
+          setCustomDateRange(false);
+          setStartDate('');
+          setEndDate('');
+          setSelectedStatus('completed');
+      }
+      setIsStatsModalOpen(false);
+  };
+
   return (
     <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
        
@@ -853,48 +881,20 @@ const Planning: React.FC = () => {
            </div>
            
            {/* Date Range Display */}
-           <div className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600 md:self-auto">
-               {dateRangeString}
+           <div className="flex items-center gap-2 md:self-auto">
+               <div className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600">
+                   {dateRangeString}
+               </div>
+               <button
+                   type="button"
+                   onClick={() => setIsStatsModalOpen(true)}
+                   className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
+                   title="Afficher les statistiques"
+               >
+                   Statistiques
+               </button>
            </div>
       </div>
-
-       {/* Stats - Interactive Cards */}
-       <div className="hidden md:block">
-           <div className="absolute top-24 right-6 z-30 bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-lg overflow-hidden">
-               <div className="grid grid-cols-3 divide-x divide-slate-200">
-                   <button
-                       type="button"
-                       onClick={() => handleStatClick('planned', 'day')}
-                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
-                       title="Voir le détail du jour dans Statistiques"
-                   >
-                       <div className="text-[11px] font-bold text-slate-700">Jour</div>
-                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCountToday}</div>
-                       <div className="text-[10px] text-slate-500">En cours</div>
-                   </button>
-                   <button
-                       type="button"
-                       onClick={() => handleStatClick('all', 'week')}
-                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
-                       title="Voir le détail de la semaine dans Statistiques"
-                   >
-                       <div className="text-[11px] font-bold text-slate-700">Semaine</div>
-                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCountWeek}</div>
-                       <div className="text-[10px] text-slate-500">Total</div>
-                   </button>
-                   <button
-                       type="button"
-                       onClick={() => handleStatClick('completed', 'week')}
-                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
-                       title="Voir les missions terminées dans Statistiques"
-                   >
-                       <div className="text-[11px] font-bold text-slate-700">Semaine</div>
-                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCompletedWeek}</div>
-                       <div className="text-[10px] text-slate-500">Terminées</div>
-                   </button>
-               </div>
-           </div>
-       </div>
 
        {/* Filters & Navigation */}
        <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
@@ -1112,6 +1112,8 @@ const Planning: React.FC = () => {
 
                                     {missionsForDate.map((item: any) => {
                                         const style = getMissionPlanningStyle(item as Mission);
+                                        const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
+                                        const clientCity = normalizeCommune(clientCityRaw);
                                         return (
                                             <div
                                                 key={item.id}
@@ -1127,6 +1129,9 @@ const Planning: React.FC = () => {
                                                             </span>
                                                         </div>
                                                         <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
+                                                        {clientCity ? (
+                                                            <p className="text-xs text-slate-600 truncate">{clientCity}</p>
+                                                        ) : null}
                                                         <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
                                                         <p className="text-[11px] font-bold mt-1 text-slate-600">{style.label}</p>
                                                     </div>
@@ -1202,6 +1207,8 @@ const Planning: React.FC = () => {
                                 .filter(item => item.status !== 'cancelled')
                                 .map(item => {
                                     const style = getMissionPlanningStyle(item);
+                                    const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
+                                    const clientCity = normalizeCommune(clientCityRaw);
                                     return (
                                         <div
                                             key={item.id}
@@ -1231,6 +1238,9 @@ const Planning: React.FC = () => {
                                                 </span>
                                             </div>
                                             <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                            {clientCity ? (
+                                                <p className="text-[10px] text-slate-600 truncate">{clientCity}</p>
+                                            ) : null}
                                             <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
                                         </div>
                                     );
@@ -1296,6 +1306,71 @@ const Planning: React.FC = () => {
                 <span className="text-xl">{totalHoursFiltered}h</span>
             </div>
        </div>
+
+       {isStatsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-cream-50">
+                    <div>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Statistiques</h3>
+                        <p className="text-xs text-slate-500 mt-1">Aperçu rapide (jour & semaine)</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsStatsModalOpen(false)}
+                        className="p-2 hover:bg-slate-200 rounded-full transition"
+                        aria-label="Fermer"
+                        title="Fermer"
+                    >
+                        <X className="w-5 h-5 text-slate-500" />
+                    </button>
+                </div>
+
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button
+                        type="button"
+                        onClick={() => applyStatsFilter('day-planned')}
+                        className="bg-slate-100 p-4 rounded-lg flex flex-col items-center justify-center border-l-4 border-slate-300 hover:bg-slate-200 transition text-center"
+                        title="Filtrer sur aujourd'hui"
+                    >
+                        <span className="text-xs font-bold text-slate-700">Missions en cours</span>
+                        <span className="text-brand-blue font-serif text-2xl italic mt-1">{missionsCountToday}</span>
+                        <span className="text-[11px] text-teal-600 mt-1 italic">Nombre du jour</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => applyStatsFilter('week-all')}
+                        className="bg-slate-100 p-4 rounded-lg flex flex-col items-center justify-center border-l-4 border-slate-300 hover:bg-slate-200 transition text-center"
+                        title="Filtrer sur la semaine"
+                    >
+                        <span className="text-xs font-bold text-slate-700">Total missions</span>
+                        <span className="text-brand-blue font-serif text-2xl italic mt-1">{missionsCountWeek}</span>
+                        <span className="text-[11px] text-teal-600 mt-1 italic">Cette semaine</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => applyStatsFilter('week-completed')}
+                        className="bg-slate-100 p-4 rounded-lg flex flex-col items-center justify-center border-l-4 border-slate-300 hover:bg-slate-200 transition text-center"
+                        title="Filtrer sur les missions terminées (semaine)"
+                    >
+                        <span className="text-xs font-bold text-slate-700">Missions terminées</span>
+                        <span className="text-brand-blue font-serif text-2xl italic mt-1">{missionsCompletedWeek}</span>
+                        <span className="text-[11px] text-teal-600 mt-1 italic">Cette semaine</span>
+                    </button>
+                </div>
+
+                <div className="p-5 border-t border-slate-100 flex justify-end">
+                    <button
+                        type="button"
+                        onClick={() => setIsStatsModalOpen(false)}
+                        className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
+                    >
+                        Fermer
+                    </button>
+                </div>
+            </div>
+        </div>
+       )}
 
        {isQuickPlanModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
