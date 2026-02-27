@@ -859,33 +859,40 @@ const Planning: React.FC = () => {
       </div>
 
        {/* Stats - Interactive Cards */}
-       <div className="hidden md:grid md:grid-cols-3 gap-4 mb-8">
-           <div 
-                onClick={() => handleStatClick('planned', 'day')}
-                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
-                title="Voir le détail du jour dans Statistiques"
-           >
-               <span className="font-bold text-slate-800">Missions en cours</span>
-               <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCountToday}</span>
-               <span className="text-xs text-teal-500 mt-1 italic">Nombre du jour</span>
-           </div>
-           <div 
-                onClick={() => handleStatClick('all', 'week')}
-                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
-                title="Voir le détail de la semaine dans Statistiques"
-           >
-               <span className="font-bold text-slate-800">Total missions</span>
-               <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCountWeek}</span>
-               <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
-           </div>
-           <div 
-                onClick={() => handleStatClick('completed', 'week')}
-                className="bg-slate-100 p-4 rounded-none flex flex-col items-center justify-center border-l-4 border-slate-300 cursor-pointer hover:bg-slate-200 transition"
-                title="Voir les missions terminées dans Statistiques"
-           >
-               <span className="font-bold text-slate-800">Missions terminées</span>
-               <span className="text-brand-blue font-serif text-xl italic mt-1">{missionsCompletedWeek}</span>
-               <span className="text-xs text-teal-500 mt-1 italic">Cette Semaine</span>
+       <div className="hidden md:block">
+           <div className="absolute top-24 right-6 z-30 bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-lg overflow-hidden">
+               <div className="grid grid-cols-3 divide-x divide-slate-200">
+                   <button
+                       type="button"
+                       onClick={() => handleStatClick('planned', 'day')}
+                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
+                       title="Voir le détail du jour dans Statistiques"
+                   >
+                       <div className="text-[11px] font-bold text-slate-700">Jour</div>
+                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCountToday}</div>
+                       <div className="text-[10px] text-slate-500">En cours</div>
+                   </button>
+                   <button
+                       type="button"
+                       onClick={() => handleStatClick('all', 'week')}
+                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
+                       title="Voir le détail de la semaine dans Statistiques"
+                   >
+                       <div className="text-[11px] font-bold text-slate-700">Semaine</div>
+                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCountWeek}</div>
+                       <div className="text-[10px] text-slate-500">Total</div>
+                   </button>
+                   <button
+                       type="button"
+                       onClick={() => handleStatClick('completed', 'week')}
+                       className="px-3 py-2 text-left hover:bg-slate-50 transition"
+                       title="Voir les missions terminées dans Statistiques"
+                   >
+                       <div className="text-[11px] font-bold text-slate-700">Semaine</div>
+                       <div className="text-lg font-serif italic text-brand-blue leading-none">{missionsCompletedWeek}</div>
+                       <div className="text-[10px] text-slate-500">Terminées</div>
+                   </button>
+               </div>
            </div>
        </div>
 
