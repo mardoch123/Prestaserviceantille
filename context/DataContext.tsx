@@ -292,6 +292,7 @@ interface DataContextType {
     requestMissionReschedule: (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => Promise<void>;
     respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
     loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<boolean>;
+    getMissionDetails: (id: string) => Promise<Mission | null>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -1790,7 +1791,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
-                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
                 const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
                 const clientSelect = '*';
                 const reminderSelect = 'id,date,text,notify_email,completed';
@@ -2078,47 +2079,104 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const startStr = String(start || '').trim();
         const endStr = String(end || '').trim();
         if (!startStr || !endStr) return false;
-        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
         const pageSize = 500;
         const pageTimeout = 12000;
-        const totalTimeout = 25000;
+        const totalTimeout = 30000;
         let page = 0;
         let all: any[] = [];
         const startTime = Date.now();
-        if (onProgress) onProgress(8);
-        while (true) {
-            if (Date.now() - startTime > totalTimeout) {
-                if (onProgress) onProgress(100);
-                return false;
+        const cacheKey = `presta_missions_cache_${startStr}_${endStr}`;
+        let progressValue = 0;
+        const setProgress = (v: number) => {
+            if (!onProgress) return;
+            const next = Math.max(progressValue, v);
+            progressValue = next;
+            onProgress(next);
+        };
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setMissions(prev => {
+                        const byId = new Map<string, Mission>();
+                        prev.forEach(m => byId.set(String(m.id), m));
+                        parsed.forEach((m: any) => byId.set(String(m.id), m));
+                        return Array.from(byId.values());
+                    });
+                    setProgress(20);
+                }
             }
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Timeout fetching missions')), pageTimeout);
-            });
-            const fetchPromise = supabase
-                .from('missions')
-                .select(missionSelect)
-                .gte('date', startStr)
-                .lte('date', endStr)
-                .order('date', { ascending: true })
-                .order('start_time', { ascending: true })
-                .range(page * pageSize, page * pageSize + pageSize - 1);
-            const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
-            if (result?.error) {
-                console.warn('[loadMissionsForRange] Failed to fetch missions:', result.error);
-                if (onProgress) onProgress(100);
-                return false;
-            }
-            const batch = result?.data || [];
-            all = all.concat(batch);
-            if (batch.length < pageSize) break;
-            page += 1;
-            if (onProgress) onProgress(Math.min(90, 15 + page * 15));
+        } catch (e) {
+            console.warn('[loadMissionsForRange] Cache read error', e);
         }
-        if (onProgress) onProgress(95);
+
+        setProgress(8);
+        const progressInterval = setInterval(() => {
+            if (onProgress) {
+                const elapsed = Date.now() - startTime;
+                const ratio = Math.min(0.8, elapsed / totalTimeout);
+                const fakeProgress = 8 + Math.floor(ratio * 72);
+                setProgress(fakeProgress);
+            }
+        }, 500);
+
+        try {
+            while (true) {
+                if (Date.now() - startTime > totalTimeout) {
+                    clearInterval(progressInterval);
+                    setProgress(100);
+                    return false;
+                }
+                
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Timeout fetching missions')), pageTimeout);
+                });
+
+                const fetchPromise = supabase
+                    .from('missions')
+                    .select(missionSelect)
+                    .gte('date', startStr)
+                    .lte('date', endStr)
+                    .order('date', { ascending: true })
+                    .order('start_time', { ascending: true })
+                    .range(page * pageSize, page * pageSize + pageSize - 1);
+
+                let result: any;
+                try {
+                    result = await Promise.race([fetchPromise, timeoutPromise]);
+                } catch (e) {
+                     console.warn('[loadMissionsForRange] Page fetch timeout or error', e);
+                     break;
+                }
+
+                if (result?.error) {
+                    console.warn('[loadMissionsForRange] Failed to fetch missions:', result.error);
+                    clearInterval(progressInterval);
+                    setProgress(100);
+                    return false;
+                }
+
+                const batch = result?.data || [];
+                all = all.concat(batch);
+
+                if (batch.length < pageSize) break;
+                page += 1;
+                
+                setProgress(Math.min(90, 15 + page * 15));
+            }
+        } catch (e) {
+            console.error('[loadMissionsForRange] Critical error', e);
+        } finally {
+            clearInterval(progressInterval);
+        }
+
+        setProgress(95);
+
         if (!all.length) {
-            if (onProgress) onProgress(100);
-            return true;
         }
+
         const mapped = all.map((m: any) => ({
             ...m,
             dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
@@ -2128,10 +2186,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             clientName: m.client_name || m.clientName,
             providerId: m.provider_id || m.providerId,
             providerName: m.provider_name || m.providerName,
-            startPhotos: m.start_photos || m.startPhotos,
-            endPhotos: m.end_photos || m.endPhotos,
-            startVideo: m.start_video || m.startVideo,
-            endVideo: m.end_video,
             startRemark: m.start_remark,
             endRemark: m.end_remark,
             cancellationReason: m.cancellation_reason || m.cancellationReason,
@@ -2141,16 +2195,68 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             reportSent: m.report_sent || m.reportSent,
             sourceDocumentId: m.source_document_id || m.sourceDocumentId
         }));
+
         setMissions(prev => {
             const byId = new Map<string, Mission>();
             prev.forEach(m => byId.set(String(m.id), m));
-            mapped.forEach((m: any) => byId.set(String(m.id), m));
+            mapped.forEach((m: any) => {
+                const existing = byId.get(String(m.id));
+                if (existing) {
+                    if (existing.startPhotos && !m.startPhotos) m.startPhotos = existing.startPhotos;
+                    if (existing.endPhotos && !m.endPhotos) m.endPhotos = existing.endPhotos;
+                    if (existing.startVideo && !m.startVideo) m.startVideo = existing.startVideo;
+                    if (existing.endVideo && !m.endVideo) m.endVideo = existing.endVideo;
+                }
+                byId.set(String(m.id), m);
+            });
             const merged = Array.from(byId.values());
+            
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify(mapped));
+            } catch (e) {
+                console.warn('[loadMissionsForRange] Cache write error', e);
+            }
+
             checkUpcomingReminders(merged);
             return merged;
         });
-        if (onProgress) onProgress(100);
+
+        setProgress(100);
         return true;
+    };
+
+    const getMissionDetails = async (id: string): Promise<Mission | null> => {
+        if (!id) return null;
+        try {
+            const { data, error } = await supabase.from('missions').select('*').eq('id', id).single();
+            if (error || !data) return null;
+            const m = data;
+            return {
+                ...m,
+                dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+                startTime: m.start_time,
+                endTime: m.end_time,
+                clientId: m.client_id,
+                clientName: m.client_name,
+                providerId: m.provider_id,
+                providerName: m.provider_name,
+                startPhotos: m.start_photos,
+                endPhotos: m.end_photos,
+                startVideo: m.start_video,
+                endVideo: m.end_video,
+                startRemark: m.start_remark,
+                endRemark: m.end_remark,
+                cancellationReason: m.cancellation_reason,
+                lateCancellation: m.late_cancellation,
+                reminder48hSent: m.reminder_48h_sent,
+                reminder72hSent: m.reminder_72h_sent,
+                reportSent: m.report_sent,
+                sourceDocumentId: m.source_document_id
+            } as Mission;
+        } catch (e) {
+            console.error('Error fetching mission details:', e);
+            return null;
+        }
     };
 
     const updateMission = async (id: string, data: Partial<Mission>) => {
@@ -6131,7 +6237,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              missionChangeRequests,
              requestMissionReschedule,
             respondToMissionReschedule,
-            loadMissionsForRange
+            loadMissionsForRange,
+            getMissionDetails
          }}>
              {children}
          </DataContext.Provider>

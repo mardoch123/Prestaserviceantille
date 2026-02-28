@@ -10,7 +10,7 @@ import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange } = useData(); 
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails } = useData(); 
   const navigate = useNavigate();
 
   const submitLockRef = useRef(false);
@@ -98,7 +98,7 @@ const Planning: React.FC = () => {
       return { start, end };
   };
 
-  const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+  const { start: weekStart, end: weekEnd } = useMemo(() => getWeekRange(currentWeekOffset), [currentWeekOffset]);
 
   const lastRangeRef = useRef<string>('');
   const pendingRangeRef = useRef<string>('');
@@ -186,6 +186,8 @@ const Planning: React.FC = () => {
       }, 600);
       return () => clearInterval(timer);
   }, [planningLoading]);
+
+
 
   // Format date range for display
   const dateRangeString = `Semaine du ${weekStart.format('DD/MM/YYYY')} au ${weekEnd.format('DD/MM/YYYY')}`;
@@ -298,6 +300,21 @@ const Planning: React.FC = () => {
 
       return fProvisional;
   }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
+
+  useEffect(() => {
+      if (!planningLoading) return;
+      const hasContent = filteredMissions.length > 0 || filteredProvisionalMissions.length > 0 || filteredReminders.length > 0;
+      if (hasContent) {
+          setPlanningProgress(100);
+          setPlanningLoading(false);
+          return;
+      }
+      const timeoutId = setTimeout(() => {
+          setPlanningProgress(100);
+          setPlanningLoading(false);
+      }, 15000);
+      return () => clearTimeout(timeoutId);
+  }, [planningLoading, filteredMissions.length, filteredProvisionalMissions.length, filteredReminders.length]);
 
   // Stats Logic
   const today = getMartiniqueToday();
@@ -646,11 +663,21 @@ const Planning: React.FC = () => {
 
   const detailClient = selectedMissionDetails?.clientId ? clients.find(c => c.id === selectedMissionDetails.clientId) : undefined;
 
-  const handleMissionClick = (mission: Mission, e: React.MouseEvent) => {
+  const handleMissionClick = async (mission: Mission, e: React.MouseEvent) => {
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
-          // Simple click = show details
           setSelectedMissionDetails(mission);
           setIsDetailsModalOpen(true);
+          
+          if (getMissionDetails) {
+              try {
+                  const fullDetails = await getMissionDetails(mission.id);
+                  if (fullDetails) {
+                      setSelectedMissionDetails(fullDetails);
+                  }
+              } catch (err) {
+                  console.error("Failed to load mission details", err);
+              }
+          }
       }
   };
 
@@ -986,24 +1013,7 @@ const Planning: React.FC = () => {
            </div>
       </div>
 
-      {planningLoading && (
-        <div className="mb-3 md:mb-6 bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-slate-700 font-bold">
-                    <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
-                    Chargement du planning
-                </div>
-                <div className="text-sm font-bold text-slate-600">{Math.min(100, Math.max(0, Math.round(planningProgress)))}%</div>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div
-                    className="bg-brand-blue h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min(100, Math.max(0, Math.round(planningProgress)))}%` }}
-                />
-            </div>
-            <div className="text-sm text-slate-500 italic">{encouragementMessages[encouragementIndex]}</div>
-        </div>
-      )}
+
 
        {/* Filters & Navigation */}
        <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
@@ -1179,7 +1189,27 @@ const Planning: React.FC = () => {
        </div>
 
        {/* Main Grid */}
-       <div className="flex-1 min-h-0 flex flex-col gap-4 lg:flex-row lg:gap-6">
+       <div className="flex-1 min-h-0 flex flex-col gap-4 lg:flex-row lg:gap-6 relative">
+            {planningLoading && (
+                <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-xl border border-slate-200">
+                    <div className="flex flex-col items-center gap-4 p-6 bg-white rounded-2xl shadow-xl border border-slate-100 max-w-sm w-full mx-4">
+                        <Loader2 className="w-10 h-10 text-brand-blue animate-spin" />
+                        <div className="w-full space-y-2 text-center">
+                            <h3 className="text-lg font-bold text-slate-800">Chargement du planning</h3>
+                            <p className="text-sm text-slate-500 italic min-h-[1.25rem]">{encouragementMessages[encouragementIndex]}</p>
+                            
+                            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden mt-2">
+                                <div
+                                    className="bg-brand-blue h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${Math.min(100, Math.max(0, Math.round(planningProgress)))}%` }}
+                                />
+                            </div>
+                            <div className="text-xs font-bold text-slate-400 text-right">{Math.min(100, Math.max(0, Math.round(planningProgress)))}%</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex-1 min-h-0 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-hidden md:overflow-x-auto">
                 {/* Mobile list view */}
                 <div className="md:hidden p-3 space-y-4 flex-1 overflow-y-auto">
