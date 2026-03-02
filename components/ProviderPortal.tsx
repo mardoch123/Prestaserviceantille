@@ -579,7 +579,7 @@ const ProviderPortal: React.FC = () => {
                >
                    <div className="p-4 border-b border-slate-200">
                        <div className="flex items-center justify-between">
-                           <h2 className="font-bold text-lg text-slate-800">Menu</h2>
+                           <h2 className="font-bold text-lg text-slate-800">Menu prestataire</h2>
                            <button 
                                onClick={() => setShowMobileMenu(false)}
                                className="p-2 rounded-lg hover:bg-slate-100 transition"
@@ -623,33 +623,35 @@ const ProviderPortal: React.FC = () => {
                            <CalendarX className="w-4 h-4" /> Absences
                        </button>
 
-                       <div className="border-t border-slate-200 pt-4 mt-4">
-                           <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
-                           <button
-                               onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; setShowMobileMenu(false); }}
-                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
-                           >
-                               <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
-                           </button>
-                           <button
-                               onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; setShowMobileMenu(false); }}
-                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
-                           >
-                               <Package className="w-4 h-4" /> Inscrire un filleul
-                           </button>
-                           <button
-                               onClick={() => { window.location.href = '/parrainage/mes-points'; setShowMobileMenu(false); }}
-                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
-                           >
-                               <History className="w-4 h-4" /> Mes points parrainage
-                           </button>
-                           <button
-                               onClick={() => { window.location.href = '/flyers'; setShowMobileMenu(false); }}
-                               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
-                           >
-                               <Megaphone className="w-4 h-4" /> Offres / Flyers
-                           </button>
-                       </div>
+                       {false ? (
+                           <div className="border-t border-slate-200 pt-4 mt-4">
+                               <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
+                               <button
+                                   onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; setShowMobileMenu(false); }}
+                                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                               >
+                                   <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
+                               </button>
+                               <button
+                                   onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; setShowMobileMenu(false); }}
+                                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                               >
+                                   <Package className="w-4 h-4" /> Inscrire un filleul
+                               </button>
+                               <button
+                                   onClick={() => { window.location.href = '/parrainage/mes-points'; setShowMobileMenu(false); }}
+                                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                               >
+                                   <History className="w-4 h-4" /> Mes points parrainage
+                               </button>
+                               <button
+                                   onClick={() => { window.location.href = '/flyers'; setShowMobileMenu(false); }}
+                                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                               >
+                                   <Megaphone className="w-4 h-4" /> Offres / Flyers
+                               </button>
+                           </div>
+                       ) : null}
                        
                        <div className="border-t border-slate-200 pt-4 mt-4">
                            <button 
@@ -667,6 +669,7 @@ const ProviderPortal: React.FC = () => {
        <div className="flex-1 flex overflow-hidden relative">
            {/* Desktop Sidebar */}
            <nav className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col p-4 space-y-2 shrink-0">
+                <div className="px-2 pb-2 text-xs font-extrabold text-slate-500 uppercase">Menu prestataire</div>
                 <button 
                     onClick={() => setActiveTab('dashboard')}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-brand-blue text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -692,13 +695,15 @@ const ProviderPortal: React.FC = () => {
                     <CalendarX className="w-4 h-4" /> Absences
                 </button>
 
-                <div className="border-t border-slate-200 pt-4 mt-4">
-                    <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
-                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
-                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
-                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
-                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
-                </div>
+                {false ? (
+                    <div className="border-t border-slate-200 pt-4 mt-4">
+                        <div className="text-xs font-extrabold text-slate-500 uppercase mb-2">Parrainage</div>
+                        <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
+                        <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
+                        <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
+                        <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
+                    </div>
+                ) : null}
            </nav>
 
            {/* Main Content */}
@@ -706,7 +711,7 @@ const ProviderPortal: React.FC = () => {
                <div className="max-w-7xl mx-auto">
                    {activeTab === 'dashboard' && (
                        <div className="space-y-6">
-                           {isReferrer && referralLink ? (
+                           {false && isReferrer && referralLink ? (
                                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
                                    <div className="text-sm font-extrabold text-slate-800">Ton lien de parrainage</div>
                                    <div className="text-xs text-slate-500 mt-1">Partage ce lien pour que tes filleuls s’inscrivent automatiquement avec ton code.</div>

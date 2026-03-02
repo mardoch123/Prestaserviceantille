@@ -18,19 +18,19 @@ import type {
   MktRewardRule,
 } from './types';
 
-async function mktAutoCreateClientBestEffort(input: {
+export async function mktAutoCreateClient(input: {
   full_name?: string;
   email?: string;
   phone?: string | null;
   address?: string | null;
   city?: string | null;
-}) {
-  if (!isSupabaseConfigured) return;
+}): Promise<{ ok: boolean; error?: string; emailSent?: boolean; emailError?: string | null }>{
+  if (!isSupabaseConfigured) return { ok: false, error: 'supabase_not_configured' };
   const email = String(input?.email || '').trim();
-  if (!email) return;
+  if (!email) return { ok: false, error: 'missing_email' };
 
   try {
-    await supabase.functions.invoke('mkt-auto-create-client', {
+    const { data, error } = await supabase.functions.invoke('mkt-auto-create-client', {
       body: {
         full_name: input?.full_name ?? null,
         email,
@@ -39,6 +39,39 @@ async function mktAutoCreateClientBestEffort(input: {
         city: input?.city ?? null,
       },
     });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    if (data && typeof data === 'object' && (data as any).ok === false) {
+      return {
+        ok: false,
+        error: String((data as any).error || 'auto_create_failed'),
+        emailSent: (data as any).emailSent,
+        emailError: (data as any).emailError,
+      };
+    }
+
+    return {
+      ok: true,
+      emailSent: data && typeof data === 'object' ? (data as any).emailSent : undefined,
+      emailError: data && typeof data === 'object' ? ((data as any).emailError ?? null) : undefined,
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'auto_create_failed' };
+  }
+}
+
+async function mktAutoCreateClientBestEffort(input: {
+  full_name?: string;
+  email?: string;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+}) {
+  try {
+    await mktAutoCreateClient(input);
   } catch {
     // ignore
   }

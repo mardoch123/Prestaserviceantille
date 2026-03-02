@@ -24,6 +24,14 @@ serve(async (req: Request) => {
         throw new Error('Configuration SMTP manquante sur le serveur.');
     }
 
+    const fromName = Deno.env.get('MAIL_FROM_NAME') || 'Presta Services Antilles';
+    const fromAddress = Deno.env.get('MAIL_FROM_ADDRESS') || Deno.env.get('MAIL_USERNAME');
+
+    if (!fromAddress) {
+      console.error('Missing MAIL_FROM_ADDRESS and MAIL_USERNAME');
+      throw new Error('Configuration expéditeur manquante sur le serveur.');
+    }
+
     // Configuration du transporteur SMTP (Hostinger)
     const transporter = createTransport({
       host: Deno.env.get('MAIL_HOST'),
@@ -42,7 +50,7 @@ serve(async (req: Request) => {
     htmlContent += `
     <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
         <div style="background-color: #2A9D8F; padding: 20px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">${Deno.env.get('MAIL_FROM_NAME') || 'Presta Services Antilles'}</h1>
+            <h1 style="color: white; margin: 0; font-size: 24px;">${fromName}</h1>
         </div>
         <div style="padding: 30px;">
     `;
@@ -222,14 +230,14 @@ serve(async (req: Request) => {
     htmlContent += `
         </div>
         <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #ddd;">
-            <p style="margin: 0;">${Deno.env.get('MAIL_FROM_NAME') || 'Presta Services Antilles'}</p>
+            <p style="margin: 0;">${fromName}</p>
             <p style="margin: 5px 0;">Ceci est un email automatique, merci de ne pas y répondre directement sauf indication contraire.</p>
         </div>
     </div>
     </div>`;
 
     const mailOptions = {
-      from: `"${Deno.env.get('MAIL_FROM_NAME')}" <${Deno.env.get('MAIL_FROM_ADDRESS')}>`,
+      from: `"${fromName}" <${fromAddress}>`,
       to: to,
       subject: subject,
       html: htmlContent,

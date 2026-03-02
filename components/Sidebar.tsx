@@ -166,7 +166,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         );
     }
     if (currentUser?.role === 'provider') {
-      return navItems.filter(item => item.path !== '/demo-accounts' && !item.path.startsWith('/admin/') && (item.path === '/parrainage/mes-filleuls' || !item.path.startsWith('/parrainage/')));
+      return navItems.filter(item => item.path !== '/demo-accounts' && !item.path.startsWith('/admin/') && !item.path.startsWith('/parrainage/') && item.path !== '/flyers');
     }
     // Admin and super admin
     return navItems

@@ -1,6 +1,6 @@
-export type ServiceTypeFilter = 'all' | 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre';
+export type ServiceTypeFilter = 'all' | 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre' | 'Personnalisé';
 
-export const DEFAULT_SERVICE_TYPES: Exclude<ServiceTypeFilter, 'all'>[] = ['Ménage', 'Jardinage', 'Bricolage', 'Autre'];
+export const DEFAULT_SERVICE_TYPES: Exclude<ServiceTypeFilter, 'all'>[] = ['Ménage', 'Jardinage', 'Bricolage', 'Autre', 'Personnalisé'];
 
 const normalize = (value: string): string =>
     String(value || '')

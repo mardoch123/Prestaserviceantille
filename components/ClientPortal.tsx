@@ -1402,6 +1402,7 @@ const ClientPortal: React.FC = () => {
             {/* Mobile Menu */}
             {showMobileMenu && (
                 <div className="md:hidden bg-white border-b border-slate-200 shadow-lg z-20">
+                    <div className="px-4 pt-4 pb-2 text-xs font-extrabold text-slate-500 uppercase">Menu client</div>
                     <nav className="p-4 space-y-2">
                         <button
                             onClick={() => { setActiveTab('planning'); setShowMobileMenu(false); }}
@@ -1433,30 +1434,34 @@ const ClientPortal: React.FC = () => {
                         >
                             <User className="w-4 h-4" /> Mon Profil
                         </button>
-                        <button
-                            onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Package className="w-4 h-4" /> Inscrire un filleul
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/parrainage/mes-points'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <History className="w-4 h-4" /> Mes points parrainage
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/flyers'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Megaphone className="w-4 h-4" /> Offres / Flyers
-                        </button>
+                        {false ? (
+                            <>
+                                <button
+                                    onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                                >
+                                    <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
+                                </button>
+                                <button
+                                    onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                                >
+                                    <Package className="w-4 h-4" /> Inscrire un filleul
+                                </button>
+                                <button
+                                    onClick={() => { window.location.href = '/parrainage/mes-points'; }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                                >
+                                    <History className="w-4 h-4" /> Mes points parrainage
+                                </button>
+                                <button
+                                    onClick={() => { window.location.href = '/flyers'; }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                                >
+                                    <Megaphone className="w-4 h-4" /> Offres / Flyers
+                                </button>
+                            </>
+                        ) : null}
                         <button
                             onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -1470,15 +1475,20 @@ const ClientPortal: React.FC = () => {
 
             <div className="flex-1 flex overflow-hidden">
                 <nav className="w-64 bg-white border-r border-slate-200 p-4 space-y-2 hidden md:block shrink-0">
+                    <div className="px-2 pb-2 text-xs font-extrabold text-slate-500 uppercase">Menu client</div>
                     <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'planning' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Calendar className="w-4 h-4" /> Mon Planning</button>
                     <button onClick={() => setActiveTab('docs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'docs' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><FileText className="w-4 h-4" /> Devis & Factures</button>
                     <button onClick={() => setActiveTab('messages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><MessageSquare className="w-4 h-4" /> Messages</button>
                     <button onClick={() => setActiveTab('qr-scans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><QrCode className="w-4 h-4" /> QR Code & Pointage</button>
                     <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><User className="w-4 h-4" /> Mon Profil</button>
-                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
-                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
-                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
-                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
+                    {false ? (
+                        <>
+                            <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
+                            <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
+                            <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
+                            <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
+                        </>
+                    ) : null}
                     <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
                 </nav>
 

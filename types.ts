@@ -169,6 +169,8 @@ export interface Mission {
     endTime: string; // HH:mm
     duration: number;
 
+    serviceType?: 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre' | 'Personnalisé' | null;
+
     clientId?: string; // FK - Essential for DB
     clientName: string; // Denormalized for easier display, or joined
 
@@ -234,6 +236,8 @@ export interface Document {
     type: 'Devis' | 'Facture';
     category: 'pack' | 'custom';
     description: string;
+
+    serviceType?: 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre' | 'Personnalisé' | null;
 
     unitPrice: number;
     quantity: number;

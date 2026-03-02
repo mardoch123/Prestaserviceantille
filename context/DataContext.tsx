@@ -173,6 +173,7 @@ interface DataContextType {
         clientName: string;
         packId?: string | null;
         category?: string;
+        serviceType?: any;
         description?: string;
         unitPrice?: number;
         quantity?: number;
@@ -399,6 +400,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         clientName: string;
         packId?: string | null;
         category?: string;
+        serviceType?: any;
         description?: string;
         unitPrice?: number;
         quantity?: number;
@@ -430,6 +432,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             date: getMartiniqueToday(),
             type: 'Devis',
             category: String(draft?.category || 'pack'),
+            service_type: (draft as any)?.serviceType ?? null,
             description: String(draft?.description || ''),
             unit_price: Number.isFinite(draft?.unitPrice as any) ? Number(draft?.unitPrice) : 0,
             quantity: Number.isFinite(draft?.quantity as any) ? Number(draft?.quantity) : 1,
@@ -480,6 +483,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             reminderSent: (data as any).reminder_sent,
             recurrenceEndDate: (data as any).recurrence_end_date,
             packId: (data as any).pack_id,
+            serviceType: (data as any).service_type,
         } as any;
 
         setDocuments(prev => {
@@ -685,7 +689,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         (missions || []).forEach((m: any) => items.push({ text: m?.service }));
         (documents || []).forEach((d: any) => items.push({ text: d?.description }));
         (packs || []).forEach((p: any) => items.push({ text: `${p?.mainService || ''} ${p?.name || ''}`.trim() }));
-        return getServiceTypeOptions(items);
+
+        const opts = getServiceTypeOptions(items);
+        if (!opts.includes('Personnalisé' as any)) {
+            return [...opts, 'Personnalisé' as any];
+        }
+        return opts;
     }, [missions, documents, packs]);
 
     const [isOnline, setIsOnline] = useState(true);
@@ -732,6 +741,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (dbUpdates.reminderSent !== undefined) { dbUpdates.reminder_sent = dbUpdates.reminderSent; delete dbUpdates.reminderSent; }
         if (dbUpdates.recurrenceEndDate !== undefined) { dbUpdates.recurrence_end_date = dbUpdates.recurrenceEndDate; delete dbUpdates.recurrenceEndDate; }
         if (dbUpdates.packId !== undefined) { dbUpdates.pack_id = dbUpdates.packId || null; delete dbUpdates.packId; }
+        if (dbUpdates.serviceType !== undefined) { dbUpdates.service_type = dbUpdates.serviceType || null; delete dbUpdates.serviceType; }
 
         let { data, error } = await supabase
             .from('documents')
@@ -773,7 +783,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             slotsData: (data as any).slots_data,
             reminderSent: (data as any).reminder_sent,
             recurrenceEndDate: (data as any).recurrence_end_date,
-            packId: (data as any).pack_id
+            packId: (data as any).pack_id,
+            serviceType: (data as any).service_type,
         } as any;
 
         setDocuments(prev => prev.map(d => d.id === id ? { ...d, ...mapped } : d));
@@ -2087,6 +2098,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         let all: any[] = [];
         const startTime = Date.now();
         const cacheKey = `presta_missions_cache_${startStr}_${endStr}`;
+        const cacheMetaKey = `${cacheKey}_meta`;
+        const CACHE_TTL_MS = 30 * 1000;
         let progressValue = 0;
         const setProgress = (v: number) => {
             if (!onProgress) return;
@@ -2094,8 +2107,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             progressValue = next;
             onProgress(next);
         };
+        const shouldBackgroundRefreshRefKey = `${cacheKey}_bg_refresh_inflight`;
+
+        const maybeStartBackgroundRefresh = () => {
+            try {
+                const inFlight = String(localStorage.getItem(shouldBackgroundRefreshRefKey) || '').trim();
+                if (inFlight === '1') return;
+                localStorage.setItem(shouldBackgroundRefreshRefKey, '1');
+            } catch {
+                // ignore
+            }
+
+            setTimeout(async () => {
+                try {
+                    await loadMissionsForRange(startStr, endStr);
+                } catch {
+                    // ignore
+                } finally {
+                    try {
+                        localStorage.removeItem(shouldBackgroundRefreshRefKey);
+                    } catch {
+                        // ignore
+                    }
+                }
+            }, 0);
+        };
+
         try {
             const cached = localStorage.getItem(cacheKey);
+            const cachedMetaRaw = localStorage.getItem(cacheMetaKey);
+            let cachedAt: number | null = null;
+            try {
+                if (cachedMetaRaw) {
+                    const meta = JSON.parse(cachedMetaRaw);
+                    const v = (meta as any)?.cachedAt;
+                    if (typeof v === 'number' && Number.isFinite(v)) cachedAt = v;
+                }
+            } catch { }
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
@@ -2106,6 +2154,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         return Array.from(byId.values());
                     });
                     setProgress(20);
+
+                    // Si cache trop vieux, on continue quand même (UX) mais on force un refresh en arrière-plan.
+                    if (!cachedAt || Date.now() - cachedAt > CACHE_TTL_MS) {
+                        setProgress(22);
+                        maybeStartBackgroundRefresh();
+                    }
                 }
             }
         } catch (e) {
@@ -2213,6 +2267,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             
             try {
                 localStorage.setItem(cacheKey, JSON.stringify(mapped));
+                localStorage.setItem(cacheMetaKey, JSON.stringify({ cachedAt: Date.now() }));
             } catch (e) {
                 console.warn('[loadMissionsForRange] Cache write error', e);
             }
@@ -3969,6 +4024,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             date: doc.date,
             type: doc.type,
             category: doc.category,
+            service_type: (doc as any).serviceType ?? null,
             description: doc.description,
             unit_price: doc.unitPrice,
             quantity: doc.quantity,
@@ -4038,7 +4094,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 slotsData: newDoc.slots_data,
                 reminderSent: newDoc.reminder_sent,
                 recurrenceEndDate: newDoc.recurrence_end_date,
-                packId: (newDoc as any).pack_id
+                packId: (newDoc as any).pack_id,
+                serviceType: (newDoc as any).service_type,
             } as any;
             setDocuments(prev => [...prev, mappedDoc]);
 
@@ -4234,6 +4291,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             date: getMartiniqueToday(),
             type: doc.type,
             category: doc.category,
+            service_type: (doc as any).serviceType ?? null,
             description: doc.description,
             unit_price: doc.unitPrice,
             quantity: doc.quantity,

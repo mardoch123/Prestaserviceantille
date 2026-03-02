@@ -1,16 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { createCustomerRequest, getFlyerById } from '../client';
+import { createCustomerRequest, getFlyerById, mktAutoCreateClient } from '../client';
 import type { MktFlyer } from '../types';
 import { useData } from '../../../context/DataContext';
 import MarketingPublicShell from './MarketingPublicShell';
+import SearchableSelect from '../../../components/SearchableSelect';
 
 type FormState = {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
   message: string;
+  city: string;
+  address: string;
 };
 
 const FlyerRequestPage: React.FC = () => {
@@ -24,13 +28,57 @@ const FlyerRequestPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailDebugError, setEmailDebugError] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     message: '',
+    city: '',
+    address: '',
   });
+
+  const CITY_OPTIONS = useMemo(
+    () => [
+      "Les Anses-d'Arlet",
+      'Ajoupa-Bouillon',
+      'Basse-Pointe',
+      'Bellefontaine',
+      'Le Carbet',
+      'Case-Pilote',
+      'Le Diamant',
+      'Ducos',
+      'Fonds-Saint-Denis',
+      'Fort-de-France',
+      'Le François',
+      "Grand'Rivière",
+      'Gros-Morne',
+      'Le Lamentin',
+      'Le Lorrain',
+      'Macouba',
+      'Le Marin',
+      'Le Marigot',
+      'Le Morne-Rouge',
+      'Le Morne-Vert',
+      'Le Prêcheur',
+      'Rivière-Pilote',
+      'Rivière-Salée',
+      'Le Robert',
+      'Saint-Esprit',
+      'Saint-Joseph',
+      'Saint-Pierre',
+      'Sainte-Anne',
+      'Sainte-Luce',
+      'Sainte-Marie',
+      'Schœlcher',
+      'La Trinité',
+      'Les Trois-Îlets',
+      'Le Vauclin',
+    ].map((c) => ({ value: c, label: c })),
+    []
+  );
 
   const flyerId = useMemo(() => String(id || '').trim(), [id]);
 
@@ -61,8 +109,10 @@ const FlyerRequestPage: React.FC = () => {
 
     setError(null);
 
-    const fullName = String(form.full_name || '').trim();
-    if (!fullName) {
+    const firstName = String(form.first_name || '').trim();
+    const lastName = String(form.last_name || '').trim();
+    const fullName = `${firstName} ${lastName}`.trim();
+    if (!firstName || !lastName) {
       setError('Nom et prénom requis.');
       return;
     }
@@ -86,6 +136,53 @@ const FlyerRequestPage: React.FC = () => {
       if (!res) {
         setError("Impossible d'envoyer la demande pour le moment.");
         return;
+      }
+
+      // Ensure the client is actually created (best effort is sometimes blocked by edge/RLS).
+      // Retry once to mitigate transient failures.
+      try {
+        setEmailDebugError(null);
+        const city = String(form.city || '').trim() || null;
+        const address = String(form.address || '').trim() || null;
+        const attempt1 = await mktAutoCreateClient({
+          full_name: fullName,
+          email,
+          phone: String(form.phone || '').trim() || null,
+          address,
+          city,
+        });
+
+        if (attempt1?.ok && attempt1?.emailSent === false) {
+          console.warn('[FlyerRequestPage] welcome email not sent', attempt1?.emailError);
+          if (attempt1?.emailError) setEmailDebugError(String(attempt1.emailError));
+          setError(
+            "Ta demande a bien été envoyée, mais l'email contenant tes identifiants n'a pas pu être envoyé automatiquement. L'équipe va te recontacter."
+          );
+        }
+
+        if (!attempt1?.ok) {
+          const attempt2 = await mktAutoCreateClient({
+            full_name: fullName,
+            email,
+            phone: String(form.phone || '').trim() || null,
+            address,
+            city,
+          });
+          if (!attempt2?.ok) {
+            console.warn('[FlyerRequestPage] mkt-auto-create-client failed', attempt2?.error || attempt1?.error);
+            setError(
+              "Ta demande a bien été envoyée, mais la création automatique de ton compte client a échoué. L'équipe va te recontacter pour te donner tes identifiants."
+            );
+          } else if (attempt2?.emailSent === false) {
+            console.warn('[FlyerRequestPage] welcome email not sent (attempt2)', attempt2?.emailError);
+            if (attempt2?.emailError) setEmailDebugError(String(attempt2.emailError));
+            setError(
+              "Ta demande a bien été envoyée, mais l'email contenant tes identifiants n'a pas pu être envoyé automatiquement. L'équipe va te recontacter."
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('[FlyerRequestPage] mkt-auto-create-client unexpected error', err);
       }
 
       setSent(true);
@@ -124,6 +221,19 @@ const FlyerRequestPage: React.FC = () => {
               Merci. L’équipe va te recontacter rapidement.
             </div>
           </div>
+
+          {error ? (
+            <div className="mt-6 bg-orange-50 border border-orange-200 text-orange-800 rounded-xl px-4 py-3 text-sm font-bold">
+              {error}
+            </div>
+          ) : null}
+
+          {emailDebugError ? (
+            <div className="mt-3 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-4 py-3 text-xs font-bold">
+              Détail technique: {emailDebugError}
+            </div>
+          ) : null}
+
           <div className="mt-6 flex flex-wrap gap-3 justify-center">
             <button
               onClick={() => navigate(`/flyers/${flyer.id}`)}
@@ -145,12 +255,22 @@ const FlyerRequestPage: React.FC = () => {
         <div className="mt-6 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
           <form onSubmit={onSubmit} className="space-y-4 px-6 py-6">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Nom & prénom</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Nom</label>
               <input
-                value={form.full_name}
-                onChange={(e) => setForm((s) => ({ ...s, full_name: e.target.value }))}
+                value={form.last_name}
+                onChange={(e) => setForm((s) => ({ ...s, last_name: e.target.value }))}
                 className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-blue/30"
-                placeholder="Ex: Jean Dupont"
+                placeholder="Ex: Dupont"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Prénom</label>
+              <input
+                value={form.first_name}
+                onChange={(e) => setForm((s) => ({ ...s, first_name: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-blue/30"
+                placeholder="Ex: Jean"
               />
             </div>
 
@@ -172,6 +292,30 @@ const FlyerRequestPage: React.FC = () => {
                   onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
                   className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-blue/30"
                   placeholder="ex: 0696..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Ville</label>
+                <SearchableSelect
+                  options={CITY_OPTIONS}
+                  value={form.city}
+                  onChange={(value) => setForm((s) => ({ ...s, city: value }))}
+                  placeholder="Sélectionner une ville"
+                  triggerClassName="rounded-xl px-4 py-3"
+                  dropdownClassName="rounded-xl"
+                  usePortal
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Adresse</label>
+                <input
+                  value={form.address}
+                  onChange={(e) => setForm((s) => ({ ...s, address: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-blue/30"
+                  placeholder="Ex: 12 rue ..."
                 />
               </div>
             </div>

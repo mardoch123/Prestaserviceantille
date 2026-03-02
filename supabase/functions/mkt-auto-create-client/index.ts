@@ -159,8 +159,10 @@ serve(async (req: Request) => {
       // ignore
     }
 
+    let emailSent = false;
+    let emailError: string | null = null;
     try {
-      await supabaseAdmin.functions.invoke('send-email', {
+      const { data: emailData, error: emailInvokeError } = await supabaseAdmin.functions.invoke('send-email', {
         body: {
           to: email,
           subject: 'Bienvenue - Accès Espace Client',
@@ -173,11 +175,25 @@ serve(async (req: Request) => {
           },
         },
       });
-    } catch {
-      // ignore
+
+      if (emailInvokeError) {
+        emailSent = false;
+        emailError = emailInvokeError.message;
+      } else {
+        const returnedError = emailData && typeof emailData === 'object' ? (emailData as any).error : null;
+        if (returnedError) {
+          emailSent = false;
+          emailError = String(returnedError);
+        } else {
+          emailSent = true;
+        }
+      }
+    } catch (e: any) {
+      emailSent = false;
+      emailError = e?.message || 'send_email_failed';
     }
 
-    return new Response(JSON.stringify({ ok: true, clientId, authUserId, password }), {
+    return new Response(JSON.stringify({ ok: true, clientId, authUserId, password, emailSent, emailError }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

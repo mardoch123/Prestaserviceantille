@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
+import { matchesServiceTypeFilterFromText, type ServiceTypeFilter } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { supabase } from '../utils/supabaseClient';
+import { pdf } from '@react-pdf/renderer';
+import { SignedQuotePDF } from './PDFComponents';
+import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
@@ -34,6 +37,7 @@ interface InterventionSlot {
 type QuoteDraftFormState = {
     selectedClientId: string;
     serviceType: 'pack' | 'custom';
+    serviceCategory: Exclude<ServiceTypeFilter, 'all'>;
     selectedPackId: string;
     packQuantity: number;
     customDescription: string;
@@ -64,9 +68,49 @@ const DevisFactures: React.FC = () => {
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
-    const [filterStatus, setFilterStatus] = useState<string>('all');
+    const STATUS_OPTIONS = useMemo(
+        () => [
+            { value: 'draft', label: 'Brouillons' },
+            { value: 'sent', label: 'Devis envoyés' },
+            { value: 'signed', label: 'Devis signés' },
+            { value: 'rejected', label: 'Refusés / Annulés' },
+            { value: 'converted', label: 'Facturés' },
+            { value: 'expired', label: 'Expirés' },
+            { value: 'validated', label: 'Validés' },
+            { value: 'pending', label: 'Factures en attente' },
+            { value: 'paid', label: 'Factures payées' },
+        ],
+        []
+    );
+
+    const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => STATUS_OPTIONS.map(s => s.value));
+    const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
+    const [isStatusColumnFilterOpen, setIsStatusColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
+
+    const statusFilterRef = useRef<HTMLDivElement | null>(null);
+    const statusColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
+
+    useEffect(() => {
+        const onMouseDown = (e: MouseEvent) => {
+            const target = e.target as Node | null;
+            if (!target) return;
+
+            if (isStatusFilterOpen) {
+                const root = statusFilterRef.current;
+                if (root && !root.contains(target)) setIsStatusFilterOpen(false);
+            }
+
+            if (isStatusColumnFilterOpen) {
+                const root = statusColumnFilterRef.current;
+                if (root && !root.contains(target)) setIsStatusColumnFilterOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', onMouseDown);
+        return () => document.removeEventListener('mousedown', onMouseDown);
+    }, [isStatusFilterOpen, isStatusColumnFilterOpen]);
 
     // Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -95,6 +139,7 @@ const DevisFactures: React.FC = () => {
     // --- Form State ---
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [serviceType, setServiceType] = useState<'pack' | 'custom'>('pack');
+    const [serviceCategory, setServiceCategory] = useState<Exclude<ServiceTypeFilter, 'all'>>('Autre');
     const [selectedPackId, setSelectedPackId] = useState<string>('');
     const [packQuantity, setPackQuantity] = useState<number>(1);
     const [customDescription, setCustomDescription] = useState('');
@@ -396,13 +441,15 @@ const DevisFactures: React.FC = () => {
         if (state.filter) {
             const filter = String(state.filter);
             if (filter === 'devis' || filter === 'quote') {
-                setFilterStatus('all');
+                setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
                 setColumnFilters(prev => ({
                     ...prev,
                     type: 'devis'
                 }));
+            } else if (filter === 'all') {
+                setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
             } else {
-                setFilterStatus(filter);
+                setSelectedStatuses([filter]);
             }
         }
 
@@ -417,7 +464,7 @@ const DevisFactures: React.FC = () => {
         if (state.filter || state.documentId) {
             navigate(location.pathname, { replace: true, state: {} });
         }
-    }, [location.state, location.pathname, documents, navigate]);
+    }, [location.state, location.pathname, documents, navigate, STATUS_OPTIONS]);
 
     const openModal = (mode: 'devis' | 'facture') => {
         setModalMode(mode);
@@ -434,6 +481,7 @@ const DevisFactures: React.FC = () => {
         setIsDraftDirty(false);
         setSelectedClientId('');
         setServiceType('pack');
+        setServiceCategory('Autre');
         setPackQuantity(1);
         setUnitPrice(0);
         setCustomDescription('');
@@ -485,6 +533,7 @@ const DevisFactures: React.FC = () => {
 
         // Prefill the form with the existing document values
         setSelectedClientId(String(doc?.clientId || ''));
+        setServiceCategory((doc?.serviceType || (doc?.category === 'custom' ? 'Personnalisé' : undefined) || 'Autre') as any);
         const initialPackId = String(doc?.packId || '');
         if (initialPackId) {
             setServiceType('pack');
@@ -1465,6 +1514,7 @@ const DevisFactures: React.FC = () => {
         return {
             selectedClientId,
             serviceType,
+            serviceCategory,
             selectedPackId,
             packQuantity,
             customDescription,
@@ -1563,6 +1613,7 @@ const DevisFactures: React.FC = () => {
                         clientName: String(client?.name || ''),
                         packId: selectedPackId ? String(selectedPackId) : null,
                         category: serviceType,
+                        serviceType: serviceCategory,
                         description: String(customDescription || ''),
                         unitPrice: Number(unitPrice || 0),
                         quantity: Number(packQuantity || 1),
@@ -1814,6 +1865,7 @@ const DevisFactures: React.FC = () => {
                 date: getMartiniqueToday(),
                 type: modalMode === 'devis' ? 'Devis' : 'Facture',
                 category: serviceType,
+                serviceType: serviceCategory,
                 description: enrichedDescription,
                 unitPrice: unitPrice,
                 quantity: packQuantity,
@@ -1834,6 +1886,7 @@ const DevisFactures: React.FC = () => {
                     date: docToPersist.date,
                     type: docToPersist.type,
                     category: docToPersist.category,
+                    serviceType: docToPersist.serviceType,
                     description: docToPersist.description,
                     unitPrice: docToPersist.unitPrice,
                     quantity: docToPersist.quantity,
@@ -1922,16 +1975,16 @@ const DevisFactures: React.FC = () => {
 
     // --- ACTION HANDLERS ---
 
-    const handleConversion = async (docId: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleConversion = async (docId: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
 
         if (window.confirm("Confirmer la conversion en facture ?")) {
             const key = `convert:${docId}`;
             startAction(key);
             try {
                 await convertQuoteToInvoice(docId);
-                setFilterStatus('all');
+                setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
                 showToast('Devis converti en facture !');
             } catch (err: any) {
                 showToast('Erreur conversion en facture.', 'error');
@@ -1941,9 +1994,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleSendEmail = async (doc: any, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleSendEmail = async (doc: any, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
 
         const docId = String(doc?.id || '');
         const key = `email:${docId || String(doc?.ref || '')}`;
@@ -1969,9 +2022,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleMarkPaid = async (docId: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleMarkPaid = async (docId: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
         if (window.confirm("Confirmez-vous avoir reçu le paiement ?")) {
             const key = `paid:${docId}`;
             startAction(key);
@@ -1986,9 +2039,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleManualReminder = async (docId: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleManualReminder = async (docId: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
         const key = `reminder:${docId}`;
         startAction(key);
         try {
@@ -2001,9 +2054,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleManualSignatureReminder = async (docId: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleManualSignatureReminder = async (docId: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
         const key = `signatureReminder:${docId}`;
         startAction(key);
         try {
@@ -2017,9 +2070,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const confirmDelete = (id: string, ref: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const confirmDelete = (id: string, ref: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
         setDocumentToDelete({ id, ref });
         setIsBulkDelete(false);
         setIsDeleteModalOpen(true);
@@ -2075,9 +2128,9 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleDuplicate = async (id: string, ref: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleDuplicate = async (id: string, ref: string, e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
         try {
             setDuplicatingIds(prev => {
                 const next = new Set(prev);
@@ -2091,7 +2144,7 @@ const DevisFactures: React.FC = () => {
             }
 
             openDuplicateModal(duplicated);
-            setFilterStatus('all');
+            setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
         } catch (err: any) {
             alert("Erreur duplication: " + err.message);
         } finally {
@@ -2178,10 +2231,33 @@ const DevisFactures: React.FC = () => {
         let docs = [...allDocs]; // Copie pour éviter les mutations
 
         // Filtrage global par type de service
-        docs = docs.filter(doc => matchesServiceTypeFilterFromText(doc.description, serviceTypeFilter));
+        docs = docs.filter(doc => {
+            if (serviceTypeFilter === 'Personnalisé') {
+                const category = String((doc as any)?.category || '').trim().toLowerCase();
+                if (category === 'custom') return true;
+                const persisted = String((doc as any)?.serviceType || '').trim();
+                if (persisted === 'Personnalisé') return true;
+                const hasCustomLines = Array.isArray((doc as any)?.customLines) && ((doc as any).customLines?.length || 0) > 0;
+                const hasCustomDescription = !!String((doc as any)?.customDescription || '').trim();
+                return hasCustomLines || hasCustomDescription;
+            }
+
+            const persisted = String((doc as any)?.serviceType || '').trim();
+            if (persisted && persisted === serviceTypeFilter) return true;
+
+            const rawDesc = String((doc as any)?.description || '');
+            const packNameRaw = String(((doc as any)?.packName || '') as any).trim();
+            const packFromId = (doc as any)?.packId
+                ? packs.find((p: any) => String(p?.id || '') === String((doc as any)?.packId || ''))
+                : undefined;
+            const combinedText = [rawDesc, packNameRaw, packFromId?.name || '', packFromId?.description || '']
+                .filter(Boolean)
+                .join(' ');
+            return matchesServiceTypeFilterFromText(combinedText, serviceTypeFilter);
+        });
         
-        // Filtrage par statut
-        if (filterStatus !== 'all') docs = docs.filter(doc => doc.status === filterStatus);
+        // Filtrage par statut (cases à cocher)
+        docs = docs.filter(doc => selectedStatuses.includes(String((doc as any)?.status || '')));
         
         // Filtrage par recherche
         if (searchQuery) {
@@ -2197,7 +2273,7 @@ const DevisFactures: React.FC = () => {
         });
         
         return docs;
-    }, [filterStatus, searchQuery, allDocs, sortOrder, serviceTypeFilter]);
+    }, [selectedStatuses, searchQuery, allDocs, sortOrder, serviceTypeFilter]);
 
     // Filtres par colonne (tableau)
     const [columnFilters, setColumnFilters] = useState({
@@ -2269,7 +2345,169 @@ const DevisFactures: React.FC = () => {
         }
 
         return result;
-    }, [filteredDocs, columnFilters]);
+    }, [filteredDocs, columnFilters, packs]);
+
+    const parseQuoteDescriptionMeta = (rawValue: any) => {
+        const raw = String(rawValue || '');
+        const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+        const meta: { pack?: string; duree?: string; lieu?: string; description?: string } = {};
+        parts.forEach((p) => {
+            const [k, ...rest] = p.split(':').map(x => x.trim());
+            const v = rest.join(':').trim();
+            const key = String(k || '').toLowerCase();
+            if (!key) return;
+            if (key.includes('pack')) meta.pack = v;
+            else if (key.includes('dur')) meta.duree = v;
+            else if (key.includes('lieu') || key.includes('adresse') || key.includes('address')) meta.lieu = v;
+            else if (key.includes('desc')) meta.description = v;
+        });
+        return meta;
+    };
+
+    const handleDownloadQuotePdf = async (doc: any, e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        try {
+            const quoteId = String(doc?.id || '').trim();
+            if (!quoteId) return;
+
+            const clientId = String(doc?.clientId || (doc as any)?.client_id || '').trim();
+            const client = clients.find(c => String(c?.id || '') === clientId);
+            if (!client) {
+                showToast('Client introuvable pour ce devis.', 'error');
+                return;
+            }
+
+            const sanitizeFilenamePart = (v: any) =>
+                String(v || '')
+                    .replace(/[\\/:*?\"<>|]/g, '_')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const clientNamePart = sanitizeFilenamePart(client?.name || 'Client');
+            const refPart = sanitizeFilenamePart(doc?.ref || '');
+
+            const convertDataUrlToPng = async (dataUrl: string): Promise<string> => {
+                return await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.naturalWidth || img.width;
+                            canvas.height = img.naturalHeight || img.height;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) return reject(new Error('Canvas context not available'));
+                            ctx.drawImage(img, 0, 0);
+                            resolve(canvas.toDataURL('image/png'));
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    img.onerror = () => reject(new Error('Image decode failed'));
+                    img.src = dataUrl;
+                });
+            };
+
+            const ensurePngDataUrl = async (value: any): Promise<any> => {
+                if (!value || typeof value !== 'string') return value;
+                if (!value.startsWith('data:image/')) return value;
+                if (value.startsWith('data:image/png')) return value;
+                try {
+                    return await convertDataUrlToPng(value);
+                } catch {
+                    return value;
+                }
+            };
+
+            const resolvedTvaRate = (() => {
+                const raw = (doc as any)?.tvaRate;
+                const n = typeof raw === 'number' ? raw : Number(raw);
+                return Number.isFinite(n) ? n : 0;
+            })();
+
+            const logoBase64 = resolvedTvaRate === 0 ? LOGO_SAP_BASE64 : await ensurePngDataUrl(LOGO_BASE64);
+            const companySignature = await ensurePngDataUrl(SIGNATURE_BASE64);
+            const companyStamp = await ensurePngDataUrl(STAMP_SIGNATURE_BASE64);
+            const clientSignature = await ensurePngDataUrl((doc as any).signatureData || null);
+
+            const safeNumber = (v: any) => {
+                const n = typeof v === 'number' ? v : Number(v);
+                return Number.isFinite(n) ? n : 0;
+            };
+
+            const totalHT = safeNumber((doc as any).totalHT ?? (doc as any).total_ht ?? (doc as any).totalht);
+            const totalTTC = safeNumber((doc as any).totalTTC ?? (doc as any).total_ttc ?? (doc as any).totalttc);
+
+            const packNameFromId = (doc as any).packId
+                ? (packs.find((p: any) => String(p.id) === String((doc as any).packId))?.name || '')
+                : '';
+            const packNameFromField = String((doc as any).packName || '').trim();
+            const descLower = String(doc.description || '').toLowerCase();
+            const packNameFromText = String(
+                (packs || []).find((p: any) => {
+                    const n = String(p?.name || '').toLowerCase();
+                    return n && descLower.includes(n);
+                })?.name || ''
+            );
+            const packName = packNameFromId || packNameFromField || packNameFromText || '';
+
+            const meta = parseQuoteDescriptionMeta((doc as any).description);
+            const resolvedLocation =
+                String((doc as any).location || (doc as any).address || (doc as any).lieu || '').trim() ||
+                String(meta.lieu || '').trim() ||
+                undefined;
+
+            const pdfData = {
+                ref: doc.ref,
+                date: doc.date,
+                signed: doc.status === 'signed',
+                status: doc.status,
+                tvaRate: resolvedTvaRate,
+                taxCreditEnabled: !!((doc as any).hasTaxCredit || (doc as any).taxCreditEnabled),
+                clientName: client.name,
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                clientSignature,
+                companySignature,
+                companyStamp,
+                logoBase64,
+                subtotal: totalHT,
+                tax: totalTTC && totalHT ? (totalTTC - totalHT) : 0,
+                total: totalTTC,
+                notes: doc.description || '',
+                packId: doc.packId,
+                packName,
+                items: [
+                    {
+                        description: packName || meta.pack || doc.description || 'Service standard',
+                        location: resolvedLocation,
+                        quantity: 1,
+                        unitPrice: totalHT,
+                        total: totalHT
+                    }
+                ],
+                slotsData: (doc as any).slotsData || (doc as any).slots_data || []
+            };
+
+            const blob = await pdf(<SignedQuotePDF doc={pdfData} packs={packs as any} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Devis_${clientNamePart}${refPart ? `_${refPart}` : ''}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Devis téléchargé avec succès.');
+        } catch (err: any) {
+            console.error('[DevisFactures] handleDownloadQuotePdf error:', err);
+            showToast('Erreur téléchargement devis.', 'error');
+        }
+    };
 
     // Calculs qui s'adaptent au type de service
     const baseAmount = serviceType === 'custom' ? calculateCustomTotal() : (unitPrice * packQuantity);
@@ -2314,23 +2552,70 @@ const DevisFactures: React.FC = () => {
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div><h2 className="text-3xl font-serif font-bold text-slate-800">Devis/Factures</h2><p className="text-sm text-slate-500 mt-1">Gestion commerciale et facturation</p></div>
-                <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-                    <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                    <SearchableSelect
-                        options={[
-                            { value: 'all', label: 'Tous les documents' },
-                            { value: 'draft', label: 'Brouillons' },
-                            { value: 'sent', label: 'Devis envoyés' },
-                            { value: 'signed', label: 'Devis signés' },
-                            { value: 'rejected', label: 'Refusés' },
-                            { value: 'converted', label: 'Facturés' },
-                            { value: 'expired', label: 'Expirés' },
-                            { value: 'validated', label: 'Validés' },
-                        ]}
-                        value={filterStatus}
-                        onChange={(value) => setFilterStatus(value)}
-                        className="min-w-[220px]"
-                    />
+                <div ref={statusFilterRef} className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setIsStatusFilterOpen(v => !v)}
+                        className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 px-3 py-2 hover:bg-slate-50"
+                    >
+                        <Filter className="w-4 h-4 text-slate-400 mr-2" />
+                        <span className="text-sm font-bold text-slate-700">Statuts</span>
+                        <span className="ml-2 text-xs text-slate-500">
+                            {selectedStatuses.length === STATUS_OPTIONS.length ? 'Tous' : `${selectedStatuses.length}/${STATUS_OPTIONS.length}`}
+                        </span>
+                        {isStatusFilterOpen ? <ChevronUp className="w-4 h-4 text-slate-400 ml-2" /> : <ChevronDown className="w-4 h-4 text-slate-400 ml-2" />}
+                    </button>
+
+                    {isStatusFilterOpen ? (
+                        <div className="absolute right-0 mt-2 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50">
+                            <div className="flex items-center justify-between mb-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedStatuses(STATUS_OPTIONS.map(s => s.value))}
+                                    className="text-xs font-bold text-brand-blue hover:underline"
+                                >
+                                    Tout cocher
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedStatuses([])}
+                                    className="text-xs font-bold text-slate-500 hover:underline"
+                                >
+                                    Tout décocher
+                                </button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {STATUS_OPTIONS.map(opt => {
+                                    const checked = selectedStatuses.includes(opt.value);
+                                    return (
+                                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => {
+                                                    setSelectedStatuses(prev => {
+                                                        if (prev.includes(opt.value)) {
+                                                            return prev.filter(v => v !== opt.value);
+                                                        }
+                                                        return [...prev, opt.value];
+                                                    });
+                                                }}
+                                                className="h-4 w-4"
+                                            />
+                                            <span className="text-sm text-slate-700">{opt.label}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+
+                            {selectedStatuses.length === 0 ? (
+                                <div className="mt-3 text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg p-2">
+                                    Aucun statut sélectionné: aucun document ne sera affiché.
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
@@ -2464,103 +2749,87 @@ const DevisFactures: React.FC = () => {
                                     </div>
 
                                     {/* Actions */}
-                                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                                        {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' && (
-                                            <button
-                                                onClick={(e) => renewExpiredQuote(doc, e)}
-                                                disabled={loadingActions.has(`renew:${doc.id}`)}
-                                                className="text-slate-400 hover:text-brand-orange p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
-                                                title="Renouveler le devis"
-                                            >
-                                                {loadingActions.has(`renew:${doc.id}`)
-                                                    ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
-                                                    : <RotateCcw className="w-4 h-4 pointer-events-none" />
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <select
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50"
+                                            defaultValue=""
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => {
+                                                const action = String(e.target.value || '');
+                                                if (!action) return;
+                                                e.currentTarget.value = '';
+
+                                                if (action === 'renew') {
+                                                    void renewExpiredQuote(doc);
+                                                    return;
                                                 }
-                                            </button>
-                                        )}
-                                        {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
+                                                if (action === 'admin_sign') {
                                                     openAdminSignModal(doc.id);
-                                                }}
-                                                className="text-slate-400 hover:text-brand-blue p-1 hover:bg-blue-50 rounded transition"
-                                                title="Signer le devis (admin)"
-                                            >
-                                                <PenTool className="w-4 h-4" />
-                                            </button>
-                                        )}
-
-                                        {/* CONVERT BUTTON */}
-                                        {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'signed' && (
-                                            <button
-                                                onClick={(e) => handleConversion(doc.id, e)}
-                                                className="bg-brand-orange text-white text-xs px-3 py-1 rounded-lg hover:bg-orange-600 transition shadow-sm flex items-center gap-1"
-                                                title="Convertir après paiement"
-                                            >
-                                                <RefreshCw className="w-3 h-3 pointer-events-none" /> Convertir
-                                            </button>
-                                        )}
-
-                                        {/* CONTRACT DOWNLOAD BUTTON */}
-                                        {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') && (
-                                            <button
-                                                onClick={(e) => handleDownloadContract(doc)}
-                                                className="text-slate-400 hover:text-green-600 p-1 hover:bg-green-50 rounded transition"
-                                                title="Télécharger le contrat"
-                                            >
-                                                <FileText className="w-4 h-4" />
-                                            </button>
-                                        )}
-
-                                        {/* SEND EMAIL BUTTON */}
-                                        {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') && (
-                                            <button
-                                                onClick={(e) => handleSendEmail(doc, e)}
-                                                className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
-                                                title="Envoyer par email"
-                                            >
-                                                <Mail className="w-4 h-4" />
-                                            </button>
-                                        )}
-
-                                        {/* DOWNLOAD BUTTON */}
-                                        {!isLocalDraftDocId(doc.id) ? (
-                                            <button
-                                                onClick={() => window.open(`/documents/${doc.ref}`, '_blank')}
-                                                className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
-                                                title="Télécharger"
-                                            >
-                                                <Paperclip className="w-4 h-4" />
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => openDetailModal(doc)}
-                                                className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
-                                                title="Continuer l'édition"
-                                            >
-                                                <PenTool className="w-4 h-4" />
-                                            </button>
-                                        )}
-
-                                        {/* COPY BUTTON */}
-                                        <button
-                                            onClick={() => copyToClipboard(doc.ref)}
-                                            className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
-                                            title="Copier le lien"
+                                                    return;
+                                                }
+                                                if (action === 'download_quote_pdf') {
+                                                    void handleDownloadQuotePdf(doc);
+                                                    return;
+                                                }
+                                                if (action === 'download_contract') {
+                                                    handleDownloadContract(doc);
+                                                    return;
+                                                }
+                                                if (action === 'download') {
+                                                    window.open(`/documents/${doc.ref}`, '_blank');
+                                                    return;
+                                                }
+                                                if (action === 'send_email') {
+                                                    void handleSendEmail(doc as any);
+                                                    return;
+                                                }
+                                                if (action === 'convert') {
+                                                    void handleConversion(doc.id);
+                                                    return;
+                                                }
+                                                if (action === 'duplicate') {
+                                                    void handleDuplicate(doc.id, doc.ref);
+                                                    return;
+                                                }
+                                                if (action === 'delete') {
+                                                    confirmDelete(doc.id, doc.ref);
+                                                    return;
+                                                }
+                                            }}
                                         >
-                                            <Copy className="w-4 h-4" />
-                                        </button>
+                                            <option value="" disabled>
+                                                Actions
+                                            </option>
 
-                                        {/* DELETE BUTTON */}
-                                        <button
-                                            onClick={(e) => confirmDelete(doc.id, doc.ref, e)}
-                                            className="text-slate-400 hover:text-red-600 p-1 hover:bg-red-50 rounded transition"
-                                            title="Supprimer"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? (
+                                                <option value="download_quote_pdf">Télécharger devis (PDF)</option>
+                                            ) : null}
+
+                                            {!isLocalDraftDocId(doc.id) ? (
+                                                <option value="download">Télécharger</option>
+                                            ) : (
+                                                <option value="edit">Continuer l'édition</option>
+                                            )}
+
+                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? (
+                                                <option value="download_contract">Télécharger contrat</option>
+                                            ) : null}
+
+                                            {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? (
+                                                <option value="send_email">Envoyer par email</option>
+                                            ) : null}
+
+                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? (
+                                                <option value="renew">Renouveler devis</option>
+                                            ) : null}
+
+                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
+                                                <option value="admin_sign">Signer (admin)</option>
+                                            ) : null}
+
+                                            {!isLocalDraftDocId(doc.id) ? <option value="duplicate">Dupliquer</option> : null}
+                                            <option value="delete">Supprimer</option>
+                                        </select>
                                     </div>
                                 </div>
                             ))
@@ -2662,13 +2931,68 @@ const DevisFactures: React.FC = () => {
                                         className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
                                     />
                                 </th>
-                                <th className="px-6 py-2">
-                                    <input
-                                        value={columnFilters.status}
-                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, status: e.target.value }))}
-                                        placeholder="Statut..."
-                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
-                                    />
+                                <th ref={statusColumnFilterRef} className="px-6 py-2 relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsStatusColumnFilterOpen(v => !v)}
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 flex items-center justify-between"
+                                    >
+                                        <span>Statuts</span>
+                                        <span className="text-[11px] font-bold text-slate-500">
+                                            {selectedStatuses.length === STATUS_OPTIONS.length ? 'Tous' : `${selectedStatuses.length}/${STATUS_OPTIONS.length}`}
+                                        </span>
+                                    </button>
+
+                                    {isStatusColumnFilterOpen ? (
+                                        <div className="absolute left-0 mt-2 w-[260px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses(STATUS_OPTIONS.map(s => s.value))}
+                                                    className="text-xs font-bold text-brand-blue hover:underline"
+                                                >
+                                                    Tout cocher
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses([])}
+                                                    className="text-xs font-bold text-slate-500 hover:underline"
+                                                >
+                                                    Tout décocher
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                {STATUS_OPTIONS.map(opt => {
+                                                    const checked = selectedStatuses.includes(opt.value);
+                                                    return (
+                                                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer select-none">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => {
+                                                                    setSelectedStatuses(prev => {
+                                                                        if (prev.includes(opt.value)) {
+                                                                            return prev.filter(v => v !== opt.value);
+                                                                        }
+                                                                        return [...prev, opt.value];
+                                                                    });
+                                                                }}
+                                                                className="h-4 w-4"
+                                                            />
+                                                            <span className="text-sm text-slate-700">{opt.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {selectedStatuses.length === 0 ? (
+                                                <div className="mt-3 text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg p-2">
+                                                    Aucun statut sélectionné: aucun document ne sera affiché.
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </th>
                                 <th className="px-6 py-2"></th>
                             </tr>
@@ -2782,133 +3106,113 @@ const DevisFactures: React.FC = () => {
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-center gap-2">
+                                            <select
+                                                className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50"
+                                                defaultValue=""
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => {
+                                                    const action = String(e.target.value || '');
+                                                    if (!action) return;
 
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' && (
-                                                    <button
-                                                        onClick={(e) => renewExpiredQuote(doc, e)}
-                                                        disabled={loadingActions.has(`renew:${doc.id}`)}
-                                                        className="text-slate-400 hover:text-brand-orange p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
-                                                        title="Renouveler le devis"
-                                                    >
-                                                        {loadingActions.has(`renew:${doc.id}`)
-                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
-                                                            : <RotateCcw className="w-4 h-4 pointer-events-none" />
-                                                        }
-                                                    </button>
-                                                )}
+                                                    // Reset selection back to placeholder
+                                                    e.currentTarget.value = '';
 
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            openAdminSignModal(doc.id);
-                                                        }}
-                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-blue-50 rounded transition"
-                                                        title="Signer le devis (admin)"
-                                                    >
-                                                        <PenTool className="w-4 h-4 pointer-events-none" />
-                                                    </button>
-                                                )}
+                                                    if (action === 'renew') {
+                                                        void renewExpiredQuote(doc);
+                                                        return;
+                                                    }
+                                                    if (action === 'admin_sign') {
+                                                        openAdminSignModal(doc.id);
+                                                        return;
+                                                    }
+                                                    if (action === 'download_quote_pdf') {
+                                                        void handleDownloadQuotePdf(doc);
+                                                        return;
+                                                    }
+                                                    if (action === 'download_contract') {
+                                                        handleDownloadContract(doc);
+                                                        return;
+                                                    }
+                                                    if (action === 'download') {
+                                                        window.open(`/documents/${doc.ref}`, '_blank');
+                                                        return;
+                                                    }
+                                                    if (action === 'send_email') {
+                                                        void handleSendEmail(doc as any);
+                                                        return;
+                                                    }
+                                                    if (action === 'convert') {
+                                                        void handleConversion(doc.id);
+                                                        return;
+                                                    }
+                                                    if (action === 'mark_paid') {
+                                                        void handleMarkPaid(doc.id);
+                                                        return;
+                                                    }
+                                                    if (action === 'reminder') {
+                                                        void handleManualReminder(doc.id);
+                                                        return;
+                                                    }
+                                                    if (action === 'signature_reminder') {
+                                                        void handleManualSignatureReminder(doc.id);
+                                                        return;
+                                                    }
+                                                    if (action === 'duplicate') {
+                                                        void handleDuplicate(doc.id, doc.ref);
+                                                        return;
+                                                    }
+                                                    if (action === 'delete') {
+                                                        confirmDelete(doc.id, doc.ref);
+                                                        return;
+                                                    }
+                                                }}
+                                            >
+                                                <option value="" disabled>
+                                                    Actions
+                                                </option>
 
-                                                {/* CONVERT BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'paid' && (
-                                                    <button
-                                                        onClick={(e) => handleConversion(doc.id, e)}
-                                                        disabled={loadingActions.has(`convert:${doc.id}`)}
-                                                        className="bg-brand-orange text-white text-xs px-3 py-1 rounded-lg hover:bg-orange-600 transition shadow-sm flex items-center gap-1 disabled:opacity-50"
-                                                        title="Convertir après paiement"
-                                                    >
-                                                        {loadingActions.has(`convert:${doc.id}`)
-                                                            ? <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
-                                                            : <RefreshCw className="w-3 h-3 pointer-events-none" />
-                                                        }
-                                                        Convertir
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? (
+                                                    <option value="download_quote_pdf">Télécharger devis (PDF)</option>
+                                                ) : null}
 
-                                                {/* SEND EMAIL BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') && (
-                                                    <button
-                                                        onClick={(e) => handleSendEmail(doc, e)}
-                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition"
-                                                        title="Envoyer par email"
-                                                    >
-                                                        <Send className="w-4 h-4 pointer-events-none" />
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) ? (
+                                                    <option value="download">Télécharger</option>
+                                                ) : null}
 
-                                                {/* MARK PAID BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && doc.status === 'pending' && doc.type === 'Facture' && (
-                                                    <button
-                                                        onClick={(e) => handleMarkPaid(doc.id, e)}
-                                                        disabled={loadingActions.has(`paid:${doc.id}`)}
-                                                        className="bg-green-600 text-white text-xs px-3 py-1 rounded-lg hover:bg-green-700 transition shadow-sm flex items-center gap-1 disabled:opacity-50"
-                                                        title="Marquer comme payé (Externe)"
-                                                    >
-                                                        {loadingActions.has(`paid:${doc.id}`)
-                                                            ? <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
-                                                            : <CreditCard className="w-3 h-3 pointer-events-none" />
-                                                        }
-                                                        Encaisser
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? (
+                                                    <option value="download_contract">Télécharger contrat</option>
+                                                ) : null}
 
-                                                {/* REMINDER BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (
-                                                    <button
-                                                        onClick={(e) => handleManualReminder(doc.id, e)}
-                                                        disabled={loadingActions.has(`reminder:${doc.id}`)}
-                                                        className="text-slate-400 hover:text-orange-500 p-1 hover:bg-orange-50 rounded transition disabled:opacity-50"
-                                                        title="Forcer une relance maintenant"
-                                                    >
-                                                        {loadingActions.has(`reminder:${doc.id}`)
-                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
-                                                            : <Zap className="w-4 h-4 pointer-events-none" />
-                                                        }
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? (
+                                                    <option value="send_email">Envoyer par email</option>
+                                                ) : null}
 
-                                                {/* SIGNATURE REMINDER BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (
-                                                    <button
-                                                        onClick={(e) => handleManualSignatureReminder(doc.id, e)}
-                                                        disabled={loadingActions.has(`signatureReminder:${doc.id}`)}
-                                                        className="text-slate-400 hover:text-teal-600 p-1 hover:bg-teal-50 rounded transition disabled:opacity-50"
-                                                        title="Envoyer rappel signature devis (avec identifiants + temps restant)"
-                                                    >
-                                                        {loadingActions.has(`signatureReminder:${doc.id}`)
-                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
-                                                            : <Clock className="w-4 h-4 pointer-events-none" />
-                                                        }
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'paid' ? (
+                                                    <option value="convert">Convertir</option>
+                                                ) : null}
 
-                                                {/* DUPLICATE BUTTON */}
-                                                {!isLocalDraftDocId(doc.id) && (
-                                                    <button
-                                                        onClick={(e) => handleDuplicate(doc.id, doc.ref, e)}
-                                                        disabled={duplicatingIds.has(doc.id)}
-                                                        className="text-slate-400 hover:text-brand-blue p-1 hover:bg-slate-100 rounded transition disabled:opacity-50"
-                                                        title="Dupliquer"
-                                                    >
-                                                        {duplicatingIds.has(doc.id)
-                                                            ? <Loader2 className="w-4 h-4 animate-spin pointer-events-none" />
-                                                            : <Copy className="w-4 h-4 pointer-events-none" />
-                                                        }
-                                                    </button>
-                                                )}
+                                                {!isLocalDraftDocId(doc.id) && doc.status === 'pending' && doc.type === 'Facture' ? (
+                                                    <option value="mark_paid">Encaisser</option>
+                                                ) : null}
 
-                                                {/* DELETE BUTTON */}
-                                                <button
-                                                    onClick={(e) => confirmDelete(doc.id, doc.ref, e)}
-                                                    className="text-slate-400 hover:text-red-500 p-1 hover:bg-red-50 rounded transition"
-                                                    title="Supprimer"
-                                                >
-                                                    <Trash2 className="w-4 h-4 pointer-events-none" />
-                                                </button>
-                                            </div>
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' ? (
+                                                    <>
+                                                        <option value="reminder">Relance (maintenant)</option>
+                                                        <option value="signature_reminder">Rappel signature</option>
+                                                    </>
+                                                ) : null}
+
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? (
+                                                    <option value="renew">Renouveler devis</option>
+                                                ) : null}
+
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
+                                                    <option value="admin_sign">Signer (admin)</option>
+                                                ) : null}
+
+                                                {!isLocalDraftDocId(doc.id) ? <option value="duplicate">Dupliquer</option> : null}
+                                                <option value="delete">Supprimer</option>
+                                            </select>
                                         </td>
                                     </tr>
                                 ))
@@ -2962,6 +3266,27 @@ const DevisFactures: React.FC = () => {
                                         <button onClick={() => { setServiceType('pack'); markDraftDirty(); }} className={`p-3 border rounded-lg text-sm font-bold transition ${serviceType === 'pack' ? 'border-brand-blue bg-blue-50 text-brand-blue' : 'border-slate-200 text-slate-500'}`}>Pack Existant</button>
                                         <button onClick={() => { setServiceType('custom'); markDraftDirty(); }} className={`p-3 border rounded-lg text-sm font-bold transition ${serviceType === 'custom' ? 'border-brand-blue bg-blue-50 text-brand-blue' : 'border-slate-200 text-slate-500'}`}>Sur Mesure</button>
                                     </div>
+
+                                    <div className="mb-4">
+                                        <label className="block text-xs font-bold text-slate-700 mb-1">Type de service</label>
+                                        <SearchableSelect
+                                            options={([
+                                                { value: 'Ménage', label: 'Ménage' },
+                                                { value: 'Jardinage', label: 'Jardinage' },
+                                                { value: 'Bricolage', label: 'Bricolage' },
+                                                { value: 'Autre', label: 'Autre' },
+                                                { value: 'Personnalisé', label: 'Personnalisé' },
+                                            ] as any)}
+                                            value={serviceCategory}
+                                            onChange={(value) => {
+                                                setServiceCategory(value as any);
+                                                markDraftDirty();
+                                            }}
+                                            placeholder="Choisir le type de service..."
+                                            isClearable={false}
+                                        />
+                                    </div>
+
                                     {serviceType === 'pack' ? (
                                         <div className="space-y-4">
                                             <SearchableSelect
