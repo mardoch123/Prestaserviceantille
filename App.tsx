@@ -471,6 +471,35 @@ const AppLayout: React.FC = () => {
                 });
                 pushListenersRef.current.push(actionListener);
 
+                const localActionListener = await LocalNotifications.addListener('localNotificationActionPerformed', (event: any) => {
+                    try {
+                        const data: any = event?.notification?.extra || event?.notification?.data || event?.extra || {};
+                        const link = typeof data?.link === 'string' ? String(data.link) : '';
+                        if (!link) return;
+                        if (link.startsWith('document:')) {
+                            const id = String(link.split(':')[1] || '').trim();
+                            if (id) navigate(`/admin/devis/${id}`);
+                            return;
+                        }
+                        if (link.startsWith('mission:')) {
+                            const id = String(link.split(':')[1] || '').trim();
+                            if (id) navigate(`/admin/planning/missions/${id}`);
+                            return;
+                        }
+                        if (link === 'tab:planning') {
+                            navigate('/planning');
+                            return;
+                        }
+                        if (typeof link === 'string' && link.startsWith('/')) {
+                            navigate(link);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn('[local] Action sur notification (parse failed)', e);
+                    }
+                });
+                pushListenersRef.current.push(localActionListener);
+
                 // Create default Android channel (required when using default_notification_channel_id)
                 if (Capacitor.getPlatform() === 'android') {
                     try {

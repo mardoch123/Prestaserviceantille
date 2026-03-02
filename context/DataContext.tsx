@@ -3224,8 +3224,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             const m = missions.find(m => m.id === id);
             if (m) {
-                await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId);
-                await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`);
+                await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId, `mission:${id}`);
+                await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`, undefined, `mission:${id}`);
             }
         }
     };
@@ -3643,7 +3643,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 'Mission à ré-attribuer',
                 `Annulation prestataire: ${m?.providerName} | Motif: ${reason}. Mission remise en "À assigner".`,
                 undefined,
-                'tab:planning'
+                `mission:${id}`
             );
 
             // EMAIL ADMIN
@@ -3656,7 +3656,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             // NOTIF CLIENT
             if (m && m.clientId) {
-                await addNotification('client', 'alert', 'Intervenant Indisponible', `L'intervenant a dû annuler la mission (Motif: ${reason}). Nous recherchons une solution.`, m.clientId);
+                await addNotification('client', 'alert', 'Intervenant Indisponible', `L'intervenant a dû annuler la mission (Motif: ${reason}). Nous recherchons une solution.`, m.clientId, `mission:${id}`);
             }
         }
     };
@@ -3712,15 +3712,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 if (isLate) {
-                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée à moins de 48h. Conformément à nos conditions, la prestation est due à 100%.`, m.clientId);
-                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 100%.`, undefined, 'tab:planning');
+                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée à moins de 48h. Conformément à nos conditions, la prestation est due à 100%.`, m.clientId, `mission:${id}`);
+                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 100%.`, undefined, `mission:${id}`);
                     // EMAIL ADMIN
                     await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
                         clientName: m.clientName,
                         date: m.date
                     });
                 } else {
-                    await addNotification('admin', 'info', 'Mission à ré-attribuer', `Client: ${m.clientName} a annulé le RDV (Délai respecté). Mission remise en "À assigner".`, undefined, 'tab:planning');
+                    await addNotification('admin', 'info', 'Mission à ré-attribuer', `Client: ${m.clientName} a annulé le RDV (Délai respecté). Mission remise en "À assigner".`, undefined, `mission:${id}`);
                     // EMAIL ADMIN
                     await sendEmail(companySettings.email, 'Annulation Client', 'admin_client_cancelled', {
                         clientName: m.clientName,
@@ -3787,7 +3787,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 'Mission attribuée',
                 `Mission attribuée à ${providerName} (${existingMission?.clientName || 'Client'} - ${existingMission?.date || ''} ${existingMission?.startTime || ''}-${existingMission?.endTime || ''}).`,
                 undefined,
-                'tab:planning'
+                `mission:${missionId}`
             );
 
             await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);

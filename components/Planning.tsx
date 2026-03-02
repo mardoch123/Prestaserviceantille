@@ -511,12 +511,12 @@ const Planning: React.FC = () => {
       setMissionForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const calculateDuration = (startDate: string, startTime: string, endDate: string, endTime: string) => {
+  function calculateDuration(startDate: string, startTime: string, endDate: string, endTime: string) {
       const start = dayjs.tz(`${startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const end = dayjs.tz(`${endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const diffMs = end.valueOf() - start.valueOf();
       return diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
