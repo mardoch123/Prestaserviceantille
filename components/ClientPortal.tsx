@@ -389,6 +389,15 @@ const ClientPortal: React.FC = () => {
             return;
         }
 
+        if (link && link.startsWith('document:')) {
+            const documentId = String(link.split(':')[1] || '').trim();
+            if (documentId) {
+                setActiveTab('docs');
+                openQuoteModal(documentId);
+                return;
+            }
+        }
+
         const isDocNotif =
             link === 'documents' ||
             link === 'tab:docs' ||

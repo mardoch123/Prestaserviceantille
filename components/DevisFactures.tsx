@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { matchesServiceTypeFilterFromText, type ServiceTypeFilter } from '../utils/serviceTypes';
+import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
@@ -86,11 +86,22 @@ const DevisFactures: React.FC = () => {
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => STATUS_OPTIONS.map(s => s.value));
     const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
     const [isStatusColumnFilterOpen, setIsStatusColumnFilterOpen] = useState(false);
+
+    const TYPE_OPTIONS = useMemo(
+        () => [
+            { value: 'Devis', label: 'Devis' },
+            { value: 'Facture', label: 'Facture' },
+        ],
+        []
+    );
+    const [selectedTypes, setSelectedTypes] = useState<string[]>(() => TYPE_OPTIONS.map(t => t.value));
+    const [isTypeColumnFilterOpen, setIsTypeColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
 
     const statusFilterRef = useRef<HTMLDivElement | null>(null);
     const statusColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
+    const typeColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
 
     useEffect(() => {
         const onMouseDown = (e: MouseEvent) => {
@@ -106,11 +117,16 @@ const DevisFactures: React.FC = () => {
                 const root = statusColumnFilterRef.current;
                 if (root && !root.contains(target)) setIsStatusColumnFilterOpen(false);
             }
+
+            if (isTypeColumnFilterOpen) {
+                const root = typeColumnFilterRef.current;
+                if (root && !root.contains(target)) setIsTypeColumnFilterOpen(false);
+            }
         };
 
         document.addEventListener('mousedown', onMouseDown);
         return () => document.removeEventListener('mousedown', onMouseDown);
-    }, [isStatusFilterOpen, isStatusColumnFilterOpen]);
+    }, [isStatusFilterOpen, isStatusColumnFilterOpen, isTypeColumnFilterOpen]);
 
     // Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -442,12 +458,10 @@ const DevisFactures: React.FC = () => {
             const filter = String(state.filter);
             if (filter === 'devis' || filter === 'quote') {
                 setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
-                setColumnFilters(prev => ({
-                    ...prev,
-                    type: 'devis'
-                }));
+                setSelectedTypes(['Devis']);
             } else if (filter === 'all') {
                 setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
+                setSelectedTypes(TYPE_OPTIONS.map(t => t.value));
             } else {
                 setSelectedStatuses([filter]);
             }
@@ -464,7 +478,7 @@ const DevisFactures: React.FC = () => {
         if (state.filter || state.documentId) {
             navigate(location.pathname, { replace: true, state: {} });
         }
-    }, [location.state, location.pathname, documents, navigate, STATUS_OPTIONS]);
+    }, [location.state, location.pathname, documents, navigate, STATUS_OPTIONS, TYPE_OPTIONS]);
 
     const openModal = (mode: 'devis' | 'facture') => {
         setModalMode(mode);
@@ -1858,7 +1872,7 @@ const DevisFactures: React.FC = () => {
                 : trimmedPrefilledRef;
 
             const docToPersist: Document = {
-                id: editingDocumentId || '',
+                id: editingDocumentId || generateUUID(),
                 ref,
                 clientId: selectedClientId,
                 clientName: clientName,
@@ -1938,7 +1952,7 @@ const DevisFactures: React.FC = () => {
                             'Contrat créé et validé',
                             `Votre contrat a été automatiquement généré et validé pour le devis ${docToPersist.ref}. Vous pouvez le télécharger dans votre espace client.`,
                             selectedClientId,
-                            'documents'
+                            `document:${docToPersist.id}`
                         );
                     } else {
                         showToast('Erreur lors de la génération du contrat.', 'error');
@@ -1954,7 +1968,7 @@ const DevisFactures: React.FC = () => {
                     'Nouveau devis reçu',
                     `Vous avez reçu un nouveau devis ${docToPersist.ref} d'un montant de ${docToPersist.totalTTC}€. Consultez-le dans votre espace client.`,
                     selectedClientId,
-                    'documents'
+                    `document:${docToPersist.id}`
                 );
             }
 
@@ -2230,34 +2244,26 @@ const DevisFactures: React.FC = () => {
     const filteredDocs = useMemo(() => {
         let docs = [...allDocs]; // Copie pour éviter les mutations
 
-        // Filtrage global par type de service
+        // Filtrage global par type de service (uniquement via champ serviceType / category)
         docs = docs.filter(doc => {
+            if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
+
+            const category = String((doc as any)?.category || '').trim().toLowerCase();
+            const persisted = String((doc as any)?.serviceType || (doc as any)?.service_type || '').trim();
+
             if (serviceTypeFilter === 'Personnalisé') {
-                const category = String((doc as any)?.category || '').trim().toLowerCase();
-                if (category === 'custom') return true;
-                const persisted = String((doc as any)?.serviceType || '').trim();
                 if (persisted === 'Personnalisé') return true;
-                const hasCustomLines = Array.isArray((doc as any)?.customLines) && ((doc as any).customLines?.length || 0) > 0;
-                const hasCustomDescription = !!String((doc as any)?.customDescription || '').trim();
-                return hasCustomLines || hasCustomDescription;
+                return category === 'custom';
             }
 
-            const persisted = String((doc as any)?.serviceType || '').trim();
-            if (persisted && persisted === serviceTypeFilter) return true;
-
-            const rawDesc = String((doc as any)?.description || '');
-            const packNameRaw = String(((doc as any)?.packName || '') as any).trim();
-            const packFromId = (doc as any)?.packId
-                ? packs.find((p: any) => String(p?.id || '') === String((doc as any)?.packId || ''))
-                : undefined;
-            const combinedText = [rawDesc, packNameRaw, packFromId?.name || '', packFromId?.description || '']
-                .filter(Boolean)
-                .join(' ');
-            return matchesServiceTypeFilterFromText(combinedText, serviceTypeFilter);
+            return persisted === serviceTypeFilter;
         });
         
         // Filtrage par statut (cases à cocher)
         docs = docs.filter(doc => selectedStatuses.includes(String((doc as any)?.status || '')));
+
+        // Filtrage par type (Devis/Facture)
+        docs = docs.filter(doc => selectedTypes.includes(String((doc as any)?.type || '')));
         
         // Filtrage par recherche
         if (searchQuery) {
@@ -2273,14 +2279,13 @@ const DevisFactures: React.FC = () => {
         });
         
         return docs;
-    }, [selectedStatuses, searchQuery, allDocs, sortOrder, serviceTypeFilter]);
+    }, [selectedStatuses, selectedTypes, searchQuery, allDocs, sortOrder, serviceTypeFilter]);
 
     // Filtres par colonne (tableau)
     const [columnFilters, setColumnFilters] = useState({
         ref: '',
         client: '',
         date: '',
-        type: '',
         pack: '',
         ttc: '',
         status: ''
@@ -2318,11 +2323,6 @@ const DevisFactures: React.FC = () => {
         if (columnFilters.date) {
             const q = columnFilters.date.toLowerCase();
             result = result.filter(d => (d.date || '').toLowerCase().includes(q));
-        }
-
-        if (columnFilters.type) {
-            const q = columnFilters.type.toLowerCase();
-            result = result.filter(d => (d.type || '').toLowerCase().includes(q));
         }
 
         if (columnFilters.pack) {
@@ -2907,13 +2907,68 @@ const DevisFactures: React.FC = () => {
                                         className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
                                     />
                                 </th>
-                                <th className="px-6 py-2">
-                                    <input
-                                        value={columnFilters.type}
-                                        onChange={(e) => setColumnFilters(prev => ({ ...prev, type: e.target.value }))}
-                                        placeholder="Type..."
-                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium text-slate-700 bg-white"
-                                    />
+                                <th ref={typeColumnFilterRef} className="px-6 py-2 relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsTypeColumnFilterOpen(v => !v)}
+                                        className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 flex items-center justify-between"
+                                    >
+                                        <span>Type</span>
+                                        <span className="text-[11px] font-bold text-slate-500">
+                                            {selectedTypes.length === TYPE_OPTIONS.length ? 'Tous' : `${selectedTypes.length}/${TYPE_OPTIONS.length}`}
+                                        </span>
+                                    </button>
+
+                                    {isTypeColumnFilterOpen ? (
+                                        <div className="absolute left-0 mt-2 w-[220px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedTypes(TYPE_OPTIONS.map(t => t.value))}
+                                                    className="text-xs font-bold text-brand-blue hover:underline"
+                                                >
+                                                    Tout cocher
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedTypes([])}
+                                                    className="text-xs font-bold text-slate-500 hover:underline"
+                                                >
+                                                    Tout décocher
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                {TYPE_OPTIONS.map(opt => {
+                                                    const checked = selectedTypes.includes(opt.value);
+                                                    return (
+                                                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer select-none">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => {
+                                                                    setSelectedTypes(prev => {
+                                                                        if (prev.includes(opt.value)) {
+                                                                            return prev.filter(v => v !== opt.value);
+                                                                        }
+                                                                        return [...prev, opt.value];
+                                                                    });
+                                                                }}
+                                                                className="h-4 w-4"
+                                                            />
+                                                            <span className="text-sm text-slate-700">{opt.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {selectedTypes.length === 0 ? (
+                                                <div className="mt-3 text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg p-2">
+                                                    Aucun type sélectionné: aucun document ne sera affiché.
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </th>
                                 <th className="px-6 py-2">
                                     <input

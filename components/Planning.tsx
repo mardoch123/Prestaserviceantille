@@ -102,6 +102,7 @@ const Planning: React.FC = () => {
 
   const lastRangeRef = useRef<string>('');
   const pendingRangeRef = useRef<string>('');
+  const backgroundRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
       let startStr = '';
@@ -158,6 +159,34 @@ const Planning: React.FC = () => {
       return () => {
           active = false;
       };
+  }, [customDateRange, startDate, endDate, weekStart, weekEnd, loadMissionsForRange]);
+
+  useEffect(() => {
+      if (!loadMissionsForRange) return;
+
+      let startStr = '';
+      let endStr = '';
+      if (customDateRange && startDate && endDate) {
+          startStr = startDate;
+          endStr = endDate;
+      } else {
+          startStr = weekStart.format('YYYY-MM-DD');
+          endStr = weekEnd.format('YYYY-MM-DD');
+      }
+      if (!startStr || !endStr) return;
+
+      const interval = setInterval(async () => {
+          if (backgroundRefreshInFlightRef.current) return;
+          backgroundRefreshInFlightRef.current = true;
+          try {
+              await loadMissionsForRange(startStr, endStr);
+          } catch {
+          } finally {
+              backgroundRefreshInFlightRef.current = false;
+          }
+      }, 5000);
+
+      return () => clearInterval(interval);
   }, [customDateRange, startDate, endDate, weekStart, weekEnd, loadMissionsForRange]);
 
   const encouragementMessages = [
@@ -256,7 +285,13 @@ const Planning: React.FC = () => {
           .filter(d => d.type === 'Devis')
           .filter(d => d.status === 'sent')
           .filter(d => !isQuoteExpired(d))
-          .filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter))
+          .filter(d => {
+              if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
+              const category = String((d as any)?.category || '').trim().toLowerCase();
+              const persisted = String((d as any)?.serviceType || (d as any)?.service_type || '').trim();
+              if (serviceTypeFilter === 'Personnalisé') return persisted === 'Personnalisé' || category === 'custom';
+              return persisted === serviceTypeFilter;
+          })
           .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
           .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
               id: `provisional-${d.id}-${index}-${slot?.date || 'no-date'}-${slot?.startTime || 'no-start'}`,
@@ -322,9 +357,41 @@ const Planning: React.FC = () => {
   const missionsCountWeek = filteredMissions.length; 
   const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
 
-  const totalHoursToday = missions
-      .filter(m => m.date === today)
-      .reduce((acc, m) => acc + m.duration, 0);
+  const totalHoursToday = useMemo(() => {
+      const computeDuration = (date: string, startTime: string, endTime: string, fallback: any) => {
+          const start = String(startTime || '').trim();
+          const end = String(endTime || '').trim();
+          const d = String(date || '').trim();
+          if (d && start && end) {
+              const endDate = end < start ? dayjs.tz(d, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).add(1, 'day').format('YYYY-MM-DD') : d;
+              const v = calculateDuration(d, start, endDate, end);
+              if (Number.isFinite(v) && v > 0) return v;
+          }
+          const f = Number(fallback);
+          return Number.isFinite(f) && f > 0 ? f : 0;
+      };
+
+      const missionsHours = (missions || [])
+          .filter(m => String(m?.date || '') === today)
+          .filter(m => String((m as any)?.status || '') !== 'cancelled')
+          .reduce((acc, m: any) => acc + computeDuration(m.date, m.startTime, m.endTime, m.duration), 0);
+
+      const provisionalHours = (documents || [])
+          .filter((d: any) => d?.type === 'Devis')
+          .filter((d: any) => d?.status === 'sent')
+          .filter((d: any) => !isQuoteExpired(d))
+          .filter((d: any) => Array.isArray(d?.slotsData) && d.slotsData.length > 0)
+          .flatMap((d: any) => (d.slotsData || []).map((slot: any) => ({
+              date: slot?.date,
+              startTime: slot?.startTime,
+              endTime: slot?.endTime,
+              duration: slot?.duration
+          })))
+          .filter((s: any) => String(s?.date || '') === today)
+          .reduce((acc: number, s: any) => acc + computeDuration(s.date, s.startTime, s.endTime, s.duration), 0);
+
+      return Number((missionsHours + provisionalHours).toFixed(2));
+  }, [missions, documents, today, isQuoteExpired]);
 
   const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);

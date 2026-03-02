@@ -102,7 +102,13 @@ const Dashboard: React.FC = () => {
   }, [missions, serviceTypeFilter]);
 
   const serviceFilteredDocuments = useMemo(() => {
-    return documents.filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter));
+    return documents.filter(d => {
+      if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
+      const category = String((d as any)?.category || '').trim().toLowerCase();
+      const persisted = String((d as any)?.serviceType || (d as any)?.service_type || '').trim();
+      if (serviceTypeFilter === 'Personnalisé') return persisted === 'Personnalisé' || category === 'custom';
+      return persisted === serviceTypeFilter;
+    });
   }, [documents, serviceTypeFilter]);
 
   // Données filtrées par temps

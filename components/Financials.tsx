@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
   Euro, 
   Filter, 
@@ -30,7 +29,13 @@ const Financials: React.FC = () => {
   const filteredTransactions = useMemo(() => {
     // Transform Documents (Invoices) into Transactions for display
     const transactions = documents
-        .filter(d => matchesServiceTypeFilterFromText(d.description, serviceTypeFilter))
+        .filter(d => {
+            if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
+            const category = String((d as any)?.category || '').trim().toLowerCase();
+            const persisted = String((d as any)?.serviceType || (d as any)?.service_type || '').trim();
+            if (serviceTypeFilter === 'Personnalisé') return persisted === 'Personnalisé' || category === 'custom';
+            return persisted === serviceTypeFilter;
+        })
         .filter(d => d.type === 'Facture') 
         .map(d => ({
             id: d.id,

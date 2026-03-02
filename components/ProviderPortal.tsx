@@ -235,8 +235,15 @@ const ProviderPortal: React.FC = () => {
 
   const handleNotificationClick = (notif: any) => {
       markNotificationRead(notif.id);
-      if (notif.link && notif.link.startsWith('mission:')) {
+      const link = typeof notif?.link === 'string' ? String(notif.link) : '';
+      if (link.startsWith('mission:')) {
           setActiveTab('dashboard');
+      } else if (link === 'tab:live') {
+          setActiveTab('live');
+      } else if (link === 'tab:scans') {
+          setActiveTab('scans');
+      } else if (link === 'tab:leaves') {
+          setActiveTab('leaves');
       }
       setShowNotifDropdown(false);
       setShowAllNotifsModal(false);

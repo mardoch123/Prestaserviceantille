@@ -687,8 +687,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const serviceTypeOptions = useMemo(() => {
         const items: Array<{ text?: string | null }> = [];
         (missions || []).forEach((m: any) => items.push({ text: m?.service }));
-        (documents || []).forEach((d: any) => items.push({ text: d?.description }));
-        (packs || []).forEach((p: any) => items.push({ text: `${p?.mainService || ''} ${p?.name || ''}`.trim() }));
+        (documents || []).forEach((d: any) => items.push({ text: (d as any)?.serviceType || (d as any)?.service_type }));
+        (packs || []).forEach((p: any) => items.push({ text: p?.mainService }));
 
         const opts = getServiceTypeOptions(items);
         if (!opts.includes('Personnalisé' as any)) {
@@ -1887,7 +1887,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             signatureDate: d.signature_date || d.signatureDate,
                             recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
                             frequency: d.frequency,
-                            packId: d.pack_id || d.packId
+                            packId: d.pack_id || d.packId,
+                            serviceType: d.service_type || d.serviceType
                         })));
                     }
                     if (packData) {
