@@ -52,6 +52,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
 
   const canUse = useMemo(() => isSupabaseConfigured, []);
 
@@ -64,11 +65,17 @@ const AdminCustomerRequestsPage: React.FC = () => {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let q = supabase
         .from('mkt_customer_requests')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
+
+      if (!showArchived) {
+        q = q.not('status', 'in', '("closed","spam")');
+      }
+
+      const { data, error } = await q;
 
       if (error || !data) {
         setRows([]);
@@ -130,6 +137,11 @@ const AdminCustomerRequestsPage: React.FC = () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchived]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -212,7 +224,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
     });
   };
 
-  const bulkDeleteSelected = async () => {
+  const bulkArchiveSelected = async () => {
     if (!canUse) return;
     if (saving) return;
     if (selectedIds.size === 0) return;
@@ -223,13 +235,10 @@ const AdminCustomerRequestsPage: React.FC = () => {
     setSaving(true);
     try {
       const ids = Array.from(selectedIds);
-      try {
-        await supabase.from('mkt_customer_request_events').delete().in('request_id', ids);
-      } catch {
-        // ignore
-      }
-
-      await supabase.from('mkt_customer_requests').delete().in('id', ids);
+      await supabase
+        .from('mkt_customer_requests')
+        .update({ status: 'closed' })
+        .in('id', ids);
 
       setSelectedIds(new Set());
       if (selectedId && ids.includes(selectedId)) {
@@ -262,6 +271,15 @@ const AdminCustomerRequestsPage: React.FC = () => {
               <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
                 <input
                   type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                />
+                Supprimées
+              </label>
+
+              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                <input
+                  type="checkbox"
                   checked={allSelected}
                   onChange={toggleSelectAll}
                 />
@@ -269,7 +287,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
               </label>
 
               <button
-                onClick={bulkDeleteSelected}
+                onClick={bulkArchiveSelected}
                 disabled={saving || selectedIds.size === 0}
                 className="inline-flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-xl font-extrabold hover:bg-red-700 disabled:opacity-60"
               >
