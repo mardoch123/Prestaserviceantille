@@ -90,9 +90,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       // Redirections intelligentes selon le type de notification
       if (typeof notif.link === 'string' && notif.link.startsWith('/')) {
           navigate(notif.link);
+      } else if (notif.link && notif.link.startsWith('document:')) {
+          const documentId = String(notif.link.split(':')[1] || '').trim();
+          if (documentId) navigate(`/admin/devis/${documentId}`);
       } else if (notif.link && notif.link.startsWith('mission:')) {
-          const missionId = notif.link.split(':')[1];
-          setSelectedMissionReportId(missionId);
+          const missionId = String(notif.link.split(':')[1] || '').trim();
+          if (missionId) navigate(`/admin/planning/missions/${missionId}`);
       } else if (notif.link && notif.link.startsWith('tab:planning:mission-change:')) {
           const requestId = notif.link.split(':').pop();
           navigate('/planning', { state: { missionChangeRequestId: requestId || undefined } });
@@ -108,9 +111,6 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           navigate('/secretariat', { state: { tab: 'live-videos' } });
       } else if (notif.link === 'tab:docs') {
           navigate('/invoices', { state: { filter: 'devis' } });
-      } else if (notif.link && notif.link.startsWith('document:')) {
-          const documentId = notif.link.split(':')[1];
-          navigate('/invoices', { state: { documentId, filter: 'devis' } });
       } else if (notif.title && notif.title.toLowerCase().includes('devis')) {
           navigate('/invoices', { state: { filter: 'devis' } });
       } else if (notif.title && (notif.title.toLowerCase().includes('planning') || notif.title.toLowerCase().includes('créneau') || notif.title.toLowerCase().includes('verrouillé'))) {

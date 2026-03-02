@@ -294,6 +294,7 @@ interface DataContextType {
     respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
     loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<boolean>;
     getMissionDetails: (id: string) => Promise<Mission | null>;
+    getDocumentDetails: (id: string) => Promise<Document | null>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -2315,6 +2316,44 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    const getDocumentDetails = async (id: string): Promise<Document | null> => {
+        if (!id) return null;
+        try {
+            const { data, error } = await supabase.from('documents').select('*').eq('id', id).single();
+            if (error || !data) return null;
+            const d: any = data;
+            const mapped: Document = {
+                ...d,
+                clientId: d.client_id,
+                clientName: d.client_name,
+                unitPrice: d.unit_price,
+                tvaRate: d.tva_rate,
+                totalHT: d.total_ht,
+                totalTTC: d.total_ttc,
+                taxCreditEnabled: d.tax_credit_enabled,
+                slotsData: d.slots_data,
+                reminderSent: d.reminder_sent,
+                signatureData: d.signature_data,
+                signatureDate: d.signature_date,
+                recurrenceEndDate: d.recurrence_end_date,
+                packId: d.pack_id,
+                serviceType: d.service_type
+            } as any;
+
+            setDocuments(prev => {
+                const byId = new Map<string, Document>();
+                (prev || []).forEach(p => byId.set(String(p.id), p));
+                byId.set(String(mapped.id), mapped);
+                return Array.from(byId.values());
+            });
+
+            return mapped;
+        } catch (e) {
+            console.error('Error fetching document details:', e);
+            return null;
+        }
+    };
+
     const updateMission = async (id: string, data: Partial<Mission>) => {
         if (isDemoMode) {
             demoBlocked();
@@ -3147,7 +3186,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 'Nouvelle Mission',
                 `Mission créée: ${newMission.clientName} | ${newMission.date} ${newMission.startTime}-${newMission.endTime} | Prestataire: ${newMission.providerName || 'À assigner'}.`,
                 undefined,
-                'tab:planning'
+                `mission:${newMission.id}`
             );
 
             if (newMission.providerId) {
@@ -6297,7 +6336,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              requestMissionReschedule,
             respondToMissionReschedule,
             loadMissionsForRange,
-            getMissionDetails
+            getMissionDetails,
+            getDocumentDetails
          }}>
              {children}
          </DataContext.Provider>

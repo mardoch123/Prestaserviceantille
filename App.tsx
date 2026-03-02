@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -14,6 +14,8 @@ import Financials from './components/Financials';
 import Reservations from './components/Reservations';
 import Settings from './components/Settings';
 import QRCodeManager from './components/QRCodeManager';
+import AdminDevisDetails from './components/AdminDevisDetails';
+import AdminMissionDetails from './components/AdminMissionDetails';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
 import MissionReports from './components/MissionReports';
@@ -264,6 +266,7 @@ const LoadingScreen = ({ mode }: { mode?: 'app' | 'sync' }) => {
 const AppLayout: React.FC = () => {
     const { currentUser, loading, isOnline } = useData();
     const location = useLocation();
+    const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isManualReload, setIsManualReload] = useState(false);
     const pushListenersRef = useRef<PluginListenerHandle[]>([]);
@@ -436,7 +439,35 @@ const AppLayout: React.FC = () => {
                 pushListenersRef.current.push(receivedListener);
 
                 const actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-                    console.info('[push] Action sur notification', notification);
+                    try {
+                        const data: any = (notification as any)?.notification?.data || (notification as any)?.notification?.extra || (notification as any)?.data || {};
+                        const link = typeof data?.link === 'string' ? String(data.link) : '';
+                        if (!link) {
+                            console.info('[push] Action sur notification (sans lien)', notification);
+                            return;
+                        }
+                        if (link.startsWith('document:')) {
+                            const id = String(link.split(':')[1] || '').trim();
+                            if (id) navigate(`/admin/devis/${id}`);
+                            return;
+                        }
+                        if (link.startsWith('mission:')) {
+                            const id = String(link.split(':')[1] || '').trim();
+                            if (id) navigate(`/admin/planning/missions/${id}`);
+                            return;
+                        }
+                        if (link === 'tab:planning') {
+                            navigate('/planning');
+                            return;
+                        }
+                        if (typeof link === 'string' && link.startsWith('/')) {
+                            navigate(link);
+                            return;
+                        }
+                        console.info('[push] Action sur notification (lien non supporté)', { link });
+                    } catch (e) {
+                        console.warn('[push] Action sur notification (parse failed)', e);
+                    }
                 });
                 pushListenersRef.current.push(actionListener);
 
@@ -610,6 +641,8 @@ const AppLayout: React.FC = () => {
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/qrcode" element={<QRCodeManager />} />
+                        <Route path="/admin/devis/:devisId" element={<AdminDevisDetails />} />
+                        <Route path="/admin/planning/missions/:missionId" element={<AdminMissionDetails />} />
                         <Route path="/parrainage/devenir-parrain-client" element={<BecomeReferrerClientPage />} />
                         <Route path="/statistics" element={<Statistics />} />
                         <Route path="/clients" element={<Clients />} />

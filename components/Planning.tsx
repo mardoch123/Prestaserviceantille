@@ -24,6 +24,7 @@ const Planning: React.FC = () => {
   const [customDateRange, setCustomDateRange] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [focusedDate, setFocusedDate] = useState(getMartiniqueToday());
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   const [planningLoading, setPlanningLoading] = useState(false);
@@ -99,6 +100,56 @@ const Planning: React.FC = () => {
   };
 
   const { start: weekStart, end: weekEnd } = useMemo(() => getWeekRange(currentWeekOffset), [currentWeekOffset]);
+
+  const { rangeStartStr, rangeEndStr } = useMemo(() => {
+      if (customDateRange && startDate && endDate) {
+          return { rangeStartStr: startDate, rangeEndStr: endDate };
+      }
+      return { rangeStartStr: weekStart.format('YYYY-MM-DD'), rangeEndStr: weekEnd.format('YYYY-MM-DD') };
+  }, [customDateRange, startDate, endDate, weekStart, weekEnd]);
+
+  const colDates = useMemo(() => {
+      const base = Array.from({ length: 6 }, () => '');
+      if (!rangeStartStr || !rangeEndStr) return base;
+
+      if (!customDateRange) {
+          return [0, 1, 2, 3, 4, 5].map(i => weekStart.add(i, 'day').format('YYYY-MM-DD'));
+      }
+
+      const start = dayjs.tz(rangeStartStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const end = dayjs.tz(rangeEndStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const byCol = new Map<number, string>();
+      let cursor = start;
+      while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
+          const dateStr = cursor.format('YYYY-MM-DD');
+          const dow = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          const col = dow === 0 ? 5 : dow - 1;
+          if (!byCol.has(col)) byCol.set(col, dateStr);
+          cursor = cursor.add(1, 'day');
+      }
+      return [0, 1, 2, 3, 4, 5].map(i => byCol.get(i) || '');
+  }, [customDateRange, rangeStartStr, rangeEndStr, weekStart]);
+
+  useEffect(() => {
+      const startStr = String(rangeStartStr || '').trim();
+      const endStr = String(rangeEndStr || '').trim();
+      if (!startStr || !endStr) return;
+
+      const isInRange = (dateStr: string) => {
+          const d = String(dateStr || '').trim();
+          if (!d) return false;
+          return d >= startStr && d <= endStr;
+      };
+
+      if (customDateRange && startDate && endDate && startDate === endDate) {
+          setFocusedDate(startDate);
+          return;
+      }
+
+      if (!isInRange(focusedDate)) {
+          setFocusedDate(startStr);
+      }
+  }, [customDateRange, startDate, endDate, rangeStartStr, rangeEndStr, focusedDate]);
 
   const lastRangeRef = useRef<string>('');
   const pendingRangeRef = useRef<string>('');
@@ -352,8 +403,8 @@ const Planning: React.FC = () => {
   }, [planningLoading, filteredMissions.length, filteredProvisionalMissions.length, filteredReminders.length]);
 
   // Stats Logic
-  const today = getMartiniqueToday();
-  const missionsCountToday = missions.filter(m => m.date === today).length; 
+  const statsDate = focusedDate || getMartiniqueToday();
+  const missionsCountToday = missions.filter(m => String(m.date || '') === String(statsDate)).length; 
   const missionsCountWeek = filteredMissions.length; 
   const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
 
@@ -372,7 +423,7 @@ const Planning: React.FC = () => {
       };
 
       const missionsHours = (missions || [])
-          .filter(m => String(m?.date || '') === today)
+          .filter(m => String(m?.date || '') === statsDate)
           .filter(m => String((m as any)?.status || '') !== 'cancelled')
           .reduce((acc, m: any) => acc + computeDuration(m.date, m.startTime, m.endTime, m.duration), 0);
 
@@ -387,11 +438,11 @@ const Planning: React.FC = () => {
               endTime: slot?.endTime,
               duration: slot?.duration
           })))
-          .filter((s: any) => String(s?.date || '') === today)
+          .filter((s: any) => String(s?.date || '') === statsDate)
           .reduce((acc: number, s: any) => acc + computeDuration(s.date, s.startTime, s.endTime, s.duration), 0);
 
       return Number((missionsHours + provisionalHours).toFixed(2));
-  }, [missions, documents, today, isQuoteExpired]);
+  }, [missions, documents, statsDate, isQuoteExpired]);
 
   const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);
@@ -1287,9 +1338,15 @@ const Planning: React.FC = () => {
                     ) : (
                         mobilePlanningDays.map(({ dateStr, remindersForDate, provisionalForDate, missionsForDate }) => (
                             <div key={dateStr} className="border border-slate-200 rounded-lg overflow-hidden">
-                                <div className="bg-slate-100 px-4 py-2 font-bold text-slate-800 text-sm">
+                                <button
+                                    type="button"
+                                    onClick={() => setFocusedDate(dateStr)}
+                                    className={`w-full text-left px-4 py-2 font-bold text-sm flex items-center justify-between ${dateStr === statsDate ? 'bg-brand-blue text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
+                                    title="Utiliser ce jour pour les statistiques"
+                                >
                                     {new Date(`${dateStr}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
-                                </div>
+                                    {dateStr === statsDate ? <span className="text-xs font-bold">Sélectionné</span> : <span className="text-xs font-bold opacity-70">Sélectionner</span>}
+                                </button>
                                 <div className="p-3 space-y-2 bg-white">
                                     {remindersForDate.map((r: any) => (
                                         <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-3 rounded shadow-sm text-sm">
@@ -1368,8 +1425,24 @@ const Planning: React.FC = () => {
 
                 {/* Desktop calendar view */}
                 <div className="hidden md:block min-w-[900px]">
-                    <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold text-slate-800 py-2">
-                        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(d => <div key={d}>{d}</div>) }
+                    <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold py-2">
+                        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map((d, idx) => {
+                            const dateStr = colDates[idx] || '';
+                            const isSelected = dateStr && dateStr === statsDate;
+                            return (
+                                <button
+                                    key={d}
+                                    type="button"
+                                    onClick={() => dateStr && setFocusedDate(dateStr)}
+                                    disabled={!dateStr}
+                                    className={`px-2 py-1 rounded-md mx-2 transition ${isSelected ? 'bg-brand-blue text-white' : 'text-slate-800 hover:bg-slate-200'} ${!dateStr ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    title="Utiliser ce jour pour les statistiques"
+                                >
+                                    <div className="text-sm">{d}</div>
+                                    <div className={`text-[11px] ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>{dateStr ? dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM') : '—'}</div>
+                                </button>
+                            );
+                        })}
                     </div>
                     <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
                      {[0,1,2,3,4,5].map(colIndex => (
@@ -1504,7 +1577,7 @@ const Planning: React.FC = () => {
        {/* Footer Stats - Updated to reflect filtered items */}
        <div className="bg-slate-200 p-4 mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center font-bold text-slate-800 rounded-lg">
             <div className="flex items-center justify-between sm:justify-start gap-2">
-                <span>Total heures (Auj.) :</span>
+                <span>Total heures ({dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}) :</span>
                 <span className="text-xl">{totalHoursToday}h</span>
             </div>
             <div className="flex items-center justify-between sm:justify-start gap-2">
