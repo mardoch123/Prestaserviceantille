@@ -44,35 +44,16 @@ export default async function handler(req, res) {
       last_seen_at: new Date().toISOString(),
     };
 
-    // Prefer composite conflict key, but be tolerant if the DB doesn't have the matching unique constraint yet.
-    let upsertError = null;
-    {
-      const { error } = await admin
-        .from('device_tokens')
-        .upsert(payload, { onConflict: 'user_id,token' });
-      upsertError = error;
-    }
+    const { error: upsertError } = await admin
+      .from('device_tokens')
+      .upsert(payload, { onConflict: 'token' });
 
     if (upsertError) {
-      const msg = String(upsertError.message || '').toLowerCase();
-      const needsConstraint = msg.includes('no unique') || msg.includes('on conflict') || msg.includes('constraint');
-
-      if (needsConstraint) {
-        const { error: retryError } = await admin
-          .from('device_tokens')
-          .upsert(payload, { onConflict: 'token' });
-
-        if (retryError) {
-          res.status(500).json({
-            error: retryError.message,
-            hint: "Add a UNIQUE constraint on device_tokens.token (or on (user_id, token)) to make upserts reliable.",
-          });
-          return;
-        }
-      } else {
-        res.status(500).json({ error: upsertError.message });
-        return;
-      }
+      res.status(500).json({
+        error: upsertError.message,
+        hint: "Add a UNIQUE constraint on device_tokens.token to make upserts reliable.",
+      });
+      return;
     }
 
     res.status(204).send();

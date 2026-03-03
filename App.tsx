@@ -309,6 +309,12 @@ const AppLayout: React.FC = () => {
             return;
         }
 
+        const ensureSessionAvailable = async () => {
+            const supabase = (await import('./utils/supabaseClient')).supabase;
+            const { data } = await supabase.auth.getSession();
+            return !!data.session?.access_token;
+        };
+
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
         const sendDeviceToken = async (tokenValue: string): Promise<boolean> => {
@@ -387,6 +393,12 @@ const AppLayout: React.FC = () => {
 
         const initPush = async () => {
             try {
+                const hasSession = await ensureSessionAvailable();
+                if (!hasSession) {
+                    console.warn('[push] Session Supabase absente: enregistrement du device token impossible.');
+                    return;
+                }
+
                 const permission = await PushNotifications.checkPermissions();
                 if (permission.receive !== 'granted') {
                     const request = await PushNotifications.requestPermissions();
@@ -414,13 +426,6 @@ const AppLayout: React.FC = () => {
                         platform: Capacitor.getPlatform(),
                         tokenPreview: `${token.value.slice(0, 12)}...${token.value.slice(-6)}`,
                     });
-
-                    if (
-                        pushTokenRef.current === token.value &&
-                        pushRegisteredUserRef.current === currentUser.id
-                    ) {
-                        return;
-                    }
 
                     pushTokenRef.current = token.value;
                     pushRegisteredUserRef.current = currentUser.id;
@@ -519,6 +524,10 @@ const AppLayout: React.FC = () => {
                 }
 
                 await PushNotifications.register();
+
+                if (pushTokenRef.current) {
+                    await sendDeviceTokenWithRetry(pushTokenRef.current);
+                }
             } catch (error) {
                 console.error('[push] Erreur lors de l\'initialisation des notifications push', error);
             }

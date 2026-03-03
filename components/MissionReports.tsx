@@ -1,7 +1,8 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { 
     Search, 
     Filter, 
@@ -14,6 +15,7 @@ import {
     Video, 
     MessageSquare, 
     MapPin,
+    Phone,
     Clock,
     AlertTriangle,
     Download
@@ -21,15 +23,90 @@ import {
 import { Mission } from '../types';
 
 const MissionReports: React.FC = () => {
-    const { missions, serviceTypeFilter } = useData();
+    const { missions, serviceTypeFilter, dataLoading, getMissionDetails, clients } = useData();
+    const [reportMissions, setReportMissions] = useState<Mission[]>([]);
+    const [loadingReports, setLoadingReports] = useState(false);
+    const [reportsError, setReportsError] = useState('');
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [detailsError, setDetailsError] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
+    useEffect(() => {
+        let active = true;
+        const load = async () => {
+            if (!isSupabaseConfigured) {
+                setReportMissions([]);
+                return;
+            }
+            setLoadingReports(true);
+            setReportsError('');
+            try {
+                const { data: sessionData } = await supabase.auth.getSession();
+                if (!sessionData?.session) {
+                    setReportsError('Session Supabase absente: impossible de charger les rapports.');
+                    setReportMissions([]);
+                    return;
+                }
+
+                const countRes = await supabase
+                    .from('mission_reports')
+                    .select('id', { count: 'exact', head: true });
+
+                if (countRes.error) {
+                    setReportsError(String((countRes.error as any)?.message || 'Erreur count rapports'));
+                    setReportMissions([]);
+                    return;
+                }
+
+                const { data, error } = await supabase
+                    .from('mission_reports')
+                    .select('id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,report_sent,start_photos_count,end_photos_count,has_end_video')
+                    .order('date', { ascending: false })
+                    .order('start_time', { ascending: false })
+                    .limit(1000);
+                if (!active) return;
+                if (error) {
+                    const hint = (countRes.count && countRes.count > 0) ? ` (count=${countRes.count})` : '';
+                    setReportsError(`${String((error as any)?.message || 'Erreur chargement rapports')}${hint}`);
+                    setReportMissions([]);
+                    return;
+                }
+                if (!Array.isArray(data)) {
+                    setReportMissions([]);
+                    return;
+                }
+                setReportMissions(
+                    data.map((m: any) => ({
+                        ...m,
+                        startTime: m.start_time || m.startTime,
+                        endTime: m.end_time || m.endTime,
+                        clientId: m.client_id || m.clientId,
+                        clientName: m.client_name || m.clientName,
+                        providerId: m.provider_id || m.providerId,
+                        providerName: m.provider_name || m.providerName,
+                        reportSent: m.report_sent || m.reportSent,
+                        endPhotos: Array.isArray((m as any).end_photos) ? (m as any).end_photos : undefined,
+                        endVideo: (m as any).has_end_video ? '1' : undefined,
+                    }))
+                );
+            } finally {
+                if (active) setLoadingReports(false);
+            }
+        };
+
+        load();
+        return () => {
+            active = false;
+        };
+    }, []);
+
     // Filter only completed missions
     const completedMissions = useMemo(() => {
-        let result = missions
+        const base = (reportMissions.length ? reportMissions : missions);
+        let result = base
             .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
             .filter(m => m.status === 'completed');
         
@@ -44,16 +121,37 @@ const MissionReports: React.FC = () => {
         
         // Sort by date desc
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [missions, searchQuery, serviceTypeFilter]);
+    }, [missions, reportMissions, searchQuery, serviceTypeFilter]);
+
+    const getClientInfo = (clientId?: string | null) => {
+        if (!clientId) return null;
+        return clients.find(c => String(c.id) === String(clientId)) || null;
+    };
 
     const openReport = (mission: Mission) => {
         setSelectedMission(mission);
         setIsModalOpen(true);
+        setDetailsError('');
+        setDetailsLoading(true);
+        void (async () => {
+            try {
+                const detailed = await getMissionDetails(String(mission.id));
+                if (detailed) {
+                    setSelectedMission(detailed);
+                } else {
+                    setDetailsError("Impossible de charger le détail de la mission (photos)." );
+                }
+            } finally {
+                setDetailsLoading(false);
+            }
+        })();
     };
 
     const closeReport = () => {
         setIsModalOpen(false);
         setTimeout(() => setSelectedMission(null), 300);
+        setDetailsError('');
+        setDetailsLoading(false);
     };
 
     const handleDownloadAllImages = (urls: string[]) => {
@@ -85,6 +183,13 @@ const MissionReports: React.FC = () => {
                     <CheckCircle className="w-5 h-5 text-green-600" />
                     <span>{completedMissions.length} Missions terminées</span>
                 </div>
+
+                <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                    <span>Total chargées: {(reportMissions.length ? reportMissions.length : missions.length)}</span>
+                    {serviceTypeFilter && serviceTypeFilter !== 'all' ? (
+                        <span>Filtre global: {serviceTypeFilter}</span>
+                    ) : null}
+                </div>
                 
                 <div className="relative w-full md:w-96">
                     <input 
@@ -100,6 +205,16 @@ const MissionReports: React.FC = () => {
 
             {/* Missions List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {reportsError ? (
+                    <div className="px-6 py-3 bg-red-50 text-red-700 text-xs font-bold border-b border-red-100">
+                        {reportsError}
+                    </div>
+                ) : null}
+                {(dataLoading || loadingReports) ? (
+                    <div className="p-10 flex items-center justify-center">
+                        <div className="w-10 h-10 border-4 border-brand-blue border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : (
                 <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
                         <tr>
@@ -147,18 +262,25 @@ const MissionReports: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex justify-center items-center gap-2">
-                                            {m.endPhotos && m.endPhotos.length > 0 ? (
+                                            {(() => {
+                                                const v: any = m as any;
+                                                const count = typeof v.end_photos_count === 'number' ? v.end_photos_count : (m.endPhotos?.length || 0);
+                                                if (count > 0) {
+                                                    return (
                                                 <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-200 flex items-center gap-1">
-                                                    <Camera className="w-3 h-3" /> {m.endPhotos.length}
+                                                    <Camera className="w-3 h-3" /> {count}
                                                 </span>
-                                            ) : (
+                                                    );
+                                                }
+                                                return (
                                                 <span className="bg-red-50 text-red-400 px-2 py-1 rounded-full text-[10px] font-bold">0</span>
-                                            )}
-                                            {m.endVideo && (
+                                                );
+                                            })()}
+                                            {(m as any).has_end_video || m.endVideo ? (
                                                 <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full text-[10px] font-bold border border-purple-200">
                                                     <Video className="w-3 h-3" />
                                                 </span>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
@@ -174,6 +296,7 @@ const MissionReports: React.FC = () => {
                         )}
                     </tbody>
                 </table>
+                )}
             </div>
 
             {/* REPORT DETAIL MODAL */}
@@ -201,6 +324,19 @@ const MissionReports: React.FC = () => {
                             </div>
                         </div>
 
+                        {detailsLoading ? (
+                            <div className="px-6 py-3 bg-white border-b border-slate-200 flex items-center gap-3">
+                                <div className="w-5 h-5 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
+                                <span className="text-xs font-bold text-slate-600">Chargement des photos…</span>
+                            </div>
+                        ) : null}
+
+                        {detailsError ? (
+                            <div className="px-6 py-3 bg-red-50 border-b border-red-100 text-red-700 text-xs font-bold">
+                                {detailsError}
+                            </div>
+                        ) : null}
+
                         <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
                             
                             {/* Info Card */}
@@ -211,6 +347,24 @@ const MissionReports: React.FC = () => {
                                         <div className="w-8 h-8 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold">{selectedMission.clientName.charAt(0)}</div>
                                         <span className="font-bold text-slate-800">{selectedMission.clientName}</span>
                                     </div>
+                                    {(() => {
+                                        const c = getClientInfo(selectedMission.clientId);
+                                        if (!c) return null;
+                                        const phone = String((c as any).phone || '').trim();
+                                        const address = String((c as any).address || '').trim();
+                                        const city = String((c as any).city || '').trim();
+                                        const line = [address, city].filter(Boolean).join(', ');
+                                        return (
+                                            <div className="mt-2 text-xs text-slate-500 space-y-1">
+                                                {phone ? (
+                                                    <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{phone}</div>
+                                                ) : null}
+                                                {line ? (
+                                                    <div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{line}</div>
+                                                ) : null}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                                 <div>
                                     <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Prestataire</span>
@@ -291,7 +445,11 @@ const MissionReports: React.FC = () => {
                                                     </button>
                                                 )}
                                             </div>
-                                            {selectedMission.endPhotos && selectedMission.endPhotos.length > 0 ? (
+                                            {detailsLoading || !selectedMission.endPhotos ? (
+                                                <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500 text-xs font-bold">
+                                                    Chargement en cours...
+                                                </div>
+                                            ) : selectedMission.endPhotos.length > 0 ? (
                                                 <div className="grid grid-cols-3 gap-2">
                                                     {selectedMission.endPhotos.map((url, i) => (
                                                         <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>

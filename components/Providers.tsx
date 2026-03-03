@@ -411,7 +411,7 @@ const Providers: React.FC = () => {
           setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {} });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
-          showToast("Une erreur est survenue.");
+          showToast(String((error as any)?.message || 'Une erreur est survenue.'), 'error');
       } finally {
           setIsSubmitting(false);
       }

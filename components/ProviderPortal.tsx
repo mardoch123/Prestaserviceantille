@@ -283,6 +283,48 @@ const ProviderPortal: React.FC = () => {
       setVideoLinkInput('');
   };
 
+  const compressImageToDataUrl = async (file: File) => {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('image_load_failed'));
+        el.src = objectUrl;
+      });
+
+      const maxSize = 1280;
+      let width = img.naturalWidth || img.width;
+      let height = img.naturalHeight || img.height;
+      if (width > maxSize || height > maxSize) {
+        if (width >= height) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('canvas_context_missing');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      let quality = 0.82;
+      let dataUrl = canvas.toDataURL('image/jpeg', quality);
+      while (dataUrl.length > 900000 && quality > 0.5) {
+        quality = Math.max(0.5, quality - 0.08);
+        dataUrl = canvas.toDataURL('image/jpeg', quality);
+      }
+      return dataUrl;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
   // --- PHOTO HANDLERS ---
   const handlePhotoClick = () => {
      if(photos.length >= 10) {
@@ -292,32 +334,31 @@ const ProviderPortal: React.FC = () => {
      photoInputRef.current?.click();
   };
 
-  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-     if (e.target.files && e.target.files.length > 0) {
-         const newPhotos: string[] = [];
-         // Ensure files is strictly typed as File[] to avoid 'unknown' inference issues
-         const files = Array.from(e.target.files) as File[];
-         
-         // Limit to remaining slots
-         const remaining = 10 - photos.length;
-         const filesToProcess = files.slice(0, remaining);
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     try {
+        if (e.target.files && e.target.files.length > 0) {
+            const files = Array.from(e.target.files) as File[];
+            const remaining = 10 - photos.length;
+            const filesToProcess = files.slice(0, remaining);
 
-         let processedCount = 0;
-         filesToProcess.forEach(file => {
-             const reader = new FileReader();
-             reader.onloadend = () => {
-                 if (typeof reader.result === 'string') {
-                     newPhotos.push(reader.result);
-                 }
-                 processedCount++;
-                 if (processedCount === filesToProcess.length) {
-                     setPhotos(prev => [...prev, ...newPhotos]);
-                 }
-             };
-             reader.readAsDataURL(file as Blob);
-         });
+            const compressed = await Promise.all(
+                filesToProcess.map(async (file) => {
+                    try {
+                        return await compressImageToDataUrl(file);
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+
+            const next = compressed.filter((x): x is string => typeof x === 'string' && x.length > 0);
+            if (next.length > 0) {
+                setPhotos(prev => [...prev, ...next]);
+            }
+        }
+     } finally {
+        if (e.target) e.target.value = '';
      }
-     if (e.target) e.target.value = ''; // Reset
   };
 
   const removePhoto = (index: number) => {
@@ -410,7 +451,7 @@ const ProviderPortal: React.FC = () => {
           setSelectedMissionId(null);
       } catch (e: any) {
           console.error(e);
-          showToast("Erreur lors de l'envoi. Veuillez réessayer.", 'error');
+          showToast(String(e?.message || "Erreur lors de l'envoi. Veuillez réessayer."), 'error');
       } finally {
           setIsSubmittingExecution(false);
       }

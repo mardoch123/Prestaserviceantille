@@ -10,6 +10,28 @@ const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
 };
 
+async function getAuthUser(supabaseAdmin: any, req: Request) {
+  const auth = req.headers.get('authorization') || '';
+  const parts = String(auth).split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
+  const accessToken = parts[1];
+  const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
+  if (error) return null;
+  return data?.user || null;
+}
+
+async function isAdminUser(supabaseAdmin: any, authUser: any) {
+  if (String(authUser?.email || '').toLowerCase() === 'contact@prestaservicesantilles.com') return true;
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('role')
+    .eq('id', authUser.id)
+    .maybeSingle();
+  if (error) return false;
+  const role = String((data as any)?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -31,6 +53,22 @@ serve(async (req: Request) => {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    const caller = await getAuthUser(supabaseAdmin, req);
+    if (!caller) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const canProvision = await isAdminUser(supabaseAdmin, caller);
+    if (!canProvision) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const { email, password, name, role, relatedEntityId } = await req.json();
 
     if (!email || !password) {
@@ -40,11 +78,13 @@ serve(async (req: Request) => {
         });
     }
 
-    // Create the user
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    let authUserId: string | null = null;
+    let created = false;
+
+    const createRes = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Confirm email immediately
+      email_confirm: true,
       user_metadata: {
         name,
         role,
@@ -52,9 +92,47 @@ serve(async (req: Request) => {
       }
     });
 
-    if (error) {
-        console.error("Error creating user:", error);
-        throw error;
+    if (!createRes.error && createRes.data?.user?.id) {
+      authUserId = String(createRes.data.user.id);
+      created = true;
+    }
+
+    if (!authUserId) {
+      const msg = String((createRes.error as any)?.message || '').toLowerCase();
+      const mayExist = msg.includes('already') || msg.includes('exists') || msg.includes('duplicate');
+      if (!mayExist) {
+        console.error("Error creating user:", createRes.error);
+        throw createRes.error;
+      }
+
+      let found: any = null;
+      let page = 1;
+      const perPage = 200;
+      while (!found && page <= 20) {
+        const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+        if (listError) break;
+        const users = (listData as any)?.users;
+        if (Array.isArray(users)) {
+          found = users.find((u: any) => String(u?.email || '').toLowerCase() === String(email).toLowerCase()) || null;
+        }
+        if (found) break;
+        if (!Array.isArray(users) || users.length < perPage) break;
+        page += 1;
+      }
+
+      if (!found?.id) {
+        throw new Error('User already exists, but cannot resolve auth user id');
+      }
+
+      authUserId = String(found.id);
+      await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+        password,
+        user_metadata: {
+          name,
+          role,
+          relatedEntityId
+        }
+      });
     }
 
     // Persist the initial password in DB (best-effort)
@@ -75,7 +153,23 @@ serve(async (req: Request) => {
       console.warn('[create-user] Unable to persist initial_password (ignored):', e);
     }
 
-    return new Response(JSON.stringify(data), {
+    if (authUserId) {
+      try {
+        await supabaseAdmin
+          .from('users')
+          .upsert({
+            id: authUserId,
+            email,
+            name: name || String(email || '').split('@')[0] || 'Utilisateur',
+            role,
+            related_entity_id: relatedEntityId || null,
+          } as any, { onConflict: 'id' } as any);
+      } catch {
+        // ignore
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, id: authUserId, created }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

@@ -154,6 +154,7 @@ interface DataContextType {
     deleteClients: (ids: string[]) => Promise<void>;
     addLoyaltyHours: (clientId: string, hours: number) => Promise<void>;
     submitClientReview: (clientId: string, rating: number, comment: string) => Promise<void>;
+    resetClientPassword: (id: string) => Promise<void>;
 
     providers: Provider[];
     addProvider: (provider: CreateProviderDTO) => Promise<string | null>; // Returns generated password
@@ -267,6 +268,7 @@ interface DataContextType {
     isOnline: boolean;
     pendingSyncCount: number;
     loading: boolean;
+    dataLoading: boolean;
 
     // Session management functions
     extendReadingSession: () => void;
@@ -700,6 +702,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
+    const [dataLoading, setDataLoading] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
     const refreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -1611,6 +1614,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
+        setDataLoading(true);
+
         const run = (async () => {
             try {
                 console.log("[RefreshData] Starting data refresh...");
@@ -1709,7 +1714,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         startPhotos: m.start_photos || m.startPhotos,
                         endPhotos: m.end_photos || m.endPhotos,
                         startVideo: m.start_video || m.startVideo,
-                        endVideo: m.end_video,
+                        endVideo: m.end_video || m.endVideo,
                         startRemark: m.start_remark,
                         endRemark: m.end_remark,
                         cancellationReason: m.cancellation_reason || m.cancellationReason,
@@ -1803,7 +1808,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
-                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
                 const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
                 const clientSelect = '*';
                 const reminderSelect = 'id,date,text,notify_email,completed';
@@ -2083,6 +2088,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             await run;
         } finally {
             refreshInFlightRef.current = null;
+            setDataLoading(false);
         }
     };
 
@@ -2092,7 +2098,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const startStr = String(start || '').trim();
         const endStr = String(end || '').trim();
         if (!startStr || !endStr) return false;
-        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
         const pageSize = 500;
         const pageTimeout = 12000;
         const totalTimeout = 30000;
@@ -2998,24 +3004,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         try {
-            const endpointBase = import.meta.env.VITE_API_BASE || '';
-            const normalizedBase = String(endpointBase).replace(/\/$/, '');
-            let apiBase = normalizedBase;
-            if (apiBase) {
-                apiBase = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
-            }
+            const endpointBase = String(import.meta.env.VITE_API_BASE || '').trim();
 
-            if (typeof window !== 'undefined') {
-                try {
-                    if (apiBase) {
-                        const apiOrigin = new URL(apiBase).origin;
-                        if (apiOrigin !== window.location.origin) {
-                            apiBase = `${window.location.origin}/api`;
-                        }
-                    } else {
-                        apiBase = `${window.location.origin}/api`;
-                    }
-                } catch {
+            const normalizeApiBase = (value: string) => {
+                const base = String(value || '').trim().replace(/\/$/, '');
+                if (!base) return '';
+                return base.endsWith('/api') ? base : `${base}/api`;
+            };
+
+            let apiBase = normalizeApiBase(endpointBase);
+
+            const isCapacitor = typeof window !== 'undefined' && String(window.location?.protocol || '') === 'capacitor:';
+            const isDev = !!(import.meta as any)?.env?.DEV;
+
+            if (!apiBase) {
+                if (isDev) {
+                    apiBase = '';
+                } else if (typeof window !== 'undefined' && !isCapacitor) {
                     apiBase = `${window.location.origin}/api`;
                 }
             }
@@ -3025,7 +3030,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const accessToken = data.session?.access_token || '';
                 if (accessToken) {
                     const endpoint = `${String(apiBase).replace(/\/$/, '')}/notify`;
-                    await fetch(endpoint, {
+                    const res = await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -3041,6 +3046,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             }
                         })
                     });
+
+                    if (!res.ok) {
+                        const text = await res.text().catch(() => '');
+                        console.warn('[AddNotification] Push notify HTTP error:', { status: res.status, endpoint, body: text.slice(0, 200) });
+                    }
                 }
             }
         } catch (e) {
@@ -3202,6 +3212,147 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    type ContactConflict = {
+        kind: 'client' | 'provider';
+        id: string;
+        label: string;
+        email?: string | null;
+        phone?: string | null;
+    };
+
+    const normalizeEmailValue = (value: any) => {
+        const v = String(value || '').trim().toLowerCase();
+        return v || null;
+    };
+
+    const normalizePhoneDigits = (value: any) => {
+        const raw = String(value || '').trim();
+        if (!raw || raw === '-') return null;
+        const digits = raw.replace(/\D/g, '');
+        return digits || null;
+    };
+
+    const digitsToFuzzyIlike = (digits: string) => {
+        const safe = String(digits || '').replace(/\D/g, '');
+        if (!safe) return null;
+        return `%${safe.split('').join('%')}%`;
+    };
+
+    const getContactConflicts = async (input: {
+        email?: any;
+        phone?: any;
+        excludeClientId?: string | null;
+        excludeProviderId?: string | null;
+    }): Promise<ContactConflict[]> => {
+        const email = normalizeEmailValue(input.email);
+        const phoneDigits = normalizePhoneDigits(input.phone);
+        const phonePattern = phoneDigits ? digitsToFuzzyIlike(phoneDigits) : null;
+        const conflicts: ContactConflict[] = [];
+
+        if (email) {
+            const { data: cData } = await supabase
+                .from('clients')
+                .select('id,name,email,phone')
+                .ilike('email', email)
+                .limit(5);
+            if (Array.isArray(cData)) {
+                cData.forEach((c: any) => {
+                    if (input.excludeClientId && String(c?.id) === String(input.excludeClientId)) return;
+                    conflicts.push({ kind: 'client', id: String(c?.id || ''), label: String(c?.name || 'Client'), email: c?.email ?? null, phone: c?.phone ?? null });
+                });
+            }
+
+            const { data: pData } = await supabase
+                .from('providers')
+                .select('id,first_name,last_name,email,phone')
+                .ilike('email', email)
+                .limit(5);
+            if (Array.isArray(pData)) {
+                pData.forEach((p: any) => {
+                    if (input.excludeProviderId && String(p?.id) === String(input.excludeProviderId)) return;
+                    const label = `${String(p?.first_name || '').trim()} ${String(p?.last_name || '').trim()}`.trim() || 'Prestataire';
+                    conflicts.push({ kind: 'provider', id: String(p?.id || ''), label, email: p?.email ?? null, phone: p?.phone ?? null });
+                });
+            }
+        }
+
+        if (phonePattern) {
+            const { data: cData2 } = await supabase
+                .from('clients')
+                .select('id,name,email,phone')
+                .ilike('phone', phonePattern)
+                .limit(5);
+            if (Array.isArray(cData2)) {
+                cData2.forEach((c: any) => {
+                    if (input.excludeClientId && String(c?.id) === String(input.excludeClientId)) return;
+                    conflicts.push({ kind: 'client', id: String(c?.id || ''), label: String(c?.name || 'Client'), email: c?.email ?? null, phone: c?.phone ?? null });
+                });
+            }
+
+            const { data: pData2 } = await supabase
+                .from('providers')
+                .select('id,first_name,last_name,email,phone')
+                .ilike('phone', phonePattern)
+                .limit(5);
+            if (Array.isArray(pData2)) {
+                pData2.forEach((p: any) => {
+                    if (input.excludeProviderId && String(p?.id) === String(input.excludeProviderId)) return;
+                    const label = `${String(p?.first_name || '').trim()} ${String(p?.last_name || '').trim()}`.trim() || 'Prestataire';
+                    conflicts.push({ kind: 'provider', id: String(p?.id || ''), label, email: p?.email ?? null, phone: p?.phone ?? null });
+                });
+            }
+        }
+
+        const uniq = new Map<string, ContactConflict>();
+        conflicts.forEach(c => {
+            const key = `${c.kind}:${c.id}`;
+            if (!uniq.has(key)) uniq.set(key, c);
+        });
+        return Array.from(uniq.values());
+    };
+
+    const assertContactAvailable = async (input: {
+        email?: any;
+        phone?: any;
+        excludeClientId?: string | null;
+        excludeProviderId?: string | null;
+        actionLabel: string;
+    }) => {
+        const email = normalizeEmailValue(input.email);
+        const phoneDigits = normalizePhoneDigits(input.phone);
+        const conflicts = await getContactConflicts({
+            email,
+            phone: phoneDigits,
+            excludeClientId: input.excludeClientId,
+            excludeProviderId: input.excludeProviderId,
+        });
+
+        if (conflicts.length === 0) return;
+
+        const formatTarget = (c: ContactConflict) => {
+            const who = c.kind === 'client' ? 'client' : 'prestataire';
+            const parts = [c.label];
+            const e = normalizeEmailValue(c.email);
+            const p = String(c.phone || '').trim();
+            if (e) parts.push(e);
+            if (p && p !== '-') parts.push(p);
+            return `${who} (${parts.join(' • ')})`;
+        };
+
+        const reasons: string[] = [];
+        if (email) {
+            const byEmail = conflicts.find(c => normalizeEmailValue(c.email) === email);
+            if (byEmail) reasons.push(`Email déjà utilisé par un ${formatTarget(byEmail)}.`);
+        }
+        if (phoneDigits) {
+            const byPhone = conflicts.find(c => normalizePhoneDigits(c.phone) === phoneDigits) || conflicts[0];
+            reasons.push(`Téléphone déjà utilisé par un ${formatTarget(byPhone)}.`);
+        }
+
+        const message = `${input.actionLabel} impossible : doublon détecté. ${reasons.join(' ')}`.trim();
+        throw new Error(message);
+    };
+
     const startMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
         if (isDemoMode) {
             demoBlocked();
@@ -3212,15 +3363,61 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
+        let finalPhotos = photos;
+        try {
+            const input = Array.isArray(photos) ? photos : [];
+            const isDataUrl = (v: any) => typeof v === 'string' && v.startsWith('data:image/');
+            const needsUpload = input.some(isDataUrl);
+
+            if (needsUpload) {
+                const dataUrlToBlob = (dataUrl: string) => {
+                    const parts = String(dataUrl || '').split(',');
+                    const meta = parts[0] || '';
+                    const raw = parts[1] || '';
+                    const mime = (meta.match(/data:([^;]+);base64/i)?.[1] || 'image/jpeg').trim();
+                    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+                    return new Blob([bytes], { type: mime });
+                };
+
+                const uploaded: string[] = [];
+                for (let i = 0; i < input.length; i++) {
+                    const p = input[i];
+                    if (!isDataUrl(p)) {
+                        if (typeof p === 'string' && p.trim()) uploaded.push(p.trim());
+                        continue;
+                    }
+                    const path = `missions/${id}/start/${Date.now()}_${i}.jpg`;
+                    const blob = dataUrlToBlob(p);
+                    const { error: upErr } = await supabase.storage
+                        .from('mission-media')
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                    if (upErr) throw upErr;
+                    const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+                    const url = String((pub as any)?.publicUrl || '').trim();
+                    if (!url) throw new Error('upload_failed');
+                    uploaded.push(url);
+                }
+                finalPhotos = uploaded;
+            }
+        } catch (e) {
+            console.warn('[startMission] photo upload failed, falling back to DB storage', e);
+            finalPhotos = photos;
+        }
+
         const { error } = await supabase.from('missions').update({
             status: 'in_progress',
             start_remark: remark,
-            start_photos: photos,
+            start_photos: finalPhotos,
             start_video: video
         }).eq('id', id);
 
+        if (error) {
+            console.error('[startMission] Supabase error:', error);
+            throw error;
+        }
+
         if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: photos, startVideo: video } : m));
+            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: finalPhotos, startVideo: video } : m));
 
             const m = missions.find(m => m.id === id);
             if (m) {
@@ -3240,20 +3437,66 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
+        let finalPhotos = photos;
+        try {
+            const input = Array.isArray(photos) ? photos : [];
+            const isDataUrl = (v: any) => typeof v === 'string' && v.startsWith('data:image/');
+            const needsUpload = input.some(isDataUrl);
+
+            if (needsUpload) {
+                const dataUrlToBlob = (dataUrl: string) => {
+                    const parts = String(dataUrl || '').split(',');
+                    const meta = parts[0] || '';
+                    const raw = parts[1] || '';
+                    const mime = (meta.match(/data:([^;]+);base64/i)?.[1] || 'image/jpeg').trim();
+                    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+                    return new Blob([bytes], { type: mime });
+                };
+
+                const uploaded: string[] = [];
+                for (let i = 0; i < input.length; i++) {
+                    const p = input[i];
+                    if (!isDataUrl(p)) {
+                        if (typeof p === 'string' && p.trim()) uploaded.push(p.trim());
+                        continue;
+                    }
+                    const path = `missions/${id}/end/${Date.now()}_${i}.jpg`;
+                    const blob = dataUrlToBlob(p);
+                    const { error: upErr } = await supabase.storage
+                        .from('mission-media')
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                    if (upErr) throw upErr;
+                    const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+                    const url = String((pub as any)?.publicUrl || '').trim();
+                    if (!url) throw new Error('upload_failed');
+                    uploaded.push(url);
+                }
+                finalPhotos = uploaded;
+            }
+        } catch (e) {
+            console.warn('[endMission] photo upload failed, falling back to DB storage', e);
+            finalPhotos = photos;
+        }
+
         const { error } = await supabase.from('missions').update({
             status: 'completed',
             end_remark: remark,
-            end_photos: photos,
+            end_photos: finalPhotos,
             end_video: video,
             report_sent: true
         }).eq('id', id);
+
+        if (error) {
+            console.error('[endMission] Supabase error:', error);
+            throw error;
+        }
 
         if (!error) {
             setMissions(prev => prev.map(mission => mission.id === id ? {
                 ...mission,
                 status: 'completed',
                 endRemark: remark,
-                endPhotos: photos,
+                endPhotos: finalPhotos,
                 endVideo: video,
                 reportSent: true
             } : mission));
@@ -3311,6 +3554,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return null;
         }
         const password = Math.random().toString(36).slice(-8);
+
+        await assertContactAvailable({
+            email: clientData.email,
+            phone: clientData.phone,
+            excludeClientId: null,
+            excludeProviderId: null,
+            actionLabel: 'Création du client',
+        });
 
         try {
             const dbClientData = {
@@ -3386,9 +3637,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         } catch (err) {
             console.error("Critical error in addClient:", err);
-            return null;
+            throw err;
         }
-        return null;
+        throw new Error('Création du client échouée.');
     };
 
     const addProvider = async (providerData: CreateProviderDTO) => {
@@ -3397,6 +3648,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return null;
         }
         const password = Math.random().toString(36).slice(-8);
+
+        await assertContactAvailable({
+            email: providerData.email,
+            phone: providerData.phone,
+            excludeClientId: null,
+            excludeProviderId: null,
+            actionLabel: 'Création du prestataire',
+        });
 
         try {
             const dbProviderData = {
@@ -3424,6 +3683,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (data && data.length > 0) {
                 const newProvider = data[0];
+
+                // Best-effort: persist initial password if the column exists
+                try {
+                    await supabase
+                        .from('providers')
+                        .update({ initial_password: password })
+                        .eq('id', newProvider.id);
+                } catch (e) {
+                    console.warn('[addProvider] Unable to persist initial_password (ignored):', e);
+                }
+
+                // Create/Update the Auth User via Edge Function (admin-only)
+                try {
+                    const { error: fnError } = await supabase.functions.invoke('create-user', {
+                        body: {
+                            email: providerData.email,
+                            password,
+                            name: `${providerData.firstName || ''} ${providerData.lastName || ''}`.trim(),
+                            role: 'provider',
+                            relatedEntityId: newProvider.id
+                        }
+                    });
+
+                    if (fnError) {
+                        console.warn("Error provisioning provider auth user via function:", fnError);
+                    }
+                } catch (e) {
+                    console.warn("Auth edge function failed/unavailable or restricted.", e);
+                }
 
                 // Envoi de l'email de bienvenue sans créer de compte Supabase Auth
                 try {
@@ -3458,9 +3746,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         } catch (err) {
             console.error("Critical error in addProvider:", err);
-            return null;
+            throw err;
         }
-        return null;
+        throw new Error('Création du prestataire échouée.');
     };
 
     const login = async (email: string, password?: string): Promise<boolean> => {
@@ -3811,6 +4099,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
+
+        if (data.email || data.phone) {
+            await assertContactAvailable({
+                email: data.email,
+                phone: data.phone,
+                excludeClientId: id,
+                excludeProviderId: null,
+                actionLabel: 'Mise à jour du client',
+            });
+        }
+
         const dbData: any = {};
         if (data.name) dbData.name = data.name;
         if (data.city) dbData.city = data.city;
@@ -3877,11 +4176,61 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         await supabase.from('reviews').insert({ clientId, rating, comment, date: getMartiniqueNowISO() });
     };
 
+    const resetClientPassword = async (id: string) => {
+        const client = clients.find(c => c.id === id);
+        if (client) {
+            const newPass = Math.random().toString(36).slice(-8);
+            setClients(prev => prev.map(c => c.id === id ? { ...c, initialPassword: newPass } : c));
+
+            try {
+                await supabase
+                    .from('clients')
+                    .update({ initial_password: newPass })
+                    .eq('id', id);
+            } catch {
+                // ignore
+            }
+
+            try {
+                const { error: fnError } = await supabase.functions.invoke('create-user', {
+                    body: {
+                        email: client.email,
+                        password: newPass,
+                        name: client.name,
+                        role: 'client',
+                        relatedEntityId: id
+                    }
+                });
+                if (fnError) {
+                    console.warn('[resetClientPassword] create-user failed:', fnError);
+                }
+            } catch (e) {
+                console.warn('[resetClientPassword] create-user invoke failed:', e);
+            }
+
+            const ok = await sendEmailViaEmailJS(client.email, 'Réinitialisation de mot de passe', 'reset_password', {
+                newPassword: newPass
+            });
+            if (!ok) throw new Error("Email non envoyé. Vérifie la configuration EmailJS.");
+        }
+    };
+
     const updateProvider = async (id: string, data: Partial<Provider>) => {
         if (isDemoMode) {
             demoBlocked();
             return;
         }
+
+        if (data.email || data.phone) {
+            await assertContactAvailable({
+                email: data.email,
+                phone: data.phone,
+                excludeClientId: null,
+                excludeProviderId: id,
+                actionLabel: 'Mise à jour du prestataire',
+            });
+        }
+
         const dbData: any = {};
         if (data.firstName) dbData.first_name = data.firstName;
         if (data.lastName) dbData.last_name = data.lastName;
@@ -4000,6 +4349,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (provider) {
             const newPass = Math.random().toString(36).slice(-8);
             setProviders(prev => prev.map(p => p.id === id ? { ...p, initialPassword: newPass } : p));
+
+            try {
+                await supabase
+                    .from('providers')
+                    .update({ initial_password: newPass })
+                    .eq('id', id);
+            } catch {
+                // ignore
+            }
+
+            try {
+                const { error: fnError } = await supabase.functions.invoke('create-user', {
+                    body: {
+                        email: provider.email,
+                        password: newPass,
+                        name: `${provider.firstName || ''} ${provider.lastName || ''}`.trim(),
+                        role: 'provider',
+                        relatedEntityId: id
+                    }
+                });
+                if (fnError) {
+                    console.warn('[resetProviderPassword] create-user failed:', fnError);
+                }
+            } catch (e) {
+                console.warn('[resetProviderPassword] create-user invoke failed:', e);
+            }
+
             await sendEmail(provider.email, 'Réinitialisation de mot de passe', 'reset_password', {
                 newPassword: newPass
             });
@@ -6295,7 +6671,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
  
              missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
  
-             clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview,
+             clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  
              providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
  
@@ -6324,7 +6700,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              activeStream, startLiveStream, stopLiveStream,
              videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
              generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
-             isOnline, pendingSyncCount, loading,
+             isOnline, pendingSyncCount, loading, dataLoading,
              extendReadingSession, endReadingSession, isReadingDocument,
              connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
              getAvailableSlots, refreshData, sendEmail,

@@ -20,6 +20,24 @@ type RequestBody = {
 
 const randomPassword = () => Math.random().toString(36).slice(-10);
 
+const normalizeEmailValue = (value: any) => {
+  const v = String(value || '').trim().toLowerCase();
+  return v || null;
+};
+
+const normalizePhoneDigits = (value: any) => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '-') return null;
+  const digits = raw.replace(/\D/g, '');
+  return digits || null;
+};
+
+const digitsToFuzzyIlike = (digits: string) => {
+  const safe = String(digits || '').replace(/\D/g, '');
+  if (!safe) return null;
+  return `%${safe.split('').join('%')}%`;
+};
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -68,10 +86,31 @@ serve(async (req: Request) => {
       });
     }
 
+    const emailLower = normalizeEmailValue(email);
+    const phoneDigits = normalizePhoneDigits(phone);
+    const phonePattern = phoneDigits ? digitsToFuzzyIlike(phoneDigits) : null;
+
+    if (emailLower) {
+      const { data: existingProviderByEmail } = await supabaseAdmin
+        .from('providers')
+        .select('id,first_name,last_name,email')
+        .ilike('email', emailLower)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingProviderByEmail?.id) {
+        const label = `${String((existingProviderByEmail as any)?.first_name || '').trim()} ${String((existingProviderByEmail as any)?.last_name || '').trim()}`.trim() || 'Prestataire';
+        return new Response(
+          JSON.stringify({ ok: false, error: 'duplicate_contact', message: `Cet email est déjà utilisé par un compte prestataire (${label}).` }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     const { data: existingClient, error: existingClientError } = await supabaseAdmin
       .from('clients')
       .select('id, email')
-      .eq('email', email)
+      .ilike('email', emailLower || email)
       .order('since', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -84,6 +123,38 @@ serve(async (req: Request) => {
     }
 
     let clientId = existingClient?.id ? String((existingClient as any).id) : null;
+
+    if (phonePattern) {
+      const { data: existingClientByPhone } = await supabaseAdmin
+        .from('clients')
+        .select('id,name,phone,email')
+        .ilike('phone', phonePattern)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingClientByPhone?.id && (!clientId || String(existingClientByPhone.id) !== String(clientId))) {
+        const label = String((existingClientByPhone as any)?.name || 'Client');
+        return new Response(
+          JSON.stringify({ ok: false, error: 'duplicate_contact', message: `Ce numéro de téléphone est déjà utilisé par un compte client (${label}).` }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const { data: existingProviderByPhone } = await supabaseAdmin
+        .from('providers')
+        .select('id,first_name,last_name,phone,email')
+        .ilike('phone', phonePattern)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingProviderByPhone?.id) {
+        const label = `${String((existingProviderByPhone as any)?.first_name || '').trim()} ${String((existingProviderByPhone as any)?.last_name || '').trim()}`.trim() || 'Prestataire';
+        return new Response(
+          JSON.stringify({ ok: false, error: 'duplicate_contact', message: `Ce numéro de téléphone est déjà utilisé par un compte prestataire (${label}).` }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
 
     if (!clientId) {
       const { data: created, error: createClientError } = await supabaseAdmin

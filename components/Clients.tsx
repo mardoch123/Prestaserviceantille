@@ -20,6 +20,7 @@ import {
   Mail,
   Home,
   Gift,
+  KeyRound,
   Trash2,
   CheckSquare,
   Square,
@@ -30,11 +31,12 @@ import {
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours } = useData();
+  const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours, resetClientPassword } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<any | null>(null);
+  const [passwordResettingId, setPasswordResettingId] = useState<string | null>(null);
   const [clientStatusUpdatingId, setClientStatusUpdatingId] = useState<string | null>(null);
   const [leadUpdatingId, setLeadUpdatingId] = useState<string | null>(null);
   const [openLeadMenuId, setOpenLeadMenuId] = useState<string | null>(null);
@@ -367,7 +369,7 @@ const Clients: React.FC = () => {
         }
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
     } catch (err: any) {
-        alert("Erreur lors de l'enregistrement: " + err.message);
+        showToast(String(err?.message || "Erreur lors de l'enregistrement."), 'error');
     } finally {
         setIsSubmitting(false);
     }
@@ -575,6 +577,27 @@ Email : ${client.email}
 Mot de passe initial : ${client.initialPassword || 'Non disponible (déjà modifié ou inconnu)'}
 
 Lien de connexion : https://presta-antilles.app/login`);
+  };
+
+  const handleResetPassword = async (client: any) => {
+    const id = String(client?.id || '').trim();
+    if (!id) return;
+    if (passwordResettingId) return;
+
+    if (!window.confirm("Êtes-vous sûr de vouloir réinitialiser le mot de passe de ce client ?")) {
+      return;
+    }
+
+    setPasswordResettingId(id);
+    try {
+      await resetClientPassword(id);
+      showToast('Mot de passe réinitialisé et envoyé par email.', 'success');
+    } catch (e: any) {
+      console.error(e);
+      showToast(String(e?.message || 'Impossible de réinitialiser le mot de passe.'), 'error');
+    } finally {
+      setPasswordResettingId(null);
+    }
   };
 
   const toggleSelection = (id: string) => {
@@ -876,6 +899,14 @@ Lien de connexion : https://presta-antilles.app/login`);
                                             title="Cadeau Fidélité"
                                         >
                                             <Gift className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleResetPassword(client)}
+                                            disabled={passwordResettingId === client.id}
+                                            className="text-slate-500 hover:text-slate-700 p-1 rounded hover:bg-slate-100 border border-transparent hover:border-slate-200 disabled:opacity-50"
+                                            title="Réinitialiser mot de passe"
+                                        >
+                                            <KeyRound className="w-4 h-4" />
                                         </button>
                                     </div>
                                 </td>

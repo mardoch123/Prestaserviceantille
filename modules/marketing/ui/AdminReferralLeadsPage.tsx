@@ -223,6 +223,8 @@ const AdminReferralLeadsPage: React.FC = () => {
 
       await refreshData();
       await loadPendingLeads();
+    } catch (e: any) {
+      alert(String(e?.message || 'Erreur lors de la validation du lead.'));
     } finally {
       setLeadUpdatingId(null);
     }

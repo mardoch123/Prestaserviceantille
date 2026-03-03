@@ -161,6 +161,11 @@ const FlyerRequestPage: React.FC = () => {
         }
 
         if (!attempt1?.ok) {
+          const errMsg1 = String(attempt1?.error || '').trim();
+          if (errMsg1 && (errMsg1.includes('déjà utilisé') || errMsg1.toLowerCase().includes('doublon'))) {
+            setError(`Ta demande a bien été envoyée. ${errMsg1} Si tu as déjà un compte, connecte-toi.`);
+            return;
+          }
           const attempt2 = await mktAutoCreateClient({
             full_name: fullName,
             email,
@@ -169,6 +174,11 @@ const FlyerRequestPage: React.FC = () => {
             city,
           });
           if (!attempt2?.ok) {
+            const errMsg2 = String(attempt2?.error || '').trim();
+            if (errMsg2 && (errMsg2.includes('déjà utilisé') || errMsg2.toLowerCase().includes('doublon'))) {
+              setError(`Ta demande a bien été envoyée. ${errMsg2} Si tu as déjà un compte, connecte-toi.`);
+              return;
+            }
             console.warn('[FlyerRequestPage] mkt-auto-create-client failed', attempt2?.error || attempt1?.error);
             setError(
               "Ta demande a bien été envoyée, mais la création automatique de ton compte client a échoué. L'équipe va te recontacter pour te donner tes identifiants."

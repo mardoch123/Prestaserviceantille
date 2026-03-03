@@ -47,7 +47,7 @@ export async function mktAutoCreateClient(input: {
     if (data && typeof data === 'object' && (data as any).ok === false) {
       return {
         ok: false,
-        error: String((data as any).error || 'auto_create_failed'),
+        error: String((data as any).message || (data as any).error || 'auto_create_failed'),
         emailSent: (data as any).emailSent,
         emailError: (data as any).emailError,
       };
