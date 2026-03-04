@@ -1833,7 +1833,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     })));
                 }
 
-                await (async () => {
+                void (async () => {
                     // Requêtes secondaires en 3 lots pour éviter ERR_CONNECTION_RESET
                     // (limite navigateur : 6 connexions simultanées par domaine en HTTP/1.1)
                     const [leadsData, dData, packData, ctData, eData] = await Promise.all([

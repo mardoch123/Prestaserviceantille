@@ -962,14 +962,14 @@ const Planning: React.FC = () => {
       if (mission.status === 'cancelled') {
           return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée' };
       }
-      if (isSignedFromQuote) {
-          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé' };
+      if (mission.status === 'in_progress') {
+          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours' };
       }
       if (isUnassigned) {
           return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée' };
       }
-      if (mission.status === 'in_progress') {
-          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours' };
+      if (isSignedFromQuote) {
+          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé' };
       }
       return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée' };
   };
