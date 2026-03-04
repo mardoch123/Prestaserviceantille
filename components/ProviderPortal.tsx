@@ -60,7 +60,43 @@ const ProviderPortal: React.FC = () => {
     logout,
     activeStream,
     visitScans
+    refreshData,
   } = useData();
+
+  // Pull-to-refresh state
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pullStartYRef = useRef<number | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const PULL_THRESHOLD = 70;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const el = mainScrollRef.current;
+    if (el && el.scrollTop === 0) {
+      pullStartYRef.current = e.touches[0].clientY;
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (pullStartYRef.current === null) return;
+    const dist = e.touches[0].clientY - pullStartYRef.current;
+    if (dist > 0) {
+      setIsPulling(true);
+      setPullDistance(Math.min(dist, PULL_THRESHOLD * 1.5));
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (pullDistance >= PULL_THRESHOLD && !isRefreshing) {
+      setIsRefreshing(true);
+      try { await refreshData(); } catch { }
+      setIsRefreshing(false);
+    }
+    pullStartYRef.current = null;
+    setIsPulling(false);
+    setPullDistance(0);
+  }, [pullDistance, isRefreshing, refreshData]);
 
   const provider = providers.find(p => p.id === simulatedProviderId);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live' | 'scans'>('dashboard');
@@ -755,7 +791,27 @@ const ProviderPortal: React.FC = () => {
            </nav>
 
            {/* Main Content */}
-           <main className="flex-1 overflow-y-auto p-4 md:p-8">
+           <main
+             ref={mainScrollRef}
+             className="flex-1 overflow-y-auto p-4 md:p-8"
+             onTouchStart={handleTouchStart}
+             onTouchMove={handleTouchMove}
+             onTouchEnd={handleTouchEnd}
+           >
+               {/* Pull-to-refresh indicator (mobile only) */}
+               {(isPulling || isRefreshing) && (
+                 <div
+                   className="flex items-center justify-center transition-all duration-200 md:hidden"
+                   style={{ height: isRefreshing ? 48 : Math.min(pullDistance, 48), overflow: 'hidden' }}
+                 >
+                   <div className={`flex items-center gap-2 text-sm text-blue-600 font-medium ${isRefreshing ? 'animate-pulse' : ''}`}>
+                     <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} style={!isRefreshing ? { transform: `rotate(${Math.min(pullDistance / 70 * 180, 180)}deg)` } : {}} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                     </svg>
+                     {isRefreshing ? 'Actualisation…' : pullDistance >= 70 ? 'Relâchez pour actualiser' : 'Tirez pour actualiser'}
+                   </div>
+                 </div>
+               )}
                <div className="max-w-7xl mx-auto">
                    {activeTab === 'dashboard' && (
                        <div className="space-y-6">
