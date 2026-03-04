@@ -1622,7 +1622,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 setIsOnline(true);
 
-                const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
+                const fetchTable = async (table: string, query: any = '*', timeout: number = 15000, retries = 1): Promise<any[] | null> => {
                     try {
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
@@ -1633,12 +1633,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                         if (result.error) {
                             console.warn(`[RefreshData] ${table}:`, result.error.message);
+                            if (retries > 0) {
+                                await new Promise(r => setTimeout(r, 2000));
+                                return fetchTable(table, query, timeout, retries - 1);
+                            }
                             return null;
                         }
                         return result.data;
                     } catch (err: any) {
                         if (!(err instanceof Error && err.message.includes('Timeout'))) {
                             console.error(`[RefreshData] ${table}:`, err);
+                        }
+                        if (retries > 0) {
+                            await new Promise(r => setTimeout(r, 2000));
+                            return fetchTable(table, query, timeout, retries - 1);
                         }
                         return null;
                     }
@@ -1713,7 +1721,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }));
                 };
 
-                const fetchMissionsWindow = async (timeout: number = 25000, select = '*') => {
+                const fetchMissionsWindow = async (timeout: number = 25000, select = '*', retries = 1): Promise<any[] | null> => {
                     try {
                         const start = dayjs().subtract(3, 'month').format('YYYY-MM-DD');
                         const end = dayjs().add(3, 'month').format('YYYY-MM-DD');
@@ -1742,6 +1750,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             const error = result?.error;
                             if (error) {
                                 console.warn('[RefreshData] missions:', error.message);
+                                if (retries > 0) {
+                                    await new Promise(r => setTimeout(r, 2000));
+                                    return fetchMissionsWindow(timeout, select, retries - 1);
+                                }
                                 return null;
                             }
                             const batch = data || [];
@@ -1753,6 +1765,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     } catch (err: any) {
                         if (!(err instanceof Error && err.message.includes('Timeout'))) {
                             console.error('[RefreshData] missions:', err);
+                        }
+                        if (retries > 0) {
+                            await new Promise(r => setTimeout(r, 2000));
+                            return fetchMissionsWindow(timeout, select, retries - 1);
                         }
                         return null;
                     }
@@ -1817,7 +1833,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     })));
                 }
 
-                void (async () => {
+                await (async () => {
                     // Toutes les requêtes secondaires en parallèle pour maximiser la vitesse
                     const [
                         leadsData, dData, packData, ctData, eData,
