@@ -248,7 +248,7 @@ const Statistics: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         <StatCard 
           title="Total Missions" 
           value={stats.total} 
@@ -334,6 +334,7 @@ const Statistics: React.FC = () => {
                         <span>Statut</span>
                         <select name="status" value={filters.status} onChange={handleFilterChange} className="p-1 border rounded text-xs font-normal">
                             <option value="all">Tous</option>
+                            <option value="in_progress">En cours</option>
                             <option value="completed">Terminée</option>
                             <option value="planned">Planifiée</option>
                             <option value="cancelled">Annulée</option>

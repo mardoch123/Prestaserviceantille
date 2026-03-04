@@ -331,7 +331,7 @@ const Login: React.FC = () => {
                         disabled={loading}
                         className="w-full bg-brand-blue hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
                     >
-                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Se connecter"}
+                        {loading ? <div className="w-10 h-4 bg-white/40 rounded animate-pulse" /> : "Se connecter"}
                     </button>
                 </form>
 
@@ -356,7 +356,7 @@ const Login: React.FC = () => {
                                 disabled={creatingClient}
                                 className="flex flex-col items-center justify-center p-3 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-200"
                             >
-                                {creatingClient ? <Loader2 className="w-5 h-5 animate-spin mb-1" /> : <Users className="w-5 h-5 mb-1" />}
+                                {creatingClient ? <div className="w-10 h-3 bg-purple-200 rounded animate-pulse mb-2" /> : <Users className="w-5 h-5 mb-1" />}
                                 <span className="text-xs font-bold">Créer Client Test</span>
                             </button>
 
@@ -365,7 +365,7 @@ const Login: React.FC = () => {
                                 disabled={creatingProvider}
                                 className="flex flex-col items-center justify-center p-3 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-200"
                             >
-                                {creatingProvider ? <Loader2 className="w-5 h-5 animate-spin mb-1" /> : <Briefcase className="w-5 h-5 mb-1" />}
+                                {creatingProvider ? <div className="w-10 h-3 bg-orange-200 rounded animate-pulse mb-2" /> : <Briefcase className="w-5 h-5 mb-1" />}
                                 <span className="text-xs font-bold">Créer Pro Test</span>
                             </button>
                         </div>
@@ -389,7 +389,7 @@ const Login: React.FC = () => {
                             Cela va créer un compte `contact@prestaservicesantilles.com` / `PrestaAdmin#2026` et configurer les tables de base.
                         </p>
 
-                        {initStatus === 'loading' && <Loader2 className="w-8 h-8 text-brand-blue animate-spin mx-auto mb-4" />}
+                        {initStatus === 'loading' && <div className="w-32 h-4 bg-slate-200 rounded animate-pulse mx-auto mb-4" />}
 
                         {initStatus === 'success' && (
                             <div className="bg-green-50 text-green-700 p-3 rounded-lg mb-4 flex items-center justify-center gap-2">

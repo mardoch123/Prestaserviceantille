@@ -969,7 +969,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             disabled={isSubmitting}
                             className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2 disabled:opacity-50"
                         >
-                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />} 
                             {isEditMode ? 'Mettre à jour' : 'Enregistrer'}
                         </button>
                     </div>
@@ -1114,7 +1114,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                       <button onClick={() => setHoursToOffer(hoursToOffer + 1)} className="w-8 h-8 rounded-full bg-slate-100 font-bold">+</button>
                   </div>
                   <button onClick={handleOfferHours} disabled={isSaving} className="w-full bg-brand-blue text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">
-                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : null} 
+                      {isSaving ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : null} 
                       {isSaving ? 'Enregistrement...' : 'Valider le cadeau'}
                   </button>
                   <button onClick={() => setLoyaltyModalOpen(false)} className="mt-2 text-slate-400 text-sm">Annuler</button>

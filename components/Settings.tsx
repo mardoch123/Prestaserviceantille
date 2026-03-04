@@ -178,7 +178,7 @@ const Settings: React.FC = () => {
                     disabled={loading}
                     className="bg-brand-blue text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-teal-700 flex items-center gap-2 transition-transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 
+                    {loading ? <div className="w-10 h-4 bg-white/40 rounded animate-pulse" /> : <Save className="w-5 h-5" />} 
                     {loading ? 'Sauvegarde en cours...' : 'Enregistrer les paramètres'}
                 </button>
             </div>

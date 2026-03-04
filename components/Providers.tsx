@@ -1001,7 +1001,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             disabled={isSubmitting}
                             className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2 disabled:opacity-70"
                         >
-                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />} 
                             {isEditMode ? 'Enregistrer' : 'Ajouter & Envoyer ID'}
                         </button>
                     </div>

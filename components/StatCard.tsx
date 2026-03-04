@@ -13,7 +13,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtext, bgColor = 'b
         </div>
       )}
       <h3 className="font-bold text-slate-800 text-sm mb-1">{title}</h3>
-      {value && <p className="text-xl font-bold text-brand-blue">{value}</p>}
+      {value !== undefined && value !== null && <p className="text-xl font-bold text-brand-blue">{value}</p>}
       {subtext && <p className="text-xs text-slate-500 mt-1 italic">{subtext}</p>}
     </div>
   );

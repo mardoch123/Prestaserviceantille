@@ -230,19 +230,23 @@ const ScanPage: React.FC = () => {
                     className="absolute top-0 left-0 right-0 flex items-center justify-center bg-white/80 backdrop-blur-sm border-b border-slate-200 transition-all duration-300"
                     style={{ height: `${Math.min(pullDistance, 80)}px`, opacity: pullProgress }}
                 >
-                    <RefreshCw 
-                        className={`w-6 h-6 text-brand-blue ${isRefreshing ? 'animate-spin' : ''}`} 
-                        style={{ transform: `rotate(${pullProgress * 360}deg)` }}
-                    />
+                    {isRefreshing ? (
+                        <div className="w-16 h-2 bg-brand-blue/20 rounded animate-pulse" />
+                    ) : (
+                        <RefreshCw 
+                            className="w-6 h-6 text-brand-blue" 
+                            style={{ transform: `rotate(${pullProgress * 360}deg)` }}
+                        />
+                    )}
                 </div>
             )}
             
             <div className="bg-white p-8 rounded-xl shadow-xl max-w-sm w-full animate-in fade-in zoom-in">
                 {status === 'loading' && (
                     <>
-                        <div className="relative">
-                            <Loader2 className="w-16 h-16 text-brand-blue animate-spin mx-auto mb-4" />
-                            <div className="absolute inset-0 w-16 h-16 bg-brand-blue/20 rounded-full mx-auto mb-4 animate-ping"></div>
+                        <div className="animate-pulse space-y-3 mb-4">
+                            <div className="h-6 bg-slate-200 rounded w-2/3 mx-auto" />
+                            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto" />
                         </div>
                         <h2 className="text-xl font-bold text-slate-800">Traitement en cours...</h2>
                         <p className="text-slate-500 mt-2">Enregistrement de votre passage</p>

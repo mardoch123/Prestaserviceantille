@@ -43,7 +43,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Save,
-    HelpCircle
+    HelpCircle,
+    Loader2
 } from 'lucide-react';
 import { useData, COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { 
@@ -141,7 +142,7 @@ const Secretariat: React.FC = () => {
         genericContracts,
         generateContractFromTemplate,
         serviceTypeFilter,
-        markClientMessagesRead
+        markClientMessagesRead,
         dataLoading,
     } = useData();
 
@@ -150,6 +151,8 @@ const Secretariat: React.FC = () => {
     const [modalType, setModalType] = useState<'pack' | 'contract' | 'reminder' | 'expense'>('pack');
     const navigate = useNavigate();
     const location = useLocation();
+
+    const [isSavingPack, setIsSavingPack] = useState(false);
 
     const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
     const [renewingQuoteId, setRenewingQuoteId] = useState<string | null>(null);
@@ -952,6 +955,7 @@ const Secretariat: React.FC = () => {
     const handlePrevPackStep = () => setPackStep(prev => prev - 1);
 
     const handleSavePack = async () => {
+        if (isSavingPack) return;
         const defaultPackDate = getMartiniqueToday();
         const packDate = String((packForm as any)?.date || '').trim() || defaultPackDate;
 
@@ -971,75 +975,83 @@ const Secretariat: React.FC = () => {
             finalDescription += ` (${regularDaysCount} jours)`;
         }
 
-        if (editingPackId) {
-            // MODE ÉDITION
-            const updates: Partial<Pack> = {
-                name: packForm.name || 'Pack',
-                mainService: packForm.mainService || 'Service',
-                description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
-                date: packDate,
-                hours: packForm.hours || 3,
-                frequency: packForm.frequency || 'Ponctuelle',
-                type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
-                quantity: packForm.quantity,
-                location: packForm.location,
-                priceTTC: priceTTC,
-                priceHT: parseFloat(priceHT.toFixed(2)),
-                priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
-                suppliesIncluded: packForm.suppliesIncluded || false,
-                suppliesDetails: packForm.suppliesDetails,
-                contractType: packForm.contractType || 'Contrat Prestataire Standard',
-                isSap: true,
-                schedules: []
-            };
+        setIsSavingPack(true);
+        try {
+            if (editingPackId) {
+                // MODE ÉDITION
+                const updates: Partial<Pack> = {
+                    name: packForm.name || 'Pack',
+                    mainService: packForm.mainService || 'Service',
+                    description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                    date: packDate,
+                    hours: packForm.hours || 3,
+                    frequency: packForm.frequency || 'Ponctuelle',
+                    type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
+                    quantity: packForm.quantity,
+                    location: packForm.location,
+                    priceTTC: priceTTC,
+                    priceHT: parseFloat(priceHT.toFixed(2)),
+                    priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
+                    suppliesIncluded: packForm.suppliesIncluded || false,
+                    suppliesDetails: packForm.suppliesDetails,
+                    contractType: packForm.contractType || 'Contrat Prestataire Standard',
+                    isSap: true,
+                    schedules: []
+                };
 
-            await updatePack(editingPackId, updates);
-            showToast('Pack modifié avec succès !');
-        } else {
-            // MODE CRÉATION
-            const newPack: Pack = {
-                id: '', // Will be generated
-                name: packForm.name || 'Nouveau Pack',
-                mainService: packForm.mainService || 'Service',
-                description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
-                date: packDate,
-                hours: packForm.hours || 3,
-                frequency: packForm.frequency || 'Ponctuelle',
-                type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
-                quantity: packForm.quantity,
-                location: packForm.location,
-                priceTTC: priceTTC,
-                priceHT: parseFloat(priceHT.toFixed(2)),
-                priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
-                suppliesIncluded: packForm.suppliesIncluded || false,
-                suppliesDetails: packForm.suppliesDetails,
-                contractType: packForm.contractType || 'Contrat Prestataire Standard',
-                isSap: true,
-                schedules: []
-            };
-
-            const createdPackId = await addPack(newPack);
-
-            if (createdPackId) {
-                // AUTO-GENERATE CONTRACT
-                const contractContent = legalTemplate.replace('[INFO_PACK]', `Nom : ${newPack.name}\nService : ${newPack.mainService}\nType Contrat : ${newPack.contractType}`);
-
-                await addContract({
-                    id: '',
-                    name: `Contrat Type - ${newPack.name}`,
-                    content: contractContent,
-                    packId: createdPackId,
-                    status: 'draft',
-                    isSap: true
-                });
-
-                showToast('Pack créé et Contrat Type généré automatiquement !');
+                await updatePack(editingPackId, updates);
+                showToast('Pack modifié avec succès !');
             } else {
-                showToast('Pack créé avec succès.');
-            }
-        }
+                // MODE CRÉATION
+                const newPack: Pack = {
+                    id: '', // Will be generated
+                    name: packForm.name || 'Nouveau Pack',
+                    mainService: packForm.mainService || 'Service',
+                    description: finalDescription || `Pack ${packForm.name} - ${packForm.mainService}`,
+                    date: packDate,
+                    hours: packForm.hours || 3,
+                    frequency: packForm.frequency || 'Ponctuelle',
+                    type: packForm.frequency === 'Ponctuelle' ? 'ponctuel' : 'regulier',
+                    quantity: packForm.quantity,
+                    location: packForm.location,
+                    priceTTC: priceTTC,
+                    priceHT: parseFloat(priceHT.toFixed(2)),
+                    priceTaxCredit: parseFloat(taxCredit.toFixed(2)),
+                    suppliesIncluded: packForm.suppliesIncluded || false,
+                    suppliesDetails: packForm.suppliesDetails,
+                    contractType: packForm.contractType || 'Contrat Prestataire Standard',
+                    isSap: true,
+                    schedules: []
+                };
 
-        closePackModal();
+                const createdPackId = await addPack(newPack);
+
+                if (createdPackId) {
+                    // AUTO-GENERATE CONTRACT
+                    const contractContent = legalTemplate.replace('[INFO_PACK]', `Nom : ${newPack.name}\nService : ${newPack.mainService}\nType Contrat : ${newPack.contractType}`);
+
+                    await addContract({
+                        id: '',
+                        name: `Contrat Type - ${newPack.name}`,
+                        content: contractContent,
+                        packId: createdPackId,
+                        status: 'draft',
+                        isSap: true
+                    });
+
+                    showToast('Pack créé et Contrat Type généré automatiquement !');
+                } else {
+                    showToast('Pack créé avec succès.');
+                }
+            }
+
+            closePackModal();
+        } catch (e: any) {
+            console.error('[handleSavePack] failed:', e);
+            showToast(e?.message || 'Erreur lors de la sauvegarde du pack.', 'error');
+        } finally {
+            setIsSavingPack(false);
+        }
     };
 
     const handleEditPack = (pack: Pack) => {
@@ -2884,17 +2896,25 @@ const Secretariat: React.FC = () => {
 
                                     <div className="flex justify-between pt-4 border-t border-slate-100">
                                         {packStep > 1 && (
-                                            <button onClick={handlePrevPackStep} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded flex items-center gap-1">
+                                            <button onClick={handlePrevPackStep} disabled={isSavingPack} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded flex items-center gap-1 disabled:opacity-50">
                                                 <ChevronLeft className="w-4 h-4" /> Précédent
                                             </button>
                                         )}
                                         {packStep < 4 ? (
-                                            <button onClick={handleNextPackStep} className="ml-auto px-6 py-2 bg-brand-blue text-white rounded font-bold flex items-center gap-2">
+                                            <button onClick={handleNextPackStep} disabled={isSavingPack} className="ml-auto px-6 py-2 bg-brand-blue text-white rounded font-bold flex items-center gap-2 disabled:opacity-50">
                                                 Suivant <ChevronRight className="w-4 h-4" />
                                             </button>
                                         ) : (
-                                            <button onClick={handleSavePack} className="ml-auto px-6 py-2 bg-green-600 text-white rounded font-bold flex items-center gap-2 shadow-lg">
-                                                <Save className="w-4 h-4" /> Valider
+                                            <button onClick={handleSavePack} disabled={isSavingPack} className="ml-auto px-6 py-2 bg-green-600 text-white rounded font-bold flex items-center gap-2 shadow-lg disabled:opacity-60">
+                                                {isSavingPack ? (
+                                                    <>
+                                                        <Loader2 className="w-4 h-4 animate-spin" /> Validation…
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Save className="w-4 h-4" /> Valider
+                                                    </>
+                                                )}
                                             </button>
                                         )}
                                     </div>

@@ -3712,7 +3712,7 @@ const DevisFactures: React.FC = () => {
                                                     onClick={() => handleSuccess('send')}
                                                     disabled={!selectedClientId || isSubmitting}
                                                 >
-                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                                    {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <Send className="w-4 h-4" />}
                                                     {isSubmitting ? 'Traitement...' : 'Envoyer'}
                                                 </button>
                                             );
@@ -3724,7 +3724,7 @@ const DevisFactures: React.FC = () => {
                                                     onClick={() => handleSuccess('validate_only')}
                                                     disabled={!selectedClientId || isSubmitting}
                                                 >
-                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                    {isSubmitting ? <div className="w-10 h-3 bg-slate-300/70 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />}
                                                     {isSubmitting ? 'Traitement...' : 'Valider'}
                                                 </button>
                                                 <button
@@ -3732,7 +3732,7 @@ const DevisFactures: React.FC = () => {
                                                     onClick={() => handleSuccess('send')}
                                                     disabled={!selectedClientId || isSubmitting}
                                                 >
-                                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                    {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />}
                                                     {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
                                                 </button>
                                             </div>
@@ -3745,7 +3745,7 @@ const DevisFactures: React.FC = () => {
                                             onClick={() => handleSuccess('send')}
                                             disabled={!selectedClientId || isSubmitting}
                                         >
-                                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                            {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />}
                                             {isSubmitting ? 'Traitement...' : 'Valider et Envoyer'}
                                         </button>
                                     )}
@@ -4157,7 +4157,7 @@ const DevisFactures: React.FC = () => {
                                     disabled={isAdminSigning}
                                     className="flex-1 py-2 text-white font-bold bg-brand-blue hover:bg-teal-700 rounded-lg transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    {isAdminSigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                                    {isAdminSigning ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <PenTool className="w-4 h-4" />}
                                     Marquer signé
                                 </button>
                             </div>
@@ -4231,7 +4231,7 @@ const DevisFactures: React.FC = () => {
                                     disabled={isDeleting}
                                     className="flex-1 py-2 text-white font-bold bg-red-600 hover:bg-red-700 rounded-lg transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                    {isDeleting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : null}
                                     Supprimer
                                 </button>
                             </div>

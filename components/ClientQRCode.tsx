@@ -309,7 +309,7 @@ const ClientQRCode: React.FC = () => {
                         <div className="text-center">
                             {loading ? (
                                 <div className="w-64 h-64 bg-slate-100 rounded-lg flex items-center justify-center">
-                                    <RefreshCw className="w-8 h-8 text-slate-400 animate-spin" />
+                                    <div className="w-40 h-3 bg-slate-200 rounded animate-pulse" />
                                 </div>
                             ) : (
                                 <div className="inline-block">

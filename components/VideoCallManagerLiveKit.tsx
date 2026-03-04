@@ -148,7 +148,13 @@ const VideoCallManagerLiveKit: React.FC<VideoCallManagerProps> = ({ sessionId, i
   if (isConnecting) {
     return (
       <div className="flex flex-col items-center justify-center h-96 bg-slate-900 rounded-xl">
-        <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
+        <div className="w-full max-w-xs px-6">
+          <div className="animate-pulse space-y-3">
+            <div className="h-6 bg-slate-700 rounded w-2/3 mx-auto" />
+            <div className="h-4 bg-slate-700 rounded w-1/2 mx-auto" />
+            <div className="h-10 bg-slate-800 rounded" />
+          </div>
+        </div>
         <h3 className="text-white text-xl font-bold">Connexion en cours...</h3>
         <p className="text-slate-400 mt-2">Veuillez patienter</p>
       </div>

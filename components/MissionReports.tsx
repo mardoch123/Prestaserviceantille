@@ -141,6 +141,8 @@ const MissionReports: React.FC = () => {
                 } else {
                     setDetailsError("Impossible de charger le détail de la mission (photos)." );
                 }
+            } catch (e: any) {
+                setDetailsError(String(e?.message || 'Erreur chargement détail mission'));
             } finally {
                 setDetailsLoading(false);
             }
@@ -211,8 +213,14 @@ const MissionReports: React.FC = () => {
                     </div>
                 ) : null}
                 {(dataLoading || loadingReports) ? (
-                    <div className="p-10 flex items-center justify-center">
-                        <div className="w-10 h-10 border-4 border-brand-blue border-t-transparent rounded-full animate-spin" />
+                    <div className="p-6">
+                        <div className="space-y-3 animate-pulse">
+                            <div className="h-6 bg-slate-200 rounded w-1/3" />
+                            <div className="h-10 bg-slate-200 rounded" />
+                            <div className="h-10 bg-slate-200 rounded" />
+                            <div className="h-10 bg-slate-200 rounded" />
+                            <div className="h-10 bg-slate-200 rounded" />
+                        </div>
                     </div>
                 ) : (
                 <table className="w-full text-sm text-left">
@@ -325,9 +333,11 @@ const MissionReports: React.FC = () => {
                         </div>
 
                         {detailsLoading ? (
-                            <div className="px-6 py-3 bg-white border-b border-slate-200 flex items-center gap-3">
-                                <div className="w-5 h-5 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs font-bold text-slate-600">Chargement des photos…</span>
+                            <div className="px-6 py-3 bg-white border-b border-slate-200">
+                                <div className="animate-pulse space-y-2">
+                                    <div className="h-3 bg-slate-200 rounded w-40" />
+                                    <div className="h-2 bg-slate-200 rounded w-64" />
+                                </div>
                             </div>
                         ) : null}
 
@@ -446,8 +456,15 @@ const MissionReports: React.FC = () => {
                                                 )}
                                             </div>
                                             {detailsLoading || !selectedMission.endPhotos ? (
-                                                <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500 text-xs font-bold">
-                                                    Chargement en cours...
+                                                <div className="p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                                                    <div className="grid grid-cols-3 gap-2 animate-pulse">
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                        <div className="aspect-square rounded-lg bg-slate-200" />
+                                                    </div>
                                                 </div>
                                             ) : selectedMission.endPhotos.length > 0 ? (
                                                 <div className="grid grid-cols-3 gap-2">

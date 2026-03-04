@@ -220,7 +220,7 @@ const Dashboard: React.FC = () => {
   const sentQuotes = documentsFilteredByProvider.filter(d => d.type === 'Devis' && d.status === 'sent').length;
 
   // Navigation Handlers
-  const goToStats = (status: 'all' | 'completed' | 'planned' | 'cancelled') => {
+  const goToStats = (status: 'all' | 'in_progress' | 'completed' | 'planned' | 'cancelled') => {
     navigate('/statistics', { 
       state: { 
         filter: status,
@@ -313,7 +313,7 @@ const Dashboard: React.FC = () => {
               value={missionsFilteredByProvider.filter(m => m.status === 'in_progress').length} 
               bgColor="bg-slate-100" 
               icon={Briefcase}
-              onClick={() => goToStats('planned')} 
+              onClick={() => goToStats('in_progress')} 
             />
             <StatCard 
               title="Missions terminées" 

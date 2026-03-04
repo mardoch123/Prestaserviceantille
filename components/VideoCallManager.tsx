@@ -251,7 +251,13 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
     if (callStatus === 'connecting') {
         return (
             <div className="flex flex-col items-center justify-center h-96 bg-slate-900 rounded-xl">
-                <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
+                <div className="w-full max-w-xs px-6">
+                    <div className="animate-pulse space-y-3">
+                        <div className="h-6 bg-slate-700 rounded w-2/3 mx-auto" />
+                        <div className="h-4 bg-slate-700 rounded w-1/2 mx-auto" />
+                        <div className="h-10 bg-slate-800 rounded" />
+                    </div>
+                </div>
                 <h3 className="text-white text-xl font-bold">
                     {isInitiator ? 'Appel en cours...' : 'Appel entrant...'}
                 </h3>
@@ -273,13 +279,8 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
                         className="w-full h-full object-cover"
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-black">
-                        <div className="text-center">
-                            <Video className="w-16 h-16 text-slate-500 mx-auto mb-4" />
-                            <p className="text-slate-400">
-                                {isConnected ? 'En attente de la vidéo...' : 'Connexion en cours...'}
-                            </p>
-                        </div>
+                    <div className="w-full h-full flex items-center justify-center">
+                        <div className="w-20 h-3 bg-slate-700 rounded animate-pulse" />
                     </div>
                 )}
             </div>
@@ -296,7 +297,7 @@ const VideoCallManager: React.FC<VideoCallManagerProps> = ({ sessionId, isInitia
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                        <Loader className="w-8 h-8 text-slate-500 animate-spin" />
+                        <div className="w-20 h-3 bg-slate-700 rounded animate-pulse" />
                     </div>
                 )}
             </div>

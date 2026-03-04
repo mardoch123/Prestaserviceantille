@@ -1312,7 +1312,10 @@ const Planning: React.FC = () => {
             {planningLoading && (
                 <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-xl border border-slate-200">
                     <div className="flex flex-col items-center gap-4 p-6 bg-white rounded-2xl shadow-xl border border-slate-100 max-w-sm w-full mx-4">
-                        <Loader2 className="w-10 h-10 text-brand-blue animate-spin" />
+                        <div className="w-full animate-pulse space-y-3">
+                            <div className="h-6 bg-slate-200 rounded w-2/3 mx-auto" />
+                            <div className="h-4 bg-slate-200 rounded w-3/4 mx-auto" />
+                        </div>
                         <div className="w-full space-y-2 text-center">
                             <h3 className="text-lg font-bold text-slate-800">Chargement du planning</h3>
                             <p className="text-sm text-slate-500 italic min-h-[1.25rem]">{encouragementMessages[encouragementIndex]}</p>
@@ -1942,7 +1945,7 @@ const Planning: React.FC = () => {
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3">
-                        <button 
+                        <button
                             type="button"
                             onClick={() => setIsModalOpen(false)}
                             className="px-6 py-2 rounded-lg text-slate-600 font-bold hover:bg-slate-100 transition"
@@ -1950,12 +1953,12 @@ const Planning: React.FC = () => {
                         >
                             Annuler
                         </button>
-                        <button 
+                        <button
                             type="submit"
                             disabled={isSubmitting}
                             className="px-6 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 transition shadow-lg shadow-brand-blue/20 flex items-center gap-2 disabled:opacity-70"
                         >
-                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle className="w-4 h-4" />} 
+                            {isSubmitting ? <div className="w-10 h-3 bg-white/40 rounded animate-pulse" /> : <CheckCircle className="w-4 h-4" />}
                             {isSubmitting ? 'Enregistrement...' : 'Planifier'}
                         </button>
                     </div>
@@ -2080,7 +2083,7 @@ const Planning: React.FC = () => {
                             >
                                 {isSubmitting ? (
                                     <>
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <div className="w-16 h-4 bg-white/40 rounded animate-pulse" />
                                         Assignation...
                                     </>
                                 ) : (

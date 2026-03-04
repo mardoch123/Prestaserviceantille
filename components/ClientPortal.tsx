@@ -2370,7 +2370,7 @@ const ClientPortal: React.FC = () => {
                                                             </button>
                                                         ) : recording.status === 'processing' ? (
                                                             <button disabled className="bg-slate-200 text-slate-500 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-                                                                <Loader className="w-4 h-4 animate-spin" />
+                                                                <div className="w-10 h-3 bg-slate-300/70 rounded animate-pulse" />
                                                                 En cours
                                                             </button>
                                                         ) : (
@@ -2779,7 +2779,7 @@ const ClientPortal: React.FC = () => {
                                         >
                                             {isSubmittingSignature ? (
                                                 <span className="inline-flex items-center justify-center gap-2">
-                                                    <Loader className="w-4 h-4 animate-spin" />
+                                                    <div className="w-10 h-3 bg-white/40 rounded animate-pulse" />
                                                     Signature en cours...
                                                 </span>
                                             ) : (
@@ -2905,7 +2905,7 @@ const ClientPortal: React.FC = () => {
                                                 >
                                                     {isSubmittingSignature ? (
                                                         <span className="inline-flex items-center justify-center gap-2">
-                                                            <Loader className="w-4 h-4 animate-spin" />
+                                                            <div className="w-10 h-3 bg-white/40 rounded animate-pulse" />
                                                             Signature en cours...
                                                         </span>
                                                     ) : (

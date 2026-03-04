@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
+import PageLoader from './PageLoader';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
@@ -61,7 +62,12 @@ const ProviderPortal: React.FC = () => {
     activeStream,
     visitScans,
     refreshData,
+    dataLoading,
   } = useData();
+
+  const LOADER_SEEN_KEY = 'presta_provider_portal_loader_seen';
+  const loaderSeenRef = useRef<boolean>(false);
+  const [loaderSeen, setLoaderSeen] = useState(false);
 
   // Pull-to-refresh state
   const [isPulling, setIsPulling] = useState(false);
@@ -99,6 +105,9 @@ const ProviderPortal: React.FC = () => {
   }, [pullDistance, isRefreshing, refreshData]);
 
   const provider = providers.find(p => p.id === simulatedProviderId);
+  const hasProviderId = Boolean(simulatedProviderId);
+  const isProviderPortalLoading = Boolean(dataLoading) || (hasProviderId && !provider);
+  const showShimmerLoader = isProviderPortalLoading && !loaderSeen;
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live' | 'scans'>('dashboard');
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
@@ -110,6 +119,15 @@ const ProviderPortal: React.FC = () => {
   const [referralCode, setReferralCode] = useState('');
 
   useEffect(() => {
+    try {
+      const seen = String(localStorage.getItem(LOADER_SEEN_KEY) || '').trim() === '1';
+      loaderSeenRef.current = seen;
+      setLoaderSeen(seen);
+    } catch {
+      loaderSeenRef.current = false;
+      setLoaderSeen(false);
+    }
+
     try {
       const v = String(localStorage.getItem('mkt_client_is_referrer') || '').trim();
       setIsReferrer(v === '1' || v.toLowerCase() === 'true');
@@ -296,13 +314,65 @@ const ProviderPortal: React.FC = () => {
       }
   };
 
+  useEffect(() => {
+    if (!showShimmerLoader) return;
+    if (loaderSeenRef.current) return;
+    loaderSeenRef.current = true;
+    setLoaderSeen(true);
+    try {
+      localStorage.setItem(LOADER_SEEN_KEY, '1');
+    } catch {
+      // ignore
+    }
+  }, [showShimmerLoader]);
+
   // Early return après tous les hooks
+  if (!hasProviderId) {
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-100">
+        <div className="w-full max-w-md px-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6">
+            <div className="text-lg font-extrabold text-slate-800">Aucun prestataire sélectionné</div>
+            <div className="text-sm text-slate-500 mt-2">Reconnectez-vous pour accéder à votre espace.</div>
+            <button
+              type="button"
+              onClick={() => { setSimulatedProviderId(null); logout(true); }}
+              className="mt-5 w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-extrabold py-3 rounded-xl transition"
+            >
+              <LogOut className="w-5 h-5" /> Déconnexion
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!provider && dataLoading) {
+    if (showShimmerLoader) return <PageLoader />;
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <div className="flex items-center gap-3 text-slate-600 font-bold">
+          <Loader className="w-5 h-5 animate-spin" /> Chargement…
+        </div>
+      </div>
+    );
+  }
+
   if (!provider) {
     return (
       <div className="h-full flex items-center justify-center bg-slate-100">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-brand-blue border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-500">Chargement...</p>
+        <div className="w-full max-w-md px-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6">
+            <div className="text-lg font-extrabold text-slate-800">Prestataire introuvable</div>
+            <div className="text-sm text-slate-500 mt-2">Votre session semble invalide. Reconnectez-vous.</div>
+            <button
+              type="button"
+              onClick={() => { setSimulatedProviderId(null); logout(true); }}
+              className="mt-5 w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-extrabold py-3 rounded-xl transition"
+            >
+              <LogOut className="w-5 h-5" /> Déconnexion
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -798,21 +868,29 @@ const ProviderPortal: React.FC = () => {
              onTouchMove={handleTouchMove}
              onTouchEnd={handleTouchEnd}
            >
-               {/* Pull-to-refresh indicator (mobile only) */}
-               {(isPulling || isRefreshing) && (
-                 <div
-                   className="flex items-center justify-center transition-all duration-200 md:hidden"
-                   style={{ height: isRefreshing ? 48 : Math.min(pullDistance, 48), overflow: 'hidden' }}
-                 >
-                   <div className={`flex items-center gap-2 text-sm text-blue-600 font-medium ${isRefreshing ? 'animate-pulse' : ''}`}>
-                     <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} style={!isRefreshing ? { transform: `rotate(${Math.min(pullDistance / 70 * 180, 180)}deg)` } : {}} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                     </svg>
-                     {isRefreshing ? 'Actualisation…' : pullDistance >= 70 ? 'Relâchez pour actualiser' : 'Tirez pour actualiser'}
-                   </div>
-                 </div>
-               )}
-               <div className="max-w-7xl mx-auto">
+              {isProviderPortalLoading ? (
+                <PageLoader />
+              ) : (
+                <>
+                  {/* Pull-to-refresh indicator (mobile only) */}
+                  {(isPulling || isRefreshing) && (
+                    <div
+                      className="flex items-center justify-center transition-all duration-200 md:hidden"
+                      style={{ height: isRefreshing ? 48 : Math.min(pullDistance, 48), overflow: 'hidden' }}
+                    >
+                      <div className={`flex items-center gap-2 text-sm text-blue-600 font-medium ${isRefreshing ? 'animate-pulse' : ''}`}>
+                        {isRefreshing ? (
+                          <div className="w-12 h-2 bg-blue-200 rounded animate-pulse" />
+                        ) : (
+                          <svg className="w-5 h-5" style={{ transform: `rotate(${Math.min(pullDistance / 70 * 180, 180)}deg)` }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        )}
+                        {isRefreshing ? 'Actualisation…' : pullDistance >= 70 ? 'Relâchez pour actualiser' : 'Tirez pour actualiser'}
+                      </div>
+                    </div>
+                  )}
+                  <div className="max-w-7xl mx-auto">
                    {activeTab === 'dashboard' && (
                        <div className="space-y-6">
                            {false && isReferrer && referralLink ? (
@@ -1177,7 +1255,9 @@ const ProviderPortal: React.FC = () => {
                            </div>
                        </div>
                    )}
-               </div>
+                  </div>
+                </>
+              )}
            </main>
        </div>
 
@@ -1374,7 +1454,7 @@ const ProviderPortal: React.FC = () => {
                        >
                            {isSubmittingExecution ? (
                                <>
-                                   <div className="w-5 h-5 border-2 border-white/60 border-t-white rounded-full animate-spin"></div>
+                                   <div className="w-16 h-4 bg-white/40 rounded animate-pulse" />
                                    Envoi en cours...
                                </>
                            ) : (

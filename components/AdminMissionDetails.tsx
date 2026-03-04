@@ -39,6 +39,11 @@ const AdminMissionDetails: React.FC = () => {
         if (!active) return;
         setMission(res);
       })
+      .catch((e) => {
+        console.error('Failed to load mission details', e);
+        if (!active) return;
+        setMission(null);
+      })
       .finally(() => {
         if (!active) return;
         setLoading(false);
