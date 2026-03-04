@@ -1618,40 +1618,27 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const run = (async () => {
             try {
-                console.log("[RefreshData] Starting data refresh...");
-
-                if (!isSupabaseConfigured) {
-                    console.log("[RefreshData] Supabase not configured, skipping fetch");
-                    return;
-                }
+                if (!isSupabaseConfigured) return;
 
                 setIsOnline(true);
-                console.log("[RefreshData] Setting online status, preparing fetches...");
 
                 const fetchTable = async (table: string, query: any = '*', timeout: number = 15000) => {
                     try {
-                        console.log(`[RefreshData] Fetching ${table}...`);
-
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
                         });
 
                         const fetchPromise = supabase.from(table).select(query);
-
                         const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
                         if (result.error) {
-                            console.warn(`[RefreshData] Failed to fetch ${table}:`, result.error);
+                            console.warn(`[RefreshData] ${table}:`, result.error.message);
                             return null;
                         }
-
-                        console.log(`[RefreshData] Successfully fetched ${table}:`, result.data?.length || 0, 'items');
                         return result.data;
                     } catch (err: any) {
-                        if (err instanceof Error && err.message.includes('Timeout')) {
-                            console.warn(`[RefreshData] Timeout fetching ${table}, skipping...`);
-                        } else {
-                            console.error(`[RefreshData] Exception fetching ${table}:`, err);
+                        if (!(err instanceof Error && err.message.includes('Timeout'))) {
+                            console.error(`[RefreshData] ${table}:`, err);
                         }
                         return null;
                     }
@@ -1728,7 +1715,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const fetchMissionsWindow = async (timeout: number = 25000, select = '*') => {
                     try {
-                        console.log('[RefreshData] Fetching missions (windowed)...');
                         const start = dayjs().subtract(3, 'month').format('YYYY-MM-DD');
                         const end = dayjs().add(3, 'month').format('YYYY-MM-DD');
                         const pageSize = 500;
@@ -1755,7 +1741,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             const data = result?.data;
                             const error = result?.error;
                             if (error) {
-                                console.warn('[RefreshData] Failed to fetch missions (windowed):', error);
+                                console.warn('[RefreshData] missions:', error.message);
                                 return null;
                             }
                             const batch = data || [];
@@ -1763,13 +1749,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             if (batch.length < pageSize) break;
                             page += 1;
                         }
-                        console.log('[RefreshData] Successfully fetched missions (windowed):', all.length, 'items');
                         return all;
                     } catch (err: any) {
-                        if (err instanceof Error && err.message.includes('Timeout')) {
-                            console.warn('[RefreshData] Timeout fetching missions (windowed), skipping...');
-                        } else {
-                            console.error('[RefreshData] Exception fetching missions (windowed):', err);
+                        if (!(err instanceof Error && err.message.includes('Timeout'))) {
+                            console.error('[RefreshData] missions:', err);
                         }
                         return null;
                     }
@@ -1777,7 +1760,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const fetchMissionChangeRequests = async (timeout: number = 15000) => {
                     try {
-                        console.log('[RefreshData] Fetching mission_change_requests...');
 
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error('Timeout fetching mission_change_requests')), timeout);
@@ -1792,17 +1774,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
                         if (result.error) {
-                            console.warn('[RefreshData] Failed to fetch mission_change_requests:', result.error.message);
+                            console.warn('[RefreshData] mission_change_requests:', result.error.message);
                             return null;
                         }
 
-                        console.log('[RefreshData] Successfully fetched mission_change_requests:', result.data?.length || 0, 'items');
                         return result.data;
                     } catch (err: any) {
-                        if (err instanceof Error && err.message.includes('Timeout')) {
-                            console.warn('[RefreshData] Timeout fetching mission_change_requests, skipping...');
-                        } else {
-                            console.error('[RefreshData] Exception fetching mission_change_requests:', err);
+                        if (!(err instanceof Error && err.message.includes('Timeout'))) {
+                            console.error('[RefreshData] mission_change_requests:', err);
                         }
                         return null;
                     }
@@ -1810,7 +1789,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
                 const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
-                const clientSelect = '*';
+                // Colonnes explicites pour éviter de charger inutilement les champs lourds (ex. signature_data)
+                const clientSelect = 'id,name,email,phone,address,pack,status,packs_consumed,loyalty_hours_available,has_left_review,initial_password,created_at,service_type,notes,qr_code';
                 const reminderSelect = 'id,date,text,notify_email,completed';
 
                 const [cData, pData, mData, rData] = await Promise.all([
@@ -1839,20 +1819,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 void (async () => {
-                    let leadsData = await fetchTable('client_leads');
-                    let dData = await fetchTable('documents');
-                    let packData = await fetchTable('packs');
-                    let ctData = await fetchTable('contracts');
-                    let eData = await fetchTable('expenses');
-                    let msgData = await fetchTable('messages');
-                    let notifData = await fetchTable('notifications');
-                    let cfData = await fetchTable('contact_forms');
-                    let settingsData = await fetchTable('company_settings', '*', 15000).then(r => r?.[0] || null);
-                    let vsData = await fetchTable('visit_scans');
-                    let vrData = await fetchTable('video_recordings');
-                    let leavesData = await fetchTable('leaves');
-                    let gcData = await fetchTable('generic_contracts');
-                    let mcrData = await fetchMissionChangeRequests(15000);
+                    // Toutes les requêtes secondaires en parallèle pour maximiser la vitesse
+                    const [
+                        leadsData, dData, packData, ctData, eData,
+                        msgData, notifData, cfData, settingsRaw,
+                        vsData, vrData, leavesData, gcData, mcrData
+                    ] = await Promise.all([
+                        fetchTable('client_leads'),
+                        fetchTable('documents'),
+                        fetchTable('packs'),
+                        fetchTable('contracts'),
+                        fetchTable('expenses'),
+                        fetchTable('messages'),
+                        fetchTable('notifications'),
+                        fetchTable('contact_forms'),
+                        fetchTable('company_settings', '*', 15000),
+                        fetchTable('visit_scans'),
+                        fetchTable('video_recordings'),
+                        fetchTable('leaves'),
+                        fetchTable('generic_contracts'),
+                        fetchMissionChangeRequests(15000),
+                    ]);
+                    const settingsData = settingsRaw?.[0] || null;
 
                     let cData2 = cData;
                     if (!cData2) cData2 = await fetchTable('clients', clientSelect, 20000);
@@ -1920,7 +1908,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         }));
                     }
                 if (ctData) {
-                    console.log('Loading contracts from DB:', ctData.map((c: any) => ({ id: c.id, client_id: c.client_id, pack_id: c.pack_id })));
                     setContracts(ctData.map((c: any) => ({
                         ...c,
                         packId: c.pack_id || c.packId,
@@ -2433,80 +2420,41 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         });
         setIsOnline(true);
         return true;
-    };const performSilentLogin = async (): Promise<boolean> => {
+    };
+
+    // Nettoyage de l'ancienne clé de récupération de mot de passe (migration sécurité)
+    try { localStorage.removeItem('presta_auth_recovery'); } catch { /* ignoré */ }
+
+    const performSilentLogin = async (): Promise<boolean> => {
         try {
-            console.log("Attempting silent login...");
-            
             // Rate limiting: éviter les tentatives répétées
             const lastAttempt = localStorage.getItem('presta_last_login_attempt');
             const now = Date.now();
-            if (lastAttempt && (now - parseInt(lastAttempt)) < 30000) { // 30 secondes
-                console.log("Silent login rate limited, skipping attempt");
+            if (lastAttempt && (now - parseInt(lastAttempt)) < 30000) {
                 return false;
             }
 
-            // Vérifier d'abord s'il y a une session Supabase active
+            // Vérifier s'il y a une session Supabase active (gérée nativement par le SDK)
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
-                console.log("Found existing Supabase session, validating...");
                 const isValid = await fetchUserProfile(session.user);
                 if (isValid) {
-                    console.log("Existing session is valid, restoring...");
-                    // Prolonger la session de manière proactive
-                    localStorage.setItem('presta_last_login_attempt', (now + 300000).toString()); // 5 minutes
+                    localStorage.setItem('presta_last_login_attempt', (now + 300000).toString());
                     return true;
                 }
             }
 
-            // Tenter la récupération depuis le storage local
-            const storedAuth = localStorage.getItem('presta_auth_recovery');
-            if (!storedAuth) {
-                console.log("No stored auth recovery data found");
-                return false;
-            }
-
-            // Vérifier si l'utilisateur était un client/provider pour éviter la déconnexion automatique
-            const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
-            if (currentUser && (currentUser.role === 'client' || currentUser.role === 'provider')) {
-                console.log("Protected user type found, preventing auto-logout");
-                // Ne pas déconnecter automatiquement les clients/providers
-                localStorage.setItem('presta_last_login_attempt', (now + 600000).toString()); // 10 minutes
+            // Pour les clients/providers connectés via fallback : restaurer depuis presta_current_user
+            // (sans stocker ni relire de mot de passe)
+            const storedUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
+            if (storedUser && (storedUser.role === 'client' || storedUser.role === 'provider')) {
+                localStorage.setItem('presta_last_login_attempt', (now + 600000).toString());
                 return true;
             }
 
-            // Forcer Supabase SignOut uniquement pour les admins
-            if (currentUser?.role === 'admin') {
-                console.log("Admin user - clearing session before re-auth");
-                await supabase.auth.signOut();
-            }
-
-            // Tenter la reconnexion silencieuse
-            const { e, p } = JSON.parse(atob(storedAuth));
-            const { data, error } = await supabase.auth.signInWithPassword({ email: e, password: p });
-
-            if (!error && data.session) {
-                console.log("Silent login successful");
-                await fetchUserProfile(data.session.user);
-                
-                // Prolonger la session et marquer le succès
-                localStorage.setItem('presta_last_login_attempt', (now + 600000).toString()); // 10 minutes
-                localStorage.setItem('presta_session_extended', now.toString());
-                
-                return true;
-            } else {
-                console.warn("Silent login failed:", error);
-                // Nettoyer les données invalides
-                localStorage.removeItem('presta_auth_recovery');
-                localStorage.setItem('presta_last_login_attempt', now.toString());
-                return false;
-            }
-        } catch (e: any) {
-            console.warn("Silent login error:", e);
-            const currentUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
-            if (currentUser?.role === 'admin') {
-                // Nettoyer uniquement pour les admins en cas d'erreur
-                localStorage.removeItem('presta_auth_recovery');
-            }
+            localStorage.setItem('presta_last_login_attempt', now.toString());
+            return false;
+        } catch {
             localStorage.setItem('presta_last_login_attempt', Date.now().toString());
             return false;
         }
@@ -2514,19 +2462,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const fetchUserProfile = async (authUser: any): Promise<boolean> => {
         try {
-            console.log("[FetchProfile] Starting profile fetch for user:", authUser.id, authUser.email);
-
-            if (!isSupabaseConfigured) {
-                console.log("[FetchProfile] Supabase not configured");
-                return false;
-            }
+            if (!isSupabaseConfigured) return false;
 
             let userObj: User | null = null;
             let profileIsDemo = false;
 
-            // Check for admin first to avoid unnecessary DB queries
+            // Admin principal : détection directe pour éviter une requête DB
             if (authUser.email === 'contact@prestaservicesantilles.com') {
-                console.log("[FetchProfile] Admin user detected, using admin fallback");
                 userObj = {
                     id: authUser.id,
                     email: authUser.email,
@@ -2534,15 +2476,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     role: 'admin'
                 } as User;
             } else {
-                console.log("[FetchProfile] Non-admin user, checking users table...");
-                // Try to get profile from users table only for non-admin users
                 try {
-                    const { data: profile, error } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+                    const { data: profile, error } = await supabase
+                        .from('users')
+                        .select('id,name,email,role,related_entity_id,is_demo')
+                        .eq('id', authUser.id)
+                        .maybeSingle();
 
                     if (error) {
-                        console.log("[FetchProfile] Profile query error:", error.message);
+                        console.warn("[FetchProfile] Profile query error:", error.message);
                     } else if (profile) {
-                        console.log("[FetchProfile] Found profile in users table");
                         profileIsDemo = !!(profile as any).is_demo;
 
                         // For real demo accounts: auto-enter demo mode and avoid loading real data
@@ -2558,16 +2501,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             role: profile.role || 'client',
                             relatedEntityId: profile.related_entity_id
                         } as User;
-                    } else {
-                        console.log("[FetchProfile] No profile found in users table, using generic fallback");
                     }
                 } catch (profileErr) {
-                    console.log("[FetchProfile] Profile query failed, using generic fallback:", profileErr);
+                    console.warn("[FetchProfile] Profile query failed:", profileErr);
                 }
 
-                // Generic fallback for non-admin users if no profile found
                 if (!userObj) {
-                    console.log("[FetchProfile] Using generic user fallback");
                     const metaRoleRaw = (authUser as any)?.user_metadata?.role;
                     const metaRole = (metaRoleRaw === 'client' || metaRoleRaw === 'provider') ? metaRoleRaw : null;
                     const metaRelatedEntityId = (authUser as any)?.user_metadata?.relatedEntityId;
@@ -2609,22 +2548,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             if (userObj) {
-                console.log("[FetchProfile] Setting user:", userObj.name, userObj.role);
                 setCurrentUser(userObj);
                 if (userObj.role === 'client' && userObj.relatedEntityId) {
                     setSimulatedClientId(userObj.relatedEntityId);
                 } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
                     setSimulatedProviderId(userObj.relatedEntityId);
                 }
-                try {
-                    localStorage.setItem('presta_current_user', JSON.stringify(userObj));
-                    console.log("[FetchProfile] User saved to localStorage");
-                } catch { }
-                console.log("[FetchProfile] Profile fetch completed successfully");
+                try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
                 return true;
             }
 
-            console.log("[FetchProfile] No user object created");
             return false;
         } catch (e) {
             console.error("[FetchProfile] Critical error:", e);
@@ -2667,7 +2600,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const storedUser = localStorage.getItem('presta_current_user');
                     if (storedUser) {
                         const userObj = JSON.parse(storedUser);
-                        console.log("Restored user from localStorage:", userObj.name, userObj.role);
                         if ((userObj?.role === 'admin' || userObj?.role === 'super_admin') && String(userObj?.email || '').toLowerCase() !== 'contact@prestaservicesantilles.com') {
                             localStorage.removeItem('presta_current_user');
                         } else {
@@ -2680,66 +2612,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             }
                         }
                     }
-                } catch (err) {
-                    console.warn("Failed to restore user from localStorage:", err);
-                }
+                } catch { /* ignoré */ }
 
                 if (restoredUser && (restoredUser.role === 'client' || restoredUser.role === 'provider') && mounted) {
-                    try {
-                        await refreshData();
-                    } catch (e) {
-                        console.warn("Data refresh failed for restored user:", e);
-                    }
+                    try { await refreshData(); } catch { }
                     return;
                 }
 
-                // Check Supabase Session status directly
                 const { data: { session }, error } = await supabase.auth.getSession();
-
-                if (error) {
-                    console.warn("Session check error:", error);
-                }
+                if (error) console.warn("[Auth] Session check error:", error.message);
 
                 if (session?.user && mounted) {
-                    console.log("Found Supabase session, validating profile...");
-                    // VERIFY SESSION IS ACTUALLY VALID by fetching profile
                     const isValid = await fetchUserProfile(session.user);
-
                     if (isValid) {
-                        console.log("Profile validation successful, loading data...");
                         try {
                             await refreshData();
-                        } catch (refreshErr) {
-                            console.warn("Data refresh failed despite valid profile. Retrying silent login...", refreshErr);
+                        } catch {
                             const recovered = await performSilentLogin();
-                            if (recovered) {
-                                console.log("Recovery successful, refreshing data...");
-                                await refreshData();
-                            } else {
-                                console.warn("Recovery failed, will show login");
-                            }
+                            if (recovered) await refreshData();
                         }
                     } else {
-                        console.warn("Session exists but profile fetch failed (Zombie session). Attempting recovery...");
                         const recovered = await performSilentLogin();
-                        if (recovered) {
-                            await refreshData();
-                        }
+                        if (recovered) await refreshData();
                     }
                 } else {
-                    console.log("No active Supabase session, trying silent recovery...");
-                    // No active session found - try silent recovery
                     const recovered = await performSilentLogin();
-                    if (recovered) {
-                        console.log("Silent recovery successful, loading data...");
-                        await refreshData();
-                    } else {
-                        console.log("No recovery possible, will show login screen");
-                    }
+                    if (recovered) await refreshData();
                 }
 
             } catch (error) {
-                console.error("Auth initialization failed:", error);
+                console.error("[Auth] Initialization failed:", error);
             } finally {
                 clearTimeout(safetyTimer);
                 if (mounted) setLoading(false);
@@ -2754,50 +2656,24 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const timeoutPromise = new Promise(resolve => {
                 setTimeout(() => resolve('timeout'), timeoutMs);
             });
-            const result = await Promise.race([refreshData().then(() => 'done'), timeoutPromise]);
-            if (result === 'timeout') {
-                console.warn('[AuthStateChange] refreshData timeout, continuing');
-            }
+            await Promise.race([refreshData().then(() => 'done'), timeoutPromise]);
         };
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("[AuthStateChange] Event:", event, "Session:", session ? "exists" : "null");
-            if (!mounted) {
-                console.log("[AuthStateChange] Component not mounted, ignoring");
-                return;
-            }
+            if (!mounted) return;
 
             if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
-                console.log("[AuthStateChange] Processing signed in session for user:", session.user.id);
-                // Clear the safety timer since we're processing a valid session
                 clearTimeout(safetyTimer);
-
-                // Double check profile fetch if needed
                 if (!currentUser || currentUser.id !== session.user.id) {
-                    console.log("[AuthStateChange] Fetching user profile...");
                     await fetchUserProfile(session.user);
-                } else {
-                    console.log("[AuthStateChange] User profile already loaded");
                 }
-
-                // Ensure data is refreshed whenever auth state confirms a session
-                console.log("[AuthStateChange] Refreshing application data...");
                 await refreshWithTimeout(15000);
-                console.log("[AuthStateChange] Setting loading to false - session ready");
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
-                console.log("[AuthStateChange] User signed out");
-                // AUTO-RECONNECT CHECK
-                console.warn("Supabase signaling SIGNED_OUT. Checking for recovery...");
-
-                // Use helper to attempt recovery
                 performSilentLogin().then(recovered => {
                     if (recovered) {
-                        console.log("Immediate session recovery successful via helper.");
-                        // Force refresh
                         refreshData();
                     } else {
-                        // Normal Logout
                         setCurrentUser(null);
                         setMissions([]);
                         setClients([]);
@@ -2810,8 +2686,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 });
             } else if (event === 'INITIAL_SESSION' && !session?.user) {
                 setLoading(false);
-            } else {
-                console.log("[AuthStateChange] Unhandled event:", event);
             }
         });
 
@@ -2824,67 +2698,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // --- RECONNECTION ON WAKE / FOCUS ---
     useEffect(() => {
         const handleReconnection = async () => {
-            if (document.visibilityState === 'visible') {
-                console.log("App focused/visible - Checking connection...");
+            if (document.visibilityState !== 'visible') return;
 
-                // Vérifier le rate limiting avant de faire des requêtes
-                const lastReconnect = localStorage.getItem('presta_last_reconnect');
-                const now = Date.now();
-                if (lastReconnect && (now - parseInt(lastReconnect)) < 30000) { // 30 secondes minimum
-                    console.log("[Reconnect] Rate limited, skipping check");
+            const lastReconnect = localStorage.getItem('presta_last_reconnect');
+            const now = Date.now();
+            if (lastReconnect && (now - parseInt(lastReconnect)) < 30000) return;
+
+            localStorage.setItem('presta_last_reconnect', now.toString());
+
+            try {
+                const { data, error } = await supabase.auth.getSession();
+                if (error) {
+                    if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
+                        localStorage.setItem('presta_last_reconnect', (now + 180000).toString());
+                    }
                     return;
                 }
 
-                localStorage.setItem('presta_last_reconnect', now.toString());
-
-                try {
-                    const { data, error } = await supabase.auth.getSession();
-                    if (error) {
-                        console.warn("Session check error on wake:", error);
-                        // Gérer spécifiquement les erreurs de rate limiting
-                        if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
-                            console.log("[Reconnect] Rate limiting detected, extending cooldown");
-                            localStorage.setItem('presta_last_reconnect', (now + 180000).toString()); // 3 minutes supplémentaires
-                            return;
-                        }
-                        return;
+                if (data?.session) {
+                    setIsOnline(true);
+                    const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
+                    if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) {
+                        await refreshData();
+                        localStorage.setItem('presta_last_data_refresh', now.toString());
                     }
-
-                    if (data?.session) {
-                        setIsOnline(true);
-                        // Ne pas rafraîchir les données à chaque focus pour éviter le rate limiting
+                } else if (currentUser) {
+                    const recovered = await performSilentLogin();
+                    if (recovered) {
                         const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
-                        if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) { // 5 minutes minimum
-                            await refreshData();
+                        if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) {
+                            refreshData();
                             localStorage.setItem('presta_last_data_refresh', now.toString());
                         }
-                    } else {
-                        console.log("No active session found on wake.");
-                        // Only attempt recovery if we had a user before
-                        if (currentUser) {
-                            const recovered = await performSilentLogin();
-                            if (recovered) {
-                                console.log("Immediate session recovery successful via helper.");
-                                // Force refresh only if successful
-                                const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
-                                if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) {
-                                    refreshData();
-                                    localStorage.setItem('presta_last_data_refresh', now.toString());
-                                }
-                            } else {
-                                console.warn("Immediate recovery failed, showing login screen.");
-                                // Only logout admin users on failure
-                                if (currentUser?.role === 'admin') {
-                                    await logout(true);
-                                }
-                            }
-                        }
+                    } else if (currentUser?.role === 'admin') {
+                        await logout(true);
                     }
-                } catch (err) {
-                    console.error("Reconnection error:", err);
-                    // Don't disconnect on reconnection errors
                 }
-            }
+            } catch { /* reconnexion non critique */ }
         };
 
         document.addEventListener('visibilitychange', handleReconnection);
@@ -2902,51 +2752,29 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const heartbeatInterval = setInterval(async () => {
             try {
-                if (document.visibilityState === 'hidden') return; // Don't ping if background
+                if (document.visibilityState === 'hidden') return;
 
-                // Vérifier d'abord si on a récemment fait des requêtes pour éviter le rate limiting
                 const lastHeartbeat = localStorage.getItem('presta_last_heartbeat');
                 const now = Date.now();
-                if (lastHeartbeat && (now - parseInt(lastHeartbeat)) < 240000) { // 4 minutes minimum
-                    console.log("[Heartbeat] Skipping to avoid rate limiting");
-                    return;
-                }
+                if (lastHeartbeat && (now - parseInt(lastHeartbeat)) < 240000) return;
 
                 localStorage.setItem('presta_last_heartbeat', now.toString());
 
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (error) {
-                    console.warn("[Heartbeat] Session check error:", error.message);
-                    // Gérer spécifiquement les erreurs de rate limiting
                     if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
-                        console.log("[Heartbeat] Rate limiting detected, extending cooldown");
-                        localStorage.setItem('presta_last_heartbeat', (now + 300000).toString()); // 5 minutes supplémentaires
-                        return;
+                        localStorage.setItem('presta_last_heartbeat', (now + 300000).toString());
                     }
-                    return; // Don't disconnect on simple errors
+                    return;
                 }
 
                 if (!session) {
-                    console.warn("[Heartbeat] Session lost, attempting recovery...");
-
-                    // Only attempt recovery if we had a user before
-                    if (currentUser) {
-                        const recovered = await performSilentLogin();
-                        if (recovered) {
-                            console.log("[Heartbeat] Session recovered successfully");
-                        } else {
-                            console.warn("[Heartbeat] Recovery failed, user will need to login again");
-                        }
-                    }
+                    if (currentUser) await performSilentLogin();
                 } else {
-                    // Session is good
                     if (!isOnline) setIsOnline(true);
                 }
-            } catch (err) {
-                console.warn("[Heartbeat] Critical error:", err);
-                // Don't disconnect on heartbeat errors
-            }
-        }, 600000); // Check every 10 minutes (réduit encore plus la fréquence)
+            } catch { /* heartbeat non critique */ }
+        }, 600000);
 
         return () => clearInterval(heartbeatInterval);
     }, [currentUser, isOnline]);
@@ -2957,15 +2785,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const success = await sendEmailViaEmailJS(to, subject, template, context);
 
             if (!success) {
-                // Log but do not throw to prevent app crash
-                console.warn("[Email] Failed to send email via EmailJS:", { to, subject, template });
+                console.warn("[Email] Failed to send email via EmailJS");
                 return;
             }
-
-            console.log("[Email] ✓ Email sent successfully via EmailJS:", { to, subject, template });
         } catch (e: any) {
             console.warn("[Email] Error sending email:", e.message || e);
-            // We don't throw to prevent app crash - email failures should not break the app
         }
     };
 
@@ -2974,7 +2798,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
-        console.log("[AddNotification] Creating notification:", { targetUserType, type, title, targetUserId, link });
 
         const id = generateUUID();
         const now = getMartiniqueNowISO();
@@ -3065,7 +2888,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             targetUserId
         };
 
-        console.log("[AddNotification] Adding to local state:", mappedNotif);
         setNotifications(prev => [mappedNotif, ...prev]);
 
         triggerNativeNotification(mappedNotif);
@@ -3754,42 +3576,34 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const login = async (email: string, password?: string): Promise<boolean> => {
         if (!password) return false;
 
+        // Authentification via Supabase Auth (chemin principal — sécurisé)
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password
-            });
-            if (data.user) {
-                // Save auth recovery info for session persistence
-                try {
-                    const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
-                    localStorage.setItem('presta_auth_recovery', authRecovery);
-                } catch { }
-
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (!error && data.user) {
                 await fetchUserProfile(data.user);
                 await refreshData();
                 return true;
             }
-        } catch (e) {
-            console.warn("Auth login failed, attempting fallback...");
-        }
+            // Ne pas exposer l'erreur exacte de Supabase dans les logs
+        } catch { /* ignoré */ }
 
-        // SOLUTION DÉFINITIVE: Fallback robuste pour les connexions prestataires/clients
+        // Fallback pour les clients/prestataires qui n'ont pas encore de compte Supabase Auth.
+        // IMPORTANT : le mot de passe est vérifié via initial_password stocké en base.
+        // Migrer ces comptes vers Supabase Auth est fortement recommandé.
         try {
-            // Vérifier d'abord si c'est un client
-            const { data: clientData, error: clientError } = await supabase.from('clients').select('*').eq('email', email).maybeSingle();
+            const { data: clientData } = await supabase
+                .from('clients')
+                .select('id,email,name,initial_password')
+                .eq('email', email.toLowerCase().trim())
+                .maybeSingle();
 
-            if (clientData && !clientError) {
-                // Validation du mot de passe pour le client
-                // Pour l'instant, on utilise une validation simple (à améliorer selon vos besoins)
-                // Vous pouvez ajouter ici votre logique de validation de mot de passe
-                const isValidPassword = password && password.length > 0; // Logique à adapter
-                
-                if (!isValidPassword) {
-                    console.error("Mot de passe invalide pour le client");
+            if (clientData) {
+                // Vérification du mot de passe contre le champ initial_password
+                const storedPwd = String(clientData.initial_password || '');
+                if (!storedPwd || storedPwd !== password) {
                     return false;
                 }
-                
+
                 const userObj: User = {
                     id: clientData.id,
                     email: clientData.email,
@@ -3799,38 +3613,26 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
                 setCurrentUser(userObj);
                 setSimulatedClientId(clientData.id);
-
-                try {
-                    localStorage.setItem('presta_current_user', JSON.stringify(userObj));
-                    // Save auth recovery info for session persistence
-                    const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
-                    localStorage.setItem('presta_auth_recovery', authRecovery);
-                } catch { }
-
-                // CRITICAL FIX: Refresh data and stop loading
+                try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
                 await refreshData();
                 setLoading(false);
                 return true;
             }
 
-            // Vérifier si c'est un prestataire
-            const { data: providerData, error: providerError } = await supabase.from('providers').select('*').eq('email', email).maybeSingle();
+            const { data: providerData } = await supabase
+                .from('providers')
+                .select('id,email,first_name,last_name,status,initial_password')
+                .eq('email', email.toLowerCase().trim())
+                .maybeSingle();
 
-            if (providerData && !providerError) {
-                // Vérifier si le prestataire est actif
-                if (providerData.status !== 'Active') {
-                    console.error("Prestataire inactif - connexion refusée");
+            if (providerData) {
+                if (providerData.status !== 'Active') return false;
+
+                const storedPwd = String(providerData.initial_password || '');
+                if (!storedPwd || storedPwd !== password) {
                     return false;
                 }
-                
-                // Validation renforcée du mot de passe pour prestataire
-                const isValidPassword = password && password.length >= 6; // Minimum 6 caractères
-                
-                if (!isValidPassword) {
-                    console.error("Mot de passe invalide pour le prestataire (minimum 6 caractères)");
-                    return false;
-                }
-                
+
                 const userObj: User = {
                     id: providerData.id,
                     email: providerData.email,
@@ -3838,28 +3640,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     role: 'provider',
                     relatedEntityId: providerData.id
                 };
-                
                 setCurrentUser(userObj);
                 setSimulatedProviderId(providerData.id);
-
-                try {
-                    localStorage.setItem('presta_current_user', JSON.stringify(userObj));
-                    // Save auth recovery info for session persistence
-                    const authRecovery = btoa(JSON.stringify({ e: email, p: password }));
-                    localStorage.setItem('presta_auth_recovery', authRecovery);
-                } catch { }
-
+                try { localStorage.setItem('presta_current_user', JSON.stringify(userObj)); } catch { }
                 await refreshData();
                 setLoading(false);
                 return true;
             }
 
-            // Si ni client ni prestataire trouvé
-            console.error("Utilisateur non trouvé dans les tables clients ou providers");
             return false;
-
-        } catch (error) {
-            console.error("Erreur lors du fallback d'authentification:", error);
+        } catch {
             return false;
         }
     };

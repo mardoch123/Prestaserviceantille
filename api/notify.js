@@ -56,8 +56,25 @@ async function resolveAuthUserIdFromTarget(adminClient, targetUserType, targetUs
   return data?.id || null;
 }
 
+const ALLOWED_ORIGINS = [
+  'https://prestaservicesantilles.com',
+  'https://www.prestaservicesantilles.com',
+  'https://anciens.prestaservicesantilles.com',
+  'capacitor://localhost',
+  'http://localhost',
+  'http://localhost:5173',
+  'http://localhost:4173',
+];
+
+function getAllowOrigin(origin) {
+  if (!origin) return ALLOWED_ORIGINS[0];
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const origin = req.headers.origin || '';
+  res.setHeader('Access-Control-Allow-Origin', getAllowOrigin(origin));
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -94,6 +111,12 @@ export default async function handler(req, res) {
 
     if (!title || !body) {
       res.status(400).json({ error: 'title and body are required' });
+      return;
+    }
+
+    // Limite de longueur pour prévenir les abus
+    if (String(title).length > 200 || String(body).length > 1000) {
+      res.status(400).json({ error: 'title (max 200) et body (max 1000) sont trop longs' });
       return;
     }
 

@@ -75,9 +75,26 @@ function normalizeRole(role) {
   return null;
 }
 
+const ALLOWED_ORIGINS = [
+  'https://prestaservicesantilles.com',
+  'https://www.prestaservicesantilles.com',
+  'https://anciens.prestaservicesantilles.com',
+  'capacitor://localhost',
+  'http://localhost',
+  'http://localhost:5173',
+  'http://localhost:4173',
+];
+
+function getAllowOrigin(origin) {
+  if (!origin) return ALLOWED_ORIGINS[0];
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 export default async function handler(req, res) {
   try {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    const origin = req.headers.origin || '';
+    res.setHeader('Access-Control-Allow-Origin', getAllowOrigin(origin));
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
