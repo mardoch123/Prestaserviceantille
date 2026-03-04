@@ -22,19 +22,16 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
-export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
+// Valeurs du projet Supabase principal (fallback si pas de .env)
+const DEFAULT_URL = 'https://myzbkbqkjykdsaymujvl.supabase.co';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15emJrYnFranlrZHNheW11anZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMzk1NjcsImV4cCI6MjA3OTYxNTU2N30.LFFKlGHjC6hfCQynUDCZp_2XdZLDrxAuK9D4NNFYbKI';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[Supabase] VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY doivent être définis dans le fichier .env. ' +
-    "L'application ne pourra pas se connecter à la base de données."
-  );
-}
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || DEFAULT_URL;
+export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || DEFAULT_KEY;
 
 export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey;
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
