@@ -59,7 +59,7 @@ const ProviderPortal: React.FC = () => {
     stopLiveStream,
     logout,
     activeStream,
-    visitScans
+    visitScans,
     refreshData,
   } = useData();
 
