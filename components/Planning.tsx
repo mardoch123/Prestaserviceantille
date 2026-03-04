@@ -732,6 +732,7 @@ const Planning: React.FC = () => {
           const provider = providers.find(p => p.id === assignProviderId);
           
           if (mission && provider) {
+              if (isSubmitting) return;
               if (isProviderNonWorkingDay(provider.id, mission.date)) {
                   showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`, 'warning');
                   return;
@@ -740,15 +741,22 @@ const Planning: React.FC = () => {
                   showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible sur ce créneau horaire.`, 'warning');
                   return;
               }
-              // Ensure we are using valid IDs from refreshed data
-              await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
-              
-              showToast(`Prestataire assigné ! Email envoyé.`);
-              if (refreshData) await refreshData();
-              
-              // Reset states
-              setSelectedMissionId(null);
-              setAssignProviderId('');
+              setIsSubmitting(true);
+              try {
+                  // Ensure we are using valid IDs from refreshed data
+                  await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
+                  
+                  showToast(`Prestataire assigné ! Email envoyé.`);
+                  if (refreshData) await refreshData();
+                  
+                  // Reset states => closes modal
+                  setSelectedMissionId(null);
+                  setAssignProviderId('');
+              } catch (error) {
+                  showToast('Erreur lors de l\'assignation.', 'error');
+              } finally {
+                  setIsSubmitting(false);
+              }
           }
       }
   };
@@ -2026,12 +2034,20 @@ const Planning: React.FC = () => {
                             <h3 className="text-xl font-serif font-bold text-slate-800">Assigner Prestataire</h3>
                             <p className="text-xs text-slate-500 mt-1">Envoyer l'ordre de mission</p>
                         </div>
-                        <button onClick={() => setSelectedMissionId(null)} className="p-2 hover:bg-slate-200 rounded-full transition">
+                        <button disabled={isSubmitting} onClick={() => setSelectedMissionId(null)} className="p-2 hover:bg-slate-200 rounded-full transition disabled:opacity-50">
                             <X className="w-5 h-5 text-slate-500" />
                         </button>
                     </div>
                     
-                    <div className="p-6 space-y-6">
+                    <div className="p-6 space-y-6 relative">
+                        {isSubmitting && (
+                            <div className="absolute inset-0 z-10 bg-white/70 backdrop-blur-[1px] flex items-center justify-center">
+                                <div className="flex items-center gap-3 bg-white border border-slate-200 shadow-sm rounded-xl px-4 py-3">
+                                    <Loader2 className="w-5 h-5 animate-spin text-brand-blue" />
+                                    <div className="text-sm font-extrabold text-slate-700">Assignation en cours…</div>
+                                </div>
+                            </div>
+                        )}
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
                             <h4 className="font-bold text-slate-700 mb-2 border-b pb-1">Détails Mission</h4>
                             <div className="grid grid-cols-2 gap-2">
@@ -2052,6 +2068,7 @@ const Planning: React.FC = () => {
                                 className="w-full p-3 bg-white border border-slate-300 rounded-lg outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
                                 value={assignProviderId}
                                 onChange={(e) => setAssignProviderId(e.target.value)}
+                                disabled={isSubmitting}
                             >
                                 <option value="">Sélectionner dans la liste...</option>
                                 {providers.map(p => {
@@ -2075,7 +2092,7 @@ const Planning: React.FC = () => {
                         </div>
 
                         <div className="flex justify-end gap-3 pt-2">
-                            <button onClick={() => setSelectedMissionId(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-lg transition">Annuler</button>
+                            <button disabled={isSubmitting} onClick={() => setSelectedMissionId(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-lg transition disabled:opacity-50">Annuler</button>
                             <button 
                                 onClick={handleConfirmAssignment}
                                 disabled={!assignProviderId || isSubmitting}
