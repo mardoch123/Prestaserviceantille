@@ -1787,11 +1787,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
-                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
-                const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
-                // Colonnes explicites pour éviter de charger inutilement les champs lourds (ex. signature_data)
-                const clientSelect = 'id,name,email,phone,address,pack,status,packs_consumed,loyalty_hours_available,has_left_review,initial_password,created_at,service_type,notes,qr_code';
-                const reminderSelect = 'id,date,text,notify_email,completed';
+                const missionSelect = '*';
+                const providerSelect = '*';
+                const clientSelect = '*';
+                const reminderSelect = '*';
 
                 const [cData, pData, mData, rData] = await Promise.all([
                     fetchTable('clients', clientSelect, 20000),
@@ -2085,7 +2084,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const startStr = String(start || '').trim();
         const endStr = String(end || '').trim();
         if (!startStr || !endStr) return false;
-        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+        const missionSelect = '*';
         const pageSize = 500;
         const pageTimeout = 12000;
         const totalTimeout = 30000;
@@ -2479,7 +2478,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 try {
                     const { data: profile, error } = await supabase
                         .from('users')
-                        .select('id,name,email,role,related_entity_id,is_demo')
+                        .select('*')
                         .eq('id', authUser.id)
                         .maybeSingle();
 
