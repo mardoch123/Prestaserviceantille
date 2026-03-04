@@ -1808,7 +1808,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                 };
 
-                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+                const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
                 const providerSelect = 'id,first_name,last_name,hours_worked,non_intervention_days,non_intervention_hours,status';
                 const clientSelect = '*';
                 const reminderSelect = 'id,date,text,notify_email,completed';
@@ -2098,7 +2098,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const startStr = String(start || '').trim();
         const endStr = String(end || '').trim();
         if (!startStr || !endStr) return false;
-        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_photos,end_photos,start_video,end_video,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
+        const missionSelect = 'id,date,start_time,end_time,duration,client_id,client_name,provider_id,provider_name,service,status,color,start_remark,end_remark,cancellation_reason,late_cancellation,reminder_48h_sent,reminder_72h_sent,report_sent,source_document_id';
         const pageSize = 500;
         const pageTimeout = 12000;
         const totalTimeout = 30000;
