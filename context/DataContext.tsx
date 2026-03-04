@@ -1834,21 +1834,24 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 await (async () => {
-                    // Toutes les requêtes secondaires en parallèle pour maximiser la vitesse
-                    const [
-                        leadsData, dData, packData, ctData, eData,
-                        msgData, notifData, cfData, settingsRaw,
-                        vsData, vrData, leavesData, gcData, mcrData
-                    ] = await Promise.all([
+                    // Requêtes secondaires en 3 lots pour éviter ERR_CONNECTION_RESET
+                    // (limite navigateur : 6 connexions simultanées par domaine en HTTP/1.1)
+                    const [leadsData, dData, packData, ctData, eData] = await Promise.all([
                         fetchTable('client_leads'),
                         fetchTable('documents'),
                         fetchTable('packs'),
                         fetchTable('contracts'),
                         fetchTable('expenses'),
+                    ]);
+                    await new Promise(r => setTimeout(r, 300));
+                    const [msgData, notifData, cfData, settingsRaw] = await Promise.all([
                         fetchTable('messages'),
                         fetchTable('notifications'),
                         fetchTable('contact_forms'),
                         fetchTable('company_settings', '*', 15000),
+                    ]);
+                    await new Promise(r => setTimeout(r, 300));
+                    const [vsData, vrData, leavesData, gcData, mcrData] = await Promise.all([
                         fetchTable('visit_scans'),
                         fetchTable('video_recordings'),
                         fetchTable('leaves'),
