@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PageLoader from './PageLoader';
 import { DashboardViewMode } from '../types';
 import StatCard from './StatCard';
 import { TurnoverChart, ClientsChart, MissionsChart } from './Charts';
@@ -35,7 +36,7 @@ const Dashboard: React.FC = () => {
   const [providerFilter, setProviderFilter] = useState<string>('');
   const [showVideoSupervisor, setShowVideoSupervisor] = useState(false);
   const navigate = useNavigate();
-  const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter } = useData();
+  const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter, dataLoading } = useData();
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -405,7 +406,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  return (
+  return dataLoading ? <PageLoader /> : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 pb-4 md:pb-8">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <h2 className="text-3xl font-serif font-bold text-slate-800">Tableau de bord</h2>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import PageLoader from './PageLoader';
 import {
     PackagePlus,
     FileSignature,
@@ -141,6 +142,7 @@ const Secretariat: React.FC = () => {
         generateContractFromTemplate,
         serviceTypeFilter,
         markClientMessagesRead
+        dataLoading,
     } = useData();
 
     const [activeTab, setActiveTab] = useState<Tab>('packs');
@@ -1714,7 +1716,7 @@ const Secretariat: React.FC = () => {
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }, [messages, selectedChatClientId]);
 
-    return (
+    return dataLoading ? <PageLoader /> : (
         <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
             {/* Toast */}
             <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>

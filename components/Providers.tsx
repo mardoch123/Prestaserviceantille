@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
+import PageLoader from './PageLoader';
 import { 
   Filter, 
   Search, 
@@ -71,7 +72,7 @@ const getProviderCreatedAtMs = (p: any) => {
 };
 
 const Providers: React.FC = () => {
-  const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData } = useData();
+  const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData, dataLoading } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
@@ -502,7 +503,7 @@ Lien de connexion : https://presta-antilles.app/login`);
       }
   };
 
-  return (
+  return dataLoading ? <PageLoader /> : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
       
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import PageLoader from './PageLoader';
 import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
@@ -31,7 +32,7 @@ import {
 } from 'lucide-react';
 
 const Clients: React.FC = () => {
-  const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours, resetClientPassword } = useData();
+  const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours, resetClientPassword, dataLoading } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -710,7 +711,7 @@ Lien de connexion : https://presta-antilles.app/login`);
     return null;
   };
 
-  return (
+  return dataLoading ? <PageLoader /> : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
        <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
         <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${

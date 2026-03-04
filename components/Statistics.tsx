@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import PageLoader from './PageLoader';
 import { useLocation } from 'react-router-dom';
 import { 
   Calendar, 
@@ -57,7 +58,7 @@ const StatCard: React.FC<{
 );
 
 const Statistics: React.FC = () => {
-  const { missions, documents, serviceTypeFilter } = useData(); 
+  const { missions, documents, serviceTypeFilter, dataLoading } = useData();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
@@ -224,7 +225,7 @@ const Statistics: React.FC = () => {
       return revenueFromMissions;
   }, [filteredData]);
 
-  return (
+  return dataLoading ? <PageLoader /> : (
     <div className="p-8 h-full overflow-y-auto bg-white/40">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
