@@ -38,7 +38,9 @@ const normalizeSupabaseUrl = (raw: string): string => {
     const isLikelySupabaseHosted = host.endsWith('.supabase.co');
     const looksLikeApiProxyPath = pathname === '/api' || pathname.startsWith('/api/');
 
-    if (!isLikelySupabaseHosted && looksLikeApiProxyPath) {
+    // Allow proxy base like https://localhost:3000/api/supabase for local/dev
+    const isProxySupabase = looksLikeApiProxyPath && /\/api\/supabase(\/|$)/i.test(pathname);
+    if (!isLikelySupabaseHosted && looksLikeApiProxyPath && !isProxySupabase) {
       return DEFAULT_URL;
     }
   } catch {
@@ -48,7 +50,27 @@ const normalizeSupabaseUrl = (raw: string): string => {
   return value;
 };
 
-const supabaseUrl = normalizeSupabaseUrl(getEnvVar('VITE_SUPABASE_URL') || DEFAULT_URL) || DEFAULT_URL;
+const preferProxyBase = () => {
+  try {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin.replace(/\/+$/, '');
+      return `${origin}/api/supabase`;
+    }
+  } catch {}
+  return '';
+};
+
+const envUrl = getEnvVar('VITE_SUPABASE_URL');
+const isDev = (() => {
+  try {
+    // @ts-ignore
+    return typeof import.meta !== 'undefined' && !!((import.meta as any)?.env?.DEV);
+  } catch {
+    return false;
+  }
+})();
+const rawUrl = envUrl || (isDev ? preferProxyBase() : '') || DEFAULT_URL;
+const supabaseUrl = normalizeSupabaseUrl(rawUrl) || DEFAULT_URL;
 export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || DEFAULT_KEY;
 
 export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey;
