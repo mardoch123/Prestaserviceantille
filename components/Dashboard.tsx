@@ -147,9 +147,11 @@ const Dashboard: React.FC = () => {
     const list = filterDataByTime(serviceFilteredMissions);
     if (!timeFilter || timeFilter === 'all') return list;
     const inProgress = serviceFilteredMissions.filter(m => normalizeMissionStatus((m as any)?.status) === 'in_progress');
+    const completed = serviceFilteredMissions.filter(m => normalizeMissionStatus((m as any)?.status) === 'completed');
     const byId = new Map<string, any>();
     list.forEach((m: any) => byId.set(String(m?.id || ''), m));
     inProgress.forEach((m: any) => byId.set(String(m?.id || ''), m));
+    completed.forEach((m: any) => byId.set(String(m?.id || ''), m));
     return Array.from(byId.values());
   }, [serviceFilteredMissions, timeFilter]);
   const filteredDocuments = useMemo(() => filterDataByTime(serviceFilteredDocuments), [serviceFilteredDocuments, timeFilter]);

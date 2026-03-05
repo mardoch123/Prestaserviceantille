@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import QRCodeManager from './components/QRCodeManager';
 import AdminDevisDetails from './components/AdminDevisDetails';
 import AdminMissionDetails from './components/AdminMissionDetails';
+import AdminNotificationDetails from './components/AdminNotificationDetails';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
 import MissionReports from './components/MissionReports';
@@ -681,6 +682,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/qrcode" element={<QRCodeManager />} />
                         <Route path="/admin/devis/:devisId" element={<AdminDevisDetails />} />
                         <Route path="/admin/planning/missions/:missionId" element={<AdminMissionDetails />} />
+                        <Route path="/admin/notifications/:notificationId" element={<AdminNotificationDetails />} />
                         <Route path="/parrainage/devenir-parrain-client" element={<BecomeReferrerClientPage />} />
                         <Route path="/statistics" element={<Statistics />} />
                         <Route path="/clients" element={<Clients />} />

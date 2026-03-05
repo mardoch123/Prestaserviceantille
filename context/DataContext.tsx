@@ -140,6 +140,8 @@ interface DataContextType {
     addMission: (mission: Mission) => Promise<void>;
     startMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
     endMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
+    enqueueStartMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
+    enqueueEndMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
     cancelMissionByProvider: (id: string, reason: string) => Promise<void>;
     cancelMissionByClient: (id: string) => Promise<void>;
     canCancelMission: (mission: Mission) => boolean;
@@ -1742,8 +1744,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const fetchMissionsWindow = async (timeout: number = 25000, select = '*', retries = 1): Promise<any[] | null> => {
                     try {
-                        const start = dayjs().subtract(3, 'month').format('YYYY-MM-DD');
-                        const end = dayjs().add(3, 'month').format('YYYY-MM-DD');
+                        const baseNow = dayjs().tz(MARTINIQUE_TIMEZONE);
+                        const start = baseNow.subtract(24, 'month').format('YYYY-MM-DD');
+                        const end = baseNow.add(6, 'month').format('YYYY-MM-DD');
                         const pageSize = 500;
                         const pageTimeout = 12000;
                         let page = 0;
@@ -3523,6 +3526,195 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
     };
+
+    type ProviderMissionQueueJob = {
+        jobId: string;
+        kind: 'start' | 'end';
+        missionId: string;
+        remark?: string;
+        photos?: string[];
+        video?: string;
+        createdAt: string;
+        tries: number;
+    };
+
+    const PROVIDER_MISSION_QUEUE_KEY = 'presta_provider_mission_queue_v1';
+    const providerMissionQueueProcessingRef = useRef(false);
+
+    const readProviderMissionQueue = (): ProviderMissionQueueJob[] => {
+        try {
+            const raw = String(localStorage.getItem(PROVIDER_MISSION_QUEUE_KEY) || '').trim();
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? (parsed as ProviderMissionQueueJob[]) : [];
+        } catch {
+            return [];
+        }
+    };
+
+    const writeProviderMissionQueue = (jobs: ProviderMissionQueueJob[]) => {
+        try {
+            localStorage.setItem(PROVIDER_MISSION_QUEUE_KEY, JSON.stringify(jobs || []));
+        } catch {
+        }
+    };
+
+    const uploadMissionPhotosIfNeeded = async (missionId: string, phase: 'start' | 'end', photos?: string[]) => {
+        const input = Array.isArray(photos) ? photos : [];
+        const isDataUrl = (v: any) => typeof v === 'string' && v.startsWith('data:image/');
+        const needsUpload = input.some(isDataUrl);
+        if (!needsUpload) return input.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
+
+        const dataUrlToBlob = (dataUrl: string) => {
+            const parts = String(dataUrl || '').split(',');
+            const meta = parts[0] || '';
+            const raw = parts[1] || '';
+            const mime = (meta.match(/data:([^;]+);base64/i)?.[1] || 'image/jpeg').trim();
+            const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+            return new Blob([bytes], { type: mime });
+        };
+
+        const uploaded: string[] = [];
+        for (let i = 0; i < input.length; i++) {
+            const p = input[i];
+            if (!isDataUrl(p)) {
+                if (typeof p === 'string' && p.trim()) uploaded.push(p.trim());
+                continue;
+            }
+            const path = `missions/${missionId}/${phase}/${Date.now()}_${i}.jpg`;
+            const blob = dataUrlToBlob(p);
+            const { error: upErr } = await supabase.storage
+                .from('mission-media')
+                .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+            if (upErr) throw upErr;
+            const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+            const url = String((pub as any)?.publicUrl || '').trim();
+            if (!url) throw new Error('upload_failed');
+            uploaded.push(url);
+        }
+        return uploaded;
+    };
+
+    const processProviderMissionQueue = async () => {
+        if (providerMissionQueueProcessingRef.current) return;
+        providerMissionQueueProcessingRef.current = true;
+        try {
+            if (!isSupabaseConfigured) return;
+            const jobs = readProviderMissionQueue();
+            if (jobs.length === 0) return;
+
+            const job = jobs[0];
+            if (!job?.missionId || !job?.jobId) {
+                writeProviderMissionQueue(jobs.slice(1));
+                return;
+            }
+
+            const photos = Array.isArray(job.photos) ? job.photos : [];
+            if (photos.length < 5) {
+                writeProviderMissionQueue(jobs.slice(1));
+                return;
+            }
+
+            const finalPhotos = await uploadMissionPhotosIfNeeded(job.missionId, job.kind, photos);
+
+            if (job.kind === 'start') {
+                const { error } = await supabase.from('missions').update({
+                    status: 'in_progress',
+                    start_remark: job.remark,
+                    start_photos: finalPhotos,
+                    start_video: job.video
+                }).eq('id', job.missionId);
+                if (error) throw error;
+
+                setMissions(prev => prev.map(m => m.id === job.missionId ? { ...m, status: 'in_progress', startRemark: job.remark, startPhotos: finalPhotos, startVideo: job.video } : m));
+
+                const m = missions.find(m => m.id === job.missionId);
+                if (m) {
+                    await addNotification('client', 'info', 'Mission Démarrée', `L'intervenant ${m.providerName} a commencé la mission.`, m.clientId, `mission:${job.missionId}`);
+                    await addNotification('admin', 'info', 'Mission Démarrée', `Début mission chez ${m.clientName} par ${m.providerName}.`, undefined, `mission:${job.missionId}`);
+                }
+            } else {
+                const { error } = await supabase.from('missions').update({
+                    status: 'completed',
+                    end_remark: job.remark,
+                    end_photos: finalPhotos,
+                    end_video: job.video,
+                    report_sent: true
+                }).eq('id', job.missionId);
+                if (error) throw error;
+
+                setMissions(prev => prev.map(m => m.id === job.missionId ? { ...m, status: 'completed', endRemark: job.remark, endPhotos: finalPhotos, endVideo: job.video, reportSent: true } : m));
+            }
+
+            writeProviderMissionQueue(jobs.slice(1));
+        } catch {
+            try {
+                const jobs = readProviderMissionQueue();
+                if (jobs.length === 0) return;
+                const job = jobs[0];
+                const next = [{ ...job, tries: Number(job.tries || 0) + 1 }, ...jobs.slice(1)];
+                writeProviderMissionQueue(next);
+            } catch {
+            }
+        } finally {
+            providerMissionQueueProcessingRef.current = false;
+        }
+    };
+
+    const enqueueStartMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const job: ProviderMissionQueueJob = {
+            jobId: generateUUID(),
+            kind: 'start',
+            missionId: id,
+            remark,
+            photos: Array.isArray(photos) ? photos : [],
+            video,
+            createdAt: getMartiniqueNowISO(),
+            tries: 0,
+        };
+        const jobs = readProviderMissionQueue();
+        writeProviderMissionQueue([job, ...jobs]);
+        void processProviderMissionQueue();
+    };
+
+    const enqueueEndMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const job: ProviderMissionQueueJob = {
+            jobId: generateUUID(),
+            kind: 'end',
+            missionId: id,
+            remark,
+            photos: Array.isArray(photos) ? photos : [],
+            video,
+            createdAt: getMartiniqueNowISO(),
+            tries: 0,
+        };
+        const jobs = readProviderMissionQueue();
+        writeProviderMissionQueue([job, ...jobs]);
+        void processProviderMissionQueue();
+    };
+
+    useEffect(() => {
+        if (!currentUser || currentUser.role !== 'provider') return;
+
+        const onVisible = () => {
+            if (typeof document === 'undefined') return;
+            if (document.visibilityState !== 'visible') return;
+            void processProviderMissionQueue();
+        };
+
+        document.addEventListener('visibilitychange', onVisible);
+        const interval = window.setInterval(() => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            void processProviderMissionQueue();
+        }, 8000);
+
+        void processProviderMissionQueue();
+
+        return () => {
+            document.removeEventListener('visibilitychange', onVisible);
+            window.clearInterval(interval);
+        };
+    }, [currentUser?.role]);
 
     const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
         if (isDemoMode) {
@@ -6805,7 +6997,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
              isDemoMode, demoRole, enterDemoMode,
  
-             missions, addMission, startMission, endMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
+            missions, addMission, startMission, endMission, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
  
              clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  

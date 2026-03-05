@@ -86,42 +86,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const handleNotificationClick = (notif: any) => {
       markNotificationRead(notif.id);
       setShowNotifications(false);
-      
-      // Redirections intelligentes selon le type de notification
-      if (typeof notif.link === 'string' && notif.link.startsWith('/')) {
-          navigate(notif.link);
-      } else if (notif.link && notif.link.startsWith('document:')) {
-          const documentId = String(notif.link.split(':')[1] || '').trim();
-          if (documentId) navigate(`/admin/devis/${documentId}`);
-      } else if (notif.link && notif.link.startsWith('mission:')) {
-          const missionId = String(notif.link.split(':')[1] || '').trim();
-          if (missionId) navigate(`/admin/planning/missions/${missionId}`);
-      } else if (notif.link && notif.link.startsWith('tab:planning:mission-change:')) {
-          const requestId = notif.link.split(':').pop();
-          navigate('/planning', { state: { missionChangeRequestId: requestId || undefined } });
-      } else if (notif.link === 'tab:planning') {
-          navigate('/planning');
-      } else if (notif.link === 'tab:messaging' || (typeof notif.link === 'string' && notif.link.startsWith('tab:messaging:'))) {
-          const parts = String(notif.link || '').split(':');
-          const clientId = parts.length >= 3 ? parts.slice(2).join(':') : undefined;
-          navigate('/secretariat', { state: { tab: 'messaging', clientId } });
-      } else if (notif.link === 'tab:contact-forms') {
-          navigate('/contact-forms');
-      } else if (notif.link === 'tab:live-videos') {
-          navigate('/secretariat', { state: { tab: 'live-videos' } });
-      } else if (notif.link === 'tab:docs') {
-          navigate('/invoices', { state: { filter: 'devis' } });
-      } else if (notif.title && notif.title.toLowerCase().includes('devis')) {
-          navigate('/invoices', { state: { filter: 'devis' } });
-      } else if (notif.title && (notif.title.toLowerCase().includes('planning') || notif.title.toLowerCase().includes('créneau') || notif.title.toLowerCase().includes('verrouillé'))) {
-          navigate('/planning');
-      } else if (notif.title && notif.title.toLowerCase().includes('message')) {
-          navigate('/secretariat', { state: { tab: 'messaging' } });
-      } else if (notif.title && notif.title.toLowerCase().includes('prestataire')) {
-          navigate('/providers');
-      } else if (notif.title && notif.title.toLowerCase().includes('client')) {
-          navigate('/clients');
-      }
+
+      navigate(`/admin/notifications/${String(notif.id)}`);
   };
 
   const selectedMission = missions.find(m => m.id === selectedMissionReportId);

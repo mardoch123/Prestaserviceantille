@@ -53,8 +53,8 @@ const ProviderPortal: React.FC = () => {
     notifications,
     markNotificationRead,
     addLeave,
-    startMission,
-    endMission,
+    enqueueStartMission,
+    enqueueEndMission,
     cancelMissionByProvider,
     startLiveStream,
     stopLiveStream,
@@ -535,15 +535,23 @@ const ProviderPortal: React.FC = () => {
       setIsSubmittingExecution(true);
       try {
           if (executionStep === 'start') {
-              await startMission(selectedMissionId, remark, photos, video);
-              showToast('Mission démarrée. Client notifié.');
-              window.location.reload();
+              await enqueueStartMission(selectedMissionId, remark, photos, video);
+              showToast("Envoi en cours… La mission démarrera dès que l'upload est terminé.");
+              setExecutionStep(null);
+              setSelectedMissionId(null);
+              setRemark('');
+              setPhotos([]);
+              setVideo(undefined);
               return;
           }
           if (executionStep === 'end') {
-              await endMission(selectedMissionId, remark, photos, video);
-              showToast('Mission terminée. Rapport envoyé.');
-              window.location.reload();
+              await enqueueEndMission(selectedMissionId, remark, photos, video);
+              showToast("Envoi en cours… La mission sera clôturée dès que l'upload est terminé.");
+              setExecutionStep(null);
+              setSelectedMissionId(null);
+              setRemark('');
+              setPhotos([]);
+              setVideo(undefined);
               return;
           }
           if (executionStep === 'cancel') {

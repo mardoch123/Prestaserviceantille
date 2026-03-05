@@ -27,7 +27,7 @@ dayjs.extend(timezone);
 // --- Types & Mock Data ---
 
 type TimeFilter = 'day' | 'week' | 'month' | 'year';
-type StatusFilter = 'all' | 'completed' | 'planned' | 'cancelled';
+type StatusFilter = 'all' | 'in_progress' | 'completed' | 'planned' | 'cancelled';
 
 const StatCard: React.FC<{ 
   title: string; 
@@ -63,6 +63,21 @@ const Statistics: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
 
+  const normalizeMissionStatus = (value: any) => {
+    const raw = String(value || '').trim();
+    const plain = raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-+/g, '_');
+    if (plain === 'in_progress' || plain === 'inprogress' || plain === 'en_cours' || plain === 'encours' || plain === 'demarree' || plain === 'demarre') return 'in_progress';
+    if (plain === 'completed' || plain === 'complete' || plain === 'terminee' || plain === 'termine' || plain === 'done' || plain === 'finished') return 'completed';
+    if (plain === 'cancelled' || plain === 'canceled' || plain === 'annulee' || plain === 'annule') return 'cancelled';
+    if (plain === 'planned' || plain === 'planifiee' || plain === 'planifie') return 'planned';
+    return 'planned';
+  };
+
   // --- PAGINATION & FILTERS STATE ---
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -81,9 +96,9 @@ const Statistics: React.FC = () => {
   // Handle navigation from Dashboard
   useEffect(() => {
     if (location.state) {
-        const state = location.state as { filter?: StatusFilter, time?: string };
-        if (state.filter) {
-            setStatusFilter(state.filter);
+        const state = location.state as { filter?: string, time?: string };
+        if (state.filter && ['all', 'in_progress', 'completed', 'planned', 'cancelled'].includes(state.filter)) {
+            setStatusFilter(state.filter as StatusFilter);
         }
         if (state.time && ['day', 'week', 'month', 'year'].includes(state.time)) {
             setTimeFilter(state.time as TimeFilter);
@@ -135,7 +150,7 @@ const Statistics: React.FC = () => {
 
     // 2. Status Card Filter
     if (statusFilter !== 'all') {
-        data = data.filter(m => m.status === statusFilter);
+        data = data.filter(m => normalizeMissionStatus(m.status) === statusFilter);
     }
 
     // 3. Advanced Column Filters
@@ -152,7 +167,7 @@ const Statistics: React.FC = () => {
         data = data.filter(m => (m.providerName || '').toLowerCase().includes(filters.providerName.toLowerCase()));
     }
     if (filters.status !== 'all') {
-        data = data.filter(m => m.status === filters.status);
+        data = data.filter(m => normalizeMissionStatus(m.status) === String(filters.status));
     }
     if (filters.amountMin) {
         data = data.filter(m => ((m.duration || 2) * 40) >= Number(filters.amountMin));
@@ -162,7 +177,7 @@ const Statistics: React.FC = () => {
     }
 
     return data;
-  }, [timeFilter, statusFilter, missions, filters]);
+  }, [timeFilter, statusFilter, missions, filters, serviceTypeFilter]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -198,12 +213,13 @@ const Statistics: React.FC = () => {
 
     return {
       total: baseData.length,
-      completed: baseData.filter(m => m.status === 'completed').length,
-      planned: baseData.filter(m => m.status === 'planned').length,
-      cancelled: baseData.filter(m => m.status === 'cancelled').length,
-      lateCancelled: baseData.filter(m => m.status === 'cancelled' && m.lateCancellation).length
+      inProgress: baseData.filter(m => normalizeMissionStatus(m.status) === 'in_progress').length,
+      completed: baseData.filter(m => normalizeMissionStatus(m.status) === 'completed').length,
+      planned: baseData.filter(m => normalizeMissionStatus(m.status) === 'planned').length,
+      cancelled: baseData.filter(m => normalizeMissionStatus(m.status) === 'cancelled').length,
+      lateCancelled: baseData.filter(m => normalizeMissionStatus(m.status) === 'cancelled' && m.lateCancellation).length
     };
-  }, [missions, timeFilter]);
+  }, [missions, timeFilter, serviceTypeFilter]);
 
   const totalRevenue = useMemo(() => {
       // Calculate revenue based on the currently filtered list (what the user sees)
@@ -248,7 +264,7 @@ const Statistics: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
         <StatCard 
           title="Total Missions" 
           value={stats.total} 
@@ -257,6 +273,15 @@ const Statistics: React.FC = () => {
           isActive={statusFilter === 'all'}
           onClick={() => setStatusFilter('all')}
           subtext="Sur la période"
+        />
+        <StatCard 
+          title="En cours" 
+          value={stats.inProgress} 
+          icon={Clock} 
+          colorClass="text-blue-600 bg-blue-600"
+          isActive={statusFilter === 'in_progress'}
+          onClick={() => setStatusFilter('in_progress')}
+          subtext="Démarrées"
         />
         <StatCard 
           title="Terminées" 
