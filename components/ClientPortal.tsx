@@ -116,7 +116,13 @@ const ClientPortal: React.FC = () => {
     const [isRespondingRequest, setIsRespondingRequest] = useState(false);
 
     // Get client's documents
-    const clientDocs = client ? documents.filter(d => d.clientId === client.id) : [];
+    // Filter: Show only documents that are 'sent' (or further in the process like signed/paid) AND have a positive balance (totalTTC > 0)
+    // Exclude 'draft', 'pending', and 0-balance quotes.
+    const clientDocs = client ? documents.filter(d => 
+        d.clientId === client.id && 
+        (d.totalTTC || 0) > 0 &&
+        ['sent', 'signed', 'validated', 'paid', 'completed'].includes(d.status)
+    ) : [];
 
     // Get client missions
     const connectedProviderId = useMemo(() => {
@@ -197,6 +203,10 @@ const ClientPortal: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans'>('planning');
     const [messageInput, setMessageInput] = useState('');
     const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+    
+    // New State for Saturation Error
+    const [showSaturationError, setShowSaturationError] = useState(false);
+    const [saturationErrorMessage, setSaturationErrorMessage] = useState('');
 
     const messageInputRef = useRef<HTMLInputElement>(null);
 
@@ -484,13 +494,6 @@ const ClientPortal: React.FC = () => {
             return;
         }
 
-        // Vérifier si une prestation est en cours
-        const ongoingMissions = clientMissions.filter(m => m.status === 'in_progress');
-        if (ongoingMissions.length > 0) {
-            alert("Une prestation est actuellement en cours. Vous ne pouvez signer le devis que lorsque la prestation est terminée.");
-            return;
-        }
-
         if (selectedQuoteId && canvasRef.current) {
             const dataUrl = canvasRef.current.toDataURL();
             try {
@@ -500,13 +503,33 @@ const ClientPortal: React.FC = () => {
                 endReadingSession(); // Terminer la session de lecture
                 showToast('Devis signé ! Vos créneaux sont réservés.');
                 setShowSignatureModal(false); // Fermer le modal sur mobile
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Erreur lors de la signature:', error);
-                // Ne pas afficher de message d'erreur ici car la notification est déjà gérée dans signQuoteWithData
+                
+                // Handle specific saturation error
+                const msg = String(error?.message || '');
+                if (msg.includes('SATURATION_ERROR')) {
+                    const cleanMsg = msg.replace('SATURATION_ERROR:', '').trim();
+                    setSaturationErrorMessage(cleanMsg);
+                    setShowSaturationError(true);
+                    setQuoteModalOpen(false); // Close signature modal
+                } else {
+                    // Ne pas afficher de message d'erreur ici car la notification est déjà gérée dans signQuoteWithData
+                    // sauf si c'est une erreur inattendue
+                    if (!msg.includes('Devis expiré')) {
+                         alert("Erreur lors de la signature : " + msg);
+                    }
+                }
             } finally {
                 setIsSubmittingSignature(false);
             }
         }
+    };
+
+    const handleContactSupportRedirect = () => {
+        setShowSaturationError(false);
+        setActiveTab('messages');
+        setMessageInput(`Bonjour, je souhaite signer le devis mais le système indique : ${saturationErrorMessage}`);
     };
 
     const handleRefuse = (docId: string) => {
@@ -1443,34 +1466,32 @@ const ClientPortal: React.FC = () => {
                         >
                             <User className="w-4 h-4" /> Mon Profil
                         </button>
-                        {false ? (
-                            <>
-                                <button
-                                    onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                                >
-                                    <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
-                                </button>
-                                <button
-                                    onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                                >
-                                    <Package className="w-4 h-4" /> Inscrire un filleul
-                                </button>
-                                <button
-                                    onClick={() => { window.location.href = '/parrainage/mes-points'; }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                                >
-                                    <History className="w-4 h-4" /> Mes points parrainage
-                                </button>
-                                <button
-                                    onClick={() => { window.location.href = '/flyers'; }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                                >
-                                    <Megaphone className="w-4 h-4" /> Offres / Flyers
-                                </button>
-                            </>
-                        ) : null}
+                        
+                        <button
+                            onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Package className="w-4 h-4" /> Inscrire un filleul
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/parrainage/mes-points'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <History className="w-4 h-4" /> Mes points parrainage
+                        </button>
+                        <button
+                            onClick={() => { window.location.href = '/flyers'; }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
+                        >
+                            <Megaphone className="w-4 h-4" /> Offres / Flyers
+                        </button>
+                        
                         <button
                             onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -1490,14 +1511,12 @@ const ClientPortal: React.FC = () => {
                     <button onClick={() => setActiveTab('messages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><MessageSquare className="w-4 h-4" /> Messages</button>
                     <button onClick={() => setActiveTab('qr-scans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><QrCode className="w-4 h-4" /> QR Code & Pointage</button>
                     <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><User className="w-4 h-4" /> Mon Profil</button>
-                    {false ? (
-                        <>
-                            <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
-                            <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
-                            <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
-                            <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
-                        </>
-                    ) : null}
+                    
+                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
+                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
+                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
+                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
+                    
                     <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
                 </nav>
 
@@ -1837,7 +1856,10 @@ const ClientPortal: React.FC = () => {
                                                 <p className="text-slate-600 text-sm">Votre prestation est terminée ! Votre avis nous aide à améliorer nos services.</p>
                                             </div>
                                             <button
-                                                onClick={() => setReviewModalOpen(true)}
+                                                onClick={() => {
+                                                    const url = 'https://www.google.com/search?q=Presta+Services+Antilles+avis';
+                                                    window.open(url, '_blank');
+                                                }}
                                                 className="bg-brand-blue text-white px-6 py-3 rounded-lg font-semibold hover:bg-teal-700 transition-colors shadow-md"
                                             >
                                                 Laisser un avis
@@ -2514,6 +2536,38 @@ const ClientPortal: React.FC = () => {
             )}
 
             {/* QUOTE SIGNATURE MODAL */}
+            {showSaturationError ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-6">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-20 h-20 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-6 border-4 border-red-100">
+                            <AlertTriangle className="w-10 h-10 text-red-500" />
+                        </div>
+                        <h3 className="text-2xl font-serif font-bold text-slate-800 mb-3">Créneaux Indisponibles</h3>
+                        <p className="text-slate-600 mb-8 leading-relaxed">
+                            Désolé, nous n'avons plus de prestataire disponible pour le moment sur les créneaux demandés.
+                            <br/><br/>
+                            <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono">{saturationErrorMessage}</span>
+                        </p>
+                        
+                        <div className="space-y-3">
+                            <button
+                                onClick={handleContactSupportRedirect}
+                                className="w-full py-4 rounded-xl bg-slate-900 text-white font-bold text-lg hover:bg-slate-800 transition shadow-lg shadow-slate-200 flex items-center justify-center gap-2"
+                            >
+                                <MessageSquare className="w-5 h-5" />
+                                Contacter le support
+                            </button>
+                            <button
+                                onClick={() => setShowSaturationError(false)}
+                                className="w-full py-3 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition"
+                            >
+                                Fermer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             {quoteModalOpen && selectedQuote && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">

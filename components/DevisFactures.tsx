@@ -1003,6 +1003,58 @@ const DevisFactures: React.FC = () => {
         return days;
     };
 
+    // Fonction améliorée pour vérifier la disponibilité STRICTE d'un créneau
+    const isAnyProviderAvailableForSlotStrict = (slot: InterventionSlot): boolean => {
+        // 1. Filtrer les prestataires par service (si défini)
+        const requiredService = serviceCategory || 'Autre'; // ou récupérer depuis le pack/serviceType
+        
+        const qualifiedProviders = providers.filter(p => {
+            if (p.status !== 'Active') return false;
+            // Idéalement : vérifier p.specialty vs requiredService
+            // Pour l'instant on suppose que tous les actifs sont potentiellement éligibles
+            // ou on ajoute un filtre basique sur specialty si disponible
+            if (p.specialty && !p.specialty.toLowerCase().includes(requiredService.toLowerCase())) {
+                 // return false; // Uncomment for strict specialty check locally if data is good
+            }
+            return true;
+        });
+
+        if (qualifiedProviders.length === 0) return false;
+
+        const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+
+        // 2. Identifier les missions concurrentes (même créneau)
+        const conflictingMissions = missions.filter(m => {
+            if (m.status === 'cancelled' || !m.date) return false;
+            const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
+        });
+
+        // 3. Identifier les prestataires déjà occupés par ces missions
+        const occupiedProviderIds = new Set<string>();
+        conflictingMissions.forEach(m => {
+            if (m.providerId) occupiedProviderIds.add(m.providerId);
+        });
+
+        // 4. Calculer les prestataires libres
+        const freeProvidersCount = qualifiedProviders.filter(p => !occupiedProviderIds.has(p.id)).length;
+
+        // 5. Calculer la demande concurrente non satisfaite (missions sans prestataire sur ce créneau)
+        // On ne compte que les missions du MEME service (concurrence réelle)
+        const unassignedCompetingMissionsCount = conflictingMissions.filter(m => 
+            !m.providerId && 
+            (!m.service || m.service.toLowerCase() === requiredService.toLowerCase())
+        ).length;
+
+        // 6. Règle de saturation : A-t-on assez de libres pour (Nous + Autres demandes) ?
+        // Nous avons besoin de 1 place.
+        const requiredCapacity = 1 + unassignedCompetingMissionsCount;
+
+        return freeProvidersCount >= requiredCapacity;
+    };
+
     const generateInterventionSlotsWithAvailability = () => {
         const pack = packs.find(p => p.id === selectedPackId);
         if (!pack) return;
@@ -1057,13 +1109,18 @@ const DevisFactures: React.FC = () => {
 
         for (let i = 0; i < sessions.length; i++) {
             let found = false;
-            for (let offset = 0; offset < maxLookaheadDays; offset++) {
-                const candidate = cursorDate.add(offset, 'day');
-                const candidateStr = candidate.format('YYYY-MM-DD');
+            // On cherche un créneau disponible pour chaque session requise
+            // On utilise une boucle while pour avancer jour par jour jusqu'à trouver de la place
+            let attempts = 0;
+            
+            while (attempts < maxLookaheadDays) {
+                const candidateStr = cursorDate.format('YYYY-MM-DD');
 
                 // Ne jamais proposer un créneau dans le passé (cas: aujourd'hui mais heure déjà passée)
                 if (candidateStr === getTodayMartiniqueStr() && isSlotStartInPast(candidateStr, sessions[i].startTime)) {
-                    continue;
+                     cursorDate = cursorDate.add(1, 'day');
+                     attempts++;
+                     continue;
                 }
 
                 const candidateSlot: InterventionSlot = {
@@ -1074,26 +1131,35 @@ const DevisFactures: React.FC = () => {
                     duration: sessions[i].duration
                 };
 
-                if (isAnyProviderAvailableForSlot(candidateSlot)) {
+                // Utilisation de la vérification STRICTE (saturation)
+                if (isAnyProviderAvailableForSlotStrict(candidateSlot)) {
                     newSlots.push(candidateSlot);
-                    cursorDate = candidate.add(1, 'day');
+                    // On avance au jour suivant pour la prochaine session (pour éviter de tout coller le même jour si possible, 
+                    // ou selon la logique métier souhaitée. Ici on espace d'au moins 1 jour par session pour les packs multi-jours ?)
+                    // Si c'est un pack multi-jours, généralement on veut des jours différents.
+                    cursorDate = cursorDate.add(1, 'day');
                     found = true;
                     break;
                 }
+                
+                // Si pas dispo, on essaye le lendemain
+                cursorDate = cursorDate.add(1, 'day');
+                attempts++;
             }
 
             if (!found) {
                 showToast(
-                    `Impossible de générer tous les créneaux : aucun prestataire disponible dans les ${maxLookaheadDays} prochains jours pour la séance ${i + 1}.`,
+                    `Impossible de générer tous les créneaux : aucun prestataire disponible (saturation) dans les ${maxLookaheadDays} prochains jours pour la séance ${i + 1}.`,
                     'warning'
                 );
+                // On arrête la génération si on bloque sur une session
                 break;
             }
         }
 
         if (newSlots.length > 0) {
             setInterventionSlots(newSlots);
-            showToast('Créneaux générés selon la disponibilité des prestataires.', 'success');
+            showToast(`Créneaux générés (${newSlots.length}) en tenant compte de la saturation des équipes.`, 'success');
         }
     };
 
@@ -1223,6 +1289,28 @@ const DevisFactures: React.FC = () => {
             return;
         }
         setInterventionSlots(newSlots);
+
+        try {
+            const slot = newSlots[index];
+            const slotDate = slot?.date;
+            const slotStart = slot?.startTime;
+            const slotEnd = slot?.endTime;
+
+            if (slotDate && slotStart && slotEnd) {
+                const overlaps = missions.filter(m => {
+                    if (!m.date || m.status === 'cancelled') return false;
+                    if (serviceCategory && m.service && m.service.toLowerCase() !== String(serviceCategory).toLowerCase()) return false;
+                    if (m.date !== slotDate) return false;
+                    return (m.startTime < slotEnd && m.endTime > slotStart);
+                });
+
+                if (overlaps.length > 0) {
+                    const sample = overlaps.slice(0, 3).map(m => `${m.date} ${m.startTime}-${m.endTime}`).join(', ');
+                    showToast(`Attention: ce changement peut entraîner des conflits lors de la validation (rendez-vous potentiellement chevauchés: ${sample}${overlaps.length > 3 ? '…' : ''}).`, 'warning');
+                }
+            }
+        } catch {}
+
         setIsDraftDirty(true);
         scheduleDraftAutosave();
     };

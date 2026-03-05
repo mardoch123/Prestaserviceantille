@@ -50,6 +50,35 @@ import ReferralSignupPage from './modules/marketing/ui/ReferralSignupPage';
 import ReferralPointsPage from './modules/marketing/ui/ReferralPointsPage';
 import ReferrerAccountPage from './modules/marketing/ui/ReferrerAccountPage';
 import MyFilleulsPage from './modules/marketing/ui/MyFilleulsPage';
+import { App as CapacitorApp } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
+
+const initNativeFeatures = async () => {
+    try {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                await StatusBar.setStyle({ style: Style.Light });
+                await StatusBar.setBackgroundColor({ color: '#FFFFFF' });
+            } catch (e) {
+                console.warn('StatusBar error', e);
+            }
+            
+            CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+                console.log('App state changed. Is active?', isActive);
+            });
+
+            CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+                if (!canGoBack) {
+                    CapacitorApp.exitApp();
+                } else {
+                    window.history.back();
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('Native features init failed:', e);
+    }
+};
 
 // Error Boundary to catch DataProvider context issues
 class ErrorBoundary extends React.Component<
@@ -59,6 +88,10 @@ class ErrorBoundary extends React.Component<
     constructor(props: { children: React.ReactNode }) {
         super(props);
         this.state = { hasError: false, error: null };
+    }
+
+    componentDidMount() {
+        initNativeFeatures();
     }
 
     static getDerivedStateFromError(error: Error) {

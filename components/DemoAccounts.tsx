@@ -77,6 +77,7 @@ const DemoAccounts: React.FC = () => {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'X-Supabase-Auth': token,
         },
         cache: 'no-store',
       });
@@ -144,6 +145,7 @@ const DemoAccounts: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'X-Supabase-Auth': token,
         },
         cache: 'no-store',
         body: JSON.stringify({ role: selectedRole }),
@@ -188,6 +190,7 @@ const DemoAccounts: React.FC = () => {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'X-Supabase-Auth': token,
         },
         cache: 'no-store',
       });

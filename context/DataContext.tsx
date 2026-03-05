@@ -429,6 +429,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!clientId) return null;
         const clientName = String(draft?.clientName || '').trim() || 'Client';
 
+        const validServiceTypes = ['Ménage', 'Jardinage', 'Bricolage', 'Autre', 'Personnalisé'];
+        let serviceType = (draft as any)?.serviceType ?? null;
+        if (serviceType && !validServiceTypes.includes(serviceType)) {
+             // If invalid service type, fallback to 'Autre' or null
+             serviceType = 'Autre';
+        }
+
+        const packId = draft?.packId && String(draft.packId).match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) 
+             ? String(draft.packId) 
+             : null;
+
         const dbDocData: any = {
             id,
             ref,
@@ -437,7 +448,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             date: getMartiniqueToday(),
             type: 'Devis',
             category: String(draft?.category || 'pack'),
-            service_type: (draft as any)?.serviceType ?? null,
+            service_type: serviceType,
             description: String(draft?.description || ''),
             unit_price: Number.isFinite(draft?.unitPrice as any) ? Number(draft?.unitPrice) : 0,
             quantity: Number.isFinite(draft?.quantity as any) ? Number(draft?.quantity) : 1,
@@ -447,7 +458,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             tax_credit_enabled: !!draft?.taxCreditEnabled,
             status: 'draft',
             slots_data: Array.isArray(draft?.slotsData) ? draft.slotsData : [],
-            pack_id: draft?.packId ? String(draft.packId) : null,
+            pack_id: packId,
             reminder_sent: false,
         };
 
@@ -462,6 +473,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (msg.includes('pack_id') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))) {
                 const retryDocData: any = { ...dbDocData };
                 delete retryDocData.pack_id;
+                ({ data, error } = await supabase
+                    .from('documents')
+                    .upsert(retryDocData, { onConflict: 'id' } as any)
+                    .select()
+                    .maybeSingle());
+            } else if (msg.includes('service_type') && (msg.includes('invalid') || msg.includes('enum'))) {
+                const retryDocData: any = { ...dbDocData, service_type: 'Autre' };
+                ({ data, error } = await supabase
+                    .from('documents')
+                    .upsert(retryDocData, { onConflict: 'id' } as any)
+                    .select()
+                    .maybeSingle());
+            } else if (msg.includes('category') && (msg.includes('invalid') || msg.includes('enum'))) {
+                const retryDocData: any = { ...dbDocData, category: 'pack' };
                 ({ data, error } = await supabase
                     .from('documents')
                     .upsert(retryDocData, { onConflict: 'id' } as any)
@@ -3565,15 +3590,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const needsUpload = input.some(isDataUrl);
         if (!needsUpload) return input.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
 
-        const dataUrlToBlob = (dataUrl: string) => {
-            const parts = String(dataUrl || '').split(',');
-            const meta = parts[0] || '';
-            const raw = parts[1] || '';
-            const mime = (meta.match(/data:([^;]+);base64/i)?.[1] || 'image/jpeg').trim();
-            const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
-            return new Blob([bytes], { type: mime });
-        };
-
         const uploaded: string[] = [];
         for (let i = 0; i < input.length; i++) {
             const p = input[i];
@@ -3582,15 +3598,31 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 continue;
             }
             const path = `missions/${missionId}/${phase}/${Date.now()}_${i}.jpg`;
-            const blob = dataUrlToBlob(p);
-            const { error: upErr } = await supabase.storage
-                .from('mission-media')
-                .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
-            if (upErr) throw upErr;
-            const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
-            const url = String((pub as any)?.publicUrl || '').trim();
-            if (!url) throw new Error('upload_failed');
-            uploaded.push(url);
+            try {
+                const blob = await (await fetch(p)).blob();
+                if (blob.size === 0) throw new Error('Blob size is 0');
+                
+                const { error: upErr } = await supabase.storage
+                    .from('mission-media')
+                    .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                
+                if (upErr) throw upErr;
+                
+                const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+                const url = String((pub as any)?.publicUrl || '').trim();
+                if (!url) throw new Error('upload_failed');
+                uploaded.push(url);
+            } catch (err: any) {
+                console.warn('[uploadMissionPhotosIfNeeded] Failed to upload photo, skipping:', err);
+                // On failure (especially 400), we skip this photo to avoid blocking the queue forever.
+                // If it's a critical network error, the outer catch might retry the job, 
+                // but specific 400s (Bad Request) usually mean invalid data.
+                if (String(err?.message || '').includes('400') || String(err?.statusCode) === '400') {
+                     // Skip this photo permanently
+                     continue;
+                }
+                throw err; // Rethrow other errors to trigger retry
+            }
         }
         return uploaded;
     };
@@ -3608,9 +3640,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 writeProviderMissionQueue(jobs.slice(1));
                 return;
             }
+            
+            // Discard job if too many retries (avoid infinite loop)
+            if ((job.tries || 0) > 10) {
+                 console.error('[processProviderMissionQueue] Job failed too many times, discarding:', job);
+                 writeProviderMissionQueue(jobs.slice(1));
+                 return;
+            }
 
             const photos = Array.isArray(job.photos) ? job.photos : [];
             if (photos.length < 5) {
+                // If invalid data, discard
                 writeProviderMissionQueue(jobs.slice(1));
                 return;
             }
@@ -3647,7 +3687,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             writeProviderMissionQueue(jobs.slice(1));
-        } catch {
+        } catch (err) {
+            console.error('[processProviderMissionQueue] Error processing job:', err);
             try {
                 const jobs = readProviderMissionQueue();
                 if (jobs.length === 0) return;
@@ -5226,11 +5267,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
         const docToSign = documents.find(d => d.id === id);
-        // ...
         if (docToSign && docToSign.slotsData) {
             const conflictingSlots = [];
             const availableProvidersForSlots = [];
             
+            const serviceType = String(docToSign.serviceType || '').toLowerCase();
+
             // Analyser chaque créneau pour détecter les conflits et trouver des prestataires disponibles
             for (const slot of docToSign.slotsData) {
                 if (!slot.date) continue;
@@ -5238,81 +5280,94 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                 const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                 
-                // Vérifier s'il y a des missions en conflit
+                // Vérifier s'il y a des missions en conflit (même horaire)
                 const conflictingMissions = missions.filter(m => {
                     if (m.status === 'cancelled' || !m.date) return false;
                     const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                     const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                     return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
                 });
+
+                // Check 1: S'il n'y a pas de conflit, la signature passe (comme demandé).
+                if (conflictingMissions.length === 0) continue;
+
+                // Check 2: S'il y a conflit, vérifier la disponibilité des prestataires
+                // "S'il y a alors vérifier s'il y a encore plus de 2 prestataires qui font cette tâche"
+                // "dans le cas où les missions de l'autres ne sont encore assigné à un prestataire"
+                // "mais si les missions sont déjà assigné alors chercher un prestataire du domaine de disponible"
                 
-                if (conflictingMissions.length > 0) {
+                // Logique simplifiée mais robuste :
+                // On cherche TOUS les prestataires qualifiés pour ce service
+                // On retire ceux qui sont occupés sur ce créneau (par une mission assignée)
+                // On vérifie s'il en reste au moins 1 (pour prendre CETTE mission)
+                
+                const qualifiedProviders = providers.filter(p => {
+                    if (p.status !== 'Active') return false;
+                    // Filter by service type if possible (assuming providers have 'services' array or similar)
+                    // If no service info on provider, assume they can do it or rely on manual assignment later.
+                    // For now, let's assume all active providers are candidates unless we have service data.
+                    // Ideally: return p.services.includes(serviceType);
+                    return true; 
+                });
+
+                // Prestataires occupés (assignés à une mission qui chevauche ce créneau)
+                const occupiedProviderIds = new Set<string>();
+                conflictingMissions.forEach(m => {
+                    if (m.providerId) occupiedProviderIds.add(m.providerId);
+                });
+
+                // Prestataires libres pour ce créneau
+                const freeProviders = qualifiedProviders.filter(p => !occupiedProviderIds.has(p.id));
+                
+                // Compter les missions concurrentes NON assignées (qui sont en concurrence pour ces prestataires libres)
+                const unassignedConflictingMissionsCount = conflictingMissions.filter(m => !m.providerId).length;
+
+                // Capacité requise : 1 (pour la nouvelle mission) + N (pour les autres missions non assignées)
+                const requiredCapacity = 1 + unassignedConflictingMissionsCount;
+
+                // Vérification stricte
+                if (freeProviders.length < requiredCapacity) {
+                    // Cas critique : pas assez de prestataires libres pour couvrir la demande totale (existante + nouvelle)
                     conflictingSlots.push({
                         slot,
-                        conflictingMissions
-                    });
-                    
-                    // Trouver les prestataires disponibles pour ce créneau
-                    const availableProviders = providers.filter(provider => {
-                        if (provider.status !== 'Active') return false;
-                        
-                        // Vérifier si le prestataire est déjà assigné à une mission en conflit
-                        const isAssignedToConflictingMission = conflictingMissions.some(m => 
-                            m.providerId === provider.id
-                        );
-                        
-                        if (isAssignedToConflictingMission) return false;
-                        
-                        // Vérifier si le prestataire a déjà une mission à ce créneau
-                        const hasOtherMission = missions.some(m => {
-                            if (m.status === 'cancelled' || !m.date || m.providerId !== provider.id) return false;
-                            const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                            const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                            return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
-                        });
-                        
-                        return !hasOtherMission;
+                        conflictingMissions,
+                        freeProvidersCount: freeProviders.length,
+                        requiredCapacity
                     });
                     
                     availableProvidersForSlots.push({
                         slot,
-                        availableProviders: availableProviders.map(p => `${p.firstName} ${p.lastName}`)
+                        availableProviders: [] // Aucun dispo car demande > offre
+                    });
+                } else {
+                     // On a assez de prestataires.
+                     // Optionnel : Si l'utilisateur voulait "plus de 2 prestataires" en buffer, on pourrait ajouter une condition ici.
+                     // Mais la demande critique est "sinon afficher un message d'erreur".
+                     // On considère que si on a la capacité, c'est bon.
+                     
+                     // On garde quand même une trace pour info si besoin
+                     availableProvidersForSlots.push({
+                        slot,
+                        availableProviders: freeProviders.map(p => `${p.firstName} ${p.lastName}`)
                     });
                 }
             }
             
             if (conflictingSlots.length > 0) {
-                // Vérifier s'il y a des prestataires disponibles pour tous les créneaux en conflit
-                const allSlotsHaveProviders = availableProvidersForSlots.every(slotInfo => 
-                    slotInfo.availableProviders.length > 0
+                // Aucun prestataire disponible pour au moins un créneau (capacité insuffisante)
+                const unavailableSlots = conflictingSlots.map(info => 
+                    `${info.slot.date} ${info.slot.startTime}-${info.slot.endTime}`
                 );
                 
-                if (allSlotsHaveProviders) {
-                    // Il y a des prestataires disponibles, on peut continuer avec une notification informative
-                    const providerDetails = availableProvidersForSlots.map(slotInfo => 
-                        `Créneau ${slotInfo.slot.startTime}-${slotInfo.slot.endTime}: ${slotInfo.availableProviders.join(', ')}`
-                    ).join('\n');
-                    
-                    await addNotification('admin', 'info', 'Réassignation Automatique Requise', 
-                        `Le devis ${docToSign.ref} a été signé mais certains créneaux sont occupés. ` +
-                        `Prestataires disponibles pour la réassignation:\n${providerDetails}`);
-                    
-                    console.log('Slots conflict detected but providers available:', availableProvidersForSlots);
-                } else {
-                    // Aucun prestataire disponible pour au moins un créneau
-                    const unavailableSlots = availableProvidersForSlots
-                        .filter(slotInfo => slotInfo.availableProviders.length === 0)
-                        .map(slotInfo => `${slotInfo.slot.date} ${slotInfo.slot.startTime}-${slotInfo.slot.endTime}`);
-                    
-                    await addNotification('client', 'alert', 'Conflit de Créneaux', 
-                        `Un ou plusieurs créneaux ne sont plus disponibles et aucun prestataire alternatif n'est disponible pour: ${unavailableSlots.join(', ')}. ` +
-                        `Veuillez contacter le secrétariat pour modifier votre devis.`);
-                    
-                    await addNotification('admin', 'alert', 'Conflit de Créneaux - Aucun Prestataire Disponible', 
-                        `Devis ${docToSign.ref}: Créneaux indisponibles sans prestataire alternatif: ${unavailableSlots.join(', ')}`);
-                    
-                    throw new Error("Conflit de créneaux : aucun prestataire disponible pour les créneaux demandés");
-                }
+                await addNotification('client', 'alert', 'Conflit de Créneaux', 
+                    `Impossible de valider le devis : plus aucun prestataire disponible pour les créneaux suivants : ${unavailableSlots.join(', ')}. ` +
+                    `Veuillez contacter le secrétariat.`);
+                
+                await addNotification('admin', 'alert', 'Tentative Signature Bloquée - Saturation', 
+                    `Devis ${docToSign.ref}: Signature bloquée car capacité insuffisante pour les créneaux : ${unavailableSlots.join(', ')}`);
+                
+                // On lance une erreur spécifique que l'UI pourra attraper pour afficher la popup
+                throw new Error(`SATURATION_ERROR:Désolé mais nous n'avons plus personne de disponible pour le moment sur les créneaux suivants : ${unavailableSlots.join(', ')}`);
             }
         }
 

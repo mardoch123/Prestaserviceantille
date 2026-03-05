@@ -30,11 +30,11 @@ function decodeJwtIssuerRef(accessToken) {
 }
 
 async function getUserFromAuthHeader(req) {
-  const auth = req.headers.authorization || req.headers.Authorization || '';
+  const auth = req.headers.authorization || req.headers.Authorization || req.headers['x-supabase-auth'] || '';
   const raw = String(auth || '');
-  // Robust extraction: allow values like "Bearer <token>, Bearer <token>" (merged headers)
+  // Support either full header "Bearer <token>" or raw token via x-supabase-auth
   const match = raw.match(/Bearer\s+([^,\s]+)/i);
-  const accessToken = match && match[1] ? match[1] : '';
+  const accessToken = match && match[1] ? match[1] : (req.headers['x-supabase-auth'] ? raw : '');
   if (!accessToken) return null;
 
   const admin = getSupabaseAdminClient();
@@ -96,18 +96,18 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', getAllowOrigin(origin));
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Supabase-Auth');
 
     if (req.method === 'OPTIONS') {
       res.status(200).end();
       return;
     }
 
-    const authHeader = req.headers.authorization || req.headers.Authorization || '';
+  const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-supabase-auth'] || '';
     const rawAuth = String(authHeader || '');
-    const hasBearer = /Bearer\s+/i.test(rawAuth);
-    if (!hasBearer) {
-      res.status(401).json({ error: 'Unauthorized', details: 'Missing Authorization: Bearer <token>' });
+  const hasBearer = /Bearer\s+/i.test(rawAuth) || !!req.headers['x-supabase-auth'];
+  if (!hasBearer) {
+    res.status(401).json({ error: 'Unauthorized', details: 'Missing Authorization: Bearer <token>' });
       return;
     }
 
