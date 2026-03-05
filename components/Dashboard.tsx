@@ -112,6 +112,21 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const normalizeMissionStatus = (value: any) => {
+    const raw = String(value || '').trim();
+    const plain = raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-+/g, '_');
+    if (plain === 'in_progress' || plain === 'inprogress' || plain === 'en_cours' || plain === 'encours' || plain === 'demarree' || plain === 'demarre') return 'in_progress';
+    if (plain === 'completed' || plain === 'complete' || plain === 'terminee' || plain === 'termine' || plain === 'done' || plain === 'finished') return 'completed';
+    if (plain === 'cancelled' || plain === 'canceled' || plain === 'annulee' || plain === 'annule') return 'cancelled';
+    if (plain === 'planned' || plain === 'planifiee' || plain === 'planifie') return 'planned';
+    return 'planned';
+  };
+
   // Données filtrées par type de service (global)
   const serviceFilteredMissions = useMemo(() => {
     return missions.filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter));
@@ -131,7 +146,7 @@ const Dashboard: React.FC = () => {
   const filteredMissions = useMemo(() => {
     const list = filterDataByTime(serviceFilteredMissions);
     if (!timeFilter || timeFilter === 'all') return list;
-    const inProgress = serviceFilteredMissions.filter(m => m.status === 'in_progress');
+    const inProgress = serviceFilteredMissions.filter(m => normalizeMissionStatus((m as any)?.status) === 'in_progress');
     const byId = new Map<string, any>();
     list.forEach((m: any) => byId.set(String(m?.id || ''), m));
     inProgress.forEach((m: any) => byId.set(String(m?.id || ''), m));
@@ -333,28 +348,28 @@ const Dashboard: React.FC = () => {
           <>
             <StatCard 
               title="Missions planifiées" 
-              value={missionsFilteredByProvider.filter(m => m.status === 'planned').length}
+              value={missionsFilteredByProvider.filter(m => normalizeMissionStatus((m as any)?.status) === 'planned').length}
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToStats('planned')}
             />
             <StatCard 
               title="Missions en cours" 
-              value={missionsFilteredByProvider.filter(m => m.status === 'in_progress').length} 
+              value={missionsFilteredByProvider.filter(m => normalizeMissionStatus((m as any)?.status) === 'in_progress').length} 
               bgColor="bg-slate-100" 
               icon={Briefcase}
               onClick={() => navigate('/reports', { state: { initialTab: 'in_progress', time: timeFilter } })} 
             />
             <StatCard 
               title="Missions terminées" 
-              value={missionsFilteredByProvider.filter(m => m.status === 'completed').length} 
+              value={missionsFilteredByProvider.filter(m => normalizeMissionStatus((m as any)?.status) === 'completed').length} 
               bgColor="bg-slate-100" 
               icon={CheckCircle}
               onClick={() => goToStats('completed')}
             />
             <StatCard 
               title="Missions annulées" 
-              value={missionsFilteredByProvider.filter(m => m.status === 'cancelled').length} 
+              value={missionsFilteredByProvider.filter(m => normalizeMissionStatus((m as any)?.status) === 'cancelled').length} 
               bgColor="bg-red-50" 
               icon={XCircle}
               onClick={() => goToStats('cancelled')}

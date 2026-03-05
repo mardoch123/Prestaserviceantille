@@ -1701,9 +1701,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const mapMissions = (mData: any[]) => {
                     const normalizeStatus = (value: any) => {
-                        const v = String(value || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
-                        if (v === 'in_progress' || v === 'inprogress') return 'in_progress';
-                        if (v === 'planned' || v === 'completed' || v === 'cancelled') return v;
+                        const raw = String(value || '').trim();
+                        const plain = raw
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .toLowerCase()
+                            .replace(/\s+/g, '_')
+                            .replace(/-+/g, '_');
+
+                        if (plain === 'in_progress' || plain === 'inprogress' || plain === 'en_cours' || plain === 'encours' || plain === 'demarree' || plain === 'demarre') return 'in_progress';
+                        if (plain === 'completed' || plain === 'complete' || plain === 'terminee' || plain === 'termine' || plain === 'done' || plain === 'finished') return 'completed';
+                        if (plain === 'cancelled' || plain === 'canceled' || plain === 'annulee' || plain === 'annule') return 'cancelled';
+                        if (plain === 'planned' || plain === 'planifiee' || plain === 'planifie') return 'planned';
                         return 'planned';
                     };
                     return mData.map((m: any) => ({
@@ -1812,6 +1821,229 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         return null;
                     }
                 };
+
+                const activeProviderId = simulatedProviderId || (currentUser?.role === 'provider' ? currentUser.relatedEntityId : null);
+
+                if (currentUser?.role === 'provider' && activeProviderId) {
+                    const now = dayjs.tz(getMartiniqueToday(), 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                    const start = now.subtract(60, 'day').format('YYYY-MM-DD');
+                    const end = now.add(120, 'day').format('YYYY-MM-DD');
+
+                    const fetchWithTimeout = async (promise: any, timeout: number) => {
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('timeout')), timeout);
+                        });
+                        return Promise.race([promise, timeoutPromise]) as any;
+                    };
+
+                    const providerPromise = fetchWithTimeout(
+                        supabase.from('providers').select('*').eq('id', activeProviderId),
+                        20000
+                    );
+                    const leavesPromise = fetchWithTimeout(
+                        supabase.from('leaves').select('*').eq('provider_id', activeProviderId),
+                        20000
+                    );
+                    const missionsPromise = fetchWithTimeout(
+                        supabase
+                            .from('missions')
+                            .select('*')
+                            .eq('provider_id', activeProviderId)
+                            .gte('date', start)
+                            .lte('date', end)
+                            .order('date', { ascending: true })
+                            .order('start_time', { ascending: true }),
+                        25000
+                    );
+                    const inProgressMissionsPromise = fetchWithTimeout(
+                        supabase
+                            .from('missions')
+                            .select('*')
+                            .eq('provider_id', activeProviderId)
+                            .eq('status', 'in_progress'),
+                        20000
+                    );
+                    const notificationsPromise = fetchWithTimeout(
+                        supabase
+                            .from('notifications')
+                            .select('*')
+                            .eq('target_user_type', 'provider')
+                            .or(`target_user_id.is.null,target_user_id.eq.${activeProviderId}`),
+                        20000
+                    );
+                    const visitScansPromise = fetchWithTimeout(
+                        supabase.from('visit_scans').select('*').eq('scanner_id', activeProviderId),
+                        20000
+                    );
+                    const videoRecordingsPromise = fetchWithTimeout(
+                        supabase.from('video_recordings').select('*').eq('provider_id', activeProviderId),
+                        20000
+                    );
+
+                    const [providerRes, leavesRes, missionsRes, inProgressRes, notifRes, vsRes, vrRes] = await Promise.all([
+                        providerPromise,
+                        leavesPromise,
+                        missionsPromise,
+                        inProgressMissionsPromise,
+                        notificationsPromise,
+                        visitScansPromise,
+                        videoRecordingsPromise,
+                    ]);
+
+                    const providerRows = providerRes?.data || [];
+                    const leavesRows = leavesRes?.data || [];
+                    const missionRows = missionsRes?.data || [];
+                    const inProgressRows = inProgressRes?.data || [];
+                    const notifRows = notifRes?.data || [];
+                    const visitScanRows = vsRes?.data || [];
+                    const videoRecordingRows = vrRes?.data || [];
+
+                    if (providerRes?.error) console.warn('[RefreshData] providers(provider):', providerRes.error.message);
+                    if (leavesRes?.error) console.warn('[RefreshData] leaves(provider):', leavesRes.error.message);
+                    if (missionsRes?.error) console.warn('[RefreshData] missions(provider):', missionsRes.error.message);
+                    if (inProgressRes?.error) console.warn('[RefreshData] missions(provider,in_progress):', inProgressRes.error.message);
+                    if (notifRes?.error) console.warn('[RefreshData] notifications(provider):', notifRes.error.message);
+                    if (vsRes?.error) console.warn('[RefreshData] visit_scans(provider):', vsRes.error.message);
+                    if (vrRes?.error) console.warn('[RefreshData] video_recordings(provider):', vrRes.error.message);
+
+                    const combinedMissionRows = (() => {
+                        const byId = new Map<string, any>();
+                        (Array.isArray(missionRows) ? missionRows : []).forEach((m: any) => byId.set(String(m?.id || ''), m));
+                        (Array.isArray(inProgressRows) ? inProgressRows : []).forEach((m: any) => byId.set(String(m?.id || ''), m));
+                        return Array.from(byId.values());
+                    })();
+
+                    const mappedMissions = combinedMissionRows.map((m: any) => ({
+                        ...m,
+                        dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+                        startTime: m.start_time || m.startTime,
+                        endTime: m.end_time || m.endTime,
+                        clientId: m.client_id || m.clientId,
+                        clientName: m.client_name || m.clientName,
+                        providerId: m.provider_id || m.providerId,
+                        providerName: m.provider_name || m.providerName,
+                        status: m.status,
+                        startPhotos: m.start_photos || m.startPhotos,
+                        endPhotos: m.end_photos || m.endPhotos,
+                        startVideo: m.start_video || m.startVideo,
+                        endVideo: m.end_video || m.endVideo,
+                        startRemark: m.start_remark,
+                        endRemark: m.end_remark,
+                        cancellationReason: m.cancellation_reason || m.cancellationReason,
+                        lateCancellation: m.late_cancellation || m.lateCancellation,
+                        reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
+                        reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+                        reportSent: m.report_sent || m.reportSent,
+                        sourceDocumentId: m.source_document_id || m.sourceDocumentId,
+                    }));
+                    setMissions(mappedMissions);
+
+                    const clientIds = Array.from(new Set(mappedMissions.map((m: any) => String(m?.clientId || '')).filter(Boolean)));
+                    if (clientIds.length > 0) {
+                        const chunkSize = 200;
+                        const chunks: string[][] = [];
+                        for (let i = 0; i < clientIds.length; i += chunkSize) chunks.push(clientIds.slice(i, i + chunkSize));
+                        const clientRows: any[] = [];
+                        for (const chunk of chunks) {
+                            const res = await fetchWithTimeout(
+                                supabase.from('clients').select('*').in('id', chunk),
+                                20000
+                            );
+                            if (res?.error) console.warn('[RefreshData] clients(provider):', res.error.message);
+                            (res?.data || []).forEach((row: any) => clientRows.push(row));
+                        }
+                        setClients(mapClients(clientRows, null, null));
+                    } else {
+                        setClients([]);
+                    }
+
+                    setProviders(mapProviders(Array.isArray(providerRows) ? providerRows : [], Array.isArray(leavesRows) ? leavesRows : []));
+
+                    const mappedNotifications = (notifRows || []).map((n: any) => ({
+                        ...n,
+                        id: n.id,
+                        targetUserType: n.target_user_type || n.targetUserType,
+                        targetUserRole: n.target_user_role || n.targetUserRole,
+                        targetUserId: n.target_user_id || n.targetUserId,
+                        read: n.is_read ?? n.read,
+                        created_at: n.created_at || n.date,
+                        date: formatMartiniqueDateTime(n.date || n.created_at),
+                    }));
+                    setNotifications(mappedNotifications as any);
+
+                    setVisitScans((visitScanRows || []).map((s: any) => ({
+                        ...s,
+                        scannerId: s.scanner_id || s.scannerId,
+                        clientId: s.client_id || s.clientId,
+                        timestamp: s.timestamp || s.created_at,
+                        scanType: s.scan_type || s.scanType,
+                    })) as any);
+
+                    if (Array.isArray(videoRecordingRows)) {
+                        const sorted = videoRecordingRows.slice().sort((a: any, b: any) => new Date(b.created_at || b.createdAt || 0).getTime() - new Date(a.created_at || a.createdAt || 0).getTime());
+                        setVideoRecordings(sorted.map((r: any) => ({
+                            id: r.id,
+                            sessionId: r.session_id || r.sessionId,
+                            providerId: r.provider_id || r.providerId,
+                            clientId: r.client_id || r.clientId,
+                            status: (r.status as any) || 'recording',
+                            startTime: r.start_time || r.startTime || r.created_at,
+                            endTime: r.end_time || r.endTime,
+                            recordingUrl: r.recording_url || r.recordingUrl,
+                            replayUrl: r.replay_url || r.replayUrl,
+                            duration: r.duration || 0,
+                            fileSize: r.file_size || r.fileSize || 0,
+                            thumbnailUrl: r.thumbnail_url || r.thumbnailUrl,
+                            accessToken: r.access_token || r.accessToken,
+                            expiresAt: r.expires_at || r.expiresAt,
+                            url: r.url
+                        }))); 
+                    } else {
+                        setVideoRecordings([]);
+                    }
+
+                    const missionIds = Array.from(new Set(mappedMissions.map((m: any) => String(m?.id || '')).filter(Boolean)));
+                    if (missionIds.length > 0) {
+                        const chunkSize = 200;
+                        const chunks: string[][] = [];
+                        for (let i = 0; i < missionIds.length; i += chunkSize) chunks.push(missionIds.slice(i, i + chunkSize));
+                        const rows: any[] = [];
+                        for (const chunk of chunks) {
+                            const res = await fetchWithTimeout(
+                                supabase.from('mission_change_requests').select('*').in('mission_id', chunk),
+                                20000
+                            );
+                            if (res?.error) console.warn('[RefreshData] mission_change_requests(provider):', res.error.message);
+                            (res?.data || []).forEach((row: any) => rows.push(row));
+                        }
+                        setMissionChangeRequests(rows.map((r: any) => ({
+                            ...r,
+                            clientId: r.client_id || r.clientId,
+                            missionId: r.mission_id || r.missionId,
+                            newDate: r.new_date || r.newDate,
+                            newStartTime: r.new_start_time || r.newStartTime,
+                            newEndTime: r.new_end_time || r.newEndTime,
+                            oldDate: r.old_date || r.oldDate,
+                            oldStartTime: r.old_start_time || r.oldStartTime,
+                            oldEndTime: r.old_end_time || r.oldEndTime,
+                            respondedAt: r.responded_at || r.respondedAt,
+                            createdAt: r.created_at || r.createdAt,
+                            status: r.status,
+                        })) as any);
+                    } else {
+                        setMissionChangeRequests([]);
+                    }
+
+                    setDocuments([]);
+                    setPacks([]);
+                    setContracts([]);
+                    setReminders([]);
+                    setExpenses([]);
+                    setGenericContracts([]);
+                    setClientLeads([]);
+
+                    return;
+                }
 
                 const missionSelect = '*';
                 const providerSelect = '*';
@@ -2265,9 +2497,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             providerId: m.provider_id || m.providerId,
             providerName: m.provider_name || m.providerName,
             status: (() => {
-                const v = String(m.status || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
-                if (v === 'in_progress' || v === 'inprogress') return 'in_progress';
-                if (v === 'planned' || v === 'completed' || v === 'cancelled') return v;
+                const raw = String(m.status || '').trim();
+                const plain = raw
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase()
+                    .replace(/\s+/g, '_')
+                    .replace(/-+/g, '_');
+                if (plain === 'in_progress' || plain === 'inprogress' || plain === 'en_cours' || plain === 'encours' || plain === 'demarree' || plain === 'demarre') return 'in_progress';
+                if (plain === 'completed' || plain === 'complete' || plain === 'terminee' || plain === 'termine' || plain === 'done' || plain === 'finished') return 'completed';
+                if (plain === 'cancelled' || plain === 'canceled' || plain === 'annulee' || plain === 'annule') return 'cancelled';
+                if (plain === 'planned' || plain === 'planifiee' || plain === 'planifie') return 'planned';
                 return 'planned';
             })(),
             startRemark: m.start_remark,
@@ -4532,7 +4772,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     providerName: m.provider_name
                 }));
                 setMissions(prev => [...prev, ...createdMissions]);
-                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées et bloquées selon devis signé.`);
+                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées et bloquées selon devis signé.`, undefined, `document:${doc.id}`);
             }
         }
     };
@@ -4988,7 +5228,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             // NOTIF ADMIN (Urgent)
-            await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par ${signedBy === 'admin' ? 'admin' : 'client'}. Créneaux verrouillés.`);
+            await addNotification('admin', 'success', 'Devis Signé', `Devis ${quote?.ref} signé par ${signedBy === 'admin' ? 'admin' : 'client'}. Créneaux verrouillés.`, undefined, `document:${String(id)}`);
 
             // EMAIL ADMIN
             await sendEmail(companySettings.email, 'URGENT - Devis Signé', 'admin_quote_signed', {

@@ -228,6 +228,7 @@ const Planning: React.FC = () => {
       if (!startStr || !endStr) return;
 
       const interval = setInterval(async () => {
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
           if (backgroundRefreshInFlightRef.current) return;
           backgroundRefreshInFlightRef.current = true;
           try {
@@ -236,7 +237,7 @@ const Planning: React.FC = () => {
           } finally {
               backgroundRefreshInFlightRef.current = false;
           }
-      }, 5000);
+      }, 60000);
 
       return () => clearInterval(interval);
   }, [customDateRange, startDate, endDate, weekStart, weekEnd, loadMissionsForRange]);

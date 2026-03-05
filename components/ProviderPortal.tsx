@@ -224,9 +224,9 @@ const ProviderPortal: React.FC = () => {
 
   // Data Calculations
   const providerMissions = provider
-    ? missions
-        .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
-        .filter(m => String(m.providerId || '') === String(provider.id))
+    ? (missions || [])
+        .filter(m => matchesServiceTypeFilterFromText((m as any)?.service, serviceTypeFilter))
+        .filter(m => String((m as any)?.providerId || '') === String(provider.id))
     : [];
   // All notifications
   const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];
