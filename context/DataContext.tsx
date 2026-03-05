@@ -256,6 +256,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // --- DATA FETCHING ---
     const refreshData = async () => {
+        // Vider le cache localStorage avant de re-fetcher les données
+        localStorage.removeItem('presta_current_user');
+
         // Éviter les appels multiples
         if (dataLoading) {
             console.log("[RefreshData] Already loading, skipping...");
