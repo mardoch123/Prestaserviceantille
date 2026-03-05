@@ -104,7 +104,7 @@ const ProviderPortal: React.FC = () => {
     setPullDistance(0);
   }, [pullDistance, isRefreshing, refreshData]);
 
-  const provider = providers.find(p => p.id === simulatedProviderId);
+  const provider = providers.find(p => String(p.id) === String(simulatedProviderId));
   const hasProviderId = Boolean(simulatedProviderId);
   const isProviderPortalLoading = Boolean(dataLoading) || (hasProviderId && !provider);
   const showShimmerLoader = isProviderPortalLoading && !loaderSeen;
@@ -226,7 +226,7 @@ const ProviderPortal: React.FC = () => {
   const providerMissions = provider
     ? missions
         .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
-        .filter(m => m.providerId === provider.id)
+        .filter(m => String(m.providerId || '') === String(provider.id))
     : [];
   // All notifications
   const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];

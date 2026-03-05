@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
@@ -23,6 +24,7 @@ import {
 import { Mission } from '../types';
 
 const MissionReports: React.FC = () => {
+    const location = useLocation();
     const { missions, serviceTypeFilter, dataLoading, getMissionDetails, clients } = useData();
     const [reportMissions, setReportMissions] = useState<Mission[]>([]);
     const [loadingReports, setLoadingReports] = useState(false);
@@ -33,6 +35,25 @@ const MissionReports: React.FC = () => {
     const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'in_progress' | 'completed'>('completed');
+
+    useEffect(() => {
+        const state: any = location.state;
+        const initialTab = String(state?.initialTab || '').trim();
+        if (initialTab === 'in_progress' || initialTab === 'completed') {
+            setActiveTab(initialTab);
+        }
+    }, [location.state]);
+
+    const normalizeMediaUrl = (raw: string) => {
+        const url = String(raw || '').trim();
+        if (!url) return '';
+        if (/^data:/i.test(url) || /^blob:/i.test(url) || /^https?:\/\//i.test(url)) return url;
+        if (!isSupabaseConfigured) return url;
+        const cleanedPath = url.replace(/^\/+/, '');
+        const { data } = supabase.storage.from('mission-media').getPublicUrl(cleanedPath);
+        return String(data?.publicUrl || url);
+    };
 
     useEffect(() => {
         let active = true;
@@ -123,6 +144,25 @@ const MissionReports: React.FC = () => {
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [missions, reportMissions, searchQuery, serviceTypeFilter]);
 
+    const inProgressMissions = useMemo(() => {
+        let result = missions
+            .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
+            .filter(m => m.status === 'in_progress');
+
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            result = result.filter(m =>
+                m.clientName.toLowerCase().includes(query) ||
+                (m.providerName && m.providerName.toLowerCase().includes(query)) ||
+                m.service.toLowerCase().includes(query)
+            );
+        }
+
+        return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [missions, searchQuery, serviceTypeFilter]);
+
+    const displayedMissions = activeTab === 'completed' ? completedMissions : inProgressMissions;
+
     const getClientInfo = (clientId?: string | null) => {
         if (!clientId) return null;
         return clients.find(c => String(c.id) === String(clientId)) || null;
@@ -181,9 +221,19 @@ const MissionReports: React.FC = () => {
 
             {/* Filter Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-slate-700 font-bold">
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    <span>{completedMissions.length} Missions terminées</span>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setActiveTab('in_progress')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'in_progress' ? 'bg-blue-50 text-brand-blue border-blue-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                    >
+                        Missions en cours ({inProgressMissions.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('completed')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                    >
+                        Missions terminées ({completedMissions.length})
+                    </button>
                 </div>
 
                 <div className="text-[11px] text-slate-500 flex items-center gap-2">
@@ -230,22 +280,23 @@ const MissionReports: React.FC = () => {
                             <th className="px-6 py-4">Client / Lieu</th>
                             <th className="px-6 py-4">Prestataire</th>
                             <th className="px-6 py-4">Service</th>
+                            <th className="px-6 py-4">Statut</th>
                             <th className="px-6 py-4 text-center">Photos</th>
                             <th className="px-6 py-4 text-right">Action</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                        {completedMissions.length === 0 ? (
+                        {displayedMissions.length === 0 ? (
                             <tr>
-                                <td colSpan={6} className="p-12 text-center text-slate-400">
+                                <td colSpan={7} className="p-12 text-center text-slate-400">
                                     <div className="flex flex-col items-center gap-2">
                                         <Filter className="w-8 h-8 opacity-20" />
-                                        <span>Aucun rapport de fin de mission trouvé.</span>
+                                        <span>Aucune mission trouvée pour ce filtre.</span>
                                     </div>
                                 </td>
                             </tr>
                         ) : (
-                            completedMissions.map(m => (
+                            displayedMissions.map(m => (
                                 <tr key={m.id} className="hover:bg-cream-50 transition-colors group">
                                     <td className="px-6 py-4">
                                         <div className="font-bold text-slate-700">{m.date}</div>
@@ -268,11 +319,22 @@ const MissionReports: React.FC = () => {
                                     <td className="px-6 py-4">
                                         <span className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-bold">{m.service}</span>
                                     </td>
+                                    <td className="px-6 py-4">
+                                        {m.status === 'completed' ? (
+                                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-green-200">Terminée</span>
+                                        ) : m.status === 'in_progress' ? (
+                                            <span className="bg-blue-100 text-brand-blue px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-blue-200">En cours</span>
+                                        ) : (
+                                            <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">{m.status}</span>
+                                        )}
+                                    </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex justify-center items-center gap-2">
                                             {(() => {
                                                 const v: any = m as any;
-                                                const count = typeof v.end_photos_count === 'number' ? v.end_photos_count : (m.endPhotos?.length || 0);
+                                                const endCount = typeof v.end_photos_count === 'number' ? v.end_photos_count : (m.endPhotos?.length || 0);
+                                                const startCount = (m.startPhotos?.length || 0);
+                                                const count = activeTab === 'completed' ? endCount : startCount;
                                                 if (count > 0) {
                                                     return (
                                                 <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-200 flex items-center gap-1">
@@ -296,7 +358,7 @@ const MissionReports: React.FC = () => {
                                             onClick={() => openReport(m)}
                                             className="bg-brand-blue text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-teal-700 transition shadow-sm flex items-center gap-2 ml-auto"
                                         >
-                                            <Eye className="w-3 h-3" /> Voir Détails
+                                            <Eye className="w-3 h-3" /> {m.status === 'completed' ? 'Voir Détails' : 'Voir Suivi'}
                                         </button>
                                     </td>
                                 </tr>
@@ -316,8 +378,12 @@ const MissionReports: React.FC = () => {
                         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
                             <div>
                                 <div className="flex items-center gap-3">
-                                    <h3 className="text-xl font-bold text-slate-800">Rapport de Fin de Mission</h3>
-                                    <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border border-green-200">Terminée</span>
+                                    <h3 className="text-xl font-bold text-slate-800">{selectedMission.status === 'completed' ? 'Rapport de Fin de Mission' : 'Suivi de Mission'}</h3>
+                                    {selectedMission.status === 'completed' ? (
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border border-green-200">Terminée</span>
+                                    ) : (
+                                        <span className="bg-blue-100 text-brand-blue px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border border-blue-200">En cours</span>
+                                    )}
                                 </div>
                                 <p className="text-sm text-slate-500 flex items-center gap-2 mt-1">
                                     <Calendar className="w-4 h-4" /> {selectedMission.date} 
@@ -407,23 +473,30 @@ const MissionReports: React.FC = () => {
 
                                         {/* Photos */}
                                         <div>
-                                            <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
-                                                <Camera className="w-3 h-3"/> Photos ({selectedMission.startPhotos?.length || 0})
-                                            </span>
-                                            {selectedMission.startPhotos && selectedMission.startPhotos.length > 0 ? (
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    {selectedMission.startPhotos.map((url, i) => (
-                                                        <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
-                                                            <img src={url} alt="Start" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
-                                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-xs">
-                                                    Aucune photo prise au début.
-                                                </div>
-                                            )}
+                                            {(() => {
+                                                const urls = (selectedMission.startPhotos || []).map(normalizeMediaUrl).filter(Boolean);
+                                                return (
+                                                    <>
+                                                        <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
+                                                            <Camera className="w-3 h-3"/> Photos ({urls.length})
+                                                        </span>
+                                                        {urls.length > 0 ? (
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                {urls.map((url, i) => (
+                                                                    <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
+                                                                        <img src={url} alt="Start" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-xs">
+                                                                Aucune photo prise au début.
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
@@ -439,47 +512,58 @@ const MissionReports: React.FC = () => {
                                         <div className="mb-4">
                                             <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Remarque Fin</span>
                                             <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
-                                                {selectedMission.endRemark || "R.A.S - Mission terminée."}
+                                                {selectedMission.status === 'completed' ? (selectedMission.endRemark || "R.A.S - Mission terminée.") : (selectedMission.endRemark || "Mission en cours : fin de chantier non encore remontée.")}
                                             </p>
                                         </div>
 
                                         {/* Photos */}
                                         <div>
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
-                                                    <Camera className="w-3 h-3"/> Photos ({selectedMission.endPhotos?.length || 0})
-                                                </span>
-                                                {selectedMission.endPhotos && selectedMission.endPhotos.length > 0 && (
-                                                    <button onClick={() => handleDownloadAllImages(selectedMission.endPhotos!)} className="text-xs text-brand-blue hover:underline flex items-center gap-1">
-                                                        <Download className="w-3 h-3"/> Tout télécharger
-                                                    </button>
-                                                )}
-                                            </div>
-                                            {detailsLoading || !selectedMission.endPhotos ? (
-                                                <div className="p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                                                    <div className="grid grid-cols-3 gap-2 animate-pulse">
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                        <div className="aspect-square rounded-lg bg-slate-200" />
-                                                    </div>
-                                                </div>
-                                            ) : selectedMission.endPhotos.length > 0 ? (
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    {selectedMission.endPhotos.map((url, i) => (
-                                                        <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
-                                                            <img src={url} alt="End" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                            {(() => {
+                                                const urls = (selectedMission.endPhotos || []).map(normalizeMediaUrl).filter(Boolean);
+                                                return (
+                                                    <>
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
+                                                                <Camera className="w-3 h-3"/> Photos ({urls.length})
+                                                            </span>
+                                                            {urls.length > 0 && (
+                                                                <button onClick={() => handleDownloadAllImages(urls)} className="text-xs text-brand-blue hover:underline flex items-center gap-1">
+                                                                    <Download className="w-3 h-3"/> Tout télécharger
+                                                                </button>
+                                                            )}
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <div className="text-center p-4 bg-red-50 rounded-lg border border-dashed border-red-200 text-red-400 text-xs font-bold">
-                                                    <AlertTriangle className="w-4 h-4 mx-auto mb-1"/>
-                                                    Photos manquantes !
-                                                </div>
-                                            )}
+                                                        {detailsLoading ? (
+                                                            <div className="p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                                                                <div className="grid grid-cols-3 gap-2 animate-pulse">
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                    <div className="aspect-square rounded-lg bg-slate-200" />
+                                                                </div>
+                                                            </div>
+                                                        ) : urls.length > 0 ? (
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                {urls.map((url, i) => (
+                                                                    <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
+                                                                        <img src={url} alt="End" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : selectedMission.status === 'completed' ? (
+                                                            <div className="text-center p-4 bg-red-50 rounded-lg border border-dashed border-red-200 text-red-400 text-xs font-bold">
+                                                                <AlertTriangle className="w-4 h-4 mx-auto mb-1"/>
+                                                                Photos manquantes !
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500 text-xs font-bold">
+                                                                Aucune preuve de fin pour le moment (mission en cours).
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
 
                                         {/* Video */}
@@ -519,7 +603,7 @@ const MissionReports: React.FC = () => {
                         <X className="w-8 h-8" />
                     </button>
                     <img 
-                        src={lightboxImage} 
+                        src={normalizeMediaUrl(lightboxImage)} 
                         alt="Full size" 
                         className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-200"
                         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image

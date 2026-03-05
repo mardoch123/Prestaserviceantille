@@ -705,6 +705,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [dataLoading, setDataLoading] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
+    const hasLoadedOnceRef = useRef(false);
+
     const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
     // Session management pour éviter la déconnexion pendant lecture
@@ -1614,7 +1616,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
-        setDataLoading(true);
+        const shouldShowLoader = !hasLoadedOnceRef.current;
+        if (shouldShowLoader) setDataLoading(true);
 
         const run = (async () => {
             try {
@@ -1697,6 +1700,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
 
                 const mapMissions = (mData: any[]) => {
+                    const normalizeStatus = (value: any) => {
+                        const v = String(value || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
+                        if (v === 'in_progress' || v === 'inprogress') return 'in_progress';
+                        if (v === 'planned' || v === 'completed' || v === 'cancelled') return v;
+                        return 'planned';
+                    };
                     return mData.map((m: any) => ({
                         ...m,
                         dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
@@ -1706,6 +1715,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientName: m.client_name || m.clientName,
                         providerId: m.provider_id || m.providerId,
                         providerName: m.provider_name || m.providerName,
+                        status: normalizeStatus(m.status),
                         startPhotos: m.start_photos || m.startPhotos,
                         endPhotos: m.end_photos || m.endPhotos,
                         startVideo: m.start_video || m.startVideo,
@@ -2093,7 +2103,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             await run;
         } finally {
             refreshInFlightRef.current = null;
-            setDataLoading(false);
+            hasLoadedOnceRef.current = true;
+            if (shouldShowLoader) setDataLoading(false);
         }
     };
 
@@ -2253,6 +2264,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             clientName: m.client_name || m.clientName,
             providerId: m.provider_id || m.providerId,
             providerName: m.provider_name || m.providerName,
+            status: (() => {
+                const v = String(m.status || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
+                if (v === 'in_progress' || v === 'inprogress') return 'in_progress';
+                if (v === 'planned' || v === 'completed' || v === 'cancelled') return v;
+                return 'planned';
+            })(),
             startRemark: m.start_remark,
             endRemark: m.end_remark,
             cancellationReason: m.cancellation_reason || m.cancellationReason,
@@ -3919,12 +3936,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 ? (provider as any).nonInterventionHours[day]
                 : undefined;
             if (Array.isArray(ranges) && ranges.length > 0) {
-                const s = String(existingMission.startTime || '').slice(0, 5);
-                const e = String(existingMission.endTime || '').slice(0, 5);
-                const hasHourBlock = ranges.some((r: any) => {
-                    const rStart = String(r?.start || '').slice(0, 5);
-                    const rEnd = String(r?.end || '').slice(0, 5);
-                    if (!rStart || !rEnd) return false;
+                const toMinutes = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+
+                const s = toMinutes(existingMission.startTime);
+                const e = toMinutes(existingMission.endTime);
+                const hasHourBlock = Number.isFinite(s) && Number.isFinite(e) && ranges.some((r: any) => {
+                    const rStart = toMinutes(r?.start);
+                    const rEnd = toMinutes(r?.end);
+                    if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
                     return s < rEnd && e > rStart;
                 });
                 if (hasHourBlock) {
@@ -4113,7 +4140,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if (!error) {
-            setProviders(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+            setProviders(prev => prev.map(p => String(p.id) === String(id) ? { ...p, ...data } : p));
         }
     };
 

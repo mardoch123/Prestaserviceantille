@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
 import PageLoader from './PageLoader';
+import Pagination from './Pagination';
 import { 
   Filter, 
   Search, 
@@ -75,6 +76,9 @@ const Providers: React.FC = () => {
   const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData, dataLoading } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const location = useLocation();
 
   const [sortKey, setSortKey] = useState<'inscription' | 'name' | 'hours' | 'status' | 'planned_missions'>('inscription');
@@ -279,6 +283,15 @@ const Providers: React.FC = () => {
 
     return list;
   }, [columnFilteredProviders, plannedMissionsCountByProvider, sortDirection, sortKey]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterStatus, searchQuery, columnFilters, sortKey, sortDirection]);
+
+  const pagedProviders = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return sortedProviders.slice(start, start + PAGE_SIZE);
+  }, [sortedProviders, page]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -670,7 +683,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                     {sortedProviders.length > 0 ? (
-                        sortedProviders.map(p => (
+                        pagedProviders.map(p => (
                             <tr key={p.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(p.id) ? 'bg-blue-50' : ''}`}>
                                 <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(p.id)} className="text-slate-400 hover:text-brand-blue">
@@ -804,6 +817,13 @@ Lien de connexion : https://presta-antilles.app/login`);
                     )}
                 </tbody>
             </table>
+
+            <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={sortedProviders.length}
+                onPageChange={setPage}
+            />
          </div>
       </div>
 

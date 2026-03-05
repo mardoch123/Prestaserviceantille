@@ -497,12 +497,24 @@ const Planning: React.FC = () => {
           : undefined;
       if (!Array.isArray(ranges) || ranges.length === 0) return false;
 
-      const s = String(startTime || '').slice(0, 5);
-      const e = String(endTime || '').slice(0, 5);
+      const toMinutes = (t: any) => {
+          const raw = String(t || '').trim();
+          if (!raw) return NaN;
+          const base = raw.includes(':') ? raw.split(':') : [];
+          const h = base.length > 0 ? parseInt(base[0], 10) : NaN;
+          const m = base.length > 1 ? parseInt(base[1], 10) : NaN;
+          if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+          return h * 60 + m;
+      };
+
+      const s = toMinutes(startTime);
+      const e = toMinutes(endTime);
+      if (!Number.isFinite(s) || !Number.isFinite(e)) return false;
+
       return ranges.some((r: any) => {
-          const rStart = String(r?.start || '').slice(0, 5);
-          const rEnd = String(r?.end || '').slice(0, 5);
-          if (!rStart || !rEnd) return false;
+          const rStart = toMinutes(r?.start);
+          const rEnd = toMinutes(r?.end);
+          if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
           return s < rEnd && e > rStart;
       });
   };
@@ -2190,7 +2202,7 @@ const Planning: React.FC = () => {
       {/* Mission Details Modal */}
       {isDetailsModalOpen && selectedMissionDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[94vh] overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
                 <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
                         <h3 className="text-xl font-serif font-bold text-slate-800">Détails de la Mission</h3>
@@ -2201,7 +2213,7 @@ const Planning: React.FC = () => {
                     </button>
                 </div>
                 
-                <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+                <div className="p-6 space-y-6 overflow-y-auto flex-1">
                     {/* Client Information */}
                     <div className="bg-slate-50 p-4 rounded-lg">
                         <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -2374,7 +2386,7 @@ const Planning: React.FC = () => {
                     )}
                 </div>
 
-                <div className="p-6 border-t border-slate-100 flex flex-col sm:flex-row sm:justify-end gap-3">
+                <div className="p-6 border-t border-slate-100 flex flex-col sm:flex-row sm:justify-end gap-3 shrink-0">
                     {selectedMissionDetails.sourceDocumentId && (
                         <button
                             onClick={() => navigate('/invoices', { state: { documentId: selectedMissionDetails.sourceDocumentId, filter: 'devis' } })}
@@ -2384,6 +2396,18 @@ const Planning: React.FC = () => {
                             <span className="text-sm text-slate-700">Voir le devis</span>
                         </button>
                     )}
+                    <button
+                        onClick={() => {
+                            setAssignProviderId('');
+                            setIsDetailsModalOpen(false);
+                            setSelectedMissionDetails(null);
+                            setSelectedMissionId(selectedMissionDetails.id);
+                        }}
+                        className="w-full sm:w-auto px-6 py-2 bg-brand-blue text-white font-bold rounded-lg hover:opacity-90 transition flex items-center justify-center gap-2"
+                    >
+                        <Mail className="w-4 h-4" />
+                        <span className="text-sm text-white">Assigner prestataire</span>
+                    </button>
                     <button
                         onClick={handleCopyMissionDetails}
                         className="w-full sm:w-auto px-6 py-2 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-50 transition flex items-center justify-center gap-2"

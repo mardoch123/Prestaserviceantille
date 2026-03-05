@@ -5,6 +5,7 @@ import PageLoader from './PageLoader';
 import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
+import Pagination from './Pagination';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { createReferralValidated } from '../modules/marketing/referralClient';
 import { 
@@ -34,6 +35,8 @@ import {
 const Clients: React.FC = () => {
   const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours, resetClientPassword, dataLoading } = useData();
   const [searchQuery, setSearchQuery] = useState('');
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<any | null>(null);
@@ -298,6 +301,15 @@ const Clients: React.FC = () => {
 
     return result;
   }, [filteredClients, columnFilters, sortOption, missions]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterStatus, cityFilter, sortOption, columnFilters]);
+
+  const pagedClients = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return columnFilteredClients.slice(start, start + PAGE_SIZE);
+  }, [columnFilteredClients, page]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -857,7 +869,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                     {columnFilteredClients.length > 0 ? (
-                        columnFilteredClients.map(client => (
+                        pagedClients.map(client => (
                             <tr key={client.id} className={`hover:bg-cream-50 transition-colors group ${selectedIds.has(client.id) ? 'bg-blue-50' : ''}`}>
                                 <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(client.id)} className="text-slate-400 hover:text-brand-blue">
@@ -918,6 +930,13 @@ Lien de connexion : https://presta-antilles.app/login`);
                     )}
                 </tbody>
             </table>
+
+            <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={columnFilteredClients.length}
+                onPageChange={setPage}
+            />
          </div>
       </div>
 

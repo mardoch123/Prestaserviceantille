@@ -11,6 +11,8 @@ import {
     getMartiniqueNow,
     toMartiniqueTime
 } from '../src/utils/dayjsMartinique';
+import dayjs from 'dayjs';
+import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 import { 
     ChevronDown, 
@@ -45,52 +47,65 @@ const Dashboard: React.FC = () => {
   // Fonction pour filtrer les données selon le filtre temporel
   const filterDataByTime = (items: any[], dateField: string = 'date') => {
     if (!timeFilter || timeFilter === 'all') return items;
-    
-    const now = toMartiniqueTime(new Date());
-    const today = new Date(now.year(), now.month(), now.date());
+
+    const now = getMartiniqueNow();
+
+    const parseToMartinique = (value: any) => {
+      if (!value) return null;
+      const raw = typeof value === 'string' ? value.trim() : value;
+      if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        return dayjs.tz(raw, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      }
+      return toMartiniqueTime(raw);
+    };
     
     switch (timeFilter) {
       case 'day':
         return items.filter(item => {
           if (!item[dateField]) return false;
-          const itemDate = new Date(item[dateField]);
-          return itemDate.toDateString() === today.toDateString();
+          const itemDate = parseToMartinique(item[dateField]);
+          if (!itemDate) return false;
+          return itemDate.isSame(now, 'day');
         });
       
       case 'week':
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - today.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        weekEnd.setHours(23, 59, 59, 999);
+        {
+        const weekStart = now.startOf('day').subtract(now.day(), 'day');
+        const weekEnd = weekStart.add(6, 'day').endOf('day');
         
         return items.filter(item => {
           if (!item[dateField]) return false;
-          const itemDate = new Date(item[dateField]);
-          return itemDate >= weekStart && itemDate <= weekEnd;
+          const itemDate = parseToMartinique(item[dateField]);
+          if (!itemDate) return false;
+          return itemDate.valueOf() >= weekStart.valueOf() && itemDate.valueOf() <= weekEnd.valueOf();
         });
+        }
       
       case 'month':
-        const monthStart = new Date(now.year(), now.month(), 1);
-        const monthEnd = new Date(now.year(), now.month() + 1, 0, 23, 59, 59, 999);
+        {
+        const monthStart = now.startOf('month');
+        const monthEnd = now.endOf('month');
         
         return items.filter(item => {
           if (!item[dateField]) return false;
-          const itemDate = new Date(item[dateField]);
-          return itemDate >= monthStart && itemDate <= monthEnd;
+          const itemDate = parseToMartinique(item[dateField]);
+          if (!itemDate) return false;
+          return itemDate.valueOf() >= monthStart.valueOf() && itemDate.valueOf() <= monthEnd.valueOf();
         });
+        }
       
       case 'year':
-        const yearStart = new Date(now.year(), 0, 1);
-        const yearEnd = new Date(now.year(), 11, 31, 23, 59, 59, 999);
+        {
+        const yearStart = now.startOf('year');
+        const yearEnd = now.endOf('year');
         
         return items.filter(item => {
           if (!item[dateField]) return false;
-          const itemDate = new Date(item[dateField]);
-          return itemDate >= yearStart && itemDate <= yearEnd;
+          const itemDate = parseToMartinique(item[dateField]);
+          if (!itemDate) return false;
+          return itemDate.valueOf() >= yearStart.valueOf() && itemDate.valueOf() <= yearEnd.valueOf();
         });
+        }
       
       default:
         return items;
@@ -113,14 +128,22 @@ const Dashboard: React.FC = () => {
   }, [documents, serviceTypeFilter]);
 
   // Données filtrées par temps
-  const filteredMissions = useMemo(() => filterDataByTime(serviceFilteredMissions), [serviceFilteredMissions, timeFilter]);
+  const filteredMissions = useMemo(() => {
+    const list = filterDataByTime(serviceFilteredMissions);
+    if (!timeFilter || timeFilter === 'all') return list;
+    const inProgress = serviceFilteredMissions.filter(m => m.status === 'in_progress');
+    const byId = new Map<string, any>();
+    list.forEach((m: any) => byId.set(String(m?.id || ''), m));
+    inProgress.forEach((m: any) => byId.set(String(m?.id || ''), m));
+    return Array.from(byId.values());
+  }, [serviceFilteredMissions, timeFilter]);
   const filteredDocuments = useMemo(() => filterDataByTime(serviceFilteredDocuments), [serviceFilteredDocuments, timeFilter]);
   const filteredClients = useMemo(() => filterDataByTime(clients, 'since'), [clients, timeFilter]);
 
   // Données filtrées par prestataire
   const missionsFilteredByProvider = useMemo(() => {
     if (!providerFilter) return filteredMissions;
-    return filteredMissions.filter(m => m.providerId === providerFilter);
+    return filteredMissions.filter(m => String(m.providerId || '') === String(providerFilter));
   }, [filteredMissions, providerFilter]);
 
   // Documents filtrés par prestataire (basé sur les missions associées)
@@ -196,6 +219,13 @@ const Dashboard: React.FC = () => {
       m.status === 'planned' && 
       (!m.providerId || m.providerId === 'null' || m.providerName === 'À assigner')
   ).length;
+
+  const totalWorkedHours = useMemo(() => {
+    const total = missionsFilteredByProvider
+      .filter(m => m.status === 'completed' || m.status === 'in_progress')
+      .reduce((acc, m) => acc + (Number(m.duration) || 0), 0);
+    return Number.isFinite(total) ? total : 0;
+  }, [missionsFilteredByProvider]);
 
   // KPI Calculations - Utiliser les données filtrées
   
@@ -309,11 +339,11 @@ const Dashboard: React.FC = () => {
               onClick={() => goToStats('planned')}
             />
             <StatCard 
-              title="Mission en cours" 
+              title="Missions en cours" 
               value={missionsFilteredByProvider.filter(m => m.status === 'in_progress').length} 
               bgColor="bg-slate-100" 
               icon={Briefcase}
-              onClick={() => goToStats('in_progress')} 
+              onClick={() => navigate('/reports', { state: { initialTab: 'in_progress', time: timeFilter } })} 
             />
             <StatCard 
               title="Missions terminées" 
@@ -359,7 +389,7 @@ const Dashboard: React.FC = () => {
             />
             <StatCard 
               title="Nombre d'heures cumulées" 
-              value={`${providers.reduce((acc, p) => acc + p.hoursWorked, 0)}h`} 
+              value={`${totalWorkedHours.toFixed(2)}h`} 
               bgColor="bg-slate-100" 
               icon={Clock}
               onClick={() => goToProviders('all')}
@@ -418,6 +448,7 @@ const Dashboard: React.FC = () => {
                   value={timeFilter}
                   onChange={(e) => setTimeFilter(e.target.value)}
                 >
+                    <option value="all">Toutes (fenêtre chargée)</option>
                     <option value="custom">Date personnalisée</option>
                     <option value="day">Aujourd'hui</option>
                     <option value="week">Cette semaine</option>

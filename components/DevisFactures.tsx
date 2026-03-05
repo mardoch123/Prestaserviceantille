@@ -7,6 +7,7 @@ import { useData } from '../context/DataContext';
 import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
+import Pagination from './Pagination';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { supabase } from '../utils/supabaseClient';
@@ -99,6 +100,9 @@ const DevisFactures: React.FC = () => {
     const [isTypeColumnFilterOpen, setIsTypeColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
+
+    const PAGE_SIZE = 20;
+    const [page, setPage] = useState(1);
 
     const statusFilterRef = useRef<HTMLDivElement | null>(null);
     const statusColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
@@ -2348,6 +2352,15 @@ const DevisFactures: React.FC = () => {
         return result;
     }, [filteredDocs, columnFilters, packs]);
 
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, sortOrder, serviceTypeFilter, selectedStatuses, selectedTypes, columnFilters]);
+
+    const pagedDocs = useMemo(() => {
+        const start = (page - 1) * PAGE_SIZE;
+        return columnFilteredDocs.slice(start, start + PAGE_SIZE);
+    }, [columnFilteredDocs, page]);
+
     const parseQuoteDescriptionMeta = (rawValue: any) => {
         const raw = String(rawValue || '');
         const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
@@ -2655,7 +2668,7 @@ const DevisFactures: React.FC = () => {
 
                         {/* Cartes des documents */}
                         {columnFilteredDocs.length > 0 ? (
-                            columnFilteredDocs.map(doc => (
+                            pagedDocs.map(doc => (
                                 <div key={doc.id} className={`border rounded-lg p-4 space-y-3 transition-colors ${selectedIds.has(doc.id) ? 'bg-blue-50 border-brand-blue' : 'border-slate-200 hover:bg-cream-50'}`}>
                                     {/* Header de la carte avec sélection et référence */}
                                     <div className="flex items-start justify-between">
@@ -3054,8 +3067,8 @@ const DevisFactures: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {columnFilteredDocs.length > 0 ? (
-                                columnFilteredDocs.map(doc => (
+						{columnFilteredDocs.length > 0 ? (
+							pagedDocs.map(doc => (
                                     <tr key={doc.id} className={`hover:bg-cream-50 transition-colors ${selectedIds.has(doc.id) ? 'bg-blue-50' : ''}`}>
                                         <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                                             <button onClick={(e) => toggleSelection(doc.id, e)} className="text-slate-400 hover:text-brand-blue">
@@ -3278,6 +3291,13 @@ const DevisFactures: React.FC = () => {
                         </tbody>
                     </table>
                 )}
+
+                <Pagination
+                    page={page}
+                    pageSize={PAGE_SIZE}
+                    total={columnFilteredDocs.length}
+                    onPageChange={setPage}
+                />
             </div>
 
             {isModalOpen && (
