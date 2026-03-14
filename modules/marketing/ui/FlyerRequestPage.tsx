@@ -203,7 +203,7 @@ const FlyerRequestPage: React.FC = () => {
 
   return (
     <MarketingPublicShell
-      title="Faire une demande"
+      title="S'inscrire"
       subtitle={flyer ? `Offre: ${flyer.title}` : ''}
       onBack={() => navigate(-1)}
       logoUrl={companySettings?.logoUrl}

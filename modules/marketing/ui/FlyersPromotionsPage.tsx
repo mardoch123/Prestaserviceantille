@@ -82,7 +82,7 @@ const FlyerCard: React.FC<{ flyer: MktFlyer; onClick: () => void; onRequest: () 
             onClick={onRequest}
             className="w-full bg-brand-orange text-white px-4 py-2 rounded-xl font-extrabold hover:bg-orange-600"
           >
-            Faire une demande
+            S'inscrire
           </button>
         </div>
       </div>

@@ -20,21 +20,34 @@ import {
   UserRoundPlus,
   ChevronDown,
   ChevronRight,
-  X
+  X,
+  Calculator,
+  Send,
+  Moon,
+  Sun,
+  Filter,
+  Settings,
+  Check
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
+import { ServiceTypeFilter, getServiceTypeOptions } from '../utils/serviceTypes';
 
 const navItems: NavItem[] = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
   { label: 'Pointage QR', path: '/qrcode', icon: QrCode },
+  { label: 'Parrainage', path: '/parrainage', icon: Gift },
+  { label: 'Dashboard Parrain', path: '/parrainage/dashboard', icon: BarChart2 },
   { label: 'Devenir parrain', path: '/parrainage/devenir-parrain-client', icon: UserRoundPlus },
   { label: 'Inscrire un filleul', path: '/parrainage/inscrire-filleul', icon: UserRoundPlus },
   { label: 'Mes filleuls', path: '/parrainage/mes-filleuls', icon: Users },
   { label: 'Mes points', path: '/parrainage/mes-points', icon: Gift },
+  { label: 'Récompenses', path: '/parrainage/recompenses', icon: Gift },
+  { label: 'Disponibilité Prestataires', path: '/provider-availability', icon: Calendar },
   { label: 'Rapports Missions', path: '/reports', icon: ClipboardCheck },
   { label: 'Statistiques', path: '/statistics', icon: BarChart2 },
+  { label: 'Comptabilité', path: '/accounting', icon: Calculator },
   { label: 'Clients', path: '/clients', icon: Users },
   { label: 'Prestataires', path: '/providers', icon: Briefcase },
   { label: 'Devis/Factures', path: '/invoices', icon: FileText },
@@ -42,6 +55,7 @@ const navItems: NavItem[] = [
   { label: 'Réservations', path: '/reservations', icon: Clock },
   { label: 'Secrétariat', path: '/secretariat', icon: PhoneCall },
   { label: 'Formulaires Contact', path: '/contact-forms', icon: Mail },
+  { label: 'Email Marketing', path: '/admin/email-marketing', icon: Send },
   { label: 'Comptes test', path: '/demo-accounts', icon: Wand2 },
   { label: 'Gestion des flyers', path: '/admin/flyers', icon: Megaphone },
   { label: 'Demandes Flyers', path: '/admin/flyer-requests', icon: Megaphone },
@@ -49,6 +63,7 @@ const navItems: NavItem[] = [
   { label: 'Filleuls', path: '/admin/referrals', icon: UserPlus },
   { label: 'Parrains (performance)', path: '/admin/referrers-performance', icon: Users },
   { label: 'Récompenses & Points', path: '/admin/rewards', icon: Gift },
+  { label: 'Demandes Services', path: '/admin/service-requests', icon: FileText },
 ];
 
 interface SidebarProps {
@@ -58,9 +73,23 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads } = useData();
+  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads, missions } = useData();
 
   const [isMarketingOpen, setIsMarketingOpen] = React.useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+  const [selectedServiceType, setSelectedServiceType] = useState<ServiceTypeFilter>('all');
+
+  // Get available service types from missions
+  const availableServiceTypes = useMemo(() => {
+    const items = [...(missions || [])];
+    return getServiceTypeOptions(items.map((m: any) => ({ text: m.serviceType || m.service_type || m.title || '' })));
+  }, [missions]);
+
+  // Check if current page should show service filter
+  const showServiceFilter = useMemo(() => {
+    const filterablePaths = ['/', '/planning', '/missions', '/devis', '/invoices', '/statistics'];
+    return filterablePaths.some(path => location.pathname === path || location.pathname.startsWith(path));
+  }, [location.pathname]);
 
   const isClientReferrer = useMemo(() => {
     if (currentUser?.role !== 'client') return false;
@@ -100,6 +129,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const [newOfferInterestedCount, setNewOfferInterestedCount] = useState(0);
   const [newReferrersCount, setNewReferrersCount] = useState(0);
+  const [pendingServiceRequestsCount, setPendingServiceRequestsCount] = useState(0);
+  const [showEmailMarketingBadge, setShowEmailMarketingBadge] = useState(false);
 
   useEffect(() => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return;
@@ -130,9 +161,38 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           .is('admin_seen_at', null);
         const refCount = refRes?.count || 0;
 
+        // Count pending service requests
+        const serviceReqRes = await supabase
+          .from('customer_service_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .is('admin_seen_at', null);
+        const serviceReqCount = serviceReqRes?.count || 0;
+
         if (cancelled) return;
         setNewOfferInterestedCount(Number(reqCount) || 0);
         setNewReferrersCount(Number(refCount) || 0);
+        setPendingServiceRequestsCount(Number(serviceReqCount) || 0);
+
+        // Check if email marketing badge should be shown
+        try {
+          const { data: badgeData } = await supabase
+            .from('admin_menu_badge_tracking')
+            .select('*')
+            .eq('menu_item_key', 'email-marketing')
+            .single();
+          
+          if (badgeData) {
+            const badgeUntil = badgeData.badge_until ? new Date(badgeData.badge_until) : null;
+            const dismissedBy = badgeData.dismissed_by || [];
+            const isExpired = badgeUntil ? badgeUntil < new Date() : false;
+            const isDismissed = currentUser?.id ? dismissedBy.includes(currentUser.id) : false;
+            
+            setShowEmailMarketingBadge(badgeData.show_badge && !isExpired && !isDismissed);
+          }
+        } catch {
+          // Badge tracking not critical, ignore errors
+        }
       } catch {
         if (cancelled) return;
         setNewOfferInterestedCount(0);
@@ -148,8 +208,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const marketingNewTotalCount = useMemo(() => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return 0;
-    return (pendingClientsCount || 0) + (newOfferInterestedCount || 0) + (newReferrersCount || 0);
-  }, [currentUser?.role, pendingClientsCount, newOfferInterestedCount, newReferrersCount]);
+    return (pendingClientsCount || 0) + (newOfferInterestedCount || 0) + (newReferrersCount || 0) + (pendingServiceRequestsCount || 0);
+  }, [currentUser?.role, pendingClientsCount, newOfferInterestedCount, newReferrersCount, pendingServiceRequestsCount]);
 
   // Filter navigation items based on user role
   const getFilteredNavItems = () => {
@@ -159,10 +219,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         .map((item) => {
           if (item.path !== '/parrainage/devenir-parrain-client') return item;
           if (!isClientReferrer) return item;
-          return { ...item, label: 'Mon compte parrain', path: '/parrainage/mon-compte-parrain' };
+          return { ...item, label: 'Mon compte parrain', path: '/parrainage/dashboard' };
         })
         .filter(item =>
-          ['/', '/qrcode', '/parrainage/devenir-parrain-client', '/parrainage/mon-compte-parrain', '/parrainage/inscrire-filleul', '/parrainage/mes-filleuls', '/parrainage/mes-points'].includes(item.path)
+          ['/', '/qrcode', '/parrainage', '/parrainage/dashboard', '/parrainage/devenir-parrain-client', '/parrainage/inscrire-filleul', '/parrainage/mes-filleuls', '/parrainage/mes-points', '/parrainage/recompenses'].includes(item.path)
         );
     }
     if (currentUser?.role === 'provider') {
@@ -177,7 +237,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         '/admin/filleuls',
         '/admin/referrals',
         '/admin/referrers-performance',
-        '/admin/rewards'
+        '/admin/rewards',
+        '/admin/service-requests'
       ].includes(item.path));
   };
 
@@ -191,7 +252,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       '/admin/filleuls',
       '/admin/referrals',
       '/admin/referrers-performance',
-      '/admin/rewards'
+      '/admin/rewards',
+      '/admin/service-requests'
     ];
     return navItems.filter(i => wanted.includes(i.path));
   }, [currentUser?.role]);
@@ -232,15 +294,104 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <h1 className={`text-lg font-serif font-bold text-center ${isSoberMode ? 'text-white' : 'text-slate-800'}`}>SIMPLIFIEZ</h1>
             <p className={`text-xs text-center ${isSoberMode ? 'text-slate-300' : 'text-slate-500'}`}>VOTRE QUOTIDIEN</p>
 
-            <button
-              type="button"
-              onClick={() => toggleSoberMode()}
-              className={`mt-4 w-full px-3 py-2 rounded-lg text-xs font-bold border transition ${isSoberMode
-                ? 'bg-slate-800 text-slate-100 border-slate-700 hover:bg-slate-700'
-                : 'bg-white/70 text-slate-700 border-beige-200 hover:bg-white'}`}
-            >
-              Mode sobre : {isSoberMode ? 'Activé' : 'Désactivé'}
-            </button>
+            {/* Settings Dropdown - Contains Dark Mode Toggle */}
+            <div className="mt-4 w-full relative">
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(v => !v)}
+                className={`w-full px-3 py-2 rounded-lg text-xs font-bold border transition flex items-center justify-between ${
+                  isSoberMode
+                    ? 'bg-slate-800 text-slate-100 border-slate-700 hover:bg-slate-700'
+                    : 'bg-white/70 text-slate-700 border-beige-200 hover:bg-white'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Paramètres
+                </span>
+                {isSettingsOpen ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </button>
+
+              {isSettingsOpen && (
+                <div className={`mt-1 absolute left-0 right-0 rounded-lg border shadow-lg z-50 overflow-hidden ${
+                  isSoberMode
+                    ? 'bg-slate-800 border-slate-700'
+                    : 'bg-white border-beige-200'
+                }`}>
+                  {/* Dark Mode Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSoberMode()}
+                    className={`w-full px-3 py-3 text-xs font-medium transition flex items-center justify-between ${
+                      isSoberMode
+                        ? 'text-slate-200 hover:bg-slate-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {isSoberMode ? (
+                        <><Moon className="w-4 h-4 text-blue-400" /> Mode Sobre</>
+                      ) : (
+                        <><Sun className="w-4 h-4 text-amber-500" /> Mode Normal</>
+                      )}
+                    </span>
+                    <span className={`w-2 h-2 rounded-full ${isSoberMode ? 'bg-blue-400' : 'bg-amber-500'}`} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Service Type Filter - Clearly Visible */}
+            {showServiceFilter && availableServiceTypes.length > 1 && (
+              <div className={`mt-4 w-full p-3 rounded-lg border ${
+                isSoberMode
+                  ? 'bg-slate-800/50 border-slate-700'
+                  : 'bg-white/50 border-beige-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Filter className={`w-4 h-4 ${isSoberMode ? 'text-slate-400' : 'text-slate-500'}`} />
+                  <span className={`text-xs font-bold ${isSoberMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                    Filtrer par service
+                  </span>
+                </div>
+                <select
+                  value={selectedServiceType}
+                  onChange={(e) => setSelectedServiceType(e.target.value as ServiceTypeFilter)}
+                  className={`w-full px-2 py-2 text-xs rounded-lg border focus:ring-2 focus:ring-brand-blue focus:border-brand-blue ${
+                    isSoberMode
+                      ? 'bg-slate-900 text-slate-200 border-slate-700'
+                      : 'bg-white text-slate-700 border-slate-300'
+                  }`}
+                >
+                  {availableServiceTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type === 'all' ? 'Tous les services' : type}
+                    </option>
+                  ))}
+                </select>
+                {selectedServiceType !== 'all' && (
+                  <div className="mt-2 flex items-center gap-1">
+                    <span className={`text-[10px] px-2 py-1 rounded-full ${
+                      isSoberMode
+                        ? 'bg-brand-blue/20 text-blue-300'
+                        : 'bg-brand-blue/10 text-brand-blue'
+                    }`}>
+                      {selectedServiceType}
+                    </span>
+                    <button
+                      onClick={() => setSelectedServiceType('all')}
+                      className={`text-[10px] underline ${isSoberMode ? 'text-slate-400' : 'text-slate-500'}`}
+                    >
+                      Réinitialiser
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto pb-4">
@@ -250,7 +401,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  onClick={() => { if(window.innerWidth < 768) onClose(); }}
+                  onClick={() => { 
+                    if(window.innerWidth < 768) onClose();
+                    // Dismiss Email Marketing badge when navigating to it - fire and forget
+                    if (item.path === '/admin/email-marketing' && showEmailMarketingBadge && currentUser?.id) {
+                      setShowEmailMarketingBadge(false);
+                      void supabase.rpc('marketing_dismiss_badge', {
+                        p_menu_item_key: 'email-marketing',
+                        p_user_id: currentUser.id
+                      });
+                    }
+                  }}
                   className={`flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
                     isActive
                       ? (isSoberMode ? 'bg-slate-800 text-white shadow-sm' : 'bg-white text-brand-blue shadow-sm')
@@ -272,6 +433,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   {item.path === '/contact-forms' && unreadContactFormsCount > 0 && (
                     <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
                       {unreadContactFormsCount}
+                    </span>
+                  )}
+                  {item.path === '/admin/email-marketing' && showEmailMarketingBadge && (
+                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
+                      NEW
                     </span>
                   )}
                 </Link>
@@ -333,6 +499,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                           {item.path === '/admin/referrers-performance' && newReferrersCount > 0 && (
                             <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
                               {newReferrersCount}
+                            </span>
+                          )}
+                          {item.path === '/admin/service-requests' && pendingServiceRequestsCount > 0 && (
+                            <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                              {pendingServiceRequestsCount}
                             </span>
                           )}
                         </Link>

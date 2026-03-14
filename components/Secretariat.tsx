@@ -630,6 +630,9 @@ const Secretariat: React.FC = () => {
     // Pack editing state
     const [editingPackId, setEditingPackId] = useState<string | null>(null);
 
+    // State for notifying clients about new pack
+    const [notifyClientsOnNewPack, setNotifyClientsOnNewPack] = useState(true);
+
     const [agendaFilters, setAgendaFilters] = useState({
         search: '',
         startDate: '',
@@ -996,7 +999,7 @@ const Secretariat: React.FC = () => {
                     suppliesDetails: packForm.suppliesDetails,
                     contractType: packForm.contractType || 'Contrat Prestataire Standard',
                     isSap: true,
-                    schedules: []
+                    interventionSchedules: packForm.interventionSchedules || []
                 };
 
                 await updatePack(editingPackId, updates);
@@ -1021,7 +1024,7 @@ const Secretariat: React.FC = () => {
                     suppliesDetails: packForm.suppliesDetails,
                     contractType: packForm.contractType || 'Contrat Prestataire Standard',
                     isSap: true,
-                    schedules: []
+                    interventionSchedules: packForm.interventionSchedules || []
                 };
 
                 const createdPackId = await addPack(newPack);
@@ -1039,7 +1042,29 @@ const Secretariat: React.FC = () => {
                         isSap: true
                     });
 
-                    showToast('Pack créé et Contrat Type généré automatiquement !');
+                    // If notify clients checkbox is checked, create marketing campaign
+                    if (notifyClientsOnNewPack && currentUser?.id) {
+                        try {
+                            const { supabase } = await import('../utils/supabaseClient');
+                            const { data: campaignData, error: campaignError } = await supabase.rpc('marketing_create_pack_campaign', {
+                                p_pack_id: createdPackId,
+                                p_pack_name: newPack.name,
+                                p_pack_description: newPack.description,
+                                p_pack_price: newPack.priceTTC,
+                                p_created_by: currentUser.id
+                            });
+
+                            if (campaignError) {
+                                console.error('Failed to create marketing campaign:', campaignError);
+                            } else {
+                                showToast('Pack créé, contrat généré et campagne email créée !');
+                            }
+                        } catch (e) {
+                            console.error('Error creating marketing campaign:', e);
+                        }
+                    } else {
+                        showToast('Pack créé et Contrat Type généré automatiquement !');
+                    }
                 } else {
                     showToast('Pack créé avec succès.');
                 }
@@ -1072,7 +1097,7 @@ const Secretariat: React.FC = () => {
             suppliesDetails: pack.suppliesDetails,
             contractType: pack.contractType,
             isSap: pack.isSap,
-            interventionSchedules: []
+            interventionSchedules: (pack as any).interventionSchedules || []
         });
         setModalType('pack');
         setIsModalOpen(true);
@@ -2759,9 +2784,9 @@ const Secretariat: React.FC = () => {
                                                             <select
                                                                 value={schedule.day}
                                                                 onChange={(e) => {
-                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    const newSchedules = [...(packForm.interventionSchedules || [])];
                                                                     newSchedules[index] = { ...schedule, day: e.target.value };
-                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                    setPackForm({ ...packForm, interventionSchedules: newSchedules });
                                                                 }}
                                                                 className="flex-1 p-1 border rounded text-xs"
                                                             >
@@ -2777,9 +2802,9 @@ const Secretariat: React.FC = () => {
                                                                 type="time"
                                                                 value={schedule.startTime}
                                                                 onChange={(e) => {
-                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    const newSchedules = [...(packForm.interventionSchedules || [])];
                                                                     newSchedules[index] = { ...schedule, startTime: e.target.value };
-                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                    setPackForm({ ...packForm, interventionSchedules: newSchedules });
                                                                 }}
                                                                 className="p-1 border rounded text-xs"
                                                             />
@@ -2788,18 +2813,18 @@ const Secretariat: React.FC = () => {
                                                                 type="time"
                                                                 value={schedule.endTime}
                                                                 onChange={(e) => {
-                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    const newSchedules = [...(packForm.interventionSchedules || [])];
                                                                     newSchedules[index] = { ...schedule, endTime: e.target.value };
-                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                    setPackForm({ ...packForm, interventionSchedules: newSchedules });
                                                                 }}
                                                                 className="p-1 border rounded text-xs"
                                                             />
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
-                                                                    const newSchedules = [...(packForm.schedules || [])];
+                                                                    const newSchedules = [...(packForm.interventionSchedules || [])];
                                                                     newSchedules.splice(index, 1);
-                                                                    setPackForm({ ...packForm, schedules: newSchedules });
+                                                                    setPackForm({ ...packForm, interventionSchedules: newSchedules });
                                                                 }}
                                                                 className="text-red-500 hover:text-red-700 p-1"
                                                             >
@@ -2890,6 +2915,22 @@ const Secretariat: React.FC = () => {
                                             <div className="flex flex-col items-center gap-2 text-green-600 bg-green-50 p-3 rounded">
                                                 <CheckCircle className="w-8 h-8" />
                                                 <span className="text-sm font-bold">Un contrat type sera généré automatiquement.</span>
+                                            </div>
+
+                                            {/* Checkbox to notify clients */}
+                                            <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={notifyClientsOnNewPack}
+                                                        onChange={e => setNotifyClientsOnNewPack(e.target.checked)}
+                                                        className="w-5 h-5 text-brand-blue rounded border-slate-300 focus:ring-brand-blue"
+                                                    />
+                                                    <div className="flex-1">
+                                                        <span className="font-bold text-slate-700 text-sm">Notifier tous les clients par email</span>
+                                                        <p className="text-xs text-slate-500 mt-0.5">Envoyer un email de présentation du nouveau pack à tous les clients inscrits</p>
+                                                    </div>
+                                                </label>
                                             </div>
                                         </div>
                                     )}

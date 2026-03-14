@@ -147,6 +147,7 @@ interface DataContextType {
     canCancelMission: (mission: Mission) => boolean;
     assignProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
     updateMission: (id: string, data: Partial<Mission>) => Promise<void>;
+    completeMission: (id: string) => Promise<void>;
     deleteMissions: (ids: string[]) => Promise<void>;
 
     clients: Client[];
@@ -2111,7 +2112,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         fetchTable('documents'),
                         fetchTable('packs'),
                         fetchTable('contracts'),
-                        fetchTable('expenses'),
+                                                Promise.resolve([]), // expenses temporairement désactivé - base en timeout,
                     ]);
                     await new Promise(r => setTimeout(r, 300));
                     const [msgData, notifData, cfData, settingsRaw] = await Promise.all([
@@ -3757,6 +3758,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
     }, [currentUser?.role]);
 
+    const completeMission = async (id: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
+
+        const { error } = await supabase.from('missions').update({
+            status: 'completed',
+            completed_at: new Date().toISOString()
+        }).eq('id', id);
+
+        if (error) {
+            console.error('[completeMission] Supabase error:', error);
+            throw error;
+        }
+
+        setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed' } : m));
+    };
+
     const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
         if (isDemoMode) {
             demoBlocked();
@@ -5238,30 +5258,52 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const signQuoteWithData = async (id: string, signatureData: string, signedBy: 'client' | 'admin' = 'client') => {
-        // Enforce expiration window (24h) and block signature if quote is expired
-        {
+        // Enforce expiration window (48h) and block signature if quote is expired (only for clients)
+        if (signedBy === 'client') {
             const { data: dbDoc, error: dbDocError } = await supabase
                 .from('documents')
-                .select('id, type, status, created_at, ref')
+                .select('created_at, status, type, client_email, client_name, ref')
                 .eq('id', id)
-                .maybeSingle();
+                .single();
 
-            if (dbDocError) throw dbDocError;
-            if (dbDoc && String((dbDoc as any).type) === 'Devis') {
-                const createdAtRaw = (dbDoc as any).created_at;
-                const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
+            if (!dbDocError && dbDoc) {
+                const createdAtMs = new Date(dbDoc.created_at).getTime();
                 const expirationMs = 48 * 60 * 60 * 1000;
-                const isTooOld = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) > expirationMs : false;
-                const currentStatus = String((dbDoc as any).status || '');
-
-                if (currentStatus === 'expired' || isTooOld) {
-                    if (currentStatus !== 'expired') {
-                        // Best-effort: mark expired in DB
+                const expiresAtMs = createdAtMs + expirationMs;
+                const remainingMs = expiresAtMs - Date.now();
+                if (remainingMs <= 0) {
+                    // Mark as expired in DB if past window
+                    if (dbDoc.status !== 'expired') {
                         await supabase.from('documents').update({ status: 'expired' }).eq('id', id);
                         setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'expired' as any } : d));
                     }
-                    throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
+                    if (signedBy !== 'admin') throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
                 }
+            }
+        }
+
+        // Fetch document details for signature
+        const { data: dbDocCheck, error: dbDocError2 } = await supabase
+            .from('documents')
+            .select('id, type, status, created_at, ref')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (dbDocError2) throw dbDocError2;
+        if (dbDocCheck && String((dbDocCheck as any).type) === 'Devis') {
+            const createdAtRaw = (dbDocCheck as any).created_at;
+            const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : NaN;
+            const expirationMs = 48 * 60 * 60 * 1000;
+            const isTooOld = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) > expirationMs : false;
+            const currentStatus = String((dbDocCheck as any).status || '');
+
+            if (currentStatus === 'expired' || isTooOld) {
+                if (currentStatus !== 'expired') {
+                    // Best-effort: mark expired in DB
+                    await supabase.from('documents').update({ status: 'expired' }).eq('id', id);
+                    setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'expired' as any } : d));
+                }
+                if (signedBy !== 'admin') throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
             }
         }
 
@@ -7052,7 +7094,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
              isDemoMode, demoRole, enterDemoMode,
  
-            missions, addMission, startMission, endMission, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, deleteMissions,
+            missions, addMission, startMission, endMission, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, completeMission, deleteMissions,
  
              clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -961,6 +961,30 @@ const Planning: React.FC = () => {
   };
 
   const unassignedMissions = missions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
+  
+  // Actions & Missions filters
+  const [unassignedFilterName, setUnassignedFilterName] = useState('');
+  const [unassignedFilterPack, setUnassignedFilterPack] = useState('all');
+  
+  const filteredUnassignedMissions = useMemo(() => {
+    let filtered = unassignedMissions;
+    
+    // Filter by client name
+    if (unassignedFilterName.trim()) {
+      const query = unassignedFilterName.toLowerCase();
+      filtered = filtered.filter(m => m.clientName.toLowerCase().includes(query));
+    }
+    
+    // Filter by pack (service type)
+    if (unassignedFilterPack !== 'all') {
+      filtered = filtered.filter(m => {
+        const client = clients.find(c => c.id === m.clientId);
+        return client?.pack === unassignedFilterPack;
+      });
+    }
+    
+    return filtered;
+  }, [unassignedMissions, unassignedFilterName, unassignedFilterPack, clients]);
   const missionToAssign = missions.find(m => m.id === selectedMissionId);
 
   const getDayIndex = (dateStr: string) => {
@@ -1069,10 +1093,24 @@ const Planning: React.FC = () => {
                 <div className="p-3 space-y-2 overflow-y-auto">
                     <button 
                         onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true }); setIsMobileActionsOpen(false); }}
-                        className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
+                        className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-2 border border-yellow-200"
                     >
                         <Flag className="w-3 h-3" /> Ajouter un Rappel
                     </button>
+
+                    {/* Mobile filters for unassigned missions */}
+                    <div className="space-y-1.5 mb-2 pb-2 border-b border-slate-200">
+                        <div>
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Nom</label>
+                            <input
+                                type="text"
+                                placeholder="Filtrer..."
+                                value={unassignedFilterName}
+                                onChange={(e) => setUnassignedFilterName(e.target.value)}
+                                className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded focus:outline-none focus:border-brand-blue leading-tight"
+                            />
+                        </div>
+                    </div>
 
                     <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
                         <div className="text-xs font-bold text-slate-700 mb-2">Légende</div>
@@ -1096,20 +1134,23 @@ const Planning: React.FC = () => {
                         </div>
                     </div>
 
-                    {unassignedMissions.length === 0 ? (
+                    {filteredUnassignedMissions.length === 0 ? (
                         <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
                     ) : (
                         <>
                             <div className="text-xs text-slate-500 font-bold mb-2">
-                                {unassignedMissions.length} mission{unassignedMissions.length > 1 ? 's' : ''} à assigner
+                                {filteredUnassignedMissions.length} mission{filteredUnassignedMissions.length > 1 ? 's' : ''} à assigner
                             </div>
-                            {unassignedMissions.map(m => (
+                            {filteredUnassignedMissions.map(m => {
+                                const client = clients.find(c => c.id === m.clientId);
+                                return (
                                 <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100 shrink-0">
                                     <p className="font-bold text-xs text-red-800 truncate">{m.clientName}</p>
-                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.service}</p>
+                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.startTime} - {m.endTime} | {client?.city || 'Ville non spécifiée'}</p>
                                     <button onClick={() => { setSelectedMissionId(m.id); setIsMobileActionsOpen(false); }} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </>
                     )}
                 </div>
@@ -1149,6 +1190,15 @@ const Planning: React.FC = () => {
                    title="Afficher les statistiques"
                >
                    Statistiques
+               </button>
+               <button
+                   type="button"
+                   onClick={() => navigate('/provider-availability')}
+                   className="bg-brand-blue text-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm text-sm font-bold hover:bg-teal-700 transition flex items-center gap-2"
+                   title="Voir la disponibilité des prestataires"
+               >
+                   <Users className="w-4 h-4" />
+                   <span className="hidden sm:inline">Disponibilité</span>
                </button>
            </div>
       </div>
@@ -1556,32 +1606,55 @@ const Planning: React.FC = () => {
             </div>
             
             {/* Actions & Missions - Responsive */}
-            <div className="hidden md:flex w-full md:w-64 bg-white border border-slate-200 flex-col md:h-auto">
-                <div className="bg-slate-100 p-3 text-center font-bold text-slate-700 border-b border-slate-200">
+            <div className="hidden md:flex w-full md:w-64 bg-white border border-slate-200 flex-col h-full max-h-[600px]">
+                <div className="bg-slate-100 p-2 text-center font-bold text-slate-700 border-b border-slate-200 text-sm">
                     Actions & Missions
                 </div>
-                <div className="p-2 space-y-2 overflow-y-auto max-h-64 md:max-h-96 md:flex-1">
+                
+                {/* Sticky filters section */}
+                <div className="p-2 space-y-1.5 border-b border-slate-200 bg-white shrink-0">
                     <button 
                         onClick={() => { setIsReminderModalOpen(true); setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true }); }}
-                        className="w-full bg-yellow-100 text-yellow-800 py-2 rounded font-bold text-xs hover:bg-yellow-200 flex items-center justify-center gap-2 mb-4 border border-yellow-200"
+                        className="w-full bg-yellow-100 text-yellow-800 py-1.5 rounded font-bold text-[10px] hover:bg-yellow-200 flex items-center justify-center gap-1 border border-yellow-200"
                     >
                         <Flag className="w-3 h-3" /> Ajouter un Rappel
                     </button>
 
-                    {unassignedMissions.length === 0 ? (
+                    {/* Filters for unassigned missions */}
+                    <div className="space-y-1">
+                        <div>
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Nom</label>
+                            <input
+                                type="text"
+                                placeholder="Filtrer..."
+                                value={unassignedFilterName}
+                                onChange={(e) => setUnassignedFilterName(e.target.value)}
+                                className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded focus:outline-none focus:border-brand-blue leading-tight"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Scrollable missions list */}
+                <div className="p-2 space-y-2 overflow-y-auto flex-1 min-h-0">
+
+                    {filteredUnassignedMissions.length === 0 ? (
                         <p className="text-center text-xs text-slate-400 italic mt-4">Toutes les missions sont assignées.</p>
                     ) : (
                         <>
                             <div className="text-xs text-slate-500 font-bold mb-2">
-                                {unassignedMissions.length} mission{unassignedMissions.length > 1 ? 's' : ''} à assigner
+                                {filteredUnassignedMissions.length} mission{filteredUnassignedMissions.length > 1 ? 's' : ''} à assigner
                             </div>
-                            {unassignedMissions.map(m => (
+                            {filteredUnassignedMissions.map(m => {
+                                const client = clients.find(c => c.id === m.clientId);
+                                return (
                                 <div key={m.id} className="bg-red-50 border border-red-100 p-2 rounded cursor-pointer hover:bg-red-100 shrink-0">
                                     <p className="font-bold text-xs text-red-800 truncate">{m.clientName}</p>
-                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.service}</p>
+                                    <p className="text-[10px] text-red-600 truncate">{m.date} | {m.startTime} - {m.endTime} | {client?.city || 'Ville non spécifiée'}</p>
                                     <button onClick={() => setSelectedMissionId(m.id)} className="mt-1 w-full bg-red-200 text-red-800 text-[10px] font-bold rounded px-1 hover:bg-red-300">Assigner</button>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </>
                     )}
                 </div>

@@ -93,6 +93,12 @@ export interface ScheduleOption {
     hoursPerDay: number;
 }
 
+export interface InterventionSchedule {
+    day: string;
+    startTime: string;
+    endTime: string;
+}
+
 export interface Pack {
     id: string;
     name: string;
@@ -112,6 +118,7 @@ export interface Pack {
     contractType: string;
     isSap?: boolean;
     schedules?: ScheduleOption[];
+    interventionSchedules?: InterventionSchedule[];
 }
 
 export interface Contract {

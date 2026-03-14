@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
 import PageLoader from './PageLoader';
@@ -80,6 +80,7 @@ const Providers: React.FC = () => {
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(1);
   const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const [sortKey, setSortKey] = useState<'inscription' | 'name' | 'hours' | 'status' | 'planned_missions'>('inscription');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -320,6 +321,19 @@ const Providers: React.FC = () => {
       });
       setIsModalOpen(true);
   };
+
+  // Handle URL param for editing provider
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && providers.length > 0) {
+      const providerToEdit = providers.find(p => p.id === editId);
+      if (providerToEdit) {
+        openEditModal(providerToEdit);
+        // Clear the URL param after opening modal
+        window.history.replaceState({}, '', '/providers');
+      }
+    }
+  }, [searchParams, providers]);
 
   const addNonInterventionRange = (day: number) => {
       setFormData(prev => {

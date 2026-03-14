@@ -5,7 +5,11 @@ export function getSupabaseAdminClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceRoleKey) {
-    throw new Error('Missing Supabase env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+    console.error('[supabaseAdmin] Missing environment variables:', {
+      hasUrl: !!url,
+      hasServiceRoleKey: !!serviceRoleKey
+    });
+    throw new Error('Missing Supabase env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Please check your .env file or environment configuration.');
   }
 
   return createClient(url, serviceRoleKey, {

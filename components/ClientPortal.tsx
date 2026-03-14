@@ -15,6 +15,7 @@ import {
     formatMartiniqueDateTime,
     formatMartiniqueDate
 } from '../src/utils/martiniqueTime';
+import dayjs from 'dayjs';
 import { 
     User,
     Calendar,
@@ -55,7 +56,12 @@ import {
     Download,
     FileText,
     CheckCircle,
-    ChevronDown
+    ChevronDown,
+    Briefcase,
+    ScanLine,
+    CalendarX,
+    Home,
+    Filter
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -201,6 +207,8 @@ const ClientPortal: React.FC = () => {
     }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
 
     const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans'>('planning');
+    const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar'>('overview');
+    const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [messageInput, setMessageInput] = useState('');
     const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
     
@@ -1330,7 +1338,7 @@ const ClientPortal: React.FC = () => {
     };
 
     return (
-        <div className="h-full bg-slate-50 flex flex-col overflow-hidden font-sans relative pb-4 md:pb-0">
+        <div className="h-full bg-gradient-to-br from-[#f0fdf4] via-[#ecfdf5] to-[#fefce8] flex flex-col font-sans relative overflow-hidden">
             <div className={`fixed top-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-10 opacity-0 pointer-events-none'}`}>
                 <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
                     toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
@@ -1355,172 +1363,145 @@ const ClientPortal: React.FC = () => {
                 </div>
             </div>
 
-            <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
-                <div className="flex items-center gap-4">
-                    {/* Mobile Menu Button */}
-                    <button
-                        onClick={() => setShowMobileMenu(!showMobileMenu)}
-                        className="md:hidden p-2 rounded-lg hover:bg-slate-100 transition"
-                    >
-                        {showMobileMenu ? <X className="w-6 h-6 text-slate-600" /> : <Menu className="w-6 h-6 text-slate-600" />}
-                    </button>
-
-                    <div className="w-10 h-10 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-lg">
-                        {client.name.charAt(0)}
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-800">{client.name}</h1>
-                        <p className="text-xs text-slate-500 hidden md:block">Bienvenue</p>
-                    </div>
+            {/* Mobile Header - Modern Design */}
+            <header className="md:hidden bg-white/70 backdrop-blur-xl border-b border-white/50 px-4 py-3 flex justify-between items-center z-20 shrink-0">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="p-2 rounded-full hover:bg-white/50 transition">
+                  <Menu className="w-5 h-5 text-gray-600" />
+                </button>
+                <div>
+                  <h1 className="font-bold text-gray-800 text-lg">Presta</h1>
+                  <p className="text-xs text-gray-500">Espace client</p>
                 </div>
-                <div className="flex items-center gap-4">
-
-                    {/* Notification Bell */}
-                    <div className="relative" ref={notifDropdownRef}>
-                        <button
-                            onClick={() => {
-                                if (window.innerWidth < 768) {
-                                    setShowMobileNotifModal(true);
-                                } else {
-                                    setShowNotifDropdown(!showNotifDropdown);
-                                }
-                            }}
-                            className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-brand-blue transition relative"
-                        >
-                            <Bell className="w-6 h-6" />
-                            {unreadClientNotifs.length > 0 && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
-                        </button>
-
-                        {showNotifDropdown && (
-                            <div className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden md:right-0 md:left-auto left-0 right-0">
-                                <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 flex justify-between items-center">
-                                    <span className="font-bold text-xs sm:text-sm text-slate-700">Notifications</span>
-                                    <span className="text-xs text-slate-500">{unreadClientNotifs.length} nouvelles</span>
-                                </div>
-                                <div className="max-h-48 sm:max-h-64 overflow-y-auto">
-                                    {allClientNotifs.length === 0 ? (
-                                        <div className="p-3 sm:p-4 text-center text-xs text-slate-400">Aucune notification.</div>
-                                    ) : (
-                                        allClientNotifs.slice(0, 5).map(n => (
-                                            <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-2 sm:p-3 border-b border-slate-50 cursor-pointer hover:bg-cream-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}>
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <span className={`text-xs font-bold ${n.type === 'alert' ? 'text-red-600' : 'text-brand-blue'}`}>{n.title}</span>
-                                                    <span className="text-[10px] text-slate-400">{formatMartiniqueDate(new Date(n.date))}</span>
-                                                </div>
-                                                <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => { setShowNotifDropdown(false); setShowAllNotifsModal(true); }}
-                                    className="w-full py-2 text-center text-xs font-bold text-brand-blue bg-slate-50 hover:bg-slate-100 border-t border-slate-100 transition"
-                                >
-                                    Voir toutes les notifications
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    <button
-                        onClick={handleLogout}
-                        className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-red-500 transition border border-slate-200 px-3 py-2 rounded-lg hover:bg-red-50"
-                    >
-                        <LogOut className="w-4 h-4" /> <span className="hidden md:inline">Déconnexion</span>
-                    </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowMobileNotifModal(true)}
+                  className="p-2 rounded-full hover:bg-white/50 transition relative"
+                >
+                  <Bell className="w-5 h-5 text-gray-600" />
+                  {unreadClientNotifs.length > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                  )}
+                </button>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
+                  {client.name.charAt(0)}
                 </div>
+              </div>
+            </header>
+
+            {/* Desktop Header - Modern Design with Tabs */}
+            <header className="hidden md:flex bg-white border-b border-gray-100 px-8 py-4 justify-between items-center z-20 shrink-0">
+              {/* Logo & Navigation */}
+              <div className="flex items-center gap-8">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                    <Briefcase className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="font-bold text-xl text-gray-800">Presta</span>
+                </div>
+                
+                <nav className="flex items-center gap-1">
+                  {[
+                    { id: 'planning', label: 'Planning', icon: Calendar },
+                    { id: 'docs', label: 'Documents', icon: FileText },
+                    { id: 'messages', label: 'Messages', icon: MessageSquare },
+                    { id: 'qr-scans', label: 'QR Code', icon: QrCode },
+                    { id: 'profile', label: 'Profil', icon: User },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
+                        activeTab === item.id
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <item.icon className="w-4 h-4" />
+                      {item.label}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Right Side - Notifications & Profile */}
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setShowAllNotifsModal(true)}
+                  className="relative p-2 rounded-xl hover:bg-gray-100 transition"
+                >
+                  <Bell className="w-5 h-5 text-gray-600" />
+                  {unreadClientNotifs.length > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                  )}
+                </button>
+                
+                <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-800">{client?.name}</p>
+                    <p className="text-xs text-emerald-600 font-medium">Client</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
+                    {client.name.charAt(0)}
+                  </div>
+                </div>
+              </div>
             </header>
 
             {/* Mobile Menu */}
             {showMobileMenu && (
-                <div className="md:hidden bg-white border-b border-slate-200 shadow-lg z-20">
-                    <div className="px-4 pt-4 pb-2 text-xs font-extrabold text-slate-500 uppercase">Menu client</div>
+                <div className="md:hidden fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setShowMobileMenu(false)}>
+                  <div className="bg-white/95 backdrop-blur-xl w-72 h-full shadow-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                    <div className="p-4 border-b border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <h2 className="font-bold text-lg text-gray-800">Menu</h2>
+                        <button onClick={() => setShowMobileMenu(false)} className="p-2 rounded-full hover:bg-gray-100 transition">
+                          <X className="w-5 h-5 text-gray-600" />
+                        </button>
+                      </div>
+                    </div>
                     <nav className="p-4 space-y-2">
+                      {[
+                        { id: 'planning', label: 'Mon Planning', icon: Calendar },
+                        { id: 'docs', label: 'Devis & Factures', icon: FileText },
+                        { id: 'messages', label: 'Messages', icon: MessageSquare },
+                        { id: 'qr-scans', label: 'QR Code', icon: QrCode },
+                        { id: 'profile', label: 'Mon Profil', icon: User },
+                      ].map((item) => (
                         <button
-                            onClick={() => { setActiveTab('planning'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'planning' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                          key={item.id}
+                          onClick={() => { setActiveTab(item.id as any); setShowMobileMenu(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                            activeTab === item.id
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-200'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
                         >
-                            <Calendar className="w-4 h-4" /> Mon Planning
+                          <item.icon className="w-5 h-5" /> {item.label}
                         </button>
-                        <button
-                            onClick={() => { setActiveTab('docs'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'docs' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <FileText className="w-4 h-4" /> Devis & Factures
+                      ))}
+                      <div className="border-t border-gray-200 pt-4 mt-4">
+                        <button onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+                          <Wifi className={`w-5 h-5 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo
+                          {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}
                         </button>
-                        <button
-                            onClick={() => { setActiveTab('messages'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <MessageSquare className="w-4 h-4" /> Messages
+                        <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition mt-2">
+                          <LogOut className="w-5 h-5" /> Déconnexion
                         </button>
-                        <button
-                            onClick={() => { setActiveTab('qr-scans'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <QrCode className="w-4 h-4" /> QR Code & Pointage
-                        </button>
-                        <button
-                            onClick={() => { setActiveTab('profile'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <User className="w-4 h-4" /> Mon Profil
-                        </button>
-                        
-                        <button
-                            onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Package className="w-4 h-4" /> Inscrire un filleul
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/parrainage/mes-points'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <History className="w-4 h-4" /> Mes points parrainage
-                        </button>
-                        <button
-                            onClick={() => { window.location.href = '/flyers'; }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"
-                        >
-                            <Megaphone className="w-4 h-4" /> Offres / Flyers
-                        </button>
-                        
-                        <button
-                            onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo
-                            {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}
-                        </button>
+                      </div>
                     </nav>
+                  </div>
                 </div>
             )}
 
             <div className="flex-1 flex overflow-hidden">
-                <nav className="w-64 bg-white border-r border-slate-200 p-4 space-y-2 hidden md:block shrink-0">
-                    <div className="px-2 pb-2 text-xs font-extrabold text-slate-500 uppercase">Menu client</div>
-                    <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'planning' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Calendar className="w-4 h-4" /> Mon Planning</button>
-                    <button onClick={() => setActiveTab('docs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'docs' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><FileText className="w-4 h-4" /> Devis & Factures</button>
-                    <button onClick={() => setActiveTab('messages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><MessageSquare className="w-4 h-4" /> Messages</button>
-                    <button onClick={() => setActiveTab('qr-scans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'qr-scans' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><QrCode className="w-4 h-4" /> QR Code & Pointage</button>
-                    <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${activeTab === 'profile' ? 'bg-brand-blue text-white' : 'text-slate-600 hover:bg-slate-50'}`}><User className="w-4 h-4" /> Mon Profil</button>
-                    
-                    <button onClick={() => { window.location.href = isReferrer ? '/parrainage/mon-compte-parrain' : '/parrainage/devenir-parrain-client'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Award className="w-4 h-4" /> {isReferrer ? 'Mon compte parrain' : 'Devenir parrain (code)'}</button>
-                    <button onClick={() => { window.location.href = '/parrainage/inscrire-filleul'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Package className="w-4 h-4" /> Inscrire un filleul</button>
-                    <button onClick={() => { window.location.href = '/parrainage/mes-points'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><History className="w-4 h-4" /> Mes points parrainage</button>
-                    <button onClick={() => { window.location.href = '/flyers'; }} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors text-slate-600 hover:bg-slate-50"><Megaphone className="w-4 h-4" /> Offres / Flyers</button>
-                    
-                    <button onClick={() => setActiveTab('live')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Wifi className={`w-4 h-4 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}</button>
+                {/* Remove sidebar for desktop - use full width like ProviderPortal */}
+                <nav className="hidden md:hidden w-64 bg-white/80 backdrop-blur-xl border-r border-white/50 flex-col p-4 space-y-2 shrink-0">
+                  {/* Mobile-only sidebar placeholder */}
                 </nav>
 
-                <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8">
+                <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8 bg-gray-50/50">
                     {activeTab === 'qr-scans' && (
                         <ClientQRCode />
                     )}
@@ -1603,6 +1584,51 @@ const ClientPortal: React.FC = () => {
 
                     {activeTab === 'planning' && (
                         <div className="space-y-6">
+                            {/* Welcome Section */}
+                            <div className="hidden md:flex items-start justify-between">
+                              <div>
+                                <h1 className="text-2xl font-bold text-gray-900">Bienvenue, {client?.name}</h1>
+                                <p className="text-gray-500 mt-1">Vous avez {clientMissions.filter(m => m.status === 'planned' || m.status === 'in_progress').length} mission{clientMissions.filter(m => m.status === 'planned' || m.status === 'in_progress').length > 1 ? 's' : ''} en cours</p>
+                              </div>
+                              <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+                                <button
+                                  onClick={() => setDashboardViewMode('overview')}
+                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                                    dashboardViewMode === 'overview' 
+                                      ? 'bg-emerald-50 text-emerald-700' 
+                                      : 'text-gray-500 hover:text-gray-700'
+                                  }`}
+                                >
+                                  Vue d'ensemble
+                                </button>
+                                <button
+                                  onClick={() => setDashboardViewMode('calendar')}
+                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                                    dashboardViewMode === 'calendar' 
+                                      ? 'bg-emerald-50 text-emerald-700' 
+                                      : 'text-gray-500 hover:text-gray-700'
+                                  }`}
+                                >
+                                  Calendrier
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Stats Cards */}
+                            <div className="hidden md:grid grid-cols-5 gap-4">
+                              {[
+                                { label: 'Total Missions', value: clientMissions.length, color: 'bg-gray-50' },
+                                { label: 'Planifiées', value: clientMissions.filter(m => m.status === 'planned').length, color: 'bg-amber-50' },
+                                { label: 'En cours', value: clientMissions.filter(m => m.status === 'in_progress').length, color: 'bg-blue-50' },
+                                { label: 'Terminées', value: clientMissions.filter(m => m.status === 'completed').length, color: 'bg-emerald-50' },
+                                { label: 'Heures fidélité', value: `${client.loyaltyHoursAvailable || 0}h`, color: 'bg-purple-50' },
+                              ].map((stat, idx) => (
+                                <div key={idx} className={`${stat.color} rounded-2xl p-4 border border-gray-100`}>
+                                  <p className="text-xs text-gray-500 font-medium">{stat.label}</p>
+                                  <p className="text-2xl font-bold text-gray-800 mt-1">{stat.value}</p>
+                                </div>
+                              ))}
+                            </div>
                             {isReferrer && referralLink ? (
                                 <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
                                     <div className="text-sm font-extrabold text-slate-800">Ton lien de parrainage</div>
@@ -1630,7 +1656,16 @@ const ClientPortal: React.FC = () => {
                                     </div>
                                 </div>
                             ) : null}
-                            <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
+                                <button
+                                    onClick={() => window.location.href = '/nouvelle-demande'}
+                                    className="flex items-center justify-center gap-2 bg-brand-blue text-white px-4 py-2 rounded-xl font-bold hover:bg-teal-700 transition shadow-sm"
+                                >
+                                    <span className="text-lg">+</span>
+                                    Nouvelle demande
+                                </button>
+                            </div>
 
                             <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 sm:p-5 shadow-sm">
                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
@@ -1774,18 +1809,38 @@ const ClientPortal: React.FC = () => {
                                     filteredClientMissions.map(m => {
                                         const cancelable = canCancelMission(m);
                                         return (
-                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-brand-blue'}`}>
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="font-bold text-lg text-slate-800">{m.service}</span>
+                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-emerald-500'}`}>
+                                                <div className="flex-1 w-full">
+                                                    {/* Header: Date + Jour en premier */}
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-bold">
+                                                            {dayjs(m.date).format('dddd')}
+                                                        </span>
+                                                        <span className="text-lg font-bold text-gray-800">
+                                                            {dayjs(m.date).format('D MMMM YYYY')}
+                                                        </span>
                                                         {m.status === 'completed' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Terminé</span>}
                                                         {m.status === 'cancelled' && <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-bold">Annulé</span>}
-                                                        {m.status === 'planned' && <span className="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full font-bold">Prévu</span>}
+                                                        {m.status === 'planned' && <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">Prévu</span>}
                                                     </div>
-                                                    <div className="text-slate-500 text-sm flex flex-col gap-1 mb-2">
-                                                        <span className="flex items-center gap-2"><Calendar className="w-4 h-4" /> {m.date} à {m.startTime}</span>
-                                                        <span className="flex items-center gap-2"><User className="w-4 h-4" /> Intervenant: <span className="font-bold text-slate-700">{m.providerName || 'À confirmer'}</span></span>
+                                                    
+                                                    {/* Prestataire en premier */}
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
+                                                            {(m.providerName || 'P').charAt(0)}
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-sm text-gray-500">Intervenant:</span>
+                                                            <span className="font-bold text-gray-900 ml-1">{m.providerName || 'À confirmer'}</span>
+                                                        </div>
                                                     </div>
+                                                    
+                                                    {/* Service et horaire */}
+                                                    <div className="text-gray-500 text-sm flex flex-col gap-1 mb-2">
+                                                        <span className="flex items-center gap-2"><Briefcase className="w-4 h-4" /> {m.service}</span>
+                                                        <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> {m.startTime} - {m.endTime}</span>
+                                                    </div>
+                                                    
                                                     {/* Pack Info */}
                                                     {(() => {
                                                         const associatedPack = packs.find(p => p.name === client.pack) || (client.pack && client.pack !== 'Non défini' ? { name: client.pack } : null);
@@ -2412,36 +2467,33 @@ const ClientPortal: React.FC = () => {
                 </main>
             </div>
 
-            {/* Mobile Bottom Navigation */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-14 pb-safe z-40">
-                <button
-                    onClick={() => setActiveTab('planning')}
-                    className={`p-2 rounded-lg transition ${activeTab === 'planning' ? 'text-brand-blue' : 'text-slate-400'}`}
-                    aria-label="Planning"
-                >
-                    <Calendar className="w-6 h-6" />
-                </button>
-                <button
-                    onClick={() => setActiveTab('docs')}
-                    className={`p-2 rounded-lg transition ${activeTab === 'docs' ? 'text-brand-blue' : 'text-slate-400'}`}
-                    aria-label="Documents"
-                >
-                    <FileText className="w-6 h-6" />
-                </button>
-                <button
-                    onClick={() => setActiveTab('messages')}
-                    className={`p-2 rounded-lg transition ${activeTab === 'messages' ? 'text-brand-blue' : 'text-slate-400'}`}
-                    aria-label="Messages"
-                >
-                    <MessageSquare className="w-6 h-6" />
-                </button>
-                <button
-                    onClick={() => setActiveTab('profile')}
-                    className={`p-2 rounded-lg transition ${activeTab === 'profile' ? 'text-brand-blue' : 'text-slate-400'}`}
-                    aria-label="Profil"
-                >
-                    <User className="w-6 h-6" />
-                </button>
+            {/* Mobile Bottom Navigation - Modern Style */}
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-white/50 flex justify-around items-center p-3 pb-safe z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+                {[
+                    { id: 'planning', icon: Home, label: 'Accueil' },
+                    { id: 'docs', icon: FileText, label: 'Docs' },
+                    { id: 'live', icon: Video, label: 'Live', isLive: true },
+                    { id: 'messages', icon: MessageSquare, label: 'Messages' },
+                    { id: 'profile', icon: User, label: 'Profil' },
+                ].map((item) => (
+                    <button
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id as any)}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
+                            activeTab === item.id
+                                ? 'text-emerald-600 bg-emerald-50'
+                                : 'text-gray-400 hover:text-gray-600'
+                        }`}
+                    >
+                        <div className="relative">
+                            <item.icon className={`w-5 h-5 ${item.isLive && isLive ? 'animate-pulse text-red-500' : ''}`} />
+                            {item.isLive && isLive && (
+                                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full"></span>
+                            )}
+                        </div>
+                        <span className="text-[10px] font-medium">{item.label}</span>
+                    </button>
+                ))}
             </div>
 
             {isChangeRequestModalOpen && (

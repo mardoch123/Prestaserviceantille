@@ -433,6 +433,271 @@ Répondre au message : https://www.prestaservicesantilles.com/admin/messages`
                 )
             }
 
+        case 'admin_new_service_request':
+            return {
+                subject: `Nouvelle demande de service client`,
+                message: createTextEmail(
+                    'Nouvelle Demande de Service',
+                    `Bonjour Admin,
+
+Une nouvelle demande de service a été soumise par un client.
+
+DÉTAILS DE LA DEMANDE :
+- Client : ${context.clientName || 'N/A'}
+- Service : ${context.serviceType || 'N/A'}
+- Pack : ${context.packName || 'Non spécifié'}
+- Date demandée : ${context.requestedDate || 'N/A'}
+- Créneau : ${context.requestedTime || 'N/A'}
+
+ACTION REQUISE : Veuillez valider cette demande dans l'interface admin.
+
+Accéder aux demandes : ${context.link || 'https://www.prestaservicesantilles.com/admin/nouvelles-demandes'}`
+                )
+            };
+
+        case 'new_pack_announcement':
+            return {
+                subject: `Nouveau pack disponible !`,
+                message: createTextEmail(
+                    'Nouveau Pack',
+                    `Bonjour ${context.clientName || 'Client'},
+
+Nous sommes ravis de vous annoncer la disponibilité d'un nouveau pack !
+
+DÉTAILS DU PACK :
+- Nom : ${context.packName || 'N/A'}
+- Description : ${context.packDescription || 'N/A'}
+- Prix : ${context.packPrice || 'N/A'}
+
+DÉCOUVRIR LE PACK :
+${context.link || 'https://www.prestaservicesantilles.com/packs'}
+
+N'hésitez pas à nous contacter pour plus d'informations.
+
+---
+Vous recevez cet email car vous êtes inscrit sur Presta Services Antilles.
+Pour vous désabonner des emails marketing : https://www.prestaservicesantilles.com/unsubscribe?email=${encodeURIComponent(context.clientEmail || '')}`
+                )
+            };
+
+        case 'no_mission_reminder':
+            return {
+                subject: `Rappel : Pas de mission prévue`,
+                message: createTextEmail(
+                    'Rappel',
+                    `Bonjour ${context.clientName || 'Client'},
+
+Ceci est un rappel pour vous informer qu'il n'y a pas de mission prévue pour vous dans les prochains jours.
+
+SI VOUS AVEZ BESOIN D'UNE MISSION :
+- Contactez-nous pour discuter de vos besoins
+- Consultez notre site web pour voir les missions disponibles
+
+${context.link || 'https://www.prestaservicesantilles.com/missions'}
+
+---
+Vous recevez cet email car vous êtes inscrit sur Presta Services Antilles.
+Pour vous désabonner des emails marketing : https://www.prestaservicesantilles.com/unsubscribe?email=${encodeURIComponent(context.clientEmail || '')}`
+                )
+            };
+
+        case 'post_mission_reminder':
+            return {
+                subject: `Rappel : Mission terminée`,
+                message: createTextEmail(
+                    'Rappel',
+                    `Bonjour ${context.clientName || 'Client'},
+
+Ceci est un rappel pour vous informer que votre mission est terminée.
+
+DÉTAILS DE LA MISSION :
+- Date : ${context.missionDate || 'N/A'}
+- Heure : ${context.missionTime || 'N/A'}
+- Prestataire : ${context.providerName || 'N/A'}
+
+SI VOUS AVEZ DES QUESTIONS OU DES PRÉOCCUPATIONS :
+- Contactez-nous pour discuter de vos besoins
+- Consultez notre site web pour voir les missions disponibles
+
+${context.link || 'https://www.prestaservicesantilles.com/missions'}
+
+---
+Vous recevez cet email car vous êtes inscrit sur Presta Services Antilles.
+Pour vous désabonner des emails marketing : https://www.prestaservicesantilles.com/unsubscribe?email=${encodeURIComponent(context.clientEmail || '')}`
+                )
+            };
+
+        case 'client_request_validated':
+            return {
+                subject: `Votre demande de service a été validée`,
+                message: createTextEmail(
+                    'Demande Validée',
+                    `Bonjour ${context.clientName || 'Client'},
+
+Nous avons le plaisir de vous confirmer que votre demande de service a été validée.
+
+DÉTAILS VALIDÉS :
+- Service : ${context.serviceType || 'N/A'}
+- Date : ${context.serviceDate || 'À confirmer'}
+- Devis : ${context.devisRef || 'Généré et disponible dans votre espace'}
+
+PROCHAINES ÉTAPES :
+Nos équipes vont maintenant assigner des prestataires qualifiés à votre mission très prochainement. Vous recevrez une notification dès qu'un prestataire aura été assigné.
+
+Vous pouvez consulter votre devis signé et suivre l'avancement de votre mission dans votre espace client :
+${context.link || 'https://www.prestaservicesantilles.com/'}
+
+Merci de votre confiance,
+L'équipe Presta Services Antilles`
+                )
+            };
+
+        // ========== AFFILIATE / REFERRAL SYSTEM EMAILS ==========
+        case 'referrer_welcome':
+            return {
+                subject: `Bienvenue dans le programme de parrainage !`,
+                message: createTextEmail(
+                    'Programme de Parrainage',
+                    `Bonjour ${context.referrerName || 'Cher Parrain'},
+
+Félicitations ! Vous faites maintenant partie du programme de parrainage Presta Services Antilles.
+
+VOTRE CODE PARRAIN :
+${context.referralCode || 'N/A'}
+
+COMMENT ÇA MARCHE :
+1️⃣ Partagez votre code avec vos proches
+2️⃣ Ils s'inscrivent avec votre code et reçoivent une réduction
+3️⃣ Vous gagnez des points à chaque mission effectuée par vos filleuls
+4️⃣ Convertissez vos points en récompenses exclusives
+
+VOS AVANTAGES :
+- Gagnez des points à chaque mission de vos filleuls
+- Accès exclusif aux promotions réservées aux parrains
+- Suivez vos filleuls et vos gains en temps réel
+
+ACCÉDER À VOTRE ESPACE PARRAIN :
+${context.link || 'https://www.prestaservicesantilles.com/parrainage/dashboard'}
+
+📊 Suivez vos performances, consultez vos points et découvrez les récompenses disponibles dans votre espace dédié.
+
+Merci de faire confiance à Presta Services Antilles !`
+                )
+            };
+
+        case 'new_referral_signed_up':
+            return {
+                subject: `🎉 Nouveau filleul inscrit avec votre code !`,
+                message: createTextEmail(
+                    'Nouveau Filleul',
+                    `Bonjour ${context.referrerName || 'Cher Parrain'},
+
+ Excellente nouvelle ! Un nouveau filleul vient de s'inscrire avec votre code de parrainage.
+
+DÉTAILS DU FILLEUL :
+- Nom : ${context.refereeName || 'N/A'}
+- Date d'inscription : ${context.signupDate || new Date().toLocaleDateString('fr-FR')}
+
+CE QUE VOUS GAGNEZ :
+✅ Des points à chaque mission effectuée par ce filleul
+✅ Des récompenses exclusives à cumuler
+
+SUIVRE VOS FILLEULS :
+${context.link || 'https://www.prestaservicesantilles.com/parrainage/mes-filleuls'}
+
+Continuez à partager votre code pour gagner encore plus de récompenses !
+
+Votre code parrain : ${context.referralCode || 'N/A'}`
+                )
+            };
+
+        case 'referral_points_earned':
+            return {
+                subject: `💰 Vous avez gagné des points !`,
+                message: createTextEmail(
+                    'Points Gagnés',
+                    `Bonjour ${context.referrerName || 'Cher Parrain'},
+
+ Félicitations ! Vous venez de gagner des points grâce à votre filleul.
+
+DÉTAILS DES POINTS GAGNÉS :
+- Points gagnés : +${context.pointsEarned || 'N/A'} points
+- Filleul concerné : ${context.refereeName || 'N/A'}
+- Mission effectuée : ${context.missionType || 'Service'}
+- Date : ${context.missionDate || new Date().toLocaleDateString('fr-FR')}
+
+VOTRE SOLDE ACTUEL :
+${context.totalPoints || 'N/A'} points
+
+💡 À quoi servent vos points ?
+Vos points vous permettent d'obtenir des réductions sur vos propres prestations ou des récompenses exclusives.
+
+DÉCOUVRIR LES RÉCOMPENSES :
+${context.link || 'https://www.prestaservicesantilles.com/parrainage/recompenses'}
+
+Continuez à parrainer et cumulez encore plus de points !`
+                )
+            };
+
+        case 'reward_available':
+            return {
+                subject: `🎁 Une récompense vous attend !`,
+                message: createTextEmail(
+                    'Récompense Disponible',
+                    `Bonjour ${context.referrerName || 'Cher Parrain'},
+
+ Excellente nouvelle ! Vous avez cumulé suffisamment de points pour obtenir une récompense.
+
+VOTRE SOLDE :
+${context.totalPoints || 'N/A'} points disponibles
+
+RÉCOMPENSES DISPONIBLES :
+${context.availableRewards || '- Réduction de 10% sur votre prochaine prestation (500 points)\n- 1 heure de ménage offerte (1000 points)\n- Pack découverte gratuit (1500 points)'}
+
+COMMENT RÉCLAMER :
+1. Connectez-vous à votre espace parrain
+2. Choisissez votre récompense
+3. Profitez-en immédiatement ou sur votre prochaine prestation
+
+VOIR LES RÉCOMPENSES :
+${context.link || 'https://www.prestaservicesantilles.com/parrainage/recompenses'}
+
+N'attendez pas, vos points n'attendent que vous ! 🎉`
+                )
+            };
+
+        case 'referee_welcome':
+            return {
+                subject: `Bienvenue ! Vous avez été parrainé`,
+                message: createTextEmail(
+                    'Bienvenue Parrainé',
+                    `Bonjour ${context.refereeName || 'Cher Client'},
+
+Bienvenue chez Presta Services Antilles ! Vous avez été parrainé par ${context.referrerName || 'un de nos clients'}.
+
+VOTRE AVANTAGE PARRAINAGE :
+🎁 ${context.bonusOffer || '10% de réduction sur votre première prestation'}
+
+COMMENT PROFITER DE VOTRE OFFRE :
+1. Connectez-vous à votre espace client
+2. Réservez votre première prestation
+3. La réduction sera automatiquement appliquée
+
+ACCÉDER À VOTRE ESPACE :
+${context.link || 'https://www.prestaservicesantilles.com/'}
+
+VOS IDENTIFIANTS :
+- Email : ${context.email || 'N/A'}
+- Mot de passe : ${context.password || 'Défini lors de votre inscription'}
+
+Vous aussi, devenez parrain !
+Après votre première prestation, vous pourrez à votre tour parrainer vos proches et gagner des récompenses.
+
+Merci de nous faire confiance,
+L'équipe Presta Services Antilles`
+                )
+            };
+
         // ========== CONTRACT VALIDATION EMAILS ==========
         case 'contract_validation_request':
             return {

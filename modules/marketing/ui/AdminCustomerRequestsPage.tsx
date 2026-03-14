@@ -27,6 +27,48 @@ const statusLabelFr = (s: MktCustomerRequestStatus | string | null | undefined) 
   }
 };
 
+// Status color mapping for row background
+const getStatusColorClass = (status: MktCustomerRequestStatus | string | null | undefined): string => {
+  const v = String(status || '').trim();
+  switch (v) {
+    case 'new':
+      return 'bg-blue-50/70 border-l-4 border-l-blue-500';
+    case 'contacted':
+      return 'bg-amber-50/70 border-l-4 border-l-amber-500';
+    case 'qualified':
+      return 'bg-purple-50/70 border-l-4 border-l-purple-500';
+    case 'converted':
+      return 'bg-emerald-50/70 border-l-4 border-l-emerald-500';
+    case 'closed':
+      return 'bg-slate-100/70 border-l-4 border-l-slate-400';
+    case 'spam':
+      return 'bg-red-50/70 border-l-4 border-l-red-500';
+    default:
+      return '';
+  }
+};
+
+// Status badge color
+const getStatusBadgeClass = (status: MktCustomerRequestStatus | string | null | undefined): string => {
+  const v = String(status || '').trim();
+  switch (v) {
+    case 'new':
+      return 'bg-blue-100 text-blue-700 border-blue-200';
+    case 'contacted':
+      return 'bg-amber-100 text-amber-700 border-amber-200';
+    case 'qualified':
+      return 'bg-purple-100 text-purple-700 border-purple-200';
+    case 'converted':
+      return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    case 'closed':
+      return 'bg-slate-100 text-slate-600 border-slate-200';
+    case 'spam':
+      return 'bg-red-100 text-red-700 border-red-200';
+    default:
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+  }
+};
+
 const eventTypeLabelFr = (t: string | null | undefined) => {
   const v = String(t || '').trim();
   switch (v) {
@@ -53,8 +95,75 @@ const AdminCustomerRequestsPage: React.FC = () => {
   const [note, setNote] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+  const [statusFilters, setStatusFilters] = useState<Set<MktCustomerRequestStatus>>(new Set(statusOptions));
+  
+  // Text filters
+  const [filterName, setFilterName] = useState('');
+  const [filterEmail, setFilterEmail] = useState('');
+  const [filterFlyer, setFilterFlyer] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 12;
 
   const canUse = useMemo(() => isSupabaseConfigured, []);
+
+  // Filter rows based on selected status filters and text filters
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      // Status filter
+      if (!statusFilters.has(r.status)) return false;
+      
+      // Name filter (search in full_name)
+      if (filterName.trim()) {
+        const nameLower = r.full_name?.toLowerCase() || '';
+        if (!nameLower.includes(filterName.trim().toLowerCase())) return false;
+      }
+      
+      // Email filter
+      if (filterEmail.trim()) {
+        const emailLower = r.email?.toLowerCase() || '';
+        if (!emailLower.includes(filterEmail.trim().toLowerCase())) return false;
+      }
+      
+      // Flyer/Pack filter
+      if (filterFlyer.trim()) {
+        const flyerLower = r.flyerTitle?.toLowerCase() || '';
+        if (!flyerLower.includes(filterFlyer.trim().toLowerCase())) return false;
+      }
+      
+      // Date from filter
+      if (filterDateFrom) {
+        const rowDate = new Date(r.created_at);
+        const fromDate = new Date(filterDateFrom);
+        if (rowDate < fromDate) return false;
+      }
+      
+      // Date to filter
+      if (filterDateTo) {
+        const rowDate = new Date(r.created_at);
+        const toDate = new Date(filterDateTo);
+        toDate.setHours(23, 59, 59, 999); // End of day
+        if (rowDate > toDate) return false;
+      }
+      
+      return true;
+    });
+  }, [rows, statusFilters, filterName, filterEmail, filterFlyer, filterDateFrom, filterDateTo]);
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredRows.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredRows, currentPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilters, filterName, filterEmail, filterFlyer, filterDateFrom, filterDateTo]);
 
   const load = async () => {
     if (!canUse) {
@@ -205,7 +314,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
 
   const selected = selectedId ? rows.find((r) => r.id === selectedId) || null : null;
 
-  const allSelected = rows.length > 0 && selectedIds.size === rows.length;
+  const allSelected = paginatedRows.length > 0 && selectedIds.size === paginatedRows.length;
 
   const toggleRowSelection = (id: string) => {
     setSelectedIds((prev) => {
@@ -218,10 +327,30 @@ const AdminCustomerRequestsPage: React.FC = () => {
 
   const toggleSelectAll = () => {
     setSelectedIds((prev) => {
-      if (rows.length === 0) return prev;
-      if (prev.size === rows.length) return new Set();
-      return new Set(rows.map((r) => r.id));
+      if (paginatedRows.length === 0) return prev;
+      if (prev.size === paginatedRows.length) return new Set();
+      return new Set(paginatedRows.map((r) => r.id));
     });
+  };
+
+  const toggleStatusFilter = (status: MktCustomerRequestStatus) => {
+    setStatusFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      return next;
+    });
+  };
+
+  const selectAllStatuses = () => {
+    setStatusFilters(new Set(statusOptions));
+  };
+
+  const clearAllStatuses = () => {
+    setStatusFilters(new Set());
   };
 
   const bulkArchiveSelected = async () => {
@@ -267,6 +396,136 @@ const AdminCustomerRequestsPage: React.FC = () => {
       ) : (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-white border border-slate-100 rounded-2xl overflow-hidden">
+            {/* Text Filters Bar */}
+            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+              <div className="text-xs font-bold text-slate-600 mb-2">Filtres de recherche :</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Nom / Prénom"
+                    value={filterName}
+                    onChange={(e) => setFilterName(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Email"
+                    value={filterEmail}
+                    onChange={(e) => setFilterEmail(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Flyer / Pack"
+                    value={filterFlyer}
+                    onChange={(e) => setFilterFlyer(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    placeholder="Date début"
+                    value={filterDateFrom}
+                    onChange={(e) => setFilterDateFrom(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    placeholder="Date fin"
+                    value={filterDateTo}
+                    onChange={(e) => setFilterDateTo(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setFilterName('');
+                    setFilterEmail('');
+                    setFilterFlyer('');
+                    setFilterDateFrom('');
+                    setFilterDateTo('');
+                    setStatusFilters(new Set(statusOptions));
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-700 underline"
+                >
+                  Réinitialiser tous les filtres
+                </button>
+              </div>
+            </div>
+
+            {/* Status Filter Bar */}
+            <div className="p-3 border-b border-slate-100 bg-white">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs font-bold text-slate-600">Filtrer par statut :</span>
+                <button
+                  onClick={selectAllStatuses}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                    statusFilters.size === statusOptions.length
+                      ? 'bg-brand-blue text-white border-brand-blue'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Tous
+                </button>
+                <button
+                  onClick={clearAllStatuses}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                >
+                  Aucun
+                </button>
+                <div className="w-px h-5 bg-slate-200 mx-1"></div>
+                {statusOptions.map((status) => {
+                  const isSelected = statusFilters.has(status);
+                  const badgeClass = getStatusBadgeClass(status);
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => toggleStatusFilter(status)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                        isSelected
+                          ? `${badgeClass} ring-2 ring-offset-1 ring-slate-300`
+                          : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 opacity-60'
+                      }`}
+                    >
+                      {statusLabelFr(status)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 text-xs text-slate-500">
+                {filteredRows.length} demande(s) affichée(s) sur {rows.length} total
+              </div>
+            </div>
+
+            {/* Status Legend */}
+            <div className="p-3 border-b border-slate-100 bg-slate-50">
+              <div className="text-xs font-bold text-slate-600 mb-2">Légende des statuts :</div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { status: 'new', label: 'Nouveau', color: 'bg-blue-500' },
+                  { status: 'contacted', label: 'Contacté', color: 'bg-amber-500' },
+                  { status: 'qualified', label: 'Qualifié', color: 'bg-purple-500' },
+                  { status: 'converted', label: 'Converti', color: 'bg-emerald-500' },
+                  { status: 'closed', label: 'Clos', color: 'bg-slate-400' },
+                  { status: 'spam', label: 'Spam', color: 'bg-red-500' },
+                ].map(({ status, label, color }) => (
+                  <div key={status} className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200">
+                    <div className={`w-3 h-3 rounded-full ${color}`}></div>
+                    <span className="text-xs font-medium text-slate-700">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="p-3 border-b border-slate-100 bg-white flex items-center justify-between gap-3">
               <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
                 <input
@@ -307,10 +566,12 @@ const AdminCustomerRequestsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {paginatedRows.map((r) => (
                     <tr
                       key={r.id}
-                      className={`border-t border-slate-100 cursor-pointer ${selectedId === r.id ? 'bg-brand-blue/5' : ''}`}
+                      className={`border-t border-slate-100 cursor-pointer transition-colors hover:bg-slate-50/50 ${
+                        selectedId === r.id ? 'bg-brand-blue/5' : getStatusColorClass(r.status)
+                      }`}
                       onClick={() => setSelectedId(r.id)}
                     >
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -332,7 +593,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
                         <select
                           value={r.status}
                           onChange={(e) => updateStatus(r.id, e.target.value as MktCustomerRequestStatus)}
-                          className="border border-slate-200 rounded-xl px-3 py-2 font-bold"
+                          className={`border rounded-xl px-3 py-2 font-bold text-xs ${getStatusBadgeClass(r.status)}`}
                           onClick={(e) => e.stopPropagation()}
                         >
                           {statusOptions.map((s) => (
@@ -343,7 +604,7 @@ const AdminCustomerRequestsPage: React.FC = () => {
                     </tr>
                   ))}
 
-                  {rows.length === 0 ? (
+                  {paginatedRows.length === 0 ? (
                     <tr>
                       <td className="px-4 py-8 text-center text-slate-600" colSpan={5}>
                         Aucune demande.
@@ -353,6 +614,59 @@ const AdminCustomerRequestsPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="text-xs text-slate-600">
+                  Page {currentPage} sur {totalPages} ({filteredRows.length} total)
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-white text-slate-700 border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Précédent
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      // Show pages around current page
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded-lg text-xs font-bold border ${
+                            currentPage === pageNum
+                              ? 'bg-brand-blue text-white border-brand-blue'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-white text-slate-700 border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Suivant
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-white border border-slate-100 rounded-2xl p-4">

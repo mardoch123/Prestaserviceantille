@@ -179,7 +179,7 @@ const OfferOfMomentModal: React.FC<Props> = ({ open, onClose, title }) => {
                   }}
                   className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600 opacity-100"
                 >
-                  Faire une demande
+                  S'inscrire
                 </button>
 
                 <div className="mt-4 flex items-center justify-between">

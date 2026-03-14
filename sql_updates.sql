@@ -38,13 +38,17 @@ BEGIN
 END;
 $$;
 
--- 2) Empêche la signature d'un devis expiré (ou trop ancien)
+-- 2) Empêche la signature d'un devis expiré (ou trop ancien), sauf si la date est aussi mise à jour (renouvellement admin)
 CREATE OR REPLACE FUNCTION prevent_signing_expired_quotes()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
   IF NEW.type = 'Devis' AND NEW.status = 'signed' AND (OLD.status IS DISTINCT FROM 'signed') THEN
+    -- Allow if created_at is also being updated (admin renewal of expired quote)
+    IF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+      RETURN NEW;
+    END IF;
     IF OLD.status = 'expired' OR OLD.created_at < (now() - interval '48 hours') THEN
       RAISE EXCEPTION 'Quote expired: signature blocked';
     END IF;

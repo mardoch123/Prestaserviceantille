@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
@@ -156,6 +156,21 @@ const DevisFactures: React.FC = () => {
 
     const location = useLocation();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+
+    // Handle URL param for creating devis with preselected client
+    useEffect(() => {
+        const clientId = searchParams.get('clientId');
+        if (clientId && clients.length > 0) {
+            const client = clients.find(c => c.id === clientId);
+            if (client) {
+                openModal('devis');
+                setSelectedClientId(clientId);
+                // Clear the URL param after opening modal
+                window.history.replaceState({}, '', '/invoices');
+            }
+        }
+    }, [searchParams, clients]);
 
     // --- Form State ---
     const [selectedClientId, setSelectedClientId] = useState<string>('');
@@ -257,7 +272,7 @@ const DevisFactures: React.FC = () => {
             if (!mStart.isValid() || !mEnd.isValid()) return false;
             return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
         });
-
+ 
         return providers.filter((provider: any) => {
             const isActive = provider.status === 'Active';
             if (!isActive) return false;
@@ -1787,13 +1802,37 @@ const DevisFactures: React.FC = () => {
         });
     };
 
-    const openAdminSignModal = (docId: string) => {
-        setAdminSignDocumentId(docId);
-        setAdminSignatureDataUrl('');
-        setAdminSignatureFileName('');
-        setIsAdminSignDragOver(false);
-        setIsAdminSignModalOpen(true);
-    };
+    const openAdminSignModal = async (docId: string, currentStatus?: string) => {
+    // If document is expired, reset creation date to today and status to 'sent' first
+    if (currentStatus === 'expired') {
+        const now = new Date().toISOString();
+        const { error } = await supabase
+            .from('documents')
+            .update({ 
+                created_at: now,
+                status: 'sent'
+            })
+            .eq('id', docId);
+        
+        if (error) {
+            console.error('[DevisFactures] Error updating expired document:', error);
+            alert('Erreur lors de la mise à jour du devis expiré');
+            return;
+        }
+        
+        // Refresh the document in the list
+        const doc = documents.find(d => d.id === docId);
+        if (doc) {
+            doc.status = 'sent';
+            doc.createdAt = today;
+        }
+    }
+    
+    setAdminSignDocumentId(docId);
+    setAdminSignatureDataUrl('');
+    setAdminSignatureFileName('');
+    setIsAdminSignModalOpen(true);
+};
 
     const closeAdminSignModal = () => {
         if (isAdminSigning) return;
@@ -2819,7 +2858,7 @@ const DevisFactures: React.FC = () => {
                                                                 value === 'signed' &&
                                                                 (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')
                                                             ) {
-                                                                openAdminSignModal(doc.id);
+                                                                openAdminSignModal(doc.id, doc.status);
                                                                 return;
                                                             }
                                                             updateDocumentStatus(doc.id, value);
@@ -2866,7 +2905,7 @@ const DevisFactures: React.FC = () => {
                                                     return;
                                                 }
                                                 if (action === 'admin_sign') {
-                                                    openAdminSignModal(doc.id);
+                                                    openAdminSignModal(doc.id, doc.status);
                                                     return;
                                                 }
                                                 if (action === 'download_quote_pdf') {
@@ -2925,7 +2964,7 @@ const DevisFactures: React.FC = () => {
                                                 <option value="renew">Renouveler devis</option>
                                             ) : null}
 
-                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
+                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
                                                 <option value="admin_sign">Signer (admin)</option>
                                             ) : null}
 
@@ -3231,7 +3270,7 @@ const DevisFactures: React.FC = () => {
                                                                     value === 'signed' &&
                                                                     (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')
                                                                 ) {
-                                                                    openAdminSignModal(doc.id);
+                                                                    openAdminSignModal(doc.id, doc.status);
                                                                     return;
                                                                 }
                                                                 updateDocumentStatus(doc.id, value);
@@ -3279,7 +3318,7 @@ const DevisFactures: React.FC = () => {
                                                         return;
                                                     }
                                                     if (action === 'admin_sign') {
-                                                        openAdminSignModal(doc.id);
+                                                        openAdminSignModal(doc.id, doc.status);
                                                         return;
                                                     }
                                                     if (action === 'download_quote_pdf') {
@@ -3363,7 +3402,7 @@ const DevisFactures: React.FC = () => {
                                                     <option value="renew">Renouveler devis</option>
                                                 ) : null}
 
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
+                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
                                                     <option value="admin_sign">Signer (admin)</option>
                                                 ) : null}
 
@@ -4049,7 +4088,7 @@ const DevisFactures: React.FC = () => {
                                 {selectedDocument.type === 'Devis' && selectedDocument.status === 'sent' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
                                     <div className="mt-4 flex justify-end">
                                         <button
-                                            onClick={() => openAdminSignModal(selectedDocument.id)}
+                                            onClick={() => openAdminSignModal(selectedDocument.id, selectedDocument.status)}
                                             className="px-4 py-2 rounded-lg bg-brand-blue text-white font-bold hover:bg-teal-700 flex items-center gap-2"
                                         >
                                             <PenTool className="w-4 h-4" />

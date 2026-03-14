@@ -1,18 +1,28 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import PageLoader from './PageLoader';
-import { useLocation } from 'react-router-dom';
-import { 
-  Calendar, 
-  Filter, 
-  CheckCircle, 
-  Clock, 
-  XCircle, 
-  TrendingUp, 
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  Calendar,
+  Filter,
+  CheckCircle,
+  Clock,
+  XCircle,
+  TrendingUp,
   AlertTriangle,
   Search,
   ChevronLeft,
   ChevronRight,
-  ArrowUpDown
+  ArrowUpDown,
+  UserCircle,
+  MapPin,
+  Phone,
+  Package,
+  DollarSign,
+  Briefcase,
+  Award,
+  X,
+  FileText,
+  Eye
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
@@ -58,10 +68,19 @@ const StatCard: React.FC<{
 );
 
 const Statistics: React.FC = () => {
-  const { missions, documents, serviceTypeFilter, dataLoading } = useData();
+  const { missions, documents, serviceTypeFilter, dataLoading, clients, providers } = useData();
+  const navigate = useNavigate();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const location = useLocation();
+
+  // Modal states
+  const [selectedClient, setSelectedClient] = useState<typeof clients[0] | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<typeof providers[0] | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<typeof documents[0] | null>(null);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
+  const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
 
   const normalizeMissionStatus = (value: any) => {
     const raw = String(value || '').trim();
@@ -115,10 +134,101 @@ const Statistics: React.FC = () => {
   // Helper for week range
   const getWeekRange = () => {
       const now = dayjs().tz(MARTINIQUE_TIMEZONE);
-      const day = now.day() === 0 ? 7 : now.day();
-      const start = now.startOf('day').subtract(day - 1, 'day');
+      // Fix: Monday-based week (European format)
+      const dayOfWeek = now.day() === 0 ? 6 : now.day() - 1; // 0=Monday, 6=Sunday
+      const start = now.subtract(dayOfWeek, 'day').startOf('day');
       const end = start.add(6, 'day').endOf('day');
       return { start, end };
+  };
+
+  // Helper functions for getting entity info
+  const getClientInfo = (clientId?: string | null) => {
+    if (!clientId) return null;
+    return clients.find(c => String(c.id) === String(clientId)) || null;
+  };
+
+  const getProviderInfo = (providerId?: string | null) => {
+    if (!providerId) return null;
+    return providers.find(p => String(p.id) === String(providerId)) || null;
+  };
+
+  const getDocumentInfo = (documentId?: string | null) => {
+    if (!documentId) return null;
+    return documents.find(d => String(d.id) === String(documentId)) || null;
+  };
+
+  // Calculate REAL statistics for a client from database
+  const calculateClientStats = (clientId: string) => {
+    const clientMissions = missions.filter(m => String(m.clientId) === String(clientId));
+    const totalMissions = clientMissions.length;
+    const completedMissions = clientMissions.filter(m => m.status === 'completed').length;
+    const cancelledMissions = clientMissions.filter(m => m.status === 'cancelled').length;
+    const totalRevenue = clientMissions.reduce((acc, m) => {
+      const doc = getDocumentInfo(m.sourceDocumentId);
+      const amount = doc?.totalTTC || doc?.unitPrice || (m.duration || 2) * 40;
+      if (m.status === 'cancelled' && !m.lateCancellation) return acc;
+      if (m.status === 'cancelled' && m.lateCancellation) return acc + amount * 0.5;
+      if (m.status === 'completed') return acc + amount;
+      return acc;
+    }, 0);
+
+    return { totalMissions, completedMissions, cancelledMissions, totalRevenue };
+  };
+
+  // Calculate REAL statistics for a provider from database
+  const calculateProviderStats = (providerId: string) => {
+    const providerMissions = missions.filter(m => String(m.providerId) === String(providerId));
+    const totalMissions = providerMissions.length;
+    const completedMissions = providerMissions.filter(m => m.status === 'completed').length;
+    const inProgressMissions = providerMissions.filter(m => m.status === 'in_progress').length;
+    const totalHours = providerMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+
+    return { totalMissions, completedMissions, inProgressMissions, totalHours };
+  };
+
+  // Modal handlers
+  const openClientModal = (clientId?: string | null) => {
+    const client = getClientInfo(clientId);
+    if (client) {
+      setSelectedClient(client);
+      setIsClientModalOpen(true);
+    }
+  };
+
+  const openProviderModal = (providerId?: string | null) => {
+    const provider = getProviderInfo(providerId);
+    if (provider) {
+      setSelectedProvider(provider);
+      setIsProviderModalOpen(true);
+    }
+  };
+
+  const openDocumentModal = (mission: any) => {
+    const doc = getDocumentInfo(mission.sourceDocumentId);
+    if (doc) {
+      setSelectedDocument(doc);
+      setIsDocumentModalOpen(true);
+    }
+  };
+
+  const closeClientModal = () => {
+    setIsClientModalOpen(false);
+    setTimeout(() => setSelectedClient(null), 300);
+  };
+
+  const closeProviderModal = () => {
+    setIsProviderModalOpen(false);
+    setTimeout(() => setSelectedProvider(null), 300);
+  };
+
+  const closeDocumentModal = () => {
+    setIsDocumentModalOpen(false);
+    setTimeout(() => setSelectedDocument(null), 300);
+  };
+
+  const navigateToDocument = (docId: string) => {
+    navigate('/invoices', { state: { documentId: docId, filter: 'devis' } });
+    closeDocumentModal();
   };
 
   // Filter Logic
@@ -380,7 +490,8 @@ const Statistics: React.FC = () => {
             <tbody className="divide-y divide-slate-50">
               {paginatedData.length > 0 ? (
                 paginatedData.map((mission) => {
-                    const baseAmount = (mission.duration || 2) * 40;
+                    const doc = getDocumentInfo(mission.sourceDocumentId);
+                    const baseAmount = doc?.totalTTC || doc?.unitPrice || (mission.duration || 2) * 40;
                     
                     return (
                       <tr key={mission.id} className="hover:bg-cream-50 transition-colors group">
@@ -388,13 +499,45 @@ const Statistics: React.FC = () => {
                           <div className="font-bold text-slate-700">{mission.date}</div>
                           <div className="text-xs text-slate-500">{mission.startTime} - {mission.endTime}</div>
                         </td>
-                        <td className="px-6 py-4 text-slate-700">{mission.clientName}</td>
                         <td className="px-6 py-4">
-                          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
-                            {mission.service}
-                          </span>
+                          <button 
+                            onClick={() => openClientModal(mission.clientId)}
+                            className="font-bold text-slate-700 hover:text-brand-blue transition text-left flex items-center gap-1"
+                          >
+                            <UserCircle className="w-4 h-4" />
+                            {mission.clientName}
+                          </button>
                         </td>
-                        <td className="px-6 py-4 text-slate-600">{mission.providerName || '-'}</td>
+                        <td className="px-6 py-4">
+                          {mission.sourceDocumentId ? (
+                            <button
+                              onClick={() => openDocumentModal(mission)}
+                              className="bg-blue-50 text-brand-blue px-2 py-1 rounded text-xs font-medium hover:bg-blue-100 transition flex items-center gap-1"
+                            >
+                              <FileText className="w-3 h-3" />
+                              {mission.service}
+                            </button>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
+                              {mission.service}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {mission.providerId ? (
+                            <button 
+                              onClick={() => openProviderModal(mission.providerId)}
+                              className="text-slate-600 hover:text-brand-blue transition text-left flex items-center gap-1"
+                            >
+                              <span className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                {mission.providerName?.charAt(0)}
+                              </span>
+                              {mission.providerName || '-'}
+                            </button>
+                          ) : (
+                            <span className="text-slate-600">-</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-center">
                           {mission.status === 'completed' && (
                             <span className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold border border-green-200">
@@ -486,6 +629,260 @@ const Statistics: React.FC = () => {
             </div>
         )}
       </div>
+
+      {/* CLIENT DETAILS MODAL */}
+      {isClientModalOpen && selectedClient && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 overflow-hidden">
+            {/* Header */}
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-xl">{selectedClient.name.charAt(0)}</div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">{selectedClient.name}</h3>
+                  <p className="text-sm text-slate-500">Détails du client</p>
+                </div>
+              </div>
+              <button onClick={closeClientModal} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+              {/* REAL Statistics from database */}
+              {(() => {
+                const stats = calculateClientStats(selectedClient.id);
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+                    <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-brand-blue" /> Statistiques réelles (base de données)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-slate-800">{stats.totalMissions}</div>
+                        <div className="text-xs text-slate-500">Total missions</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-green-600">{stats.completedMissions}</div>
+                        <div className="text-xs text-slate-500">Terminées</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-red-500">{stats.cancelledMissions}</div>
+                        <div className="text-xs text-slate-500">Annulées</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-brand-blue">{stats.totalRevenue.toFixed(0)}€</div>
+                        <div className="text-xs text-slate-500">Revenu total</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Informations de contact */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+                <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <UserCircle className="w-4 h-4 text-brand-blue" /> Informations de contact
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Email</span>
+                    <p className="text-sm font-medium text-slate-700">{selectedClient.email || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Téléphone</span>
+                    <p className="text-sm font-medium text-slate-700">{selectedClient.phone || "—"}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Adresse</span>
+                    <p className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />
+                      {selectedClient.address || "—"}
+                      {selectedClient.city && `, ${selectedClient.city}`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pack actuel */}
+              {selectedClient.pack && (
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-brand-blue" /> Pack actuel
+                  </h4>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-50 text-brand-blue px-3 py-1.5 rounded-lg text-sm font-bold">{selectedClient.pack}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end">
+              <button onClick={closeClientModal} className="px-6 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700 transition">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PROVIDER DETAILS MODAL */}
+      {isProviderModalOpen && selectedProvider && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 overflow-hidden">
+            {/* Header */}
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xl">
+                  {selectedProvider.firstName?.charAt(0) || selectedProvider.lastName?.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">
+                    {selectedProvider.firstName} {selectedProvider.lastName}
+                  </h3>
+                  <p className="text-sm text-slate-500">Détails du prestataire</p>
+                </div>
+              </div>
+              <button onClick={closeProviderModal} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+              {/* REAL Statistics from database */}
+              {(() => {
+                const stats = calculateProviderStats(selectedProvider.id);
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+                    <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-brand-blue" /> Statistiques réelles (base de données)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-slate-800">{stats.totalMissions}</div>
+                        <div className="text-xs text-slate-500">Total missions</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-green-600">{stats.completedMissions}</div>
+                        <div className="text-xs text-slate-500">Terminées</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-blue-600">{stats.inProgressMissions}</div>
+                        <div className="text-xs text-slate-500">En cours</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-brand-blue">{stats.totalHours}h</div>
+                        <div className="text-xs text-slate-500">Heures travaillées</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Informations de contact */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+                <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <UserCircle className="w-4 h-4 text-brand-blue" /> Informations de contact
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Email</span>
+                    <p className="text-sm font-medium text-slate-700">{selectedProvider.email || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Téléphone</span>
+                    <p className="text-sm font-medium text-slate-700">{selectedProvider.phone || "—"}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <span className="text-xs text-slate-400 uppercase block mb-1">Spécialité</span>
+                    <p className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                      <Briefcase className="w-3 h-3" />
+                      {(selectedProvider as any).specialty || "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end">
+              <button onClick={closeProviderModal} className="px-6 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700 transition">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DOCUMENT DETAILS MODAL */}
+      {isDocumentModalOpen && selectedDocument && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 overflow-hidden">
+            {/* Header */}
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-blue-100 text-brand-blue flex items-center justify-center">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Devis source</h3>
+                  <p className="text-sm text-slate-500">{selectedDocument.ref || selectedDocument.id}</p>
+                </div>
+              </div>
+              <button onClick={closeDocumentModal} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+                <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-brand-blue" /> Informations du devis
+                </h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Référence:</span>
+                    <span className="font-medium">{selectedDocument.ref || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Client:</span>
+                    <span className="font-medium">{selectedDocument.clientName || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Prix unitaire:</span>
+                    <span className="font-medium">{selectedDocument.unitPrice?.toFixed(2) || "—"} €</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Total TTC:</span>
+                    <span className="font-bold text-green-600">{selectedDocument.totalTTC?.toFixed(2) || "—"} €</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Statut:</span>
+                    <span className={`font-medium ${selectedDocument.status === "signed" ? "text-green-600" : "text-slate-600"}`}>
+                      {selectedDocument.status || "—"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end gap-2">
+              <button onClick={closeDocumentModal} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-lg font-bold hover:bg-slate-300 transition">
+                Fermer
+              </button>
+              <button onClick={() => navigateToDocument(selectedDocument.id)} className="px-6 py-2 bg-brand-blue text-white rounded-lg font-bold hover:bg-teal-700 transition flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                Voir le devis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -33,6 +33,7 @@
     "@react-pdf/renderer": "^4.3.1",
     "@supabase/supabase-js": "^2.39.3",
     "@types/qrcode": "^1.5.6",
+    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "dompurify": "^3.0.8",
@@ -50,6 +51,7 @@
     "recharts": "^2.10.0",
     "simple-peer": "^9.11.1",
     "socket.io-client": "^4.8.3",
+    "tailwind-merge": "^3.5.0",
     "timezone": "^1.0.23",
     "utc": "^0.1.0"
   },

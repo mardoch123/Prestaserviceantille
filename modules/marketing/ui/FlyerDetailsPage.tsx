@@ -137,7 +137,7 @@ const FlyerDetailsPage: React.FC = () => {
                 onClick={() => navigate(`/flyers/${flyer.id}/request`)}
                 className="w-full bg-brand-orange text-white px-4 py-3 rounded-xl font-extrabold hover:bg-orange-600"
               >
-                Faire une demande
+                S'inscrire
               </button>
             </div>
           </div>

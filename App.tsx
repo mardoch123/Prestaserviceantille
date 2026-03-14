@@ -19,6 +19,7 @@ import AdminMissionDetails from './components/AdminMissionDetails';
 import AdminNotificationDetails from './components/AdminNotificationDetails';
 import ClientPortal from './components/ClientPortal';
 import ProviderPortal from './components/ProviderPortal';
+import NewServiceRequestPage from './components/NewServiceRequestPage';
 import MissionReports from './components/MissionReports';
 import DemoAccounts from './components/DemoAccounts';
 import Login from './components/Login';
@@ -50,6 +51,18 @@ import ReferralSignupPage from './modules/marketing/ui/ReferralSignupPage';
 import ReferralPointsPage from './modules/marketing/ui/ReferralPointsPage';
 import ReferrerAccountPage from './modules/marketing/ui/ReferrerAccountPage';
 import MyFilleulsPage from './modules/marketing/ui/MyFilleulsPage';
+import ReferralLandingPage from './modules/marketing/ui/ReferralLandingPage';
+import ReferrerDashboardPage from './modules/marketing/ui/ReferrerDashboardPage';
+import RewardsCatalogPage from './modules/marketing/ui/RewardsCatalogPage';
+import { AccountingStatistics } from './modules/accounting';
+import AdminServiceRequestsPage from './modules/serviceRequests/ui/AdminServiceRequestsPage';
+import AdminServiceRequestDetailPage from './modules/serviceRequests/ui/AdminServiceRequestDetailPage';
+import { ProviderAvailabilityPage } from './modules/providerAvailability';
+import AdminEmailMarketing from './components/AdminEmailMarketing';
+import DocumentDetailPage from './components/DocumentDetailPage';
+import MissionDetailPage from './components/MissionDetailPage';
+import ClientDetailPage from './components/ClientDetailPage';
+import ProviderDetailPage from './components/ProviderDetailPage';
 import { App as CapacitorApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
@@ -156,6 +169,9 @@ const FlyersPublicRoutes = () => {
 const ReferralPublicRoutes = () => {
     return (
         <Routes>
+            <Route path="/parrainage" element={<ReferralLandingPage />} />
+            <Route path="/parrainage/dashboard" element={<ReferrerDashboardPage />} />
+            <Route path="/parrainage/recompenses" element={<RewardsCatalogPage />} />
             <Route path="/parrainage/devenir-parrain" element={<BecomeReferrerPage />} />
             <Route path="/parrainage/inscrire-filleul" element={<RegisterFilleulPage />} />
             <Route path="/parrainage/inscription" element={<ReferralSignupPage />} />
@@ -576,7 +592,7 @@ const AppLayout: React.FC = () => {
 
     const isContactRoute = location.pathname === '/contact' || (window.location.hash || '').startsWith('#/contact');
     const isFlyersRoute = location.pathname === '/flyers' || location.pathname.startsWith('/flyers/');
-    const isReferralRoute = location.pathname === '/parrainage/devenir-parrain' || location.pathname === '/parrainage/devenir-parrain-client' || location.pathname === '/parrainage/inscrire-filleul' || location.pathname === '/parrainage/inscription' || location.pathname === '/parrainage/mes-points' || location.pathname === '/parrainage/mon-compte-parrain' || location.pathname === '/parrainage/mes-filleuls';
+    const isReferralRoute = location.pathname.startsWith('/parrainage');
 
     const isAdminLike = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
@@ -661,11 +677,11 @@ const AppLayout: React.FC = () => {
 
     // IMPORTANT: permettre le scan via URL (QR Code) même pour les clients.
     // Sinon, ClientPortal masque la route /scan et l'utilisateur reste bloqué.
-    if (currentUser.role === 'client' && (location.pathname === '/scan' || location.pathname === '/scan-success')) {
+    if (currentUser.role === 'client' && (location.pathname === '/scan' || location.pathname === '/scan-success' || location.pathname === '/nouvelle-demande')) {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
-                {location.pathname === '/scan' ? <ScanPage /> : <ScanSuccess />}
+                {location.pathname === '/scan' ? <ScanPage /> : location.pathname === '/scan-success' ? <ScanSuccess /> : <NewServiceRequestPage />}
             </div>
         );
     }
@@ -719,9 +735,13 @@ const AppLayout: React.FC = () => {
                         <Route path="/parrainage/devenir-parrain-client" element={<BecomeReferrerClientPage />} />
                         <Route path="/statistics" element={<Statistics />} />
                         <Route path="/clients" element={<Clients />} />
+                        <Route path="/clients/:id" element={<ClientDetailPage />} />
                         <Route path="/providers" element={<Providers />} />
+                        <Route path="/providers/:id" element={<ProviderDetailPage />} />
                         <Route path="/invoices" element={<DevisFactures />} />
+                        <Route path="/invoices/:id" element={<DocumentDetailPage />} />
                         <Route path="/planning" element={<Planning />} />
+                        <Route path="/planning/missions/:id" element={<MissionDetailPage />} />
                         <Route path="/financials" element={<Financials />} />
                         <Route path="/reservations" element={<Reservations />} />
                         <Route path="/secretariat" element={<Secretariat />} />
@@ -735,6 +755,12 @@ const AppLayout: React.FC = () => {
                         <Route path="/admin/rewards" element={<AdminRewardsPointsPage />} />
                         <Route path="/admin/referrers-performance" element={<AdminReferrersPerformancePage />} />
                         <Route path="/admin/referrers-performance/:referrerId" element={<AdminReferrerPerformanceDetailsPage />} />
+                        <Route path="/admin/service-requests" element={<AdminServiceRequestsPage />} />
+                        <Route path="/admin/service-requests/:requestId" element={<AdminServiceRequestDetailPage />} />
+                        <Route path="/admin/email-marketing" element={<AdminEmailMarketing />} />
+                        <Route path="/provider-availability" element={<ProviderAvailabilityPage />} />
+                        <Route path="/nouvelle-demande" element={<NewServiceRequestPage />} />
+                        <Route path="/accounting" element={<AccountingStatistics />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
                         <Route path="/scan" element={<ScanPage />} />

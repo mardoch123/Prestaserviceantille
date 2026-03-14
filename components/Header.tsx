@@ -15,18 +15,17 @@ import {
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useNavigate } from 'react-router-dom';
-import { MARTINIQUE_TIMEZONE } from '../src/utils/martiniqueTime';
+import GlobalSearchBar from './GlobalSearchBar';
 
 interface HeaderProps {
     onMenuClick: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
-  const { notifications, markNotificationRead, currentUser, logout, missions, serviceTypeFilter, serviceTypeOptions, setServiceTypeFilter } = useData();
+  const { notifications, markNotificationRead, currentUser, logout, missions } = useData();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
-  const [martiniqueClock, setMartiniqueClock] = useState('');
   const navigate = useNavigate();
   const notificationRef = useRef<HTMLDivElement>(null);
 
@@ -46,27 +45,6 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showNotifications]);
-
-  useEffect(() => {
-    if (currentUser?.role !== 'admin') return;
-
-    const getTime = () => {
-      return new Date().toLocaleTimeString('fr-FR', {
-        timeZone: MARTINIQUE_TIMEZONE,
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-    };
-
-    setMartiniqueClock(getTime());
-    const intervalId = window.setInterval(() => {
-      setMartiniqueClock(getTime());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [currentUser?.role]);
 
   const adminNotifs = notifications
     .filter(n => n.targetUserType === 'admin')
@@ -113,19 +91,13 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           </div>
       </div>
 
-      <div className="flex items-center gap-4 md:gap-6">
-        {currentUser?.role === 'admin' && (
-          <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1">
-            <span>Heure Martinique :</span>
-            <span className="font-mono text-slate-700">{martiniqueClock}</span>
-          </div>
-        )}
+      <div className="flex items-center gap-3 flex-1 max-w-xl mx-4">
+        <div className="flex-1">
+          <GlobalSearchBar />
+        </div>
+      </div>
 
-        {currentUser?.role === 'admin' && (
-          <div className="sm:hidden flex items-center text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-            <span className="font-mono text-slate-700">{martiniqueClock}</span>
-          </div>
-        )}
+      <div className="flex items-center gap-4 md:gap-6">
 
         {/* Bouton d'actualisation pour mobile */}
         <button 
@@ -173,21 +145,6 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                 )}
             </div>
         )}
-        <div className="flex items-center gap-2 text-[11px] sm:text-xs font-bold text-slate-500 bg-white border border-beige-200 rounded-lg px-2 sm:px-3 py-2">
-          <Briefcase className="w-4 h-4 text-slate-400" />
-          <select
-            value={serviceTypeFilter}
-            onChange={(e) => setServiceTypeFilter(e.target.value as any)}
-            className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-700 outline-none cursor-pointer max-w-[150px] sm:max-w-none"
-            title="Filtrer par type de service"
-          >
-            {(serviceTypeOptions || ['all']).map((opt: any) => (
-              <option key={String(opt)} value={String(opt)}>
-                {String(opt) === 'all' ? 'Tous services' : String(opt)}
-              </option>
-            ))}
-          </select>
-        </div>
         <div className="h-8 w-px bg-slate-100 hidden md:block"></div>
         <div className="flex items-center gap-3 cursor-pointer group relative">
           <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center border border-brand-blue/20 text-brand-blue font-bold shadow-sm"><User className="w-5 h-5" /></div>

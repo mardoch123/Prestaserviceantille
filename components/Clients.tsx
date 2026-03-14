@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import PageLoader from './PageLoader';
 import type { Client, Mission } from '../types';
@@ -90,6 +90,20 @@ const Clients: React.FC = () => {
   ];
 
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Handle URL param for editing client
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && clients.length > 0) {
+      const clientToEdit = clients.find(c => c.id === editId);
+      if (clientToEdit) {
+        openEditModal(clientToEdit);
+        // Clear the URL param after opening modal
+        window.history.replaceState({}, '', '/clients');
+      }
+    }
+  }, [searchParams, clients]);
 
   const [isClientDetailsOpen, setIsClientDetailsOpen] = useState(false);
   const [selectedClientDetailsId, setSelectedClientDetailsId] = useState<string | null>(null);

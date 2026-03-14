@@ -28,8 +28,13 @@ import {
     AlertCircle,
     XCircle,
     Video,
-    Wifi
+    Wifi,
+    MapPin,
+    Phone,
+    Eye,
+    ArrowRight
 } from 'lucide-react';
+import { GlobalSearchBar } from './GlobalSearchBar';
 
 const Dashboard: React.FC = () => {
 
@@ -70,7 +75,9 @@ const Dashboard: React.FC = () => {
       
       case 'week':
         {
-        const weekStart = now.startOf('day').subtract(now.day(), 'day');
+        // Fix: Use Monday as start of week (Martinique/European format)
+        const dayOfWeek = now.day() === 0 ? 6 : now.day() - 1; // 0=Monday, 6=Sunday
+        const weekStart = now.subtract(dayOfWeek, 'day').startOf('day');
         const weekEnd = weekStart.add(6, 'day').endOf('day');
         
         return items.filter(item => {
@@ -200,7 +207,7 @@ const Dashboard: React.FC = () => {
             const docMonth = docDate.getMonth();
             const found = data.find(d => d.monthIndex === docMonth);
             if (found) {
-                found.ca += doc.totalHT;
+                found.ca += doc.totalTTC; // Fixed: Use totalTTC for consistency
             }
         }
     });
@@ -458,7 +465,9 @@ const Dashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <h2 className="text-3xl font-serif font-bold text-slate-800">Tableau de bord</h2>
         
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
+            <GlobalSearchBar />
+            
             <div className="relative">
                 <select 
                   className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer"
@@ -566,6 +575,107 @@ const Dashboard: React.FC = () => {
           {showVideoSupervisor && <AdminVideoSupervisor onClose={() => setShowVideoSupervisor(false)} />}
         </div>
       )}
+
+      {/* Providers on the Field Section */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <MapPin className="w-5 h-5 text-emerald-500" />
+            Prestataires sur le terrain
+          </h3>
+          <button
+            onClick={() => navigate('/planning')}
+            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+          >
+            Voir le planning <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {(() => {
+          // Get missions in progress with provider info
+          const activeMissions = missions.filter(m => 
+            matchesServiceTypeFilterFromText(m.service, serviceTypeFilter) &&
+            normalizeMissionStatus((m as any)?.status) === 'in_progress'
+          );
+
+          if (activeMissions.length === 0) {
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+                <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-full flex items-center justify-center">
+                  <Briefcase className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-slate-500">Aucune mission en cours actuellement</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {activeMissions.map(mission => {
+                const provider = providers.find(p => p.id === mission.providerId);
+                const client = clients.find(c => c.id === mission.clientId);
+                
+                return (
+                  <div 
+                    key={mission.id} 
+                    onClick={() => navigate('/planning', { state: { selectedMissionId: mission.id, selectedDate: mission.date } })}
+                    className="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-lg hover:border-emerald-300 transition-all group"
+                  >
+                    {/* Header - Provider Info */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-sm">
+                          {provider ? `${provider.firstName.charAt(0)}${provider.lastName.charAt(0)}` : '?'}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800">
+                            {provider ? `${provider.firstName} ${provider.lastName}` : 'Prestataire non assigné'}
+                          </p>
+                          <p className="text-xs text-slate-500">{mission.service}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold animate-pulse">
+                        <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                        En cours
+                      </div>
+                    </div>
+
+                    {/* Client Info */}
+                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-slate-500 uppercase font-bold mb-1">Client</p>
+                      <p className="font-medium text-slate-800">{mission.clientName}</p>
+                      <div className="flex items-center gap-1 text-sm text-slate-600 mt-1">
+                        <MapPin className="w-3 h-3" />
+                        <span className="truncate">
+                          {client?.address || 'Adresse non renseignée'}{client?.city ? `, ${client.city}` : ''}
+                        </span>
+                      </div>
+                      {client?.phone && (
+                        <div className="flex items-center gap-1 text-sm text-slate-600 mt-1">
+                          <Phone className="w-3 h-3" />
+                          <span>{client.phone}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Mission Time */}
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <Clock className="w-4 h-4" />
+                        <span>{mission.startTime} - {mission.endTime}</span>
+                      </div>
+                      <button className="text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Eye className="w-4 h-4" />
+                        Détails
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
     </div>
   );
 };

@@ -8,6 +8,15 @@ const EMAILJS_PUBLIC_KEY = "jjYNnpHbr5djyFBlK";
 
 const EMAIL_BRAND_NAME = 'Presta Services Antilles';
 
+// Rate limiting configuration
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000; // Start with 1 second delay
+
+/**
+ * Sleep helper for delay between retries
+ */
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Professional Email Service using EmailJS with Preconfigured Templates
  * 
@@ -25,7 +34,7 @@ const EMAIL_BRAND_NAME = 'Presta Services Antilles';
  */
 
 /**
- * Sends an email using EmailJS with preconfigured templates
+ * Sends an email using EmailJS with preconfigured templates and retry logic for rate limiting
  * 
  * @param to - Recipient email address
  * @param subject - Email subject line (used for fallback, but will be overridden by template)
@@ -37,7 +46,8 @@ export const sendEmailViaEmailJS = async (
     to: string,
     subject: string,
     templateType: string,
-    context: any
+    context: any,
+    retryCount: number = 0
 ): Promise<boolean> => {
     try {
         // Validate email address
@@ -60,7 +70,7 @@ export const sendEmailViaEmailJS = async (
         };
 
         // Log the email sending attempt (helpful for debugging)
-        console.log(`[EmailJS] Sending email:`, {
+        console.log(`[EmailJS] Sending email (attempt ${retryCount + 1}):`, {
             type: templateType,
             to: to,
             subject: normalizedSubject,
@@ -84,12 +94,27 @@ export const sendEmailViaEmailJS = async (
         }
 
     } catch (error: any) {
+        // Check if it's a rate limit error (429)
+        const isRateLimitError = error?.status === 429 || 
+                                 error?.text?.includes('Connection Limit Exceeded') ||
+                                 error?.message?.includes('429');
+        
+        if (isRateLimitError && retryCount < MAX_RETRIES) {
+            // Calculate exponential backoff delay
+            const delay = BASE_DELAY_MS * Math.pow(2, retryCount);
+            console.log(`[EmailJS] Rate limit hit (429). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            await sleep(delay);
+            return sendEmailViaEmailJS(to, subject, templateType, context, retryCount + 1);
+        }
+
         // Comprehensive error logging
         console.error(`[EmailJS] ✗ Failed to send email:`, {
             to,
             templateType,
             error: error.message || error,
-            text: error.text || 'No error details available'
+            text: error.text || 'No error details available',
+            status: error.status || 'unknown'
         });
 
         // Return false but don't throw - we don't want email failures to break the app
@@ -129,6 +154,10 @@ export type EmailTemplateType =
     | 'document_status_update'
     | 'admin_quote_signed'
     | 'admin_quote_rejected'
+
+    // Customer service request emails
+    | 'admin_new_service_request'
+    | 'client_request_validated'
 
     // Other emails
     | 'reset_password'
