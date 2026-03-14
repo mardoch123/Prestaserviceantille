@@ -195,7 +195,7 @@ interface DataContextType {
     markInvoicePaid: (id: string) => Promise<void>;
     sendDocumentReminder: (id: string) => Promise<void>;
     sendQuoteSignatureReminder: (docId: string) => Promise<void>;
-    signQuoteWithData: (id: string, signatureData: string) => Promise<void>;
+    signQuoteWithData: (id: string, signatureData: string, signedBy?: 'client' | 'admin') => Promise<void>;
     signQuoteAsAdmin: (id: string, signatureData?: string) => Promise<void>;
     refuseQuote: (id: string) => Promise<void>;
     requestInvoice: (docId: string) => Promise<void>;
@@ -1763,6 +1763,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         lateCancellation: m.late_cancellation || m.lateCancellation,
                         reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                         reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+                        reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
                         reportSent: m.report_sent || m.reportSent,
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId
                     }));
@@ -1962,6 +1963,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         lateCancellation: m.late_cancellation || m.lateCancellation,
                         reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                         reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+                        reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
                         reportSent: m.report_sent || m.reportSent,
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId,
                     }));
@@ -2608,6 +2610,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             lateCancellation: m.late_cancellation,
             reminder48hSent: m.reminder_48h_sent,
             reminder72hSent: m.reminder_72h_sent,
+            reminder24hProviderSent: m.reminder_24h_provider_sent,
             reportSent: m.report_sent,
             sourceDocumentId: m.source_document_id
         } as Mission;
@@ -3310,6 +3313,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 lateCancellation: m.late_cancellation,
                 reminder48hSent: m.reminder_48h_sent,
                 reminder72hSent: m.reminder_72h_sent,
+                reminder24hProviderSent: m.reminder_24h_provider_sent,
                 reportSent: m.report_sent,
                 sourceDocumentId: m.source_document_id
             };
@@ -3325,16 +3329,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 `mission:${newMission.id}`
             );
 
-            if (newMission.providerId) {
-                await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission le ${newMission.date}.`, newMission.providerId);
-                const provider = providers.find(p => p.id === newMission.providerId);
-                if (provider) {
-                    await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
-                        missionId: newMission.id,
-                        clientName: newMission.clientName
-                    });
-                }
-            }
+            // NOTE: Notification au prestataire différée à 24h avant la mission
+            // L'intervenant ne prend connaissance de l'heure que 24h avant la prestation
+            // pour éviter les changements de dernière minute.
         }
     };
 
@@ -5525,6 +5522,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 clientName: quote?.clientName,
                 total: quote?.totalTTC
             });
+
+            // EMAIL CLIENT - Confirmation de signature
+            const signedClient = clients.find(c => c.id === quote?.clientId);
+            if (signedClient?.email) {
+                await sendEmail(signedClient.email, `Confirmation - Votre devis ${quote?.ref} est signé`, 'client_quote_signed_confirmation', {
+                    clientName: signedClient.name || quote?.clientName,
+                    quoteRef: quote?.ref,
+                    total: quote?.totalTTC,
+                    signedAt: new Date().toLocaleDateString('fr-FR')
+                });
+            }
 
             if (quote && docToSign?.status !== 'signed') {
                 await generateMissionsFromDocument({ ...quote, status: 'signed' });

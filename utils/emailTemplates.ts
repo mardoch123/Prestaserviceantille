@@ -366,6 +366,34 @@ Gérer le devis : https://www.prestaservicesantilles.com/admin`
                 )
             };
 
+        case 'client_quote_signed_confirmation':
+            return {
+                subject: `Confirmation - Votre devis ${context.quoteRef || context.ref || 'N/A'} est signé`,
+                message: createTextEmail(
+                    'Devis Signé - Confirmation',
+                    `Bonjour ${context.clientName || 'Client'},
+
+[Votre devis a été signé avec succès !]
+
+Détails du devis :
+- Référence : ${context.quoteRef || context.ref || 'N/A'}
+- Montant total : ${context.total || 'N/A'} € TTC
+- Date de signature : ${context.signedAt || new Date().toLocaleDateString('fr-FR')}
+
+Prochaines étapes :
+• Notre équipe va planifier les interventions selon les créneaux choisis
+• Vous recevrez un email 48h avant chaque intervention
+• Votre contrat est maintenant actif
+
+Accédez à votre espace client : https://www.prestaservicesantilles.com/client
+
+Merci pour votre confiance !
+
+${companyName}
+${companyPhone}`
+                )
+            };
+
         case 'admin_quote_rejected':
             return {
                 subject: `Devis Refusé`,

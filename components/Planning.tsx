@@ -868,9 +868,13 @@ const Planning: React.FC = () => {
               throw new Error(`Impossible de programmer ${nextProvider.firstName} ${nextProvider.lastName} le ${nextDate} : ne travaille pas aujourd'hui.`);
           }
 
-          // 1) Si date/heure changent, créer une demande de modification (validation client)
+          // 1) Si date/heure changent, appliquer directement sans confirmation client
           if (scheduleChanged) {
-              await requestMissionReschedule(missionId, nextDate, nextStart, nextEnd);
+              await updateMission(missionId, {
+                  date: nextDate,
+                  startTime: nextStart,
+                  endTime: nextEnd
+              });
           }
 
           // 2) Mettre à jour les champs autorisés immédiatement (service/statut)
@@ -895,7 +899,7 @@ const Planning: React.FC = () => {
 
           if (refreshData) await refreshData();
 
-          showToast(scheduleChanged ? 'Demande de modification envoyée au client (en attente de validation).' : 'Mission modifiée avec succès !');
+          showToast(scheduleChanged ? 'Mission modifiée avec succès (date/heure mise à jour).' : 'Mission modifiée avec succès !');
           setIsEditMissionModalOpen(false);
       } catch (error: any) {
           console.error('[editMission] error:', error);

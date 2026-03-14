@@ -200,6 +200,7 @@ export interface Mission {
     lateCancellation?: boolean;
     reminder48hSent?: boolean;
     reminder72hSent?: boolean; // New reminder flag
+    reminder24hProviderSent?: boolean; // Reminder sent to provider 24h before mission
     reportSent?: boolean;
     sourceDocumentId?: string;
 }
