@@ -147,7 +147,7 @@ const exportDocumentsToPDF = (documents: Document[], title: string, totalAmount:
               '<td>' + doc.clientName + '</td>' +
               '<td>' + dateFormatted + '</td>' +
               '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
-              '<td class="amount" style="text-align: right;">' + doc.totalTTC.toFixed(2) + ' €</td>' +
+              '<td class="amount" style="text-align: right;">' + (doc.totalTTC || 0).toFixed(2) + ' €</td>' +
               '</tr>';
           }).join('')}
         </tbody>
@@ -369,7 +369,7 @@ const DocumentDetailModal: React.FC<{
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <p className="font-bold text-slate-800 text-lg">{doc.totalTTC.toFixed(2)} €</p>
+                        <p className="font-bold text-slate-800 text-lg">{(doc.totalTTC || 0).toFixed(2)} €</p>
                         <p className="text-xs text-slate-500">TTC</p>
                       </div>
                       <div className="w-10 h-10 rounded-full bg-slate-200 group-hover:bg-brand-blue flex items-center justify-center transition-all">
@@ -407,13 +407,12 @@ const DocumentDetailModal: React.FC<{
   );
 };
 
-// Mission Detail Modal
+// Mission Detail Modal - NO REVENUE (missions don't have prices)
 const MissionDetailModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   title: string;
   missions: Mission[];
-  totalRevenue: number;
   status: string;
   documents: Document[];
   clients?: Client[];
@@ -421,7 +420,7 @@ const MissionDetailModal: React.FC<{
   onCancelMission?: (missionId: string) => Promise<void>;
   onCompleteMission?: (missionId: string) => Promise<void>;
   currentUser?: { role: string } | null;
-}> = ({ isOpen, onClose, title, missions, totalRevenue, status, documents, clients = [], onUpdateMission, onCancelMission, onCompleteMission, currentUser }) => {
+}> = ({ isOpen, onClose, title, missions, status, documents, clients = [], onUpdateMission, onCancelMission, onCompleteMission, currentUser }) => {
   const navigate = useNavigate();
   const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
   const [multiplier, setMultiplier] = useState<number>(1);
@@ -531,7 +530,7 @@ const MissionDetailModal: React.FC<{
           <div>
             <h2 className="text-xl font-bold text-white">{title}</h2>
             <p className="text-amber-100 text-sm mt-1">
-              {missions.length} mission{missions.length > 1 ? 's' : ''} • CA: {totalRevenue.toFixed(2)} €
+              {missions.length} mission{missions.length > 1 ? 's' : ''} • Les missions n'ont pas de prix, seuls les devis ont des prix
             </p>
           </div>
           <button
@@ -596,18 +595,13 @@ const MissionDetailModal: React.FC<{
                             {linkedDoc && (
                               <div className="mt-2 flex items-center gap-2">
                                 <FileText className="w-3 h-3 text-slate-400" />
-                                <span className="text-xs text-slate-500">{linkedDoc.ref} • {linkedDoc.totalTTC.toFixed(2)} €</span>
+                                <span className="text-xs text-slate-500">{linkedDoc.ref} • {(linkedDoc.totalTTC || 0).toFixed(2)} €</span>
                               </div>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-4">
-                          {linkedDoc && (
-                            <div className="text-right">
-                              <p className="font-bold text-slate-800 text-lg">{linkedDoc.totalTTC.toFixed(2)} €</p>
-                              <p className="text-xs text-slate-500">CA</p>
-                            </div>
-                          )}
+                          {/* NO PRICE DISPLAY FOR MISSIONS - Only quote info shown below */}
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
                             isSelected ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-500'
                           }`}>
@@ -621,13 +615,13 @@ const MissionDetailModal: React.FC<{
                     {isSelected && isAdmin && (
                       <div className="mt-4 pt-4 border-t border-amber-200">
                         <div className="text-sm font-bold text-slate-700 mb-3">Actions administrateur :</div>
-                        
-                        {/* Duration Multiplier */}
+
+                        {/* Duration Modifier - NO PRICE CHANGE, missions don't have prices */}
                         <div className="bg-white rounded-lg p-3 mb-3 border border-slate-200">
-                          <div className="text-xs font-medium text-slate-600 mb-2">Augmenter la durée et le prix :</div>
+                          <div className="text-xs font-medium text-slate-600 mb-2">Modifier la durée de la mission :</div>
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-sm">Multiplier par :</span>
-                            <select 
+                            <select
                               value={multiplier}
                               onChange={(e) => setMultiplier(Number(e.target.value))}
                               className="border border-slate-200 rounded-lg px-3 py-1 text-sm"
@@ -641,11 +635,7 @@ const MissionDetailModal: React.FC<{
                           {multiplier > 1 && (
                             <div className="text-xs text-slate-600 mb-2">
                               Durée : {mission.duration}h → {mission.duration * multiplier}h
-                              {linkedDoc && (
-                                <span className="ml-3">
-                                  Prix : {linkedDoc.totalTTC.toFixed(2)} € → {calculateNewPrice(mission).toFixed(2)} €
-                                </span>
-                              )}
+                              <span className="text-slate-400 ml-2">(Les missions n&apos;ont pas de prix, seuls les devis ont des prix)</span>
                             </div>
                           )}
                           <button
@@ -695,8 +685,8 @@ const MissionDetailModal: React.FC<{
             {isAdmin ? 'Cliquez sur une mission pour voir les actions admin' : 'Cliquez sur une mission pour voir les détails'}
           </p>
           <div className="text-right">
-            <p className="text-sm text-slate-500">Chiffre d&apos;affaires total</p>
-            <p className="text-xl font-bold text-slate-800">{totalRevenue.toFixed(2)} €</p>
+            <p className="text-sm text-slate-500">Total missions</p>
+            <p className="text-xl font-bold text-slate-800">{missions.length}</p>
           </div>
         </div>
       </div>
@@ -781,11 +771,10 @@ const AccountingStatistics: React.FC = () => {
   const [modalAmount, setModalAmount] = useState(0);
   const [modalStatus, setModalStatus] = useState('');
 
-  // Modal state for missions
+  // Modal state for missions - NO REVENUE
   const [missionModalOpen, setMissionModalOpen] = useState(false);
   const [missionModalTitle, setMissionModalTitle] = useState('');
   const [missionModalMissions, setMissionModalMissions] = useState<Mission[]>([]);
-  const [missionModalRevenue, setMissionModalRevenue] = useState(0);
   const [missionModalStatus, setMissionModalStatus] = useState('');
 
   // Filter documents by time
@@ -915,60 +904,47 @@ const AccountingStatistics: React.FC = () => {
       }
     };
 
-    // ==== CALCULS COMPTABLES EXPERTS ====
+    // ==== CALCULS COMPTABLES EXPERTS (Basés UNIQUEMENT sur les Devis) ====
 
-    // 1. ENCAISSEMENTS (Cash-in)
-    // Argent déjà reçu - factures payées
-    const encaisse = invoicesByStatus.paid.amount;
+    // 1. ENCAISSEMENTS (Cash-in) - Devis convertis en facture payée
+    const encaisse = quotesByStatus.converted.amount;
 
-    // 2. À ENCAISSER (Accounts Receivable)
-    // Argent à recevoir : factures envoyées/pending non payées
-    const aEncaisser = invoicesByStatus.sent.amount + invoicesByStatus.pending.amount;
+    // 2. À ENCAISSER (Accounts Receivable) - Devis signés en attente de paiement
+    const aEncaisser = quotesByStatus.signed.amount;
 
-    // 3. EN COURS (Work in Progress)
-    // Devis signés en cours d'exécution - missions en cours
+    // 3. EN COURS (Work in Progress) - Devis signés en cours d'exécution
     const enCours = quotesByStatus.signed.amount;
 
-    // 4. EN NÉGOCIATION (Pipeline)
-    // Devis envoyés mais pas encore signés
+    // 4. EN NÉGOCIATION (Pipeline) - Devis envoyés mais pas encore signés
     const enNegociation = quotesByStatus.sent.amount;
 
-    // 5. POTENTIEL TOTAL
-    // Tout ce qui peut devenir du cash : encaissé + à encaisser + en cours + en négociation
-    const potentielTotal = encaisse + aEncaisser + enCours + enNegociation;
+    // 5. POTENTIEL TOTAL - Tous les devis (hors refusés uniquement)
+    const potentielTotal = quotesByStatus.converted.amount + 
+                          quotesByStatus.signed.amount + 
+                          quotesByStatus.sent.amount + 
+                          quotesByStatus.draft.amount + 
+                          quotesByStatus.expired.amount;
 
-    // ==== MISSIONS ANALYSIS ====
+    // ==== MISSIONS ANALYSIS - COUNT ONLY (NO PRICE) ====
     const missionsEnCoursList = filteredMissions.filter(m =>
       m.status === 'in_progress' || m.status === 'planned'
     );
     const missionsEnCours = missionsEnCoursList.length;
-    // Calculate revenue from missions in progress (linked documents)
-    const missionsEnCoursRevenue = missionsEnCoursList.reduce((sum, m) => {
-      const linkedDoc = docs.find(d => d.id === m.sourceDocumentId);
-      return sum + (linkedDoc?.totalTTC || 0);
-    }, 0);
+    // NO REVENUE CALCULATION - Missions don't have prices, only quotes do
 
     const missionsTermineesList = filteredMissions.filter(m =>
       m.status === 'completed'
     );
     const missionsTerminees = missionsTermineesList.length;
-    // Calculate revenue from completed missions
-    const missionsTermineesRevenue = missionsTermineesList.reduce((sum, m) => {
-      const linkedDoc = docs.find(d => d.id === m.sourceDocumentId);
-      return sum + (linkedDoc?.totalTTC || 0);
-    }, 0);
+    // NO REVENUE CALCULATION
 
     const missionsAnnuleesList = filteredMissions.filter(m =>
       m.status === 'cancelled'
     );
     const missionsAnnulees = missionsAnnuleesList.length;
-    // Calculate lost revenue from cancelled missions
-    const missionsAnnuleesRevenue = missionsAnnuleesList.reduce((sum, m) => {
-      const linkedDoc = docs.find(d => d.id === m.sourceDocumentId);
-      return sum + (linkedDoc?.totalTTC || 0);
-    }, 0);
+    // NO REVENUE CALCULATION
 
-    // ==== MÉTRIQUES DE PERFORMANCE ====
+    // ==== MÉTRIQUES DE PERFORMANCE (Basées uniquement sur les Devis) ====
 
     // Taux de conversion : devis signés / (devis envoyés + devis signés)
     const tauxConversion = quotesByStatus.sent.count + quotesByStatus.signed.count > 0
@@ -979,19 +955,14 @@ const AccountingStatistics: React.FC = () => {
     const totalQuotesAmount = quotes.reduce((sum, d) => sum + (d.totalTTC || 0), 0);
     const panierMoyenDevis = quotes.length > 0 ? totalQuotesAmount / quotes.length : 0;
 
-    // Panier moyen (factures payées)
-    const paidInvoices = invoices.filter(d => d.status === 'paid');
-    const totalPaidAmount = paidInvoices.reduce((sum, d) => sum + (d.totalTTC || 0), 0);
-    const panierMoyenFacture = paidInvoices.length > 0 ? totalPaidAmount / paidInvoices.length : 0;
-
-    // ==== REVENUE BY SERVICE TYPE ====
-    // Calculate total revenue (TTC) by service type - EXCLUDE DRAFTS
+    // ==== REVENUE BY SERVICE TYPE (QUOTES ONLY - EXCLUDING REJECTED) ====
+    // Calculate total revenue (TTC) by service type from QUOTES ONLY (excluding rejected)
     const revenueByService: Record<string, { amount: number; count: number; documents: Document[] }> = {};
+
+    // Only include non-rejected quotes in revenue calculations
+    const activeQuotes = quotes.filter(q => q.status !== 'rejected');
     
-    // Only include non-draft documents in revenue calculations
-    const activeDocs = docs.filter(d => d.status !== 'draft');
-    
-    activeDocs.forEach(doc => {
+    activeQuotes.forEach(doc => {
       const serviceType = doc.serviceType || 'Autre';
       if (!revenueByService[serviceType]) {
         revenueByService[serviceType] = { amount: 0, count: 0, documents: [] };
@@ -1018,30 +989,26 @@ const AccountingStatistics: React.FC = () => {
       invoicesByStatus,
       totalInvoices: invoices.length,
 
-      // Financiers
+      // Financiers (basés sur les devis uniquement)
       encaisse,
       aEncaisser,
       enCours,
       enNegociation,
       potentielTotal,
 
-      // Missions
+      // Missions - COUNT ONLY, NO REVENUE
       missionsEnCours,
       missionsEnCoursList,
-      missionsEnCoursRevenue,
       missionsTerminees,
       missionsTermineesList,
-      missionsTermineesRevenue,
       missionsAnnulees,
       missionsAnnuleesList,
-      missionsAnnuleesRevenue,
 
-      // Métriques
+      // Métriques (basées uniquement sur les devis)
       tauxConversion,
       panierMoyenDevis,
-      panierMoyenFacture,
 
-      // Revenue by service
+      // Revenue by service (from quotes)
       revenueByService: sortedRevenueByService,
     };
   }, [filteredDocuments, filteredMissions]);
@@ -1055,11 +1022,10 @@ const AccountingStatistics: React.FC = () => {
     setModalOpen(true);
   };
 
-  // Open modal helper for missions
-  const openMissionModal = (title: string, missions: Mission[], revenue: number, status: string) => {
+  // Open modal helper for missions - NO REVENUE
+  const openMissionModal = (title: string, missions: Mission[], status: string) => {
     setMissionModalTitle(title);
     setMissionModalMissions(missions);
-    setMissionModalRevenue(revenue);
     setMissionModalStatus(status);
     setMissionModalOpen(true);
   };
@@ -1106,7 +1072,6 @@ const AccountingStatistics: React.FC = () => {
         onClose={() => setMissionModalOpen(false)}
         title={missionModalTitle}
         missions={missionModalMissions}
-        totalRevenue={missionModalRevenue}
         status={missionModalStatus}
         documents={filteredDocuments}
         clients={clients}
@@ -1178,32 +1143,32 @@ const AccountingStatistics: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             title="ENCAISSÉ"
-            subtitle="Argent reçu"
+            subtitle="Devis convertis en factures payées"
             value={`${(stats.encaisse || 0).toFixed(2)} €`}
-            subtext={`${stats.invoicesByStatus.paid.count} facture(s) payée(s)`}
+            subtext={`${stats.quotesByStatus.converted.count} devis converti(s)`}
             icon={CheckCircle}
             color="emerald"
-            clickable={stats.invoicesByStatus.paid.count > 0}
+            clickable={stats.quotesByStatus.converted.count > 0}
             onClick={() => openDocumentModal(
-              'Factures Payées',
-              stats.invoicesByStatus.paid.documents,
+              'Devis Convertis - Payés',
+              stats.quotesByStatus.converted.documents,
               stats.encaisse,
-              'paid'
+              'converted'
             )}
           />
           <StatCard
             title="À ENCAISSER"
-            subtitle="Créances clients"
+            subtitle="Devis signés en attente"
             value={`${(stats.aEncaisser || 0).toFixed(2)} €`}
-            subtext={`${stats.invoicesByStatus.sent.count + stats.invoicesByStatus.pending.count} facture(s) en attente`}
+            subtext={`${stats.quotesByStatus.signed.count} devis signé(s)`}
             icon={Clock}
             color="orange"
             clickable={stats.aEncaisser > 0}
             onClick={() => openDocumentModal(
-              'Factures en Attente de Paiement',
-              [...stats.invoicesByStatus.sent.documents, ...stats.invoicesByStatus.pending.documents],
+              'Devis Signés - À Encaisser',
+              stats.quotesByStatus.signed.documents,
               stats.aEncaisser,
-              'pending'
+              'signed'
             )}
           />
           <StatCard
@@ -1223,9 +1188,9 @@ const AccountingStatistics: React.FC = () => {
           />
           <StatCard
             title="POTENTIEL TOTAL"
-            subtitle="Maximum réalisable"
+            subtitle="Tous les devis (hors refusés)"
             value={`${(stats.potentielTotal || 0).toFixed(2)} €`}
-            subtext={`${stats.totalQuotes + stats.totalInvoices} document(s)`}
+            subtext={`${stats.totalQuotes - stats.quotesByStatus.rejected.count} devis non-refusé(s)`}
             icon={TrendingUp}
             color="purple"
             clickable={false}
@@ -1314,14 +1279,13 @@ const AccountingStatistics: React.FC = () => {
             title="MISSIONS EN COURS"
             subtitle="Planifiées ou démarrées"
             value={stats.missionsEnCours.toString()}
-            subtext={`${(stats.missionsEnCoursRevenue || 0).toFixed(2)} € de CA`}
+            subtext={`${stats.missionsEnCours} mission(s) active(s)`}
             icon={Clock}
             color="amber"
             clickable={stats.missionsEnCours > 0}
             onClick={() => openMissionModal(
               'Missions en Cours',
               stats.missionsEnCoursList,
-              stats.missionsEnCoursRevenue,
               'in_progress'
             )}
           />
@@ -1329,14 +1293,13 @@ const AccountingStatistics: React.FC = () => {
             title="MISSIONS TERMINÉES"
             subtitle="Réalisées avec succès"
             value={stats.missionsTerminees.toString()}
-            subtext={`${(stats.missionsTermineesRevenue || 0).toFixed(2)} € de CA`}
+            subtext={`${stats.missionsTerminees} mission(s) complétée(s)`}
             icon={CheckCircle}
             color="green"
             clickable={stats.missionsTerminees > 0}
             onClick={() => openMissionModal(
               'Missions Terminées',
               stats.missionsTermineesList,
-              stats.missionsTermineesRevenue,
               'completed'
             )}
           />
@@ -1344,14 +1307,13 @@ const AccountingStatistics: React.FC = () => {
             title="MISSIONS ANNULÉES"
             subtitle="Annulations sur la période"
             value={stats.missionsAnnulees.toString()}
-            subtext={`${(stats.missionsAnnuleesRevenue || 0).toFixed(2)} € perdu`}
+            subtext={`${stats.missionsAnnulees} mission(s) annulée(s)`}
             icon={XCircle}
             color="red"
             clickable={stats.missionsAnnulees > 0}
             onClick={() => openMissionModal(
               'Missions Annulées',
               stats.missionsAnnuleesList,
-              stats.missionsAnnuleesRevenue,
               'cancelled'
             )}
           />
@@ -1370,7 +1332,7 @@ const AccountingStatistics: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm text-slate-600">Taux de Conversion</span>
-                <span className="font-bold text-slate-800">{stats.tauxConversion.toFixed(1)}%</span>
+                <span className="font-bold text-slate-800">{(stats.tauxConversion || 0).toFixed(1)}%</span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2">
                 <div
@@ -1381,27 +1343,20 @@ const AccountingStatistics: React.FC = () => {
               <p className="text-xs text-slate-500 mt-1">Devis signés / Devis envoyés</p>
             </div>
 
-            <div className="pt-4 border-t border-slate-100">
+            <div className="pt-2">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-slate-600">Panier moyen (Devis)</span>
                 <span className="font-bold text-slate-800">{(stats.panierMoyenDevis || 0).toFixed(2)} €</span>
               </div>
             </div>
-
-            <div className="pt-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-600">Panier moyen (Factures)</span>
-                <span className="font-bold text-slate-800">{(stats.panierMoyenFacture || 0).toFixed(2)} €</span>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Document Summary */}
+        {/* Document Summary - FOCUSED ON QUOTES ONLY */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
           <h4 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-slate-400" />
-            Récapitulatif Documents
+            Récapitulatif Devis
           </h4>
           <div className="space-y-3">
             <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg">
@@ -1411,25 +1366,25 @@ const AccountingStatistics: React.FC = () => {
               </div>
             </div>
             <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-              <span className="text-sm text-slate-700">Total Factures</span>
+              <span className="text-sm text-slate-700">Devis Signés (En Cours)</span>
               <div className="text-right">
-                <span className="font-bold text-blue-700">{stats.totalInvoices}</span>
+                <span className="font-bold text-blue-700">{stats.quotesByStatus.signed.count}</span>
               </div>
             </div>
             <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-              <span className="text-sm text-slate-700">Documents actifs</span>
+              <span className="text-sm text-slate-700">Devis Actifs</span>
               <span className="font-bold text-purple-700">
-                {stats.quotesByStatus.signed.count + stats.quotesByStatus.sent.count + stats.invoicesByStatus.pending.count + stats.invoicesByStatus.paid.count}
+                {stats.quotesByStatus.signed.count + stats.quotesByStatus.sent.count + stats.quotesByStatus.converted.count}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Revenue by Service Type */}
+        {/* Revenue by Service Type - QUOTES ONLY */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
           <h4 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
             <PieChart className="w-5 h-5 text-slate-400" />
-            Chiffre d'affaires par Type de Service
+            CA par Service (Devis)
           </h4>
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {Object.entries(stats.revenueByService).length > 0 ? (
