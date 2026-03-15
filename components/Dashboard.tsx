@@ -36,6 +36,11 @@ import {
 } from 'lucide-react';
 import { GlobalSearchBar } from './GlobalSearchBar';
 
+// Mobile features integration
+import { useHaptic } from '../hooks/useHaptic';
+import { toast } from '../components/mobile/Toast';
+import { PullToRefresh } from '../components/mobile/PullToRefresh';
+
 const Dashboard: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<DashboardViewMode>(DashboardViewMode.COMMERCIAL);
@@ -43,7 +48,8 @@ const Dashboard: React.FC = () => {
   const [providerFilter, setProviderFilter] = useState<string>('');
   const [showVideoSupervisor, setShowVideoSupervisor] = useState(false);
   const navigate = useNavigate();
-  const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter, dataLoading } = useData();
+  const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter, dataLoading, refreshData } = useData();
+  const { buttonPress, success } = useHaptic();
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -402,21 +408,21 @@ const Dashboard: React.FC = () => {
               value={providers.filter(p => p.status === 'Active').length} 
               bgColor="bg-slate-100" 
               icon={Users}
-              onClick={() => goToProviders('active')}
+              onClick={() => { buttonPress(); goToProviders('active'); }}
             />
             <StatCard 
               title="Prestataires passifs" 
               value={providers.filter(p => p.status === 'Passive').length}
               bgColor="bg-slate-100" 
               icon={Users}
-              onClick={() => goToProviders('passive')}
+              onClick={() => { buttonPress(); goToProviders('passive'); }}
             />
             <StatCard 
               title="Nombre d'heures cumulées" 
               value={`${totalWorkedHours.toFixed(2)}h`} 
               bgColor="bg-slate-100" 
               icon={Clock}
-              onClick={() => goToProviders('all')}
+              onClick={() => { buttonPress(); goToProviders('all'); }}
             />
           </>
         );
@@ -431,21 +437,21 @@ const Dashboard: React.FC = () => {
                   subtext="Factures en attente + Devis signés"
                   bgColor="bg-slate-100" 
                   icon={Wallet}
-                  onClick={() => goToFinancials('pending')}
+                  onClick={() => { buttonPress(); goToFinancials('pending'); }}
                 />
                 <StatCard 
                   title="Recette encaissée" 
                   value={`${totalRevenue.toFixed(0)}€`} 
                   bgColor="bg-slate-100" 
                   icon={Euro}
-                  onClick={() => goToFinancials('paid')}
+                  onClick={() => { buttonPress(); goToFinancials('paid'); }}
                 />
                 <StatCard 
                   title="Remboursements" 
                   value="0€" 
                   bgColor="bg-slate-100" 
                   icon={Euro}
-                  onClick={() => goToFinancials('refund')}
+                  onClick={() => { buttonPress(); goToFinancials('refund'); }}
                 />
               </>
             ) : (
@@ -461,13 +467,21 @@ const Dashboard: React.FC = () => {
   };
 
   return dataLoading ? <PageLoader /> : (
-    <div className="p-8 h-full overflow-y-auto bg-white/40 pb-4 md:pb-8">
+    <PullToRefresh 
+      onRefresh={async () => {
+        if (refreshData) {
+          await refreshData();
+          toast.success('Dashboard actualisé');
+          success();
+        }
+      }}
+      className="h-screen overflow-y-auto"
+    >
+    <div className="p-8 h-full bg-white/40 pb-4 md:pb-8">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <h2 className="text-3xl font-serif font-bold text-slate-800">Tableau de bord</h2>
         
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
-            <GlobalSearchBar />
-            
             <div className="relative">
                 <select 
                   className="w-full sm:w-auto appearance-none bg-white border border-beige-300 rounded-md py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-beige-500 shadow-sm cursor-pointer"
@@ -584,7 +598,7 @@ const Dashboard: React.FC = () => {
             Prestataires sur le terrain
           </h3>
           <button
-            onClick={() => navigate('/planning')}
+            onClick={() => { buttonPress(); navigate('/planning'); }}
             className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
           >
             Voir le planning <ArrowRight className="w-4 h-4" />
@@ -677,6 +691,8 @@ const Dashboard: React.FC = () => {
         })()}
       </div>
     </div>
+    <div className="h-20" /> {/* Extra space at bottom for scrolling */}
+    </PullToRefresh>
   );
 };
 

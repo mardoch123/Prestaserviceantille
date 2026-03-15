@@ -245,23 +245,96 @@ const ProviderPortal: React.FC = () => {
   const [videoLinkInput, setVideoLinkInput] = useState('');
   const [showVideoLinkInput, setShowVideoLinkInput] = useState(false);
 
-  // Data Calculations
-  const providerMissions = provider
-    ? (missions || [])
-        .filter(m => matchesServiceTypeFilterFromText((m as any)?.service, serviceTypeFilter))
-        .filter(m => String((m as any)?.providerId || '') === String(provider.id))
-    : [];
-  // All notifications
-  const allProviderNotifs = provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [];
-  const unreadProviderNotifs = allProviderNotifs.filter(n => !n.read);
-  const activeMissions = providerMissions.filter(m => m.status === 'in_progress' || m.status === 'planned');
+  // Optimized mission loading with caching and pagination
+  const MISSIONS_CACHE_KEY = `provider_missions_${provider?.id}`;
+  const [displayCount, setDisplayCount] = useState(20); // Pagination: show 20 initially
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  
+  // Load cached missions immediately for instant display
+  const [cachedMissions, setCachedMissions] = useState<Mission[]>(() => {
+    if (typeof window !== 'undefined' && provider?.id) {
+      try {
+        const cached = localStorage.getItem(MISSIONS_CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          return Array.isArray(parsed) ? parsed : [];
+        }
+      } catch { /* ignore */ }
+    }
+    return [];
+  });
 
-  // Filter missions by selected date
+  // Update cache when missions change
+  useEffect(() => {
+    if (provider?.id && missions?.length > 0) {
+      const providerMissionsData = missions.filter(m => 
+        String((m as any)?.providerId || '') === String(provider.id)
+      );
+      try {
+        localStorage.setItem(MISSIONS_CACHE_KEY, JSON.stringify(providerMissionsData.slice(0, 100)));
+      } catch { /* ignore */ }
+    }
+  }, [missions, provider?.id]);
+
+  // Memoized provider missions with optimized filtering
+  const providerMissions = useMemo(() => {
+    if (!provider) return cachedMissions; // Use cache immediately
+    
+    const filtered = (missions || cachedMissions || [])
+      .filter(m => matchesServiceTypeFilterFromText((m as any)?.service, serviceTypeFilter))
+      .filter(m => String((m as any)?.providerId || '') === String(provider.id));
+    
+    return filtered;
+  }, [missions, provider, serviceTypeFilter, cachedMissions]);
+
+  // Load more missions handler
+  const handleLoadMore = useCallback(() => {
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setDisplayCount(prev => Math.min(prev + 20, providerMissions.length));
+      setIsLoadingMore(false);
+    }, 100);
+  }, [providerMissions.length]);
+
+  // Paginated missions for display
+  const paginatedMissions = useMemo(() => {
+    return providerMissions.slice(0, displayCount);
+  }, [providerMissions, displayCount]);
+
+  // Active missions count (optimized)
+  const activeMissions = useMemo(() => 
+    providerMissions.filter(m => m.status === 'in_progress' || m.status === 'planned'),
+    [providerMissions]
+  );
+
+  // Notifications for provider
+  const allProviderNotifs = useMemo(() => 
+    provider ? notifications.filter(n => n.targetUserType === 'provider' && (!n.targetUserId || n.targetUserId === provider.id)) : [],
+    [notifications, provider]
+  );
+  
+  const unreadProviderNotifs = useMemo(() => 
+    allProviderNotifs.filter(n => !n.read),
+    [allProviderNotifs]
+  );
+
+  // Optimized filtered missions by date
   const filteredMissionsByDate = useMemo(() => {
-    if (!selectedDate) return providerMissions;
+    if (!selectedDate) return paginatedMissions;
     const selectedDateStr = dayjs(selectedDate).format('YYYY-MM-DD');
-    return providerMissions.filter(m => m.date === selectedDateStr);
+    // Use all missions for date filtering, not just paginated
+    return providerMissions.filter(m => m.date === selectedDateStr).slice(0, 50);
   }, [providerMissions, selectedDate]);
+
+  // Fast stats calculation
+  const missionStats = useMemo(() => ({
+    total: providerMissions.length,
+    planned: providerMissions.filter(m => m.status === 'planned').length,
+    inProgress: providerMissions.filter(m => m.status === 'in_progress').length,
+    completed: providerMissions.filter(m => m.status === 'completed').length,
+    cancelled: providerMissions.filter(m => m.status === 'cancelled').length,
+    today: filteredMissionsByDate.length
+  }), [providerMissions, filteredMissionsByDate.length]);
 
   // Calendar days generation
   const calendarDays = useMemo(() => {
@@ -1510,13 +1583,22 @@ const ProviderPortal: React.FC = () => {
                     )}
 
                     {/* Show All Missions Button (Mobile) */}
-                    {filteredMissionsByDate.length > 0 && filteredMissionsByDate.length < providerMissions.length && (
-                      <button 
-                        onClick={() => setSelectedDate(new Date(''))}
-                        className="md:hidden w-full py-3 text-emerald-600 font-bold text-sm bg-white/80 rounded-xl border border-emerald-200 hover:bg-white transition"
-                      >
-                        Voir toutes les missions ({providerMissions.length})
-                      </button>
+                    {filteredMissionsByDate.length > 0 && displayCount < providerMissions.length && (
+                      <div className="text-center pt-4">
+                        <button 
+                          onClick={handleLoadMore}
+                          disabled={isLoadingMore}
+                          className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium shadow-lg shadow-emerald-200 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          {isLoadingMore ? (
+                            <span className="flex items-center gap-2">
+                              <Loader className="w-4 h-4 animate-spin" /> Chargement...
+                            </span>
+                          ) : (
+                            `Charger plus de missions (${providerMissions.length - displayCount} restantes)`
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

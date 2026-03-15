@@ -14,6 +14,7 @@ import { supabase } from '../utils/supabaseClient';
 import { pdf } from '@react-pdf/renderer';
 import { SignedQuotePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import { toast } from './mobile/Toast';
 
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
@@ -241,11 +242,11 @@ const DevisFactures: React.FC = () => {
                 .maybeSingle();
             if (res.error) throw res.error;
 
-            showToast('Devis renouvelé.', 'success');
+            toast.success('Devis renouvelé.');
             window.location.reload();
         } catch (err: any) {
             console.error('[DevisFactures] renewExpiredQuote error:', err);
-            showToast(`Erreur renouvellement devis: ${err?.message || err}`, 'error');
+            toast.error(`Erreur renouvellement devis: ${err?.message || err}`);
         } finally {
             stopAction(key);
         }
@@ -538,11 +539,11 @@ const DevisFactures: React.FC = () => {
                 if (!isDraftBlocked && isDraftDirty) {
                     const res = doDraftAutosave(true);
                     if (res === 'blocked') {
-                        showToast(draftBlockedMessage, 'warning');
+                        toast.warning(draftBlockedMessage);
                     }
                 }
                 if (isDraftBlocked && isDraftDirty) {
-                    showToast(draftBlockedMessage, 'warning');
+                    toast.warning(draftBlockedMessage);
                 }
             }
         }
@@ -1163,9 +1164,8 @@ const DevisFactures: React.FC = () => {
             }
 
             if (!found) {
-                showToast(
-                    `Impossible de générer tous les créneaux : aucun prestataire disponible (saturation) dans les ${maxLookaheadDays} prochains jours pour la séance ${i + 1}.`,
-                    'warning'
+                toast.warning(
+                    `Impossible de générer tous les créneaux : aucun prestataire disponible (saturation) dans les ${maxLookaheadDays} prochains jours pour la séance ${i + 1}.`
                 );
                 // On arrête la génération si on bloque sur une session
                 break;
@@ -1174,7 +1174,7 @@ const DevisFactures: React.FC = () => {
 
         if (newSlots.length > 0) {
             setInterventionSlots(newSlots);
-            showToast(`Créneaux générés (${newSlots.length}) en tenant compte de la saturation des équipes.`, 'success');
+            toast.success(`Créneaux générés (${newSlots.length}) en tenant compte de la saturation des équipes.`);
         }
     };
 
@@ -1187,7 +1187,7 @@ const DevisFactures: React.FC = () => {
         if (field === 'date' && shouldValidate) {
             const nextDate = value;
             if (nextDate && nextDate < getTodayMartiniqueStr()) {
-                showToast("La date doit être aujourd'hui ou une date future.", 'warning');
+                toast.warning("La date doit être aujourd'hui ou une date future.");
                 return;
             }
             const minStart = getMinStartTimeForSlot(nextDate);
@@ -1196,7 +1196,7 @@ const DevisFactures: React.FC = () => {
                 const nextEnd = addHoursToTime(nextStart, currentSlot.duration);
                 newSlots[index] = { ...currentSlot, date: nextDate, startTime: nextStart, endTime: nextEnd };
                 setInterventionSlots(newSlots);
-                showToast("Heure ajustée car la date sélectionnée est aujourd'hui.", 'warning');
+                toast.warning("Heure ajustée car la date sélectionnée est aujourd'hui.");
                 return;
             }
         }
@@ -1204,7 +1204,7 @@ const DevisFactures: React.FC = () => {
         if (field === 'startTime' && shouldValidate && currentSlot.date) {
             const minStart = getMinStartTimeForSlot(currentSlot.date);
             if (minStart && value && value < minStart) {
-                showToast("Impossible de choisir une heure passée pour aujourd'hui. Choisissez une heure future ou une date ultérieure.", 'warning');
+                toast.warning("Impossible de choisir une heure passée pour aujourd'hui. Choisissez une heure future ou une date ultérieure.");
                 return;
             }
         }
@@ -1282,14 +1282,14 @@ const DevisFactures: React.FC = () => {
 
                     // Validation des créneaux pour les packs spécifiques
                     if (isPackUltime6Name(pack.name) && Math.abs(dur - 6) > 0.01) {
-                        showToast("Le pack 'Ultime 6' requiert exactement 6h par séance.", 'error');
+                        toast.error("Le pack 'Ultime 6' requiert exactement 6h par séance.");
                         return; // Annuler la modification
                     }
 
                     if (pack.name.includes("Tranquility")) {
                         const expectedHours = packSpecificConfig.frequencyChoice === "4j_3h" ? 3 : 4;
                         if (Math.abs(dur - expectedHours) > 0.01) {
-                            showToast(`Le pack 'Tranquility' requiert ${expectedHours}h par séance.`);
+                            toast.warning(`Le pack 'Tranquility' requiert ${expectedHours}h par séance.`);
                             return; // Annuler la modification
                         }
                     }
@@ -1300,7 +1300,7 @@ const DevisFactures: React.FC = () => {
         }
 
         if (newSlots[index]?.date && newSlots[index]?.startTime && isSlotStartInPast(newSlots[index].date, newSlots[index].startTime)) {
-            showToast("Créneau invalide : l'heure doit être supérieure à l'heure actuelle ou la date doit être ultérieure.", 'warning');
+            toast.warning("Créneau invalide : l'heure doit être supérieure à l'heure actuelle ou la date doit être ultérieure.");
             return;
         }
         setInterventionSlots(newSlots);
@@ -1321,7 +1321,7 @@ const DevisFactures: React.FC = () => {
 
                 if (overlaps.length > 0) {
                     const sample = overlaps.slice(0, 3).map(m => `${m.date} ${m.startTime}-${m.endTime}`).join(', ');
-                    showToast(`Attention: ce changement peut entraîner des conflits lors de la validation (rendez-vous potentiellement chevauchés: ${sample}${overlaps.length > 3 ? '…' : ''}).`, 'warning');
+                    toast.warning(`Attention: ce changement peut entraîner des conflits lors de la validation (rendez-vous potentiellement chevauchés: ${sample}${overlaps.length > 3 ? '…' : ''}).`);
                 }
             }
         } catch {}
@@ -1336,13 +1336,13 @@ const DevisFactures: React.FC = () => {
             const pack = packs.find(p => p.id === selectedPackId);
             if (pack) {
                 if (isPackUltime6Name(pack.name) && interventionSlots.length >= 1) {
-                    showToast("Le pack 'Ultime 6' ne permet qu'une seule séance de 6h.");
+                    toast.warning("Le pack 'Ultime 6' ne permet qu'une seule séance de 6h.");
                     return;
                 }
 
                 if (pack.name.includes("Tranquility")) {
                     if (interventionSlots.length >= 4) {
-                        showToast("Le pack 'Tranquility' ne permet que 4 séances maximum (3x4h ou 4x3h).");
+                        toast.warning("Le pack 'Tranquility' ne permet que 4 séances maximum (3x4h ou 4x3h).");
                         return;
                     }
                 }
@@ -1565,19 +1565,9 @@ const DevisFactures: React.FC = () => {
         return { isValid: true, message: '' };
     };
 
-
-    const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
-    const toastTimeoutRef = useRef<number | null>(null);
-
-    const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
-        if (toastTimeoutRef.current) { clearTimeout(toastTimeoutRef.current); }
-        setToast({ show: true, message, type });
-        toastTimeoutRef.current = window.setTimeout(() => { setToast({ show: false, message: '', type }); }, 3000);
-    };
-
     const handleDownloadContract = (doc: Document) => {
         if (!selectedClient) {
-            showToast("Veuillez sélectionner un client", 'error');
+            toast.error("Veuillez sélectionner un client");
             return;
         }
 
@@ -1590,7 +1580,7 @@ const DevisFactures: React.FC = () => {
         if (existingContract) {
             console.log('Contrat existant trouvé:', existingContract.id);
             downloadContract(existingContract);
-            showToast("Contrat téléchargé avec succès");
+            toast.success("Contrat téléchargé avec succès");
         } else {
             // Fallback: générer un nouveau contrat si aucun n'existe
             console.log('Aucun contrat existant, génération depuis le devis');
@@ -1599,9 +1589,9 @@ const DevisFactures: React.FC = () => {
 
             if (contract) {
                 downloadContract(contract);
-                showToast("Contrat téléchargé avec succès");
+                toast.success("Contrat téléchargé avec succès");
             } else {
-                showToast("Erreur lors de la génération du contrat");
+                toast.error("Erreur lors de la génération du contrat");
             }
         }
     };
@@ -1824,7 +1814,6 @@ const DevisFactures: React.FC = () => {
         const doc = documents.find(d => d.id === docId);
         if (doc) {
             doc.status = 'sent';
-            doc.createdAt = today;
         }
     }
     
@@ -1846,7 +1835,7 @@ const DevisFactures: React.FC = () => {
     const handleAdminSignatureFile = async (file?: File) => {
         if (!file) return;
         if (!file.type || !file.type.startsWith('image/')) {
-            showToast('Veuillez sélectionner une image valide.', 'error');
+            toast.error('Veuillez sélectionner une image valide.');
             return;
         }
         try {
@@ -1854,7 +1843,7 @@ const DevisFactures: React.FC = () => {
             setAdminSignatureDataUrl(dataUrl);
             setAdminSignatureFileName(file.name || 'signature');
         } catch (e) {
-            showToast('Erreur lors du chargement de l\'image.', 'error');
+            toast.error('Erreur lors du chargement de l\'image.');
         }
     };
 
@@ -1863,7 +1852,7 @@ const DevisFactures: React.FC = () => {
         setIsAdminSigning(true);
         try {
             await signQuoteAsAdmin(adminSignDocumentId, adminSignatureDataUrl ? adminSignatureDataUrl : undefined);
-            showToast('Devis signé (admin) ! Vos créneaux sont réservés.', 'success');
+            toast.success('Devis signé (admin) ! Vos créneaux sont réservés.');
             setIsAdminSigning(false);
             setIsAdminSignModalOpen(false);
             setAdminSignDocumentId(null);
@@ -1872,7 +1861,7 @@ const DevisFactures: React.FC = () => {
             setIsAdminSignDragOver(false);
         } catch (e) {
             console.error('[DevisFactures] Admin sign failed:', e);
-            showToast('Erreur lors de la signature admin du devis.', 'error');
+            toast.error('Erreur lors de la signature admin du devis.');
         } finally {
             setIsAdminSigning(false);
         }
@@ -1887,14 +1876,14 @@ const DevisFactures: React.FC = () => {
             const nextQuoteStatus = isValidateOnly ? 'validated' : 'sent';
 
             if (!selectedClientId) {
-                showToast('Veuillez sélectionner un client', 'warning');
+                toast.warning('Veuillez sélectionner un client');
                 setIsSubmitting(false);
                 return;
             }
             // Validation pour les devis : vérifier que la planification prévisionnelle est générée
             if (modalMode === 'devis') {
                 if (interventionSlots.length === 0) {
-                    showToast("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.", 'warning');
+                    toast.warning("Veuillez d'abord créer les jours et heures d'intervention (planification prévisionnelle) avant de valider le devis.");
                     setIsSubmitting(false);
                     return;
                 }
@@ -1902,20 +1891,20 @@ const DevisFactures: React.FC = () => {
                 // Validation stricte des contraintes du pack
                 const validation = validatePackConstraints();
                 if (!validation.isValid) {
-                    showToast(validation.message, 'error');
+                    toast.error(validation.message);
                     setIsSubmitting(false);
                     return;
                 }
 
                 // Afficher un message de succès pour Pack Ultime 6 si applicable
                 if (validation.message && validation.message.includes('correctement configuré')) {
-                    showToast(validation.message, 'success');
+                    toast.success(validation.message);
                 }
 
                 // Vérification des disponibilités des prestataires
                 const availabilityCheck = checkProviderAvailability();
                 if (!availabilityCheck.isValid) {
-                    showToast(availabilityCheck.message, 'warning');
+                    toast.warning(availabilityCheck.message);
                     setIsSubmitting(false);
                     return;
                 }
@@ -1927,12 +1916,12 @@ const DevisFactures: React.FC = () => {
                 for (const slot of interventionSlots) {
                     if (!slot?.date) continue;
                     if (slot.date < todayStr) {
-                        showToast("Impossible de choisir une date antérieure à aujourd'hui (Martinique).", 'warning');
+                            toast.warning("Impossible de choisir une date antérieure à aujourd'hui (Martinique).");
                         setIsSubmitting(false);
                         return;
                     }
                     if (slot?.startTime && isSlotStartInPast(slot.date, slot.startTime)) {
-                        showToast("Impossible de choisir une heure antérieure à l'heure actuelle (Martinique).", 'warning');
+                            toast.warning("Impossible de choisir une heure antérieure à l'heure actuelle (Martinique).");
                         setIsSubmitting(false);
                         return;
                     }
@@ -2087,7 +2076,7 @@ const DevisFactures: React.FC = () => {
                             `document:${docToPersist.id}`
                         );
                     } else {
-                        showToast('Erreur lors de la génération du contrat.', 'error');
+                            toast.error('Erreur lors de la génération du contrat.');
                     }
                 }
             }
@@ -2108,12 +2097,12 @@ const DevisFactures: React.FC = () => {
             setLocalDraftId(null);
             closeModal({ skipAutosave: true });
             if (modalMode === 'devis') {
-                showToast(isValidateOnly ? 'Devis validé (non envoyé) !' : 'Devis envoyé (Valable 48h) !');
+                toast.success(isValidateOnly ? 'Devis validé (non envoyé) !' : 'Devis envoyé (Valable 48h) !');
             } else {
-                showToast('Facture générée avec succès !');
+                toast.success('Facture générée avec succès !');
             }
         } catch (e: any) {
-            showToast("Erreur création document: " + e.message, 'error');
+            toast.error("Erreur création document: " + e.message);
         } finally {
             setIsSubmitting(false);
         }
@@ -2131,9 +2120,9 @@ const DevisFactures: React.FC = () => {
             try {
                 await convertQuoteToInvoice(docId);
                 setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
-                showToast('Devis converti en facture !');
+                toast.success('Devis converti en facture !');
             } catch (err: any) {
-                showToast('Erreur conversion en facture.', 'error');
+                toast.error('Erreur conversion en facture.');
             } finally {
                 stopAction(key);
             }
@@ -2151,7 +2140,7 @@ const DevisFactures: React.FC = () => {
             const client = clients.find(c => c.id === String(doc?.clientId || ''));
             const to = client?.email || '';
             if (!to) {
-                showToast('Email client introuvable.', 'error');
+                toast.error('Email client introuvable.');
                 return;
             }
 
@@ -2160,9 +2149,9 @@ const DevisFactures: React.FC = () => {
                 ref: doc?.ref || '',
                 link: 'https://www.prestaservicesantilles.com/'
             });
-            showToast(`Email envoyé au client (${to}).`, 'success');
+            toast.success(`Email envoyé au client (${to}).`);
         } catch (err: any) {
-            showToast('Erreur envoi email.', 'error');
+            toast.error('Erreur envoi email.');
         } finally {
             stopAction(key);
         }
@@ -2176,9 +2165,9 @@ const DevisFactures: React.FC = () => {
             startAction(key);
             try {
                 await markInvoicePaid(docId);
-                showToast('Facture marquée comme payée.');
+                toast.success('Facture marquée comme payée.');
             } catch (err: any) {
-                showToast('Erreur encaissement facture.', 'error');
+                toast.error('Erreur encaissement facture.');
             } finally {
                 stopAction(key);
             }
@@ -2192,9 +2181,9 @@ const DevisFactures: React.FC = () => {
         startAction(key);
         try {
             await sendDocumentReminder(docId);
-            showToast('Relance envoyée (Notification + Email).');
+            toast.success('Relance envoyée (Notification + Email).');
         } catch (err: any) {
-            showToast('Erreur envoi relance.', 'error');
+            toast.error('Erreur envoi relance.');
         } finally {
             stopAction(key);
         }
@@ -2207,10 +2196,10 @@ const DevisFactures: React.FC = () => {
         startAction(key);
         try {
             await sendQuoteSignatureReminder(docId);
-            showToast('Rappel signature devis envoyé.', 'success');
+            toast.success('Rappel signature devis envoyé.');
         } catch (err) {
             console.error('[DevisFactures] Signature reminder failed:', err);
-            showToast('Erreur envoi rappel signature devis.', 'error');
+            toast.error('Erreur envoi rappel signature devis.');
         } finally {
             stopAction(key);
         }
@@ -2227,9 +2216,9 @@ const DevisFactures: React.FC = () => {
     const copyToClipboard = async (text: string) => {
         try {
             await navigator.clipboard.writeText(text);
-            showToast('Lien copié dans le presse-papiers');
+            toast.success('Lien copié dans le presse-papiers');
         } catch (err) {
-            showToast('Erreur lors de la copie du lien');
+            toast.error('Erreur lors de la copie du lien');
         }
     };
 
@@ -2255,20 +2244,20 @@ const DevisFactures: React.FC = () => {
                     localIds.forEach(id => deleteLocalDraftById(parseLocalDraftIdFromDocId(id)));
                 }
                 setSelectedIds(new Set());
-                showToast(`${count} document(s) supprimé(s).`);
+                toast.success(`${count} document(s) supprimé(s).`);
             } else if (documentToDelete) {
                 if (isLocalDraftDocId(documentToDelete.id)) {
                     deleteLocalDraftById(parseLocalDraftIdFromDocId(documentToDelete.id));
-                    showToast(`Brouillon ${documentToDelete.ref} supprimé.`);
+                    toast.success(`Brouillon ${documentToDelete.ref} supprimé.`);
                 } else {
                     await deleteDocument(documentToDelete.id);
-                    showToast(`Document ${documentToDelete.ref} supprimé définitivement.`);
+                    toast.success(`Document ${documentToDelete.ref} supprimé définitivement.`);
                 }
             }
             setIsDeleteModalOpen(false);
             setDocumentToDelete(null);
         } catch (err: any) {
-            showToast('Erreur suppression document(s).', 'error');
+            toast.error('Erreur suppression document(s).');
         } finally {
             setIsDeleting(false);
         }
@@ -2306,7 +2295,7 @@ const DevisFactures: React.FC = () => {
         e.preventDefault();
         e.stopPropagation();
         updateDocumentStatus(id, newStatus);
-        showToast('Statut mis à jour manuellement.');
+        toast.success('Statut mis à jour manuellement.');
     };
 
     // Bulk Actions
@@ -2518,7 +2507,7 @@ const DevisFactures: React.FC = () => {
             const clientId = String(doc?.clientId || (doc as any)?.client_id || '').trim();
             const client = clients.find(c => String(c?.id || '') === clientId);
             if (!client) {
-                showToast('Client introuvable pour ce devis.', 'error');
+                toast.error('Client introuvable pour ce devis.');
                 return;
             }
 
@@ -2643,10 +2632,10 @@ const DevisFactures: React.FC = () => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
-            showToast('Devis téléchargé avec succès.');
+            toast.success('Devis téléchargé avec succès.');
         } catch (err: any) {
             console.error('[DevisFactures] handleDownloadQuotePdf error:', err);
-            showToast('Erreur téléchargement devis.', 'error');
+            toast.error('Erreur téléchargement devis.');
         }
     };
 
@@ -2666,30 +2655,6 @@ const DevisFactures: React.FC = () => {
 
     return dataLoading ? <PageLoader /> : (
         <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 relative">
-            {/* Toast Container */}
-            <div className={`fixed bottom-6 right-6 z-[9999] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-                <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
-                        toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
-                            'bg-green-800 text-white border-green-700'
-                    }`}>
-                    <div className={`p-1 rounded-full text-white ${toast.type === 'error' ? 'bg-red-500' :
-                            toast.type === 'warning' ? 'bg-orange-500' :
-                                'bg-green-500'
-                        }`}>
-                        {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
-                            toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
-                                <CheckCircle className="w-4 h-4" />}
-                    </div>
-                    <div>
-                        <h4 className="font-bold text-sm">
-                            {toast.type === 'error' ? 'Erreur' :
-                                toast.type === 'warning' ? 'Attention' :
-                                    'Succès'}
-                        </h4>
-                        <p className="text-xs opacity-90">{toast.message}</p>
-                    </div>
-                </div>
-            </div>
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div><h2 className="text-3xl font-serif font-bold text-slate-800">Devis/Factures</h2><p className="text-sm text-slate-500 mt-1">Gestion commerciale et facturation</p></div>
@@ -2862,7 +2827,7 @@ const DevisFactures: React.FC = () => {
                                                                 return;
                                                             }
                                                             updateDocumentStatus(doc.id, value);
-                                                            showToast('Statut mis à jour manuellement.');
+                                                            toast.success('Statut mis à jour manuellement.');
                                                         }}
                                                         isClearable={false}
                                                         className="min-w-[150px]"
@@ -3274,7 +3239,7 @@ const DevisFactures: React.FC = () => {
                                                                     return;
                                                                 }
                                                                 updateDocumentStatus(doc.id, value);
-                                                                showToast('Statut mis à jour manuellement.');
+                                                                toast.success('Statut mis à jour manuellement.');
                                                             }}
                                                             isClearable={false}
                                                             className="min-w-[150px]"

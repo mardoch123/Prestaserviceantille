@@ -66,6 +66,12 @@ import ProviderDetailPage from './components/ProviderDetailPage';
 import { App as CapacitorApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
+// Mobile components & hooks
+import { ToastContainer } from './components/mobile/Toast';
+import { BottomNavigation } from './components/mobile/BottomNavigation';
+import { useMobileViewport, useDisableDoubleTapZoom } from './hooks/useMobile';
+import './src/styles/mobile.css';
+
 const initNativeFeatures = async () => {
     try {
         if (Capacitor.isNativePlatform()) {
@@ -323,6 +329,10 @@ const AppLayout: React.FC = () => {
     const [showOfferOfMomentModal, setShowOfferOfMomentModal] = useState(false);
     const pushTokenRef = useRef<string | null>(null);
     const pushRegisteredUserRef = useRef<string | null>(null);
+
+    // Initialize mobile viewport and disable double-tap zoom
+    useMobileViewport();
+    useDisableDoubleTapZoom();
 
     useEffect(() => {
         const hash = window.location.hash || '';
@@ -670,7 +680,9 @@ const AppLayout: React.FC = () => {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
+                <ToastContainer />
                 {location.pathname === '/scan' ? <ScanPage /> : <ScanSuccess />}
+                <BottomNavigation currentRole="provider" />
             </div>
         );
     }
@@ -681,7 +693,9 @@ const AppLayout: React.FC = () => {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
+                <ToastContainer />
                 {location.pathname === '/scan' ? <ScanPage /> : location.pathname === '/scan-success' ? <ScanSuccess /> : <NewServiceRequestPage />}
+                <BottomNavigation currentRole="client" />
             </div>
         );
     }
@@ -690,7 +704,9 @@ const AppLayout: React.FC = () => {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
+                <ToastContainer />
                 <ClientPortal />
+                <BottomNavigation currentRole="client" />
                 {offerModal}
             </div>
         );
@@ -700,7 +716,9 @@ const AppLayout: React.FC = () => {
         return (
             <div className="h-screen flex flex-col overflow-hidden">
                 <OfflineBanner />
+                <ToastContainer />
                 <ProviderPortal />
+                <BottomNavigation currentRole="provider" />
                 {offerModal}
             </div>
         );
@@ -709,6 +727,7 @@ const AppLayout: React.FC = () => {
     // Admin and Super Admin Layout (both use same admin interface)
     return (
         <div className="flex h-screen bg-cream-50 font-sans overflow-hidden">
+            <ToastContainer />
             <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
             {/* Main Content Wrapper */}
@@ -779,6 +798,7 @@ const App: React.FC = () => {
         <ErrorBoundary>
             <DataProvider>
                 <BrowserRouter>
+                    <ToastContainer />
                     <AppLayout />
                 </BrowserRouter>
             </DataProvider>

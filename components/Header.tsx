@@ -95,6 +95,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
         <div className="flex-1">
           <GlobalSearchBar />
         </div>
+        <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full whitespace-nowrap">
+          NEW
+        </span>
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">

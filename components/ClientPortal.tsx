@@ -9,6 +9,7 @@ import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
+import { toast } from './mobile/Toast';
 import { 
     getMartiniqueNowISO,
     getMartiniqueToday,

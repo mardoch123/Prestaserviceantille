@@ -50,6 +50,16 @@ export const sendEmailViaEmailJS = async (
     retryCount: number = 0
 ): Promise<boolean> => {
     try {
+        // Check if running on localhost (CORS issue in development)
+        const isLocalhost = typeof window !== 'undefined' && 
+            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+        
+        if (isLocalhost) {
+            console.log(`[EmailJS] Development mode detected - skipping email send to avoid CORS`);
+            console.log(`[EmailJS] Would have sent:`, { to, subject, templateType, context });
+            return true; // Pretend success in dev mode
+        }
+
         // Validate email address
         if (!to || !isValidEmail(to)) {
             console.warn(`[EmailJS] Invalid email address: ${to}`);

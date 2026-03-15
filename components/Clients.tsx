@@ -32,8 +32,13 @@ import {
   Copy
 } from 'lucide-react';
 
+// Mobile features integration
+import { useHaptic } from '../hooks/useHaptic';
+import { toast } from '../components/mobile/Toast';
+
 const Clients: React.FC = () => {
   const { clients, clientLeads, currentUser, companySettings, missions, addClient, updateClient, deleteClients, refreshData, contracts, packs, documents, addLoyaltyHours, resetClientPassword, dataLoading } = useData();
+  const { buttonPress, success, error: hapticError } = useHaptic();
   const [searchQuery, setSearchQuery] = useState('');
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(1);
@@ -144,9 +149,8 @@ const Clients: React.FC = () => {
   // Credential Modal State
   const [newCredential, setNewCredential] = useState<{ email: string, pass: string } | null>(null);
 
-  // Modal & Toast State
+  // Modal & Submit State
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
 
   // Form State
   const [formData, setFormData] = useState({
@@ -370,7 +374,8 @@ const Clients: React.FC = () => {
                 phone: formData.phone,
                 email: formData.email
             });
-            showToast('Client modifié avec succès.');
+            toast.success('Client modifié avec succès.');
+            buttonPress();
             setIsModalOpen(false);
         } else {
             const newPass = await addClient({
@@ -391,12 +396,14 @@ const Clients: React.FC = () => {
             if (newPass) {
                 setNewCredential({ email: formData.email, pass: newPass });
             } else {
-                showToast(`Client créé avec succès ! (Pas d'email envoyé)`);
+                toast.success(`Client créé avec succès ! (Pas d'email envoyé)`);
+                buttonPress();
             }
         }
         setFormData({ lastName: '', firstName: '', phone: '', email: '', address: '', city: '', type: 'particulier' });
     } catch (err: any) {
-        showToast(String(err?.message || "Erreur lors de l'enregistrement."), 'error');
+        toast.error(String(err?.message || "Erreur lors de l'enregistrement."));
+        hapticError();
     } finally {
         setIsSubmitting(false);
     }
@@ -422,7 +429,8 @@ const Clients: React.FC = () => {
       const referralCode = String(lead.referral_code || lead.referralCode || '').trim();
 
       if (!fullName || !email) {
-        showToast('Lead invalide (nom/email manquant).', 'error');
+        toast.error('Lead invalide (nom/email manquant).');
+        hapticError();
         return;
       }
 
@@ -440,7 +448,8 @@ const Clients: React.FC = () => {
       });
 
       if (!password) {
-        showToast("Création du client échouée.", 'error');
+        toast.error("Création du client échouée.");
+        hapticError();
         return;
       }
 
@@ -526,9 +535,10 @@ const Clients: React.FC = () => {
       } catch { }
 
       await refreshData();
-      showToast('Lead approuvé: client créé et lead validé.', 'success');
+      toast.success('Lead approuvé: client créé et lead validé.');
+      success();
     } catch {
-      showToast("Erreur lors de la validation du lead.", 'error');
+      toast.error("Erreur lors de la validation du lead.");
     } finally {
       setLeadUpdatingId(null);
     }
@@ -551,9 +561,11 @@ const Clients: React.FC = () => {
         .eq('id', lead.id);
 
       await refreshData();
-      showToast('Lead refusé.', 'success');
+      toast.success('Lead refusé.');
+      success();
     } catch {
-      showToast('Erreur lors du refus du lead.', 'error');
+      toast.error('Erreur lors du refus du lead.');
+      hapticError();
     } finally {
       setLeadUpdatingId(null);
     }
@@ -567,9 +579,11 @@ const Clients: React.FC = () => {
     try {
       await updateClient(clientId, { status });
       await refreshData();
-      showToast(status === 'active' ? 'Client approuvé.' : 'Client refusé.', 'success');
+      toast.success(status === 'active' ? 'Client approuvé.' : 'Client refusé.');
+      success();
     } catch {
-      showToast("Impossible de mettre à jour le statut du client.", 'error');
+      toast.error("Impossible de mettre à jour le statut du client.");
+      hapticError();
     } finally {
       setClientStatusUpdatingId(null);
     }
@@ -581,19 +595,16 @@ const Clients: React.FC = () => {
           try {
              await addLoyaltyHours(selectedClientId, hoursToOffer);
              setLoyaltyModalOpen(false);
-             showToast(`Heures offertes et enregistrées avec succès.`, 'success');
+             toast.success(`Heures offertes et enregistrées avec succès.`);
+             success();
              setHoursToOffer(1);
           } catch(e) {
-              showToast("Erreur sauvegarde.", 'error');
+              toast.error("Erreur sauvegarde.");
+              hapticError();
           } finally {
               setIsSaving(false);
           }
       }
-  };
-
-  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type }), 3000);
   };
 
   const showCredentials = (client: any) => {
@@ -618,10 +629,12 @@ Lien de connexion : https://presta-antilles.app/login`);
     setPasswordResettingId(id);
     try {
       await resetClientPassword(id);
-      showToast('Mot de passe réinitialisé et envoyé par email.', 'success');
+      toast.success('Mot de passe réinitialisé et envoyé par email.');
+      success();
     } catch (e: any) {
       console.error(e);
-      showToast(String(e?.message || 'Impossible de réinitialiser le mot de passe.'), 'error');
+      toast.error(String(e?.message || 'Impossible de réinitialiser le mot de passe.'));
+      hapticError();
     } finally {
       setPasswordResettingId(null);
     }
@@ -658,7 +671,8 @@ Lien de connexion : https://presta-antilles.app/login`);
           await refreshData();
           setSelectedIds(new Set());
           setDeleteConfirmOpen(false);
-          showToast('Clients supprimés avec succès.');
+          toast.success('Clients supprimés avec succès.');
+      buttonPress();
       } catch (e: any) {
           console.error('[Clients] Bulk delete failed:', e);
           const msg = String(e?.message || '').toLowerCase();
@@ -669,16 +683,17 @@ Lien de connexion : https://presta-antilles.app/login`);
               return m?.[1] || '';
           })();
           if (code === '23503' || msg.includes('foreign key') || msg.includes('clé étrang') || msg.includes('contrainte')) {
-              showToast(
+              toast.error(
                   referencedTable
                       ? `Suppression impossible: ce client est encore référencé dans "${referencedTable}". Supprime d'abord les éléments liés.`
-                      : "Suppression impossible: ce client est encore lié à des missions/documents/contrats. Supprime d'abord ses éléments liés.",
-                  'error'
+                      : "Suppression impossible: ce client est encore lié à des missions/documents/contrats. Supprime d'abord ses éléments liés."
               );
+              hapticError();
           } else if (code === '409' || String(code) === '409' || msg.includes('409')) {
-              showToast("Suppression impossible (conflit). Le client est probablement encore référencé.", 'error');
+              toast.error("Suppression impossible (conflit). Le client est probablement encore référencé.");
+              hapticError();
           } else {
-              showToast("Erreur lors de la suppression des clients.", 'error');
+              toast.error("Erreur lors de la suppression des clients.");
           }
       }
   };
@@ -739,31 +754,6 @@ Lien de connexion : https://presta-antilles.app/login`);
 
   return dataLoading ? <PageLoader /> : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
-       <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
-            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
-            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
-            'bg-green-800 text-white border-green-700'
-        }`}>
-            <div className={`p-1 rounded-full text-white ${
-                toast.type === 'error' ? 'bg-red-500' :
-                toast.type === 'warning' ? 'bg-orange-500' :
-                'bg-green-500'
-            }`}>
-                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
-                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
-                 <CheckCircle className="w-4 h-4" />}
-            </div>
-            <div>
-                <h4 className="font-bold text-sm">
-                    {toast.type === 'error' ? 'Erreur' :
-                     toast.type === 'warning' ? 'Attention' :
-                     'Succès'}
-                </h4>
-                <p className="text-xs opacity-90">{toast.message}</p>
-            </div>
-        </div>
-      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div><h2 className="text-3xl font-serif font-bold text-slate-800">Clients</h2><p className="text-sm text-slate-500 mt-1">Gestion de la base client</p></div>

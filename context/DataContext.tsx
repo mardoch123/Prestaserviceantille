@@ -140,6 +140,7 @@ interface DataContextType {
     addMission: (mission: Mission) => Promise<void>;
     startMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
     endMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
+    submitMissionReport: (missionId: string, remarks: string, photos: string[], video?: string) => Promise<void>;
     enqueueStartMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
     enqueueEndMission: (id: string, remark?: string, photos?: string[], video?: string) => Promise<void>;
     cancelMissionByProvider: (id: string, reason: string) => Promise<void>;
@@ -2504,19 +2505,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 if (batch.length < pageSize) break;
                 page += 1;
-                
-                setProgress(Math.min(90, 15 + page * 15));
             }
         } catch (e) {
-            console.error('[loadMissionsForRange] Critical error', e);
-        } finally {
-            clearInterval(progressInterval);
+            console.warn('[loadMissionsForRange] Page fetch error', e);
         }
 
-        setProgress(95);
-
-        if (!all.length) {
-        }
+        clearInterval(progressInterval);
 
         const mapped = all.map((m: any) => ({
             ...m,
@@ -3893,6 +3887,77 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
         }
+    };
+
+    const submitMissionReport = async (missionId: string, remarks: string, photos: string[], video?: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
+
+        let finalPhotos = photos;
+        try {
+            const input = Array.isArray(photos) ? photos : [];
+            const isDataUrl = (v: any) => typeof v === 'string' && v.startsWith('data:image/');
+            const needsUpload = input.some(isDataUrl);
+
+            if (needsUpload) {
+                const dataUrlToBlob = (dataUrl: string) => {
+                    const parts = String(dataUrl || '').split(',');
+                    const meta = parts[0] || '';
+                    const raw = parts[1] || '';
+                    const mime = (meta.match(/data:([^;]+);base64/i)?.[1] || 'image/jpeg').trim();
+                    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+                    return new Blob([bytes], { type: mime });
+                };
+
+                const uploaded: string[] = [];
+                for (let i = 0; i < input.length; i++) {
+                    const p = input[i];
+                    if (!isDataUrl(p)) {
+                        if (typeof p === 'string' && p.trim()) uploaded.push(p.trim());
+                        continue;
+                    }
+                    const path = `missions/${missionId}/end/${Date.now()}_${i}.jpg`;
+                    const blob = dataUrlToBlob(p);
+                    const { error: upErr } = await supabase.storage
+                        .from('mission-media')
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                    if (upErr) throw upErr;
+                    const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+                    const url = String((pub as any)?.publicUrl || '').trim();
+                    if (!url) throw new Error('upload_failed');
+                    uploaded.push(url);
+                }
+                finalPhotos = uploaded;
+            }
+        } catch (e) {
+            console.warn('[submitMissionReport] photo upload failed, falling back to DB storage', e);
+            finalPhotos = photos;
+        }
+
+        const { error } = await supabase.from('missions').update({
+            status: 'completed',
+            end_remark: remarks,
+            end_photos: finalPhotos,
+            end_video: video,
+            report_sent: true
+        }).eq('id', missionId);
+
+        if (error) {
+            console.error('[submitMissionReport] Supabase error:', error);
+            throw error;
+        }
+
+        setMissions(prev => prev.map(mission => mission.id === missionId ? {
+            ...mission,
+            status: 'completed',
+            endRemark: remarks,
+            endPhotos: finalPhotos,
+            endVideo: video,
+            reportSent: true,
+            hasReport: true
+        } : mission));
     };
 
     const addClient = async (clientData: CreateClientDTO) => {
@@ -5274,7 +5339,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         await supabase.from('documents').update({ status: 'expired' }).eq('id', id);
                         setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'expired' as any } : d));
                     }
-                    if (signedBy !== 'admin') throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
+                    throw new Error('Devis expiré : signature impossible (délai 48h dépassé)');
                 }
             }
         }
@@ -7102,7 +7167,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
              isDemoMode, demoRole, enterDemoMode,
  
-            missions, addMission, startMission, endMission, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, completeMission, deleteMissions,
+            missions, addMission, startMission, endMission, submitMissionReport, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, completeMission, deleteMissions,
  
              clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  

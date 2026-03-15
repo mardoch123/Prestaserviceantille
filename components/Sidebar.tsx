@@ -127,6 +127,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       .length;
   }, [currentUser?.role, clientLeads]);
 
+  const missionReportsInProgressCount = useMemo(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return 0;
+    return (missions || []).filter((m: any) => {
+      const status = String(m?.status || '').toLowerCase().trim();
+      return status === 'in_progress' || status === 'en_cours' || status === 'inprogress' || status === 'started' || status === 'demarree';
+    }).length;
+  }, [currentUser?.role, missions]);
+
   const [newOfferInterestedCount, setNewOfferInterestedCount] = useState(0);
   const [newReferrersCount, setNewReferrersCount] = useState(0);
   const [pendingServiceRequestsCount, setPendingServiceRequestsCount] = useState(0);
@@ -435,7 +443,22 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                       {unreadContactFormsCount}
                     </span>
                   )}
+                  {item.path === '/reports' && missionReportsInProgressCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                      {missionReportsInProgressCount}
+                    </span>
+                  )}
                   {item.path === '/admin/email-marketing' && showEmailMarketingBadge && (
+                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
+                      NEW
+                    </span>
+                  )}
+                  {item.path === '/provider-availability' && (
+                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
+                      NEW
+                    </span>
+                  )}
+                  {item.path === '/accounting' && (
                     <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
                       NEW
                     </span>

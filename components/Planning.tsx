@@ -10,9 +10,15 @@ import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '
 import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 
+// Mobile features integration
+import { useHaptic } from '../hooks/useHaptic';
+import { toast } from '../components/mobile/Toast';
+import { PullToRefresh } from '../components/mobile/PullToRefresh';
+
 const Planning: React.FC = () => {
   const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading } = useData();
   const navigate = useNavigate();
+  const { buttonPress, success, error: hapticError } = useHaptic();
 
   const submitLockRef = useRef(false);
 
@@ -32,18 +38,12 @@ const Planning: React.FC = () => {
   const [planningProgress, setPlanningProgress] = useState(0);
   const [encouragementIndex, setEncouragementIndex] = useState(0);
   
-  // Modal & Toast
+  // Modal & Toast (using mobile toast now)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [isQuickPlanModalOpen, setIsQuickPlanModalOpen] = useState(false);
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
-
-  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
-      setToast({ show: true, message, type });
-      setTimeout(() => setToast({ show: false, message: '', type }), 3000);
-  };
 
   const isQuoteExpired = (doc: any): boolean => {
       if (!doc) return true;
@@ -186,7 +186,7 @@ const Planning: React.FC = () => {
                   if (result === 'timeout') {
                       if (active) {
                           setPlanningProgress(100);
-                          showToast('Chargement prolongé, le planning continue en arrière-plan.', 'warning');
+                          toast.warning('Chargement prolongé, le planning continue en arrière-plan.');
                       }
                       pendingRangeRef.current = '';
                       return;
@@ -597,7 +597,8 @@ const Planning: React.FC = () => {
               });
           }
 
-          showToast(count > 1 ? `${count} missions planifiées !` : 'Mission ajoutée avec succès !');
+          toast.success(count > 1 ? `${count} missions planifiées !` : 'Mission ajoutée avec succès !');
+          buttonPress();
           
           // Refresh data to get real IDs from DB for the newly created missions
           if (refreshData) await refreshData();
@@ -645,12 +646,14 @@ const Planning: React.FC = () => {
 
           if (refreshData) await refreshData();
 
-          showToast('Prestation ajoutée !');
+          toast.success('Prestation ajoutée !');
+          buttonPress();
           setIsQuickPlanModalOpen(false);
           setQuickPlanForm({ clientId: '', date: getMartiniqueToday(), startTime: '09:00', endTime: '11:00' });
       } catch (error: any) {
           console.error('Erreur planification rapide', error);
-          showToast(error?.message || 'Erreur planification rapide', 'error');
+          toast.error(error?.message || 'Erreur planification rapide');
+          hapticError();
       } finally {
           submitLockRef.current = false;
           setIsSubmitting(false);
@@ -669,12 +672,14 @@ const Planning: React.FC = () => {
               notifyEmail: reminderForm.notifyEmail,
               completed: false
           });
-          showToast('Rappel ajouté à l\'agenda !');
+          toast.success('Rappel ajouté à l\'agenda !');
+          buttonPress();
           setIsReminderModalOpen(false);
           setReminderForm({ text: '', date: getMartiniqueToday(), notifyEmail: true });
       } catch (err) {
           console.error(err);
-          showToast('Erreur ajout rappel', 'error');
+          toast.error('Erreur ajout rappel');
+          hapticError();
       } finally {
           setIsSubmitting(false);
       }
@@ -712,7 +717,8 @@ const Planning: React.FC = () => {
 
   const handleAssignMission = async () => {
       if (!selectedMissionId || !assignProviderId) {
-          showToast('Veuillez sélectionner une mission et un prestataire.', 'warning');
+          toast.warning('Veuillez sélectionner une mission et un prestataire.');
+          hapticError();
           return;
       }
 
@@ -725,7 +731,8 @@ const Planning: React.FC = () => {
               // Ensure we are using valid IDs from refreshed data
               await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
               
-              showToast(`Prestataire assigné ! Email envoyé.`);
+              toast.success(`Prestataire assigné ! Email envoyé.`);
+              success();
               if (refreshData) await refreshData();
               
               // Reset states
@@ -733,7 +740,8 @@ const Planning: React.FC = () => {
               setAssignProviderId('');
           }
       } catch (error) {
-          showToast('Erreur lors de l\'assignation.', 'error');
+          toast.error('Erreur lors de l\'assignation.');
+          hapticError();
       } finally {
           setIsSubmitting(false);
       }
@@ -747,11 +755,11 @@ const Planning: React.FC = () => {
           if (mission && provider) {
               if (isSubmitting) return;
               if (isProviderNonWorkingDay(provider.id, mission.date)) {
-                  showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`, 'warning');
+                  toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`);
                   return;
               }
               if (isProviderNonWorkingHours(provider.id, mission.date, mission.startTime, mission.endTime)) {
-                  showToast(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible sur ce créneau horaire.`, 'warning');
+                  toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible sur ce créneau horaire.`);
                   return;
               }
               setIsSubmitting(true);
@@ -759,14 +767,16 @@ const Planning: React.FC = () => {
                   // Ensure we are using valid IDs from refreshed data
                   await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
                   
-                  showToast(`Prestataire assigné ! Email envoyé.`);
+                  toast.success(`Prestataire assigné ! Email envoyé.`);
+                  success();
                   if (refreshData) await refreshData();
                   
                   // Reset states => closes modal
                   setSelectedMissionId(null);
                   setAssignProviderId('');
               } catch (error) {
-                  showToast('Erreur lors de l\'assignation.', 'error');
+                  toast.error('Erreur lors de l\'assignation.');
+                  hapticError();
               } finally {
                   setIsSubmitting(false);
               }
@@ -899,11 +909,13 @@ const Planning: React.FC = () => {
 
           if (refreshData) await refreshData();
 
-          showToast(scheduleChanged ? 'Mission modifiée avec succès (date/heure mise à jour).' : 'Mission modifiée avec succès !');
+          toast.success(scheduleChanged ? 'Mission modifiée avec succès (date/heure mise à jour).' : 'Mission modifiée avec succès !');
+          buttonPress();
           setIsEditMissionModalOpen(false);
       } catch (error: any) {
           console.error('[editMission] error:', error);
-          showToast(error?.message || 'Erreur lors de la modification', 'error');
+          toast.error(error?.message || 'Erreur lors de la modification');
+          hapticError();
       } finally {
           setIsSubmitting(false);
       }
@@ -927,7 +939,8 @@ const Planning: React.FC = () => {
        setSelectedMissionIds(new Set());
        setDeleteConfirmOpen(false);
        if (refreshData) await refreshData();
-       showToast('Missions supprimées de la base de données.');
+       toast.success('Missions supprimées de la base de données.');
+          buttonPress();
   };
 
   const handleCopyMissionDetails = async () => {
@@ -954,13 +967,15 @@ const Planning: React.FC = () => {
       try {
           if (typeof navigator !== 'undefined' && navigator?.clipboard?.writeText) {
               await navigator.clipboard.writeText(info);
-              showToast('Informations mission copiées dans le presse-papiers.');
+              toast.success('Informations mission copiées dans le presse-papiers.');
+          buttonPress();
           } else {
               throw new Error('Clipboard API non disponible');
           }
       } catch (err) {
           console.error('[copyMissionDetails] error:', err);
-          showToast('Impossible de copier les informations.', 'error');
+          toast.error('Impossible de copier les informations.');
+          hapticError();
       }
   };
 
@@ -1053,33 +1068,6 @@ const Planning: React.FC = () => {
 
   return dataLoading ? <PageLoader /> : (
     <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
-       
-       {/* Toast Notification */}
-       <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 transform ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-        <div className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${
-            toast.type === 'error' ? 'bg-red-800 text-white border-red-700' :
-            toast.type === 'warning' ? 'bg-orange-800 text-white border-orange-700' :
-            'bg-green-800 text-white border-green-700'
-        }`}>
-            <div className={`p-1 rounded-full text-white ${
-                toast.type === 'error' ? 'bg-red-500' :
-                toast.type === 'warning' ? 'bg-orange-500' :
-                'bg-green-500'
-            }`}>
-                {toast.type === 'error' ? <AlertTriangle className="w-4 h-4" /> :
-                 toast.type === 'warning' ? <AlertTriangle className="w-4 h-4" /> :
-                 <CheckCircle className="w-4 h-4" />}
-            </div>
-            <div>
-                <h4 className="font-bold text-sm">
-                    {toast.type === 'error' ? 'Erreur' :
-                     toast.type === 'warning' ? 'Attention' :
-                     'Succès'}
-                </h4>
-                <p className="text-xs opacity-90">{toast.message}</p>
-            </div>
-        </div>
-      </div>
 
       {isMobileActionsOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:hidden bg-slate-900/60 backdrop-blur-sm">
