@@ -293,6 +293,16 @@ serve(async (req: Request) => {
             password: initialPassword,
           }),
         });
+
+        // Log email in email_logs
+        await supabaseAdmin.from("email_logs").insert({
+          recipient_email: clientEmail,
+          subject: `${EMAIL_BRAND_NAME} - ${subject}`,
+          template_type: "quote_signature_reminder",
+          status: "sent",
+          sent_at: new Date().toISOString(),
+        });
+
         sent++;
         results.push({ docId, status: 'sent' });
       } catch (e: any) {

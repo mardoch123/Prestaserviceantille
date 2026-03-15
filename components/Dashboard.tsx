@@ -1,18 +1,19 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageLoader from './PageLoader';
-import { DashboardViewMode } from '../types';
+import { DashboardViewMode, Mission } from '../types';
 import StatCard from './StatCard';
 import { TurnoverChart, ClientsChart, MissionsChart } from './Charts';
 import { useData } from '../context/DataContext';
 import AdminVideoSupervisor from './AdminVideoSupervisor';
-import { getServiceTypeFromText, matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
+import { matchesServiceTypeFilterFromText, getServiceTypeFromText } from '../utils/serviceTypes';
 import { 
     getMartiniqueNow,
     toMartiniqueTime
 } from '../src/utils/dayjsMartinique';
 import dayjs from 'dayjs';
 import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 
 import { 
     ChevronDown, 
@@ -32,7 +33,13 @@ import {
     MapPin,
     Phone,
     Eye,
-    ArrowRight
+    ArrowRight,
+    X,
+    Camera,
+    Calendar,
+    Check,
+    RotateCcw,
+    Ban
 } from 'lucide-react';
 import { GlobalSearchBar } from './GlobalSearchBar';
 
@@ -47,6 +54,10 @@ const Dashboard: React.FC = () => {
   const [timeFilter, setTimeFilter] = useState<string>('month');
   const [providerFilter, setProviderFilter] = useState<string>('');
   const [showVideoSupervisor, setShowVideoSupervisor] = useState(false);
+  const [showMissionModal, setShowMissionModal] = useState(false);
+  const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const navigate = useNavigate();
   const { missions, documents, clients, providers, activeStream, currentUser, serviceTypeFilter, dataLoading, refreshData } = useData();
   const { buttonPress, success } = useHaptic();
@@ -303,6 +314,89 @@ const Dashboard: React.FC = () => {
 
   const goToFinancials = (filter: 'all' | 'pending' | 'paid' | 'refund') => {
     navigate('/financials', { state: { filter, time: timeFilter } });
+  };
+
+  // Helper to normalize media URLs
+  const normalizeMediaUrl = (raw: string) => {
+    const url = String(raw || '').trim();
+    if (!url) return '';
+    if (/^data:/i.test(url) || /^blob:/i.test(url) || /^https?:\/\//i.test(url)) return url;
+    if (!isSupabaseConfigured) return url;
+    const cleanedPath = url.replace(/^\/+/, '');
+    const { data } = supabase.storage.from('mission-media').getPublicUrl(cleanedPath);
+    return String(data?.publicUrl || url);
+  };
+
+  // Open mission details modal
+  const openMissionModal = (mission: Mission) => {
+    setSelectedMission(mission);
+    setShowMissionModal(true);
+    buttonPress();
+  };
+
+  // Close mission modal
+  const closeMissionModal = () => {
+    setShowMissionModal(false);
+    setTimeout(() => setSelectedMission(null), 300);
+    setLightboxImage(null);
+  };
+
+  // Validate mission
+  const handleValidateMission = async () => {
+    if (!selectedMission) return;
+    setIsValidating(true);
+    try {
+      const { error } = await supabase
+        .from('missions')
+        .update({ 
+          status: 'completed', 
+          color: 'green',
+          report_sent: true 
+        })
+        .eq('id', selectedMission.id);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setSelectedMission({ ...selectedMission, status: 'completed', color: 'green' });
+      success();
+      toast.success('Mission validée avec succès');
+      
+      // Close modal and refresh data
+      closeMissionModal();
+      if (refreshData) {
+        await refreshData();
+      }
+    } catch (e: any) {
+      console.error('Error validating mission:', e);
+      toast.error('Erreur lors de la validation');
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  // Cancel mission
+  const handleCancelMission = async () => {
+    if (!selectedMission) return;
+    if (!confirm('Êtes-vous sûr de vouloir annuler cette mission ?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('missions')
+        .update({ status: 'cancelled', color: 'gray' })
+        .eq('id', selectedMission.id);
+      
+      if (error) throw error;
+      
+      toast.success('Mission annulée');
+      closeMissionModal();
+      if (refreshData) {
+        await refreshData();
+      }
+    } catch (e: any) {
+      console.error('Error cancelling mission:', e);
+      toast.error('Erreur lors de l\'annulation');
+    }
   };
 
   // Define content based on viewMode
@@ -597,12 +691,34 @@ const Dashboard: React.FC = () => {
             <MapPin className="w-5 h-5 text-emerald-500" />
             Prestataires sur le terrain
           </h3>
-          <button
-            onClick={() => { buttonPress(); navigate('/planning'); }}
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-          >
-            Voir le planning <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {(() => {
+              const activeMissions = missions.filter(m => 
+                matchesServiceTypeFilterFromText(m.service, serviceTypeFilter) &&
+                normalizeMissionStatus((m as any)?.status) === 'in_progress'
+              );
+              const hasMoreThan3 = activeMissions.length > 3;
+              
+              return (
+                <>
+                  {hasMoreThan3 && (
+                    <button
+                      onClick={() => { buttonPress(); navigate('/reports', { state: { initialTab: 'in_progress' } }); }}
+                      className="text-sm bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                    >
+                      Voir tout <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { buttonPress(); navigate('/planning'); }}
+                    className="text-sm text-slate-600 hover:text-slate-800 font-medium flex items-center gap-1"
+                  >
+                    Planning <ArrowRight className="w-4 h-4" />
+                  </button>
+                </>
+              );
+            })()}
+          </div>
         </div>
 
         {(() => {
@@ -623,16 +739,19 @@ const Dashboard: React.FC = () => {
             );
           }
 
+          // Limit to 3 missions
+          const limitedMissions = activeMissions.slice(0, 3);
+
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activeMissions.map(mission => {
+              {limitedMissions.map(mission => {
                 const provider = providers.find(p => p.id === mission.providerId);
                 const client = clients.find(c => c.id === mission.clientId);
                 
                 return (
                   <div 
                     key={mission.id} 
-                    onClick={() => navigate('/planning', { state: { selectedMissionId: mission.id, selectedDate: mission.date } })}
+                    onClick={() => openMissionModal(mission)}
                     className="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-lg hover:border-emerald-300 transition-all group"
                   >
                     {/* Header - Provider Info */}
@@ -690,6 +809,210 @@ const Dashboard: React.FC = () => {
           );
         })()}
       </div>
+
+      {/* Mission Details Modal */}
+      {showMissionModal && selectedMission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200 overflow-hidden">
+            
+            {/* Header */}
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <div>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xl font-bold text-slate-800">Détails de la Mission</h3>
+                  {selectedMission.status === 'completed' ? (
+                    <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border border-green-200">Terminée</span>
+                  ) : (
+                    <span className="bg-blue-100 text-brand-blue px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border border-blue-200">En cours</span>
+                  )}
+                </div>
+                <p className="text-sm text-slate-500 flex items-center gap-2 mt-1">
+                  <Calendar className="w-4 h-4" /> {selectedMission.date} 
+                  <span className="text-slate-300">|</span> 
+                  <Clock className="w-4 h-4" /> {selectedMission.startTime} - {selectedMission.endTime}
+                </p>
+              </div>
+              <button onClick={closeMissionModal} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
+              
+              {/* Info Card */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Client</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold">
+                      {selectedMission.clientName.charAt(0)}
+                    </div>
+                    <span className="font-bold text-slate-800">{selectedMission.clientName}</span>
+                  </div>
+                  {(() => {
+                    const c = clients.find(client => client.id === selectedMission.clientId);
+                    if (!c) return null;
+                    const phone = String((c as any).phone || '').trim();
+                    const address = String((c as any).address || '').trim();
+                    const city = String((c as any).city || '').trim();
+                    const line = [address, city].filter(Boolean).join(', ');
+                    return (
+                      <div className="mt-2 text-xs text-slate-500 space-y-1">
+                        {phone ? (
+                          <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{phone}</div>
+                        ) : null}
+                        {line ? (
+                          <div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{line}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Prestataire</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
+                      {selectedMission.providerName?.charAt(0)}
+                    </div>
+                    <span className="font-bold text-slate-800">{selectedMission.providerName}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Service</span>
+                  <span className="font-bold text-brand-blue text-lg">{selectedMission.service}</span>
+                </div>
+              </div>
+
+              {/* Photos Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                {/* Start Photos */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                  <div className="bg-orange-50 border-b border-orange-100 px-4 py-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                    <h4 className="font-bold text-orange-800">Photos Début</h4>
+                  </div>
+                  <div className="p-4 flex-1">
+                    {(() => {
+                      const urls = (selectedMission.startPhotos || []).map(normalizeMediaUrl).filter(Boolean);
+                      return (
+                        <>
+                          <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
+                            <Camera className="w-3 h-3"/> Photos ({urls.length})
+                          </span>
+                          {urls.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-2">
+                              {urls.map((url, i) => (
+                                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
+                                  <img src={url} alt="Start" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-xs">
+                              Aucune photo de début.
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* End Photos */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                  <div className="bg-green-50 border-b border-green-100 px-4 py-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-600"></span>
+                    <h4 className="font-bold text-green-800">Photos Fin</h4>
+                  </div>
+                  <div className="p-4 flex-1">
+                    {(() => {
+                      const urls = (selectedMission.endPhotos || []).map(normalizeMediaUrl).filter(Boolean);
+                      return (
+                        <>
+                          <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
+                            <Camera className="w-3 h-3"/> Photos ({urls.length})
+                          </span>
+                          {urls.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-2">
+                              {urls.map((url, i) => (
+                                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 group relative cursor-pointer" onClick={() => setLightboxImage(url)}>
+                                  <img src={url} alt="End" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-xs">
+                              Aucune photo de fin.
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div className="bg-white rounded-xl p-4 border border-slate-200">
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-2">Remarque Début</span>
+                  <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                    {selectedMission.startRemark || "Aucune remarque."}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-4 border border-slate-200">
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-2">Remarque Fin</span>
+                  <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                    {selectedMission.endRemark || "Aucune remarque."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleCancelMission}
+                  className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition flex items-center gap-2"
+                >
+                  <Ban className="w-4 h-4" />
+                  Annuler
+                </button>
+                {selectedMission.status === 'in_progress' && (
+                  <button
+                    onClick={handleValidateMission}
+                    disabled={isValidating}
+                    className="px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isValidating ? (
+                      <>
+                        <RotateCcw className="w-4 h-4 animate-spin" />
+                        Validation...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Valider la mission
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox for photos */}
+      {lightboxImage && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setLightboxImage(null)}>
+          <img src={lightboxImage} alt="Full size" className="max-w-full max-h-full rounded-lg shadow-2xl" />
+          <button className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+      )}
     </div>
     <div className="h-20" /> {/* Extra space at bottom for scrolling */}
     </PullToRefresh>

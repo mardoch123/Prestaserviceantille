@@ -1,5 +1,6 @@
 import emailjs from '@emailjs/browser';
 import { generateEmailTemplate, htmlToPlainText } from './emailTemplates';
+import { supabase } from './supabaseClient';
 
 // EmailJS Configuration
 const EMAILJS_SERVICE_ID = "service_0u67mco";
@@ -99,6 +100,20 @@ export const sendEmailViaEmailJS = async (
             templateParams,
             EMAILJS_PUBLIC_KEY
         );
+
+        // Log the email in email_logs table
+        try {
+            await supabase.from('email_logs').insert({
+                recipient_email: to,
+                subject: normalizedSubject,
+                template_type: templateType,
+                status: response.status === 200 ? 'sent' : 'failed',
+                sent_at: response.status === 200 ? new Date().toISOString() : null,
+                error_message: response.status !== 200 ? `HTTP ${response.status}` : null
+            });
+        } catch (logError) {
+            console.error('[EmailJS] Failed to log email:', logError);
+        }
 
         if (response.status === 200) {
             console.log(`[EmailJS] ✓ Email sent successfully to ${to} (${templateType})`);

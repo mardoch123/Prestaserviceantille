@@ -27,7 +27,8 @@ import {
   Sun,
   Filter,
   Settings,
-  Check
+  Check,
+  MailCheck
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
@@ -139,6 +140,23 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const [newReferrersCount, setNewReferrersCount] = useState(0);
   const [pendingServiceRequestsCount, setPendingServiceRequestsCount] = useState(0);
   const [showEmailMarketingBadge, setShowEmailMarketingBadge] = useState(false);
+  
+  // EmailJS quota tracking with detailed stats
+  const [emailQuota, setEmailQuota] = useState<{
+    used: number;
+    failed: number;
+    limit: number;
+    remaining: number;
+    percentUsed: number;
+    projectedUsage: number;
+    estimatedOverage: number;
+    dailyAverage: number;
+    currentMonth: string;
+    source: string;
+    lastUpdated: string;
+  } | null>(null);
+  const [emailQuotaLoading, setEmailQuotaLoading] = useState(false);
+  const [showEmailQuota, setShowEmailQuota] = useState(true); // Toggle to show/hide email counter
 
   useEffect(() => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return;
@@ -211,6 +229,107 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     loadMarketingCounts();
     return () => {
       cancelled = true;
+    };
+  }, [currentUser?.role]);
+
+  // Fetch EmailJS quota for admin users via API endpoint
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return;
+
+    let cancelled = false;
+
+    const fetchEmailQuota = async () => {
+      setEmailQuotaLoading(true);
+      try {
+        // Call the API endpoint for real quota data
+        const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
+        const response = await fetch(`${apiBase}/api/emailjs-quota`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.success && data.quota) {
+          if (!cancelled) {
+            setEmailQuota(data.quota);
+          }
+        } else {
+          throw new Error(data.error || 'Failed to fetch quota');
+        }
+      } catch (err) {
+        console.error('[Sidebar] Failed to fetch email quota from API:', err);
+        // Fallback: use local Supabase query
+        try {
+          if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+          
+          const now = new Date();
+          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+          
+          const { count, error } = await supabase
+            .from('email_logs')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', monthStart)
+            .eq('status', 'sent');
+
+          if (error) throw error;
+
+          const monthlyLimit = 700;
+          const used = count || 0;
+          const remaining = Math.max(0, monthlyLimit - used);
+          const percentUsed = Math.round((used / monthlyLimit) * 100);
+          const dayOfMonth = now.getDate();
+          const dailyAverage = dayOfMonth > 1 ? used / dayOfMonth : used;
+
+          if (!cancelled) {
+            setEmailQuota({ 
+              used, 
+              failed: 0,
+              limit: monthlyLimit, 
+              remaining,
+              percentUsed,
+              projectedUsage: Math.round(dailyAverage * 30),
+              estimatedOverage: 0,
+              dailyAverage: Math.round(dailyAverage * 10) / 10,
+              currentMonth: now.toLocaleString('fr-FR', { month: 'long', year: 'numeric' }),
+              source: 'supabase_fallback',
+              lastUpdated: new Date().toISOString()
+            });
+          }
+        } catch (fallbackErr) {
+          console.error('[Sidebar] Fallback also failed:', fallbackErr);
+          if (!cancelled) {
+            setEmailQuota({ 
+              used: 0, 
+              failed: 0,
+              limit: 700, 
+              remaining: 700,
+              percentUsed: 0,
+              projectedUsage: 0,
+              estimatedOverage: 0,
+              dailyAverage: 0,
+              currentMonth: new Date().toLocaleString('fr-FR', { month: 'long', year: 'numeric' }),
+              source: 'default',
+              lastUpdated: new Date().toISOString()
+            });
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setEmailQuotaLoading(false);
+        }
+      }
+    };
+
+    fetchEmailQuota();
+
+    // Refresh quota every 30 seconds for "real-time" feel
+    const interval = setInterval(fetchEmailQuota, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
     };
   }, [currentUser?.role]);
 
@@ -538,7 +657,152 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             )}
           </nav>
           
-          <div className="p-4 border-t border-beige-200 shrink-0">
+          <div className="p-4 border-t border-beige-200 shrink-0 space-y-3">
+            {/* EmailJS Quota Indicator - Only for admins */}
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && emailQuota && showEmailQuota && (
+              <div className={`p-3 rounded-lg border ${
+                isSoberMode
+                  ? 'bg-slate-800 border-slate-700'
+                  : 'bg-white/80 border-beige-200'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <MailCheck className={`w-4 h-4 ${
+                      emailQuota.percentUsed > 75 
+                        ? 'text-red-500' 
+                        : emailQuota.percentUsed > 50 
+                          ? 'text-amber-500' 
+                          : 'text-emerald-500'
+                    }`} />
+                    <span className={`text-xs font-bold ${isSoberMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                      Quota EmailJS
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowEmailQuota(false)}
+                    className={`text-[10px] ${isSoberMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                    title="Masquer le compteur"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                
+                {/* Main Stats */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-center">
+                    <span className={`text-[10px] ${isSoberMode ? 'text-slate-500' : 'text-slate-400'}`}>Utilisé</span>
+                    <p className={`text-sm font-bold ${isSoberMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                      {emailQuota.used}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <span className={`text-[10px] ${isSoberMode ? 'text-slate-500' : 'text-slate-400'}`}>Restants</span>
+                    <p className={`text-sm font-bold ${
+                      emailQuota.remaining < 500 
+                        ? 'text-red-500' 
+                        : emailQuota.remaining < 1000 
+                          ? 'text-amber-500' 
+                          : 'text-emerald-600'
+                    }`}>
+                      {emailQuota.remaining}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <span className={`text-[10px] ${isSoberMode ? 'text-slate-500' : 'text-slate-400'}`}>Limite</span>
+                    <p className={`text-sm font-bold ${isSoberMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                      {emailQuota.limit}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden mb-2">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      emailQuota.percentUsed > 75 
+                        ? 'bg-red-500' 
+                        : emailQuota.percentUsed > 50 
+                          ? 'bg-amber-500' 
+                          : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(emailQuota.percentUsed, 100)}%` }}
+                  />
+                </div>
+                
+                {/* Additional Info */}
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className={isSoberMode ? 'text-slate-500' : 'text-slate-400'}>
+                    {emailQuota.percentUsed}% utilisé
+                  </span>
+                  <span className={isSoberMode ? 'text-slate-500' : 'text-slate-400'}>
+                    {emailQuota.currentMonth}
+                  </span>
+                </div>
+                
+                {/* Reset Button when low quota */}
+                {emailQuota.remaining < 500 && (
+                  <button
+                    onClick={async () => {
+                      // Reset the quota display (this just reloads the data)
+                      setEmailQuotaLoading(true);
+                      try {
+                        const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
+                        const response = await fetch(`${apiBase}/api/emailjs-quota`);
+                        const data = await response.json();
+                        if (data.success && data.quota) {
+                          setEmailQuota(data.quota);
+                        }
+                      } catch (err) {
+                        console.error('Failed to refresh quota:', err);
+                      } finally {
+                        setEmailQuotaLoading(false);
+                      }
+                    }}
+                    className="mt-3 w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg text-xs font-semibold hover:from-emerald-600 hover:to-teal-700 transition-colors"
+                  >
+                    🔄 Réinitialiser le compteur
+                  </button>
+                )}
+                
+                {/* Warning if low quota */}
+                {emailQuota.remaining < 500 && (
+                  <div className={`mt-2 p-2 rounded text-[10px] ${
+                    emailQuota.remaining < 200 
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {emailQuota.remaining < 200 
+                      ? '⚠️ Quota critique ! Moins de 200 emails restants' 
+                      : '⚠️ Quota faible - Moins de 500 emails restants'}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Show Email Counter Button when hidden */}
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && emailQuota && !showEmailQuota && (
+              <button
+                onClick={() => setShowEmailQuota(true)}
+                className={`w-full py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-colors ${
+                  isSoberMode
+                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    : 'bg-white/80 border-beige-200 text-slate-600 hover:bg-white'
+                }`}
+              >
+                <MailCheck className="w-4 h-4" />
+                Afficher le quota EmailJS
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                  emailQuota.remaining < 200 
+                    ? 'bg-red-100 text-red-600' 
+                    : emailQuota.remaining < 350 
+                      ? 'bg-amber-100 text-amber-600' 
+                      : 'bg-emerald-100 text-emerald-600'
+                }`}>
+                  {emailQuota.remaining}
+                </span>
+              </button>
+            )}
+            
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-500">A</div>
               <div className="text-xs">

@@ -213,6 +213,15 @@ serve(async (req: Request) => {
         if (!dryRun) {
           await sendEmailViaEmailJS({ to: providerEmail, subject, message });
 
+          // Log email in email_logs
+          await supabase.from("email_logs").insert({
+            recipient_email: providerEmail,
+            subject: `${EMAIL_BRAND_NAME} - ${subject}`,
+            template_type: "provider_reminder_24h",
+            status: "sent",
+            sent_at: new Date().toISOString(),
+          });
+
           // Mark mission as reminded
           await supabase.from("missions").update({ reminder_24h_provider_sent: true }).eq("id", missionId);
 

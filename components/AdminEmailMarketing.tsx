@@ -23,6 +23,7 @@ import {
   Package
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import type { Pack } from '../types';
 import {
   getMarketingCampaigns,
   getEmailLogs,
@@ -42,6 +43,7 @@ interface EmailEditorState {
   name: string;
   subject: string;
   htmlContent: string;
+  selectedPackId?: string;
 }
 
 interface TargetFilters {
@@ -96,8 +98,8 @@ export const AdminEmailMarketingPage: React.FC = () => {
   });
 
   // UI state
-  const [showPreview, setShowPreview] = useState(false);
-  const [showTargetingOptions, setShowTargetingOptions] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
+  const [showTargetingOptions, setShowTargetingOptions] = useState(true);
   const [showClientSelector, setShowClientSelector] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
   const [targetClients, setTargetClients] = useState<TargetClient[]>([]);
@@ -135,7 +137,77 @@ export const AdminEmailMarketingPage: React.FC = () => {
     }
   };
 
-  // Calculate target clients when filters change
+  // Helper function to generate pack email content
+  const generatePackEmailContent = (pack: Pack): string => {
+    const frequencyLabels: Record<string, string> = {
+      'Ponctuelle': 'Intervention ponctuelle',
+      'Hebdomadaire': 'Tous les week',
+      'Bimensuelle': '2 fois par mois',
+      'Mensuelle': '1 fois par mois',
+      'regulier': 'Régulièrement'
+    };
+
+    const formatPrice = (price: number): string => {
+      return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
+        currency: 'EUR'
+      }).format(price);
+    };
+
+    return `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+  <h2 style="color: #0f766e;">🎉 Nouveau pack disponible !</h2>
+  <p>Bonjour,</p>
+  <p>Nous avons le plaisir de vous annoncer l'arrivée d'un nouveau pack :</p>
+  
+  <div style="background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%); border-left: 4px solid #0d9488; padding: 20px; margin: 20px 0; border-radius: 8px;">
+    <h3 style="margin-top: 0; color: #115e59; font-size: 20px;">${pack.name}</h3>
+    
+    ${pack.description ? `<p style="color: #334155; margin: 10px 0; font-style: italic;">${pack.description}</p>` : ''}
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 15px; margin: 15px 0;">
+      ${pack.hours ? `<div style="background: white; padding: 10px 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <span style="font-size: 12px; color: #64748b; display: block;">Durée</span>
+        <span style="font-weight: bold; color: #0f766e;">${pack.hours}h</span>
+      </div>` : ''}
+      
+      ${pack.frequency ? `<div style="background: white; padding: 10px 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <span style="font-size: 12px; color: #64748b; display: block;">Fréquence</span>
+        <span style="font-weight: bold; color: #0f766e;">${frequencyLabels[pack.frequency] || pack.frequency}</span>
+      </div>` : ''}
+      
+      ${pack.quantity ? `<div style="background: white; padding: 10px 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <span style="font-size: 12px; color: #64748b; display: block;">Quantité</span>
+        <span style="font-weight: bold; color: #0f766e;">${pack.quantity}</span>
+      </div>` : ''}
+    </div>
+    
+    ${pack.location ? `<p style="margin: 10px 0; color: #475569;">
+      <strong>📍 Lieu :</strong> ${pack.location}
+    </p>` : ''}
+    
+    ${pack.suppliesIncluded ? `<p style="margin: 10px 0; color: #059669; font-weight: 500;">
+      ✅ Fournitures incluses ${pack.suppliesDetails ? `(${pack.suppliesDetails})` : ''}
+    </p>` : ''}
+    
+    <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; border: 2px solid #0d9488;">
+      <span style="font-size: 14px; color: #64748b; display: block; margin-bottom: 5px;">Prix TTC</span>
+      <span style="font-size: 32px; font-weight: bold; color: #0f766e;">${formatPrice(pack.priceTTC)}</span>
+      ${pack.priceTaxCredit > 0 ? `<p style="margin: 8px 0 0 0; color: #059669; font-size: 13px;">💰 Après crédit d'impôt : ${formatPrice(pack.priceTaxCredit)}</p>` : ''}
+    </div>
+  </div>
+  
+  <p>Ne manquez pas cette opportunité ! Contactez-nous dès maintenant pour en profiter.</p>
+  
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="https://www.prestaservicesantilles.com/" style="display: inline-block; background: linear-gradient(135deg, #0d9488, #0f766e); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">En savoir plus</a>
+  </div>
+  
+  <p style="color: #64748b; font-size: 12px; margin-top: 30px; text-align: center;">
+    Presta Services Antilles - Simplifiez votre quotidien<br>
+    📞 0696 06 15 94 | 📧 prestaservicesantilles.rh@gmail.com
+  </p>
+</div>`;
+  };
   useEffect(() => {
     const loadTargetClients = async () => {
       if (!filters.allClients && filters.specificClientIds.length === 0) {
@@ -188,25 +260,25 @@ export const AdminEmailMarketingPage: React.FC = () => {
   const applyTemplate = (templateName: string) => {
     switch (templateName) {
       case 'Nouveau pack':
+        // Check if a pack is selected
+        if (!editor.selectedPackId) {
+          setSendResult({ success: false, message: 'Veuillez d\'abord sélectionner un pack dans la section "Pack promotionnel"' });
+          setTimeout(() => setSendResult(null), 3000);
+          return;
+        }
+        
+        const selectedPack = packs.find(p => p.id === editor.selectedPackId);
+        if (!selectedPack) {
+          setSendResult({ success: false, message: 'Pack non trouvé' });
+          setTimeout(() => setSendResult(null), 3000);
+          return;
+        }
+        
         setEditor(prev => ({
           ...prev,
-          name: 'Nouveau pack disponible !',
-          subject: 'Découvrez notre nouveau pack !',
-          htmlContent: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-  <h2 style="color: #0f766e;">Nouveau pack disponible !</h2>
-  <p>Bonjour,</p>
-  <p>Nous avons le plaisir de vous annoncer l'arrivée d'un nouveau pack :</p>
-  <div style="background: #f0fdfa; border-left: 4px solid #0d9488; padding: 20px; margin: 20px 0;">
-    <h3 style="margin-top: 0; color: #115e59;">NOM DU PACK</h3>
-    <p style="margin-bottom: 0;">Description du pack...</p>
-    <p style="font-size: 24px; font-weight: bold; color: #0f766e; margin: 10px 0;">PRIX €</p>
-  </div>
-  <p>Ne manquez pas cette opportunité ! Contactez-nous dès maintenant pour en profiter.</p>
-  <a href="https://www.prestaservicesantilles.com/" style="display: inline-block; background: #0d9488; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Voir nos offres</a>
-  <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
-    Presta Services Antilles - Simplifiez votre quotidien
-  </p>
-</div>`
+          name: `Nouveau pack : ${selectedPack.name}`,
+          subject: `🎉 Découvrez notre nouveau pack : ${selectedPack.name} !`,
+          htmlContent: generatePackEmailContent(selectedPack)
         }));
         break;
       case 'Rappel inactif':
@@ -579,6 +651,49 @@ export const AdminEmailMarketingPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                 </div>
+
+                {/* Pack Selection for Promotions */}
+                <div className="pt-4 border-t border-slate-200">
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
+                    <Package className="w-4 h-4 text-emerald-600" />
+                    Pack promotionnel (optionnel)
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Sélectionnez un pack pour le template "Nouveau pack" - les informations seront automatiquement intégrées
+                  </p>
+                  <select
+                    value={editor.selectedPackId || ''}
+                    onChange={e => setEditor(prev => ({ ...prev, selectedPackId: e.target.value || undefined }))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                  >
+                    <option value="">-- Sélectionner un pack --</option>
+                    {packs.map(pack => (
+                      <option key={pack.id} value={pack.id}>
+                        {pack.name} - {pack.priceTTC.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </option>
+                    ))}
+                  </select>
+                  
+                  {editor.selectedPackId && (
+                    <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                      {(() => {
+                        const selectedPack = packs.find(p => p.id === editor.selectedPackId);
+                        if (!selectedPack) return null;
+                        return (
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-emerald-800">{selectedPack.name}</p>
+                            <p className="text-xs text-emerald-600">
+                              {selectedPack.hours}h • {selectedPack.frequency} • {selectedPack.priceTTC.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                            </p>
+                            <p className="text-xs text-emerald-700 mt-2">
+                              Cliquez sur le template "Nouveau pack" pour générer l'email avec ces données
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Targeting */}
@@ -750,6 +865,47 @@ export const AdminEmailMarketingPage: React.FC = () => {
                     {isLoadingTargets && <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />}
                   </div>
                 </div>
+
+                {/* Target Client List - Moved here from right panel */}
+                <div className="mt-4 bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 bg-white">
+                    <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      Liste des clients ciblés ({targetClients.length})
+                    </h4>
+                  </div>
+                  <div className="max-h-64 overflow-auto">
+                    {targetClients.length === 0 ? (
+                      <div className="p-6 text-center text-slate-400">
+                        <Filter className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ajustez vos filtres pour cibler des clients</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {targetClients.map(client => (
+                          <div key={client.client_id} className="px-4 py-3 hover:bg-white">
+                            <p className="text-sm font-medium text-slate-700">{client.client_name}</p>
+                            <p className="text-xs text-slate-500">{client.client_email}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {client.has_missions ? (
+                                <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                                  {client.days_since_last_mission !== undefined
+                                    ? `Dernière mission il y a ${client.days_since_last_mission}j`
+                                    : 'A des missions'}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">Aucune mission</span>
+                              )}
+                              <span className="text-xs text-slate-400">
+                                Inscrit depuis {client.days_since_registration}j
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* HTML Editor */}
@@ -795,7 +951,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
             </div>
 
             {/* Preview Panel */}
-            <div className="space-y-4">
+            <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
@@ -830,47 +986,6 @@ export const AdminEmailMarketingPage: React.FC = () => {
                     <p className="text-sm">Cliquez sur "Afficher" pour voir l'aperçu</p>
                   </div>
                 )}
-              </div>
-
-              {/* Target Client List */}
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <Users className="w-4 h-4" />
-                    Clients ciblés ({targetClients.length})
-                  </h3>
-                </div>
-                <div className="max-h-96 overflow-auto">
-                  {targetClients.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400">
-                      <Filter className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">Ajustez vos filtres pour cibler des clients</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {targetClients.map(client => (
-                        <div key={client.client_id} className="px-4 py-3 hover:bg-slate-50">
-                          <p className="text-sm font-medium text-slate-700">{client.client_name}</p>
-                          <p className="text-xs text-slate-500">{client.client_email}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            {client.has_missions ? (
-                              <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
-                                {client.days_since_last_mission !== undefined
-                                  ? `Dernière mission il y a ${client.days_since_last_mission}j`
-                                  : 'A des missions'}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">Aucune mission</span>
-                            )}
-                            <span className="text-xs text-slate-400">
-                              Inscrit depuis {client.days_since_registration}j
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </div>
