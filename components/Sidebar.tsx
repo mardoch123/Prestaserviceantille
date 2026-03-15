@@ -265,7 +265,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           throw new Error(data.error || 'Failed to fetch quota');
         }
       } catch (err) {
-        console.error('[Sidebar] Failed to fetch email quota from API:', err);
+        // Silencieux en production - fallback normal sur VPS avec auth basique
+        console.log('[Sidebar] API quota indisponible (auth basique?), fallback Supabase...');
         // Fallback: use local Supabase query
         try {
           if (!isSupabaseConfigured) throw new Error('Supabase not configured');
