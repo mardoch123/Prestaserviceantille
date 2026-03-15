@@ -35,6 +35,7 @@ import {
   type TargetClient
 } from '../modules/marketing/ui/marketingEmailClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
+import { htmlToPlainText } from '../utils/emailTemplates';
 import { supabase } from '../utils/supabaseClient';
 
 interface EmailEditorState {
@@ -352,6 +353,9 @@ export const AdminEmailMarketingPage: React.FC = () => {
         });
 
         try {
+          // Convert HTML to plain text for the email
+          const plainTextContent = htmlToPlainText(editor.htmlContent);
+          
           const success = await sendEmailViaEmailJS(
             client.client_email,
             editor.subject,
@@ -359,7 +363,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
             {
               name: client.client_name,
               clientName: client.client_name,
-              message: editor.htmlContent
+              message: plainTextContent
             }
           );
 

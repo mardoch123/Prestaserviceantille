@@ -1,5 +1,5 @@
 import emailjs from '@emailjs/browser';
-import { generateEmailTemplate } from './emailTemplates';
+import { generateEmailTemplate, htmlToPlainText } from './emailTemplates';
 
 // EmailJS Configuration
 const EMAILJS_SERVICE_ID = "service_0u67mco";
@@ -68,6 +68,11 @@ export const sendEmailViaEmailJS = async (
 
         // Generate complete email from preconfigured template
         const emailTemplate = generateEmailTemplate(templateType, context);
+
+        // Check if message contains HTML and convert to plain text
+        if (emailTemplate.message && emailTemplate.message.includes('<')) {
+            emailTemplate.message = htmlToPlainText(emailTemplate.message);
+        }
 
         const normalizedSubject = `${EMAIL_BRAND_NAME} - ${String(emailTemplate.subject || subject || '').trim()}`.trim();
 

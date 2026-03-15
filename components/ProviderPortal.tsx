@@ -927,9 +927,9 @@ const ProviderPortal: React.FC = () => {
               <div className="max-w-7xl mx-auto pb-24 md:pb-8">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-4 md:space-y-6 p-4 md:p-8">
-                    {/* Mobile Calendar Section - MASQUÉ: Premier sélecteur de dates */}
-                    <div className="hidden md:hidden space-y-4">
-                      {/* Date du jour - Visible en haut */}
+                    {/* Mobile Calendar Section - Carte Date visible, calendrier masqué */}
+                    <div className="md:hidden space-y-4">
+                      {/* Date du jour - Visible en haut sur MOBILE uniquement */}
                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200">
                         <div className="flex items-center justify-between">
                           <div>
@@ -954,8 +954,8 @@ const ProviderPortal: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Month Navigation */}
-                      <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl rounded-xl p-3">
+                      {/* Month Navigation - MASQUÉ sur mobile */}
+                      <div className="hidden md:flex items-center justify-between bg-white/80 backdrop-blur-xl rounded-xl p-3">
                         <button 
                           onClick={() => setCurrentMonth(prev => prev.subtract(1, 'month'))}
                           className="p-2 rounded-lg hover:bg-gray-100 transition"
@@ -971,8 +971,8 @@ const ProviderPortal: React.FC = () => {
                         </button>
                       </div>
                       
-                      {/* Horizontal Calendar */}
-                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                      {/* Horizontal Calendar - MASQUÉ sur mobile */}
+                      <div className="hidden md:flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                         {calendarDays.map((day, idx) => {
                           const isSelected = day.isSame(selectedDate, 'day');
                           const isToday = day.isSame(new Date(), 'day');

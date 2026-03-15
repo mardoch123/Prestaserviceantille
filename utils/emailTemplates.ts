@@ -11,6 +11,91 @@
  * - {{name}} - Recipient name (From name in EmailJS)
  */
 
+/**
+ * Converts HTML content to plain text
+ * Removes all HTML tags and converts common HTML entities
+ */
+export const htmlToPlainText = (html: string): string => {
+    if (!html) return '';
+    
+    let text = html;
+    
+    // Replace common HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"')
+               .replace(/&#39;/g, "'")
+               .replace(/&eacute;/g, 'é')
+               .replace(/&egrave;/g, 'è')
+               .replace(/&agrave;/g, 'à')
+               .replace(/&ucirc;/g, 'û')
+               .replace(/&ocirc;/g, 'ô')
+               .replace(/&icirc;/g, 'î')
+               .replace(/&acirc;/g, 'â')
+               .replace(/&euml;/g, 'ë')
+               .replace(/&iuml;/g, 'ï')
+               .replace(/&uuml;/g, 'ü')
+               .replace(/&ccedil;/g, 'ç')
+               .replace(/&Eacute;/g, 'É')
+               .replace(/&Egrave;/g, 'È')
+               .replace(/&Agrave;/g, 'À')
+               .replace(/&mdash;/g, '—')
+               .replace(/&ndash;/g, '–')
+               .replace(/&hellip;/g, '…')
+               .replace(/&bull;/g, '•')
+               .replace(/&copy;/g, '©')
+               .replace(/&reg;/g, '®')
+               .replace(/&trade;/g, '™')
+               .replace(/&euro;/g, '€');
+    
+    // Replace <br>, <br/>, <br /> with newlines
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Replace <p> tags with newlines
+    text = text.replace(/<\/p>/gi, '\n\n');
+    text = text.replace(/<p[^>]*>/gi, '');
+    
+    // Replace <div> tags with newlines
+    text = text.replace(/<\/div>/gi, '\n');
+    text = text.replace(/<div[^>]*>/gi, '');
+    
+    // Replace <li> tags with bullet points
+    text = text.replace(/<li[^>]*>/gi, '• ');
+    text = text.replace(/<\/li>/gi, '\n');
+    
+    // Remove <ul>, <ol> tags
+    text = text.replace(/<\/?ul[^>]*>/gi, '\n');
+    text = text.replace(/<\/?ol[^>]*>/gi, '\n');
+    
+    // Convert heading tags to text with emphasis
+    text = text.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n**$1**\n');
+    text = text.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n**$1**\n');
+    text = text.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n**$1**\n');
+    text = text.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n**$1**\n');
+    text = text.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '\n**$1**\n');
+    text = text.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '\n**$1**\n');
+    
+    // Convert <strong>, <b> to markdown-style bold
+    text = text.replace(/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/gi, '**$2**');
+    
+    // Convert <em>, <i> to markdown-style italic
+    text = text.replace(/<(em|i)[^>]*>(.*?)<\/(em|i)>/gi, '_$2_');
+    
+    // Remove all remaining HTML tags
+    text = text.replace(/<[^>]+>/g, '');
+    
+    // Clean up excessive whitespace
+    text = text.replace(/\n{3,}/g, '\n\n');
+    text = text.replace(/[ \t]+/g, ' ');
+    
+    // Trim whitespace
+    text = text.trim();
+    
+    return text;
+};
+
 export interface EmailTemplateData {
     subject: string;
     message: string;
