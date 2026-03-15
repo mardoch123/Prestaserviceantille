@@ -241,9 +241,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     const fetchEmailQuota = async () => {
       setEmailQuotaLoading(true);
       try {
-        // Call the API endpoint for real quota data
+        // Call the API endpoint for real quota data - use /api prefix for VPS compatibility
         const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
-        const response = await fetch(`${apiBase}/api/emailjs-quota`);
+        // Ensure we don't double the /api path
+        const apiUrl = apiBase.endsWith('/api') 
+          ? `${apiBase}/emailjs-quota` 
+          : `${apiBase}/api/emailjs-quota`;
+        const response = await fetch(apiUrl, { 
+          credentials: 'same-origin' // Include cookies/auth headers
+        });
         
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -578,8 +584,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     </span>
                   )}
                   {item.path === '/accounting' && (
-                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
-                      NEW
+                    <span className="px-2 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold rounded-full">
+                      BETA
                     </span>
                   )}
                 </Link>
@@ -747,7 +753,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                       setEmailQuotaLoading(true);
                       try {
                         const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
-                        const response = await fetch(`${apiBase}/api/emailjs-quota`);
+                        // Ensure we don't double the /api path
+                        const apiUrl = apiBase.endsWith('/api') 
+                          ? `${apiBase}/emailjs-quota` 
+                          : `${apiBase}/api/emailjs-quota`;
+                        const response = await fetch(apiUrl, { 
+                          credentials: 'same-origin' // Include cookies/auth headers
+                        });
                         const data = await response.json();
                         if (data.success && data.quota) {
                           setEmailQuota(data.quota);
