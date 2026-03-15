@@ -124,9 +124,7 @@ BEGIN
                 frequency,
                 recurrence_end_date,
                 linked_invoice_id,
-                reminder_sent,
-                created_at,
-                updated_at
+                reminder_sent
             ) VALUES (
                 invoice_id,
                 invoice_ref,
@@ -149,9 +147,7 @@ BEGIN
                 quote_record.frequency,
                 quote_record.recurrence_end_date,
                 quote_record.id,  -- Lien vers le devis source
-                false,
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP
+                false
             );
             
             -- Mettre à jour le devis pour le lier à la facture

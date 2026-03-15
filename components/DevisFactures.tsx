@@ -97,7 +97,7 @@ const DevisFactures: React.FC = () => {
         ],
         []
     );
-    const [selectedTypes, setSelectedTypes] = useState<string[]>(() => TYPE_OPTIONS.map(t => t.value));
+    const [selectedTypes, setSelectedTypes] = useState<string[]>(() => ['Devis']);
     const [isTypeColumnFilterOpen, setIsTypeColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
