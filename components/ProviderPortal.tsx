@@ -96,7 +96,7 @@ const ProviderPortal: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   // Dashboard view mode
   const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar' | 'horizontal' | 'grid'>('overview');
-  const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
+  const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed' | 'cancelled'>('all');
   const [selectedDayMissions, setSelectedDayMissions] = useState<Mission[] | null>(null);
   const [missionDetailsModal, setMissionDetailsModal] = useState<Mission | null>(null);
 
@@ -927,8 +927,8 @@ const ProviderPortal: React.FC = () => {
               <div className="max-w-7xl mx-auto pb-24 md:pb-8">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-4 md:space-y-6 p-4 md:p-8">
-                    {/* Mobile Calendar Section */}
-                    <div className="md:hidden space-y-4">
+                    {/* Mobile Calendar Section - MASQUÉ: Premier sélecteur de dates */}
+                    <div className="hidden md:hidden space-y-4">
                       {/* Date du jour - Visible en haut */}
                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200">
                         <div className="flex items-center justify-between">
@@ -1836,6 +1836,118 @@ const ProviderPortal: React.FC = () => {
                             </div>
                           ))}
                         </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'archive' && (
+                  <div className="space-y-4 md:space-y-6 p-4 md:p-8">
+                    <div className="hidden md:block mb-6">
+                      <h2 className="text-2xl font-bold text-gray-800">Archives</h2>
+                      <p className="text-sm text-gray-500">Missions terminées et annulées</p>
+                    </div>
+                    
+                    <div className="md:hidden mb-4">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide">Historique</p>
+                      <h3 className="text-lg font-bold text-gray-800">Missions archivées</h3>
+                    </div>
+
+                    {/* Filtres des archives */}
+                    <div className="bg-white/90 backdrop-blur-xl rounded-2xl border border-white/50 shadow-lg p-4">
+                      <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+                        <button 
+                          onClick={() => setMissionFilter('completed')}
+                          className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition ${missionFilter === 'completed' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                          Terminées
+                        </button>
+                        <button 
+                          onClick={() => setMissionFilter('cancelled')}
+                          className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition ${missionFilter === 'cancelled' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                          Annulées
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Liste des missions archivées */}
+                    <div className="space-y-4">
+                      {providerMissions
+                        .filter(m => m.status === missionFilter && (missionFilter === 'completed' || missionFilter === 'cancelled'))
+                        .length === 0 ? (
+                        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl text-center border border-white/50 shadow-lg">
+                          <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
+                            <History className="w-10 h-10 text-gray-400" />
+                          </div>
+                          <p className="text-gray-500 font-medium">
+                            {missionFilter === 'completed' ? 'Aucune mission terminée' : 'Aucune mission annulée'}
+                          </p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            Les missions {missionFilter === 'completed' ? 'terminées' : 'annulées'} apparaîtront ici
+                          </p>
+                        </div>
+                      ) : (
+                        providerMissions
+                          .filter(m => m.status === missionFilter && (missionFilter === 'completed' || missionFilter === 'cancelled'))
+                          .map((m) => {
+                            const clientById = clients.find(c => String(c.id) === String(m.clientId || ''));
+                            const normalizedMissionClientName = String(m.clientName || '').trim().toLowerCase();
+                            const clientByName = !clientById && normalizedMissionClientName
+                              ? clients.find(c => String(c.name || '').trim().toLowerCase() === normalizedMissionClientName)
+                              : undefined;
+                            const client = clientById || clientByName;
+
+                            const statusConfig = {
+                              completed: { bg: 'from-emerald-400 to-teal-500', text: 'text-emerald-700', bgSoft: 'bg-emerald-50', border: 'border-emerald-100', label: 'Terminée' },
+                              cancelled: { bg: 'from-red-400 to-rose-500', text: 'text-red-700', bgSoft: 'bg-red-50', border: 'border-red-100', label: 'Annulée' }
+                            };
+                            const status = statusConfig[m.status as keyof typeof statusConfig] || statusConfig.completed;
+
+                            return (
+                              <div key={m.id} className={`bg-white rounded-2xl p-4 border ${status.border} shadow-sm hover:shadow-md transition`}>
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${status.bg} flex items-center justify-center shadow-md`}>
+                                      <CheckCircle className="w-5 h-5 text-white" />
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-gray-800">{m.service}</h4>
+                                      <p className="text-sm text-gray-500">{m.clientName}</p>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-bold bg-gradient-to-r ${status.bg} text-white`}>
+                                    {status.label}
+                                  </span>
+                                </div>
+                                
+                                <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <Calendar className="w-4 h-4 text-gray-400" />
+                                    <span>{dayjs(m.date).format('dddd D MMMM YYYY')}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <Clock className="w-4 h-4 text-gray-400" />
+                                    <span>{m.startTime} - {m.endTime}</span>
+                                  </div>
+                                </div>
+
+                                {client?.city && (
+                                  <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-3">
+                                    <MapPin className="w-4 h-4 text-gray-400" />
+                                    <span>{client.city}</span>
+                                  </div>
+                                )}
+
+                                <button 
+                                  onClick={() => setMissionDetailsModal(m)}
+                                  className="w-full bg-gray-100 text-gray-700 py-2 rounded-xl text-sm font-bold hover:bg-gray-200 transition"
+                                >
+                                  Voir détails
+                                </button>
+                              </div>
+                            );
+                          })
                       )}
                     </div>
                   </div>

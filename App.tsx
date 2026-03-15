@@ -68,7 +68,6 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 
 // Mobile components & hooks
 import { ToastContainer } from './components/mobile/Toast';
-import { BottomNavigation } from './components/mobile/BottomNavigation';
 import { useMobileViewport, useDisableDoubleTapZoom } from './hooks/useMobile';
 import './src/styles/mobile.css';
 
@@ -682,7 +681,6 @@ const AppLayout: React.FC = () => {
                 <OfflineBanner />
                 <ToastContainer />
                 {location.pathname === '/scan' ? <ScanPage /> : <ScanSuccess />}
-                <BottomNavigation currentRole="provider" />
             </div>
         );
     }
@@ -695,7 +693,6 @@ const AppLayout: React.FC = () => {
                 <OfflineBanner />
                 <ToastContainer />
                 {location.pathname === '/scan' ? <ScanPage /> : location.pathname === '/scan-success' ? <ScanSuccess /> : <NewServiceRequestPage />}
-                <BottomNavigation currentRole="client" />
             </div>
         );
     }
@@ -706,7 +703,6 @@ const AppLayout: React.FC = () => {
                 <OfflineBanner />
                 <ToastContainer />
                 <ClientPortal />
-                <BottomNavigation currentRole="client" />
                 {offerModal}
             </div>
         );
@@ -718,7 +714,6 @@ const AppLayout: React.FC = () => {
                 <OfflineBanner />
                 <ToastContainer />
                 <ProviderPortal />
-                <BottomNavigation currentRole="provider" />
                 {offerModal}
             </div>
         );
