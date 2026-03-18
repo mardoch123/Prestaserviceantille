@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
+import { supabase } from '../utils/supabaseClient';
 import PageLoader from './PageLoader';
 import UploadProgressManager from './UploadProgressManager';
 import UploadDebugPanel from './UploadDebugPanel';
@@ -528,9 +529,10 @@ const ProviderPortal: React.FC = () => {
       setVideoLinkInput('');
   };
 
-  const compressImageToDataUrl = async (file: File) => {
+  const compressAndUploadImage = async (file: File, missionId: string): Promise<string | null> => {
     const objectUrl = URL.createObjectURL(file);
     try {
+      // Compression
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = new Image();
         el.onload = () => resolve(el);
@@ -558,13 +560,28 @@ const ProviderPortal: React.FC = () => {
       if (!ctx) throw new Error('canvas_context_missing');
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      let quality = 0.82;
-      let dataUrl = canvas.toDataURL('image/jpeg', quality);
-      while (dataUrl.length > 900000 && quality > 0.5) {
-        quality = Math.max(0.5, quality - 0.08);
-        dataUrl = canvas.toDataURL('image/jpeg', quality);
-      }
-      return dataUrl;
+      // Convert to Blob for upload
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.82);
+      });
+
+      // Upload to Supabase Storage
+      const path = `missions/${missionId}/photos/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+      const { error: upErr } = await supabase.storage
+        .from('mission-media')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+
+      if (upErr) throw upErr;
+
+      // Get public URL
+      const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+      const url = String((pub as any)?.publicUrl || '').trim();
+      if (!url) throw new Error('upload_failed');
+
+      return url;
+    } catch (err) {
+      console.error('[compressAndUploadImage] Failed:', err);
+      return null;
     } finally {
       URL.revokeObjectURL(objectUrl);
     }
@@ -590,25 +607,35 @@ const ProviderPortal: React.FC = () => {
   };
 
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     if (!selectedMissionId) {
+       showToast('Veuillez d\'abord sélectionner une mission', 'error');
+       return;
+     }
+     
      try {
         if (e.target.files && e.target.files.length > 0) {
             const files = Array.from(e.target.files) as File[];
             const remaining = 10 - photos.length;
             const filesToProcess = files.slice(0, remaining);
 
-            const compressed = await Promise.all(
+            showToast('Upload des photos en cours...', 'success');
+            
+            const uploadedUrls = await Promise.all(
                 filesToProcess.map(async (file) => {
                     try {
-                        return await compressImageToDataUrl(file);
+                        return await compressAndUploadImage(file, selectedMissionId);
                     } catch {
                         return null;
                     }
                 })
             );
 
-            const next = compressed.filter((x): x is string => typeof x === 'string' && x.length > 0);
-            if (next.length > 0) {
-                setPhotos(prev => [...prev, ...next]);
+            const validUrls = uploadedUrls.filter((url): url is string => typeof url === 'string' && url.length > 0);
+            if (validUrls.length > 0) {
+                setPhotos(prev => [...prev, ...validUrls]);
+                showToast(`${validUrls.length} photo(s) uploadée(s) avec succès`, 'success');
+            } else {
+                showToast('Échec de l\'upload des photos', 'error');
             }
         }
      } finally {
@@ -635,23 +662,42 @@ const ProviderPortal: React.FC = () => {
     }
   };
 
-  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!selectedMissionId) {
+        showToast('Veuillez d\'abord sélectionner une mission', 'error');
+        return;
+      }
+      
       const file = e.target.files?.[0];
       if (file) {
-          if (file.size > 100 * 1024 * 1024) { // 100MB Limit simulation
-              alert("Fichier trop volumineux (Max 100Mo pour la démo)");
+          if (file.size > 100 * 1024 * 1024) { // 100MB Limit
+              alert("Fichier trop volumineux (Max 100Mo)");
               return;
           }
-          // In a real app, upload to server and get URL. Here using Base64 (heavy but works for demo)
-          const reader = new FileReader();
-          reader.onloadend = () => {
-              if (typeof reader.result === 'string') {
-                  setVideo(reader.result);
-                  setShowVideoLinkInput(false);
-              }
-          };
-          // Explicit cast to Blob to resolve type inference error
-          reader.readAsDataURL(file as Blob);
+          
+          showToast('Upload de la vidéo en cours...', 'success');
+          
+          try {
+            // Upload direct to Supabase Storage
+            const path = `missions/${selectedMissionId}/videos/${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
+            const { error: upErr } = await supabase.storage
+              .from('mission-media')
+              .upload(path, file, { contentType: file.type || 'video/mp4', upsert: true });
+
+            if (upErr) throw upErr;
+
+            // Get public URL
+            const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
+            const url = String((pub as any)?.publicUrl || '').trim();
+            if (!url) throw new Error('upload_failed');
+
+            setVideo(url);
+            setShowVideoLinkInput(false);
+            showToast('Vidéo uploadée avec succès', 'success');
+          } catch (err) {
+            console.error('[handleVideoFileChange] Upload failed:', err);
+            showToast('Échec de l\'upload de la vidéo', 'error');
+          }
       }
       if (e.target) e.target.value = '';
   };
