@@ -3672,18 +3672,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const processProviderMissionQueue = async () => {
-        if (providerMissionQueueProcessingRef.current) return;
+        debugLog('processProviderMissionQueue called', { processing: providerMissionQueueProcessingRef.current });
+        if (providerMissionQueueProcessingRef.current) {
+            debugLog('Queue already processing, skipping');
+            return;
+        }
         providerMissionQueueProcessingRef.current = true;
         setIsUploadProcessing(true);
         
         try {
+            debugLog('Checking Supabase config', { isSupabaseConfigured });
             if (!isSupabaseConfigured) {
+                debugLog('Supabase not configured, aborting');
                 setIsUploadProcessing(false);
                 providerMissionQueueProcessingRef.current = false;
                 return;
             }
             
             const jobs = readProviderMissionQueue();
+            debugLog('Jobs from localStorage', { count: jobs.length });
             if (jobs.length === 0) {
                 setIsUploadProcessing(false);
                 setActiveUploadJob(null);
@@ -3692,7 +3699,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             const job = jobs[0];
+            debugLog('Processing job', { jobId: job.jobId, kind: job.kind, missionId: job.missionId, photos: job.photos?.length, video: !!job.video });
             if (!job?.missionId || !job?.jobId) {
+                debugLog('Invalid job, discarding', { job });
                 writeProviderMissionQueue(jobs.slice(1));
                 setIsUploadProcessing(false);
                 providerMissionQueueProcessingRef.current = false;
@@ -3738,7 +3747,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             const photos = Array.isArray(job.photos) ? job.photos : [];
+            debugLog('Validating job data', { photosCount: photos.length, videoValue: job.video, hasVideo: !!job.video, minRequired: 5 });
             if (photos.length < 5 && !job.video) {
+                debugLog('Job rejected - not enough photos and no video', { photosCount: photos.length, videoValue: job.video });
                 // If invalid data, discard
                 writeProviderMissionQueue(jobs.slice(1));
                 setJobStatus(job.jobId, 'error', 'Données invalides - photos ou vidéo requises');
@@ -3747,6 +3758,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 providerMissionQueueProcessingRef.current = false;
                 return;
             }
+            debugLog('Job data validated, starting upload...');
 
             // Upload with progress tracking
             const onProgress = (completed: number, total: number, percentage: number) => {
