@@ -3540,7 +3540,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const blob = dataUrlToBlob(p);
                     const { error: upErr } = await supabase.storage
                         .from('mission-media')
-                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg' });
                     if (upErr) throw upErr;
                     const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
                     const url = String((pub as any)?.publicUrl || '').trim();
@@ -3640,7 +3640,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 
                 const { error: upErr } = await supabase.storage
                     .from('mission-media')
-                    .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                    .upload(path, blob, { contentType: blob.type || 'image/jpeg' });
                 
                 if (upErr) throw upErr;
                 
@@ -4012,7 +4012,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const blob = dataUrlToBlob(p);
                     const { error: upErr } = await supabase.storage
                         .from('mission-media')
-                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg' });
                     if (upErr) throw upErr;
                     const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
                     const url = String((pub as any)?.publicUrl || '').trim();
@@ -4129,7 +4129,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const blob = dataUrlToBlob(p);
                     const { error: upErr } = await supabase.storage
                         .from('mission-media')
-                        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+                        .upload(path, blob, { contentType: blob.type || 'image/jpeg' });
                     if (upErr) throw upErr;
                     const { data: pub } = supabase.storage.from('mission-media').getPublicUrl(path);
                     const url = String((pub as any)?.publicUrl || '').trim();
