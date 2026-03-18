@@ -50,7 +50,8 @@ import {
   ChevronRight,
   Sparkles,
   Search,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
@@ -249,9 +250,17 @@ const ProviderPortal: React.FC = () => {
 
   // File Input Refs
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const photoCameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const videoCameraInputRef = useRef<HTMLInputElement>(null);
   const [videoLinkInput, setVideoLinkInput] = useState('');
   const [showVideoLinkInput, setShowVideoLinkInput] = useState(false);
+  
+  // Media source choice modal
+  const [mediaChoiceModal, setMediaChoiceModal] = useState<{
+    show: boolean;
+    type: 'photo' | 'video' | null;
+  }>({ show: false, type: null });
 
   // Optimized mission loading with caching and pagination
   const MISSIONS_CACHE_KEY = `provider_missions_${provider?.id}`;
@@ -566,7 +575,17 @@ const ProviderPortal: React.FC = () => {
          showToast('Maximum 10 photos.');
          return;
      }
-     photoInputRef.current?.click();
+     // Show choice modal instead of directly opening file picker
+     setMediaChoiceModal({ show: true, type: 'photo' });
+  };
+  
+  const handlePhotoSourceChoice = (source: 'camera' | 'gallery') => {
+    setMediaChoiceModal({ show: false, type: null });
+    if (source === 'camera') {
+      photoCameraInputRef.current?.click();
+    } else {
+      photoInputRef.current?.click();
+    }
   };
 
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -602,7 +621,17 @@ const ProviderPortal: React.FC = () => {
 
   // --- VIDEO HANDLERS ---
   const handleVideoClick = () => {
+      // Show choice modal instead of directly opening file picker
+      setMediaChoiceModal({ show: true, type: 'video' });
+  };
+  
+  const handleVideoSourceChoice = (source: 'camera' | 'gallery') => {
+    setMediaChoiceModal({ show: false, type: null });
+    if (source === 'camera') {
+      videoCameraInputRef.current?.click();
+    } else {
       videoInputRef.current?.click();
+    }
   };
 
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -762,8 +791,12 @@ const ProviderPortal: React.FC = () => {
     <div className="h-full bg-gradient-to-br from-[#f0fdf4] via-[#ecfdf5] to-[#fefce8] flex flex-col font-sans relative overflow-hidden">
       
       {/* Hidden Inputs for Uploads */}
+      {/* Gallery inputs - allow multiple selection */}
       <input type="file" ref={photoInputRef} className="hidden" accept="image/*" multiple onChange={handlePhotoFileChange} />
       <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={handleVideoFileChange} />
+      {/* Camera inputs - capture directly from camera */}
+      <input type="file" ref={photoCameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={handlePhotoFileChange} />
+      <input type="file" ref={videoCameraInputRef} className="hidden" accept="video/*" capture="environment" onChange={handleVideoFileChange} />
 
       {/* Mobile Header - Modern Design */}
       <header className="md:hidden bg-white/70 backdrop-blur-xl border-b border-white/50 px-4 py-3 flex justify-between items-center z-20 shrink-0">
@@ -2489,6 +2522,50 @@ const ProviderPortal: React.FC = () => {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Media Source Choice Modal */}
+      {mediaChoiceModal.show && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl w-full max-w-sm animate-in fade-in zoom-in duration-200 border border-white/50 overflow-hidden">
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-5 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800 text-center text-lg">
+                {mediaChoiceModal.type === 'photo' ? 'Ajouter des photos' : 'Ajouter une vidéo'}
+              </h3>
+              <p className="text-sm text-gray-600 text-center mt-1">
+                Choisissez la source
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-3">
+              {/* Camera Option */}
+              <button
+                onClick={() => mediaChoiceModal.type === 'photo' ? handlePhotoSourceChoice('camera') : handleVideoSourceChoice('camera')}
+                className="w-full py-4 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-semibold flex items-center justify-center gap-3 hover:shadow-lg transition transform active:scale-95"
+              >
+                <Camera className="w-6 h-6" />
+                <span>{mediaChoiceModal.type === 'photo' ? 'Prendre une photo' : 'Filmer une vidéo'}</span>
+              </button>
+              
+              {/* Gallery Option */}
+              <button
+                onClick={() => mediaChoiceModal.type === 'photo' ? handlePhotoSourceChoice('gallery') : handleVideoSourceChoice('gallery')}
+                className="w-full py-4 px-4 bg-gray-100 text-gray-700 rounded-xl font-semibold flex items-center justify-center gap-3 hover:bg-gray-200 transition transform active:scale-95 border-2 border-gray-200"
+              >
+                <Upload className="w-6 h-6" />
+                <span>{mediaChoiceModal.type === 'photo' ? 'Choisir depuis la galerie' : 'Choisir depuis la galerie'}</span>
+              </button>
+              
+              {/* Cancel */}
+              <button
+                onClick={() => setMediaChoiceModal({ show: false, type: null })}
+                className="w-full py-3 text-gray-500 font-medium hover:text-gray-700 transition"
+              >
+                Annuler
+              </button>
             </div>
           </div>
         </div>
