@@ -1566,14 +1566,17 @@ const DevisFactures: React.FC = () => {
     };
 
     const handleDownloadContract = (doc: Document) => {
-        if (!selectedClient) {
-            toast.error("Veuillez sélectionner un client");
+        // Récupérer le client depuis le document, pas depuis le formulaire
+        const client = clients.find(c => c.id === doc.clientId);
+        
+        if (!client) {
+            toast.error("Client non trouvé pour ce document");
             return;
         }
 
         // Rechercher d'abord un contrat existant pour ce client
         const existingContract = contracts.find(c =>
-            c.clientId === selectedClient.id &&
+            c.clientId === client.id &&
             (c.packId === doc.packId || c.name.includes(doc.ref))
         );
 
@@ -1585,7 +1588,7 @@ const DevisFactures: React.FC = () => {
             // Fallback: générer un nouveau contrat si aucun n'existe
             console.log('Aucun contrat existant, génération depuis le devis');
             const pack = packs.find(p => p.id === doc.packId);
-            const contract = generateContractFromTemplate(doc, selectedClient, pack);
+            const contract = generateContractFromTemplate(doc, client, pack);
 
             if (contract) {
                 downloadContract(contract);

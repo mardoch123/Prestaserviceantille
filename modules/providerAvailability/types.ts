@@ -1,6 +1,6 @@
 export type ProviderAvailabilityStatus = 'available' | 'busy' | 'leave' | 'unavailable';
 
-export type ViewMode = 'day' | 'week' | 'month';
+export type ViewMode = 'day' | 'week' | 'month' | 'hourly';
 
 export type ProviderDomain = 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre';
 

@@ -103,6 +103,8 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
     switch (viewMode) {
       case 'day':
+      case 'hourly':
+        // Hourly view shows a single day
         break;
       case 'week':
         start.setDate(start.getDate() - start.getDay());
@@ -270,6 +272,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
     const newDate = new Date(selectedDate);
     switch (viewMode) {
       case 'day':
+      case 'hourly':
         newDate.setDate(newDate.getDate() - 1);
         break;
       case 'week':
@@ -286,6 +289,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
     const newDate = new Date(selectedDate);
     switch (viewMode) {
       case 'day':
+      case 'hourly':
         newDate.setDate(newDate.getDate() + 1);
         break;
       case 'week':
@@ -386,7 +390,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
     const start = dateRange.startDate;
     const end = dateRange.endDate;
 
-    if (viewMode === 'day') {
+    if (viewMode === 'day' || viewMode === 'hourly') {
       return `${start.getDate()} ${monthNames[start.getMonth()]} ${start.getFullYear()}`;
     }
 
@@ -436,7 +440,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
           <div className="flex items-center gap-2">
             {/* View Mode Toggles - Desktop */}
             <div className="hidden md:flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-              {(['day', 'week', 'month'] as ViewMode[]).map((mode) => (
+              {(['day', 'week', 'month', 'hourly'] as ViewMode[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
@@ -446,7 +450,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
                       : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
-                  {mode === 'day' ? 'Jour' : mode === 'week' ? 'Sem.' : 'Mois'}
+                  {mode === 'day' ? 'Jour' : mode === 'week' ? 'Sem.' : mode === 'month' ? 'Mois' : 'Horaire'}
                 </button>
               ))}
             </div>
@@ -520,7 +524,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
           {/* Mobile View Mode */}
           <div className="flex md:hidden items-center gap-1 bg-slate-100 rounded-lg p-1 ml-auto">
-            {(['day', 'week'] as ViewMode[]).map((mode) => (
+            {(['day', 'week', 'hourly'] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -530,7 +534,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
                     : 'text-slate-600'
                 }`}
               >
-                {mode === 'day' ? 'J' : 'S'}
+                {mode === 'day' ? 'J' : mode === 'hourly' ? 'H' : 'S'}
               </button>
             ))}
           </div>
@@ -567,123 +571,264 @@ export const ProviderAvailabilityPage: React.FC = () => {
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              {/* Calendar Header - Days */}
-              <div 
-                className="grid border-b border-slate-200 bg-slate-50"
-                style={{ gridTemplateColumns: `120px repeat(${calendarDays.length}, 1fr)` }}
-              >
-                <div className="p-2 md:p-3 border-r border-slate-200 font-medium text-slate-700 text-xs md:text-sm">
-                  Prestataires
-                </div>
-                {calendarDays.map((day, index) => {
-                  const dateStr = day.toISOString().split('T')[0];
-                  const unassignedCount = getUnassignedCountForDate(dateStr);
-                  const isToday = dateStr === new Date().toISOString().split('T')[0];
-                  
-                  return (
-                    <div
-                      key={index}
-                      className={`p-1 md:p-3 text-center border-r border-slate-200 last:border-r-0 ${
-                        isToday ? 'bg-brand-blue/10' : ''
-                      }`}
-                    >
-                      <div className="text-[10px] md:text-xs text-slate-500 uppercase">{weekDays[day.getDay()]}</div>
-                      <div className={`text-sm md:text-lg font-semibold ${isToday ? 'text-brand-blue' : 'text-slate-700'}`}>
-                        {day.getDate()}
-                      </div>
-                      {unassignedCount > 0 && (
-                        <div className="mt-0.5 md:mt-1">
-                          <span className="inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 bg-red-500 text-white text-[8px] md:text-[10px] font-bold rounded-full">
-                            {unassignedCount}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Provider Rows */}
-              <div className="divide-y divide-slate-100">
-                {filteredProviders.map((provider) => (
-                  <div
-                    key={provider.id}
-                    className="grid hover:bg-slate-50/50 transition-colors"
-                    style={{ gridTemplateColumns: `120px repeat(${calendarDays.length}, 1fr)` }}
+              {viewMode === 'hourly' ? (
+                // HOURLY VIEW
+                <>
+                  {/* Hourly Header - Hours */}
+                  <div 
+                    className="grid border-b border-slate-200 bg-slate-50"
+                    style={{ gridTemplateColumns: `140px repeat(12, 1fr)` }}
                   >
-                    {/* Provider Info */}
-                    <div className="p-2 md:p-3 border-r border-slate-200 flex items-center gap-2">
-                      <div className={`w-1.5 md:w-2 h-6 md:h-8 rounded-full shrink-0 ${
-                        provider.domain === 'Ménage' ? 'bg-blue-500' :
-                        provider.domain === 'Jardinage' ? 'bg-green-500' :
-                        provider.domain === 'Bricolage' ? 'bg-orange-500' : 'bg-purple-500'
-                      }`} />
-                      <div className="min-w-0 overflow-hidden">
-                        <p className="font-medium text-slate-800 text-xs md:text-sm truncate">
-                          {provider.firstName} {provider.lastName}
-                        </p>
-                        <p className="text-[10px] md:text-xs text-slate-500 truncate hidden sm:block">{provider.specialty}</p>
-                      </div>
+                    <div className="p-2 md:p-3 border-r border-slate-200 font-medium text-slate-700 text-xs md:text-sm">
+                      Prestataires
                     </div>
-
-                    {/* Day Cells */}
-                    {calendarDays.map((day, dayIndex) => {
-                      const dateStr = day.toISOString().split('T')[0];
-                      const status = getProviderStatus(provider, dateStr);
-                      const config = statusConfig[status];
-                      const canAssign = status !== 'leave' && status !== 'unavailable';
-                      const unassignedCount = getUnassignedCountForDate(dateStr);
-                      const availableSlots = getProviderAvailableSlots(provider, dateStr);
-                      const hasCustomSlots = availableSlots.length > 0;
-
+                    {Array.from({ length: 12 }, (_, i) => {
+                      const hour = i + 8; // 08:00 to 19:00
                       return (
                         <div
-                          key={dayIndex}
-                          onClick={() => canAssign && handleProviderClick(provider, dateStr)}
-                          className={`p-1 md:p-2 border-r border-slate-200 last:border-r-0 min-h-[40px] md:min-h-[60px] transition-all group relative ${
-                            canAssign && unassignedCount > 0
-                              ? 'cursor-pointer hover:bg-slate-100' 
-                              : canAssign
-                                ? 'cursor-pointer hover:bg-slate-50'
-                                : 'cursor-not-allowed opacity-60'
-                          }`}
+                          key={hour}
+                          className="p-1 md:p-2 text-center border-r border-slate-200 last:border-r-0"
                         >
-                          {/* Tooltip avec horaires */}
-                          {hasCustomSlots && (
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50">
-                              <div className="bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg shadow-lg whitespace-nowrap">
-                                <div className="font-semibold mb-0.5">Créneaux libres:</div>
-                                {availableSlots.map((slot, idx) => (
-                                  <div key={idx}>{slot.startTime} - {slot.endTime}</div>
-                                ))}
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-                              </div>
-                            </div>
-                          )}
-                          
-                          <div className={`h-full rounded-lg flex flex-col items-center justify-center gap-0.5 md:gap-1 p-1 border-2 transition-all ${
-                            canAssign && unassignedCount > 0
-                              ? `${config.bgColor} ${config.borderColor} hover:scale-105 hover:shadow-md` 
-                              : `${config.bgColor} ${config.borderColor}`
-                          }`}>
-                            <span className={config.color}>{React.cloneElement(config.icon as React.ReactElement, { className: 'w-3 h-3 md:w-4 md:h-4' })}</span>
-                            <span className={`text-[8px] md:text-xs font-semibold ${config.color}`}>
-                              {canAssign && unassignedCount > 0 ? `${unassignedCount} mission${unassignedCount > 1 ? 's' : ''}` : config.label}
-                            </span>
-                            
-                            {/* Indicateur de créneaux horaires */}
-                            {hasCustomSlots && status === 'available' && (
-                              <span className="text-[7px] md:text-[9px] text-green-600 font-medium mt-0.5">
-                                {availableSlots.length} créneau{availableSlots.length > 1 ? 'x' : ''}
-                              </span>
-                            )}
+                          <div className="text-[10px] md:text-xs text-slate-600 font-semibold">
+                            {hour.toString().padStart(2, '0')}:00
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                ))}
-              </div>
+
+                  {/* Provider Rows with Hourly Slots */}
+                  <div className="divide-y divide-slate-100">
+                    {filteredProviders.map((provider) => {
+                      const dateStr = selectedDate.toISOString().split('T')[0];
+                      const dayStatus = getProviderStatus(provider, dateStr);
+                      const isUnavailable = dayStatus === 'leave' || dayStatus === 'unavailable';
+                      
+                      // Get missions for this provider on this date
+                      const providerMissions = (allMissions || []).filter(m => 
+                        m.providerId === provider.id && 
+                        m.date === dateStr &&
+                        m.status !== 'cancelled'
+                      );
+
+                      return (
+                        <div
+                          key={provider.id}
+                          className="grid hover:bg-slate-50/50 transition-colors"
+                          style={{ gridTemplateColumns: `140px repeat(12, 1fr)` }}
+                        >
+                          {/* Provider Info */}
+                          <div className="p-2 md:p-3 border-r border-slate-200 flex items-center gap-2">
+                            <div className={`w-1.5 md:w-2 h-6 md:h-8 rounded-full shrink-0 ${
+                              provider.domain === 'Ménage' ? 'bg-blue-500' :
+                              provider.domain === 'Jardinage' ? 'bg-green-500' :
+                              provider.domain === 'Bricolage' ? 'bg-orange-500' : 'bg-purple-500'
+                            }`} />
+                            <div className="min-w-0 overflow-hidden">
+                              <p className="font-medium text-slate-800 text-xs md:text-sm truncate">
+                                {provider.firstName} {provider.lastName}
+                              </p>
+                              <p className="text-[10px] md:text-xs text-slate-500 truncate hidden sm:block">{provider.specialty}</p>
+                            </div>
+                          </div>
+
+                          {/* Hour Cells */}
+                          {Array.from({ length: 12 }, (_, i) => {
+                            const hour = i + 8;
+                            const hourStr = `${hour.toString().padStart(2, '0')}:00`;
+                            const nextHourStr = `${(hour + 1).toString().padStart(2, '0')}:00`;
+                            
+                            // Check if there's a mission during this hour
+                            const missionDuringHour = providerMissions.find(m => {
+                              const startHour = parseInt(m.startTime?.split(':')[0] || '0');
+                              const endHour = parseInt(m.endTime?.split(':')[0] || '0');
+                              return hour >= startHour && hour < endHour;
+                            });
+
+                            // Determine status for this hour
+                            let hourStatus: ProviderAvailabilityStatus;
+                            if (isUnavailable) {
+                              hourStatus = dayStatus;
+                            } else if (missionDuringHour) {
+                              hourStatus = 'busy';
+                            } else {
+                              hourStatus = 'available';
+                            }
+
+                            const config = statusConfig[hourStatus];
+                            const unassignedCount = getUnassignedCountForDate(dateStr);
+                            const canAssign = hourStatus !== 'leave' && hourStatus !== 'unavailable';
+
+                            return (
+                              <div
+                                key={hour}
+                                onClick={() => canAssign && handleProviderClick(provider, dateStr)}
+                                className={`p-0.5 md:p-1 border-r border-slate-200 last:border-r-0 min-h-[35px] md:min-h-[50px] transition-all group relative ${
+                                  canAssign && unassignedCount > 0
+                                    ? 'cursor-pointer hover:bg-slate-100' 
+                                    : canAssign
+                                      ? 'cursor-pointer hover:bg-slate-50'
+                                      : 'cursor-not-allowed opacity-60'
+                                }`}
+                              >
+                                {/* Tooltip with mission info */}
+                                {missionDuringHour && (
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50">
+                                    <div className="bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg shadow-lg whitespace-nowrap">
+                                      <div className="font-semibold">{missionDuringHour.clientName}</div>
+                                      <div>{missionDuringHour.startTime} - {missionDuringHour.endTime}</div>
+                                      <div>{missionDuringHour.service}</div>
+                                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <div className={`h-full rounded flex flex-col items-center justify-center p-0.5 border transition-all ${
+                                  canAssign && unassignedCount > 0
+                                    ? `${config.bgColor} ${config.borderColor} hover:scale-105` 
+                                    : `${config.bgColor} ${config.borderColor}`
+                                }`}>
+                                  <span className={config.color}>
+                                    {React.cloneElement(config.icon as React.ReactElement, { className: 'w-3 h-3 md:w-3.5 md:h-3.5' })}
+                                  </span>
+                                  
+                                  {/* Mission indicator */}
+                                  {missionDuringHour && (
+                                    <span className="text-[7px] md:text-[8px] text-orange-700 font-medium mt-0.5 truncate w-full text-center">
+                                      {missionDuringHour.clientName.slice(0, 8)}...
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                // STANDARD DAY/WEEK/MONTH VIEW
+                <>
+                  {/* Calendar Header - Days */}
+                  <div 
+                    className="grid border-b border-slate-200 bg-slate-50"
+                    style={{ gridTemplateColumns: `120px repeat(${calendarDays.length}, 1fr)` }}
+                  >
+                    <div className="p-2 md:p-3 border-r border-slate-200 font-medium text-slate-700 text-xs md:text-sm">
+                      Prestataires
+                    </div>
+                    {calendarDays.map((day, index) => {
+                      const dateStr = day.toISOString().split('T')[0];
+                      const unassignedCount = getUnassignedCountForDate(dateStr);
+                      const isToday = dateStr === new Date().toISOString().split('T')[0];
+                      
+                      return (
+                        <div
+                          key={index}
+                          className={`p-1 md:p-3 text-center border-r border-slate-200 last:border-r-0 ${
+                            isToday ? 'bg-brand-blue/10' : ''
+                          }`}
+                        >
+                          <div className="text-[10px] md:text-xs text-slate-500 uppercase">{weekDays[day.getDay()]}</div>
+                          <div className={`text-sm md:text-lg font-semibold ${isToday ? 'text-brand-blue' : 'text-slate-700'}`}>
+                            {day.getDate()}
+                          </div>
+                          {unassignedCount > 0 && (
+                            <div className="mt-0.5 md:mt-1">
+                              <span className="inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 bg-red-500 text-white text-[8px] md:text-[10px] font-bold rounded-full">
+                                {unassignedCount}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Provider Rows */}
+                  <div className="divide-y divide-slate-100">
+                    {filteredProviders.map((provider) => (
+                      <div
+                        key={provider.id}
+                        className="grid hover:bg-slate-50/50 transition-colors"
+                        style={{ gridTemplateColumns: `120px repeat(${calendarDays.length}, 1fr)` }}
+                      >
+                        {/* Provider Info */}
+                        <div className="p-2 md:p-3 border-r border-slate-200 flex items-center gap-2">
+                          <div className={`w-1.5 md:w-2 h-6 md:h-8 rounded-full shrink-0 ${
+                            provider.domain === 'Ménage' ? 'bg-blue-500' :
+                            provider.domain === 'Jardinage' ? 'bg-green-500' :
+                            provider.domain === 'Bricolage' ? 'bg-orange-500' : 'bg-purple-500'
+                          }`} />
+                          <div className="min-w-0 overflow-hidden">
+                            <p className="font-medium text-slate-800 text-xs md:text-sm truncate">
+                              {provider.firstName} {provider.lastName}
+                            </p>
+                            <p className="text-[10px] md:text-xs text-slate-500 truncate hidden sm:block">{provider.specialty}</p>
+                          </div>
+                        </div>
+
+                        {/* Day Cells */}
+                        {calendarDays.map((day, dayIndex) => {
+                          const dateStr = day.toISOString().split('T')[0];
+                          const status = getProviderStatus(provider, dateStr);
+                          const config = statusConfig[status];
+                          const canAssign = status !== 'leave' && status !== 'unavailable';
+                          const unassignedCount = getUnassignedCountForDate(dateStr);
+                          const availableSlots = getProviderAvailableSlots(provider, dateStr);
+                          const hasCustomSlots = availableSlots.length > 0;
+
+                          return (
+                            <div
+                              key={dayIndex}
+                              onClick={() => canAssign && handleProviderClick(provider, dateStr)}
+                              className={`p-1 md:p-2 border-r border-slate-200 last:border-r-0 min-h-[40px] md:min-h-[60px] transition-all group relative ${
+                                canAssign && unassignedCount > 0
+                                  ? 'cursor-pointer hover:bg-slate-100' 
+                                  : canAssign
+                                    ? 'cursor-pointer hover:bg-slate-50'
+                                    : 'cursor-not-allowed opacity-60'
+                              }`}
+                            >
+                              {/* Tooltip avec horaires */}
+                              {hasCustomSlots && (
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50">
+                                  <div className="bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg shadow-lg whitespace-nowrap">
+                                    <div className="font-semibold mb-0.5">Créneaux libres:</div>
+                                    {availableSlots.map((slot, idx) => (
+                                      <div key={idx}>{slot.startTime} - {slot.endTime}</div>
+                                    ))}
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                                  </div>
+                                </div>
+                              )}
+                              
+                              <div className={`h-full rounded-lg flex flex-col items-center justify-center gap-0.5 md:gap-1 p-1 border-2 transition-all ${
+                                canAssign && unassignedCount > 0
+                                  ? `${config.bgColor} ${config.borderColor} hover:scale-105 hover:shadow-md` 
+                                  : `${config.bgColor} ${config.borderColor}`
+                              }`}>
+                                <span className={config.color}>{React.cloneElement(config.icon as React.ReactElement, { className: 'w-3 h-3 md:w-4 md:h-4' })}</span>
+                                <span className={`text-[8px] md:text-xs font-semibold ${config.color}`}>
+                                  {canAssign && unassignedCount > 0 ? `${unassignedCount} mission${unassignedCount > 1 ? 's' : ''}` : config.label}
+                                </span>
+                                
+                                {/* Indicateur de créneaux horaires */}
+                                {hasCustomSlots && status === 'available' && (
+                                  <span className="text-[7px] md:text-[9px] text-green-600 font-medium mt-0.5">
+                                    {availableSlots.length} créneau{availableSlots.length > 1 ? 'x' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
