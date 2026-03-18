@@ -3,6 +3,7 @@ import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import PageLoader from './PageLoader';
 import UploadProgressManager from './UploadProgressManager';
+import UploadDebugPanel from './UploadDebugPanel';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
@@ -2632,6 +2633,13 @@ const ProviderPortal: React.FC = () => {
         onRetry={retryUploadJob}
         onRemove={removeUploadJob}
         onClearCompleted={clearCompletedUploadJobs}
+      />
+
+      {/* Debug Panel - pour voir l'état des jobs */}
+      <UploadDebugPanel
+        uploadJobs={uploadJobs}
+        activeUploadJob={activeUploadJob}
+        isUploadProcessing={isUploadProcessing}
       />
 
     </div>

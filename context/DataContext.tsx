@@ -43,6 +43,25 @@ function generateUUID() {
     });
 }
 
+// Debug logging helper
+const DEBUG_UPLOAD = true;
+function debugLog(...args: any[]) {
+    if (!DEBUG_UPLOAD) return;
+    const timestamp = new Date().toISOString();
+    const message = `[UPLOAD DEBUG ${timestamp}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+    console.log(message);
+    
+    // Also store in localStorage for the debug panel
+    try {
+        const logs = JSON.parse(localStorage.getItem('debug_upload_logs') || '[]');
+        logs.push(message);
+        if (logs.length > 100) logs.shift();
+        localStorage.setItem('debug_upload_logs', JSON.stringify(logs));
+    } catch {
+        // Ignore
+    }
+}
+
 // Helper to capitalize first letter
 function capitalize(s: string) {
     if (!s) return s;
@@ -3819,6 +3838,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const enqueueStartMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        debugLog('enqueueStartMission called', { missionId: id, photosCount: photos?.length, hasVideo: !!video });
         const jobId = generateUUID();
         const job: ProviderMissionQueueJob = {
             jobId,
@@ -3834,6 +3854,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Add to localStorage queue
         const jobs = readProviderMissionQueue();
         writeProviderMissionQueue([job, ...jobs]);
+        debugLog('Job added to localStorage queue', { jobId, queueLength: jobs.length + 1 });
         
         // Immediately create upload job for UI feedback
         const totalItems = (photos?.length || 0) + (video ? 1 : 0);
@@ -3853,11 +3874,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
         setUploadJobs(prev => [uploadJob, ...prev]);
         setActiveUploadJob(uploadJob);
+        debugLog('Upload job created and set as active', { jobId, totalItems });
         
         void processProviderMissionQueue();
     };
 
     const enqueueEndMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        debugLog('enqueueEndMission called', { missionId: id, photosCount: photos?.length, hasVideo: !!video });
         const jobId = generateUUID();
         const job: ProviderMissionQueueJob = {
             jobId,
@@ -3873,6 +3896,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Add to localStorage queue
         const jobs = readProviderMissionQueue();
         writeProviderMissionQueue([job, ...jobs]);
+        debugLog('Job added to localStorage queue', { jobId, queueLength: jobs.length + 1 });
         
         // Immediately create upload job for UI feedback
         const totalItems = (photos?.length || 0) + (video ? 1 : 0);
@@ -3892,6 +3916,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         };
         setUploadJobs(prev => [uploadJob, ...prev]);
         setActiveUploadJob(uploadJob);
+        debugLog('Upload job created and set as active', { jobId, totalItems });
         
         void processProviderMissionQueue();
     };
