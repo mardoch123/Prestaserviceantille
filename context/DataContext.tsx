@@ -5,6 +5,7 @@ import {
     CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest,
     ContactForm, CreateContactFormDTO
 } from '../types';
+import { UploadJob, UploadStatus } from '../hooks/useUploadProgress';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -301,6 +302,14 @@ interface DataContextType {
     loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<boolean>;
     getMissionDetails: (id: string) => Promise<Mission | null>;
     getDocumentDetails: (id: string) => Promise<Document | null>;
+
+    // Upload progress tracking
+    uploadJobs: UploadJob[];
+    activeUploadJob: UploadJob | null;
+    isUploadProcessing: boolean;
+    retryUploadJob: (jobId: string) => void;
+    removeUploadJob: (jobId: string) => void;
+    clearCompletedUploadJobs: () => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -334,6 +343,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [contactForms, setContactForms] = useState<ContactForm[]>([]);
     const [visitScans, setVisitScans] = useState<VisitScan[]>([]);
     const [missionChangeRequests, setMissionChangeRequests] = useState<MissionChangeRequest[]>([]);
+
+    // Upload progress state
+    const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
+    const [activeUploadJob, setActiveUploadJob] = useState<UploadJob | null>(null);
+    const [isUploadProcessing, setIsUploadProcessing] = useState(false);
 
     // Alert popup state
     const [alertPopup, setAlertPopup] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
@@ -3576,17 +3590,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
-    const uploadMissionPhotosIfNeeded = async (missionId: string, phase: 'start' | 'end', photos?: string[]) => {
+    const uploadMissionPhotosIfNeeded = async (
+        missionId: string, 
+        phase: 'start' | 'end', 
+        photos?: string[],
+        onProgress?: (completed: number, total: number, percentage: number) => void
+    ) => {
         const input = Array.isArray(photos) ? photos : [];
         const isDataUrl = (v: any) => typeof v === 'string' && v.startsWith('data:image/');
         const needsUpload = input.some(isDataUrl);
         if (!needsUpload) return input.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
 
         const uploaded: string[] = [];
+        const total = input.length;
+        
         for (let i = 0; i < input.length; i++) {
             const p = input[i];
             if (!isDataUrl(p)) {
                 if (typeof p === 'string' && p.trim()) uploaded.push(p.trim());
+                // Report progress even for skipped items
+                if (onProgress) {
+                    onProgress(uploaded.length, total, Math.round((uploaded.length / total) * 100));
+                }
                 continue;
             }
             const path = `missions/${missionId}/${phase}/${Date.now()}_${i}.jpg`;
@@ -3604,6 +3629,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const url = String((pub as any)?.publicUrl || '').trim();
                 if (!url) throw new Error('upload_failed');
                 uploaded.push(url);
+                
+                // Report progress after successful upload
+                if (onProgress) {
+                    onProgress(uploaded.length, total, Math.round((uploaded.length / total) * 100));
+                }
             } catch (err: any) {
                 console.warn('[uploadMissionPhotosIfNeeded] Failed to upload photo, skipping:', err);
                 // On failure (especially 400), we skip this photo to avoid blocking the queue forever.
@@ -3611,6 +3641,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // but specific 400s (Bad Request) usually mean invalid data.
                 if (String(err?.message || '').includes('400') || String(err?.statusCode) === '400') {
                      // Skip this photo permanently
+                     if (onProgress) {
+                         onProgress(uploaded.length, total, Math.round((uploaded.length / total) * 100));
+                     }
                      continue;
                 }
                 throw err; // Rethrow other errors to trigger retry
@@ -3622,32 +3655,94 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const processProviderMissionQueue = async () => {
         if (providerMissionQueueProcessingRef.current) return;
         providerMissionQueueProcessingRef.current = true;
+        setIsUploadProcessing(true);
+        
         try {
-            if (!isSupabaseConfigured) return;
+            if (!isSupabaseConfigured) {
+                setIsUploadProcessing(false);
+                providerMissionQueueProcessingRef.current = false;
+                return;
+            }
+            
             const jobs = readProviderMissionQueue();
-            if (jobs.length === 0) return;
+            if (jobs.length === 0) {
+                setIsUploadProcessing(false);
+                setActiveUploadJob(null);
+                providerMissionQueueProcessingRef.current = false;
+                return;
+            }
 
             const job = jobs[0];
             if (!job?.missionId || !job?.jobId) {
                 writeProviderMissionQueue(jobs.slice(1));
+                setIsUploadProcessing(false);
+                providerMissionQueueProcessingRef.current = false;
                 return;
             }
             
+            // Create or update UploadJob for tracking
+            const totalItems = (job.photos?.length || 0) + (job.video ? 1 : 0);
+            const uploadJob: UploadJob = {
+                jobId: job.jobId,
+                kind: job.kind,
+                missionId: job.missionId,
+                remark: job.remark,
+                photos: job.photos,
+                video: job.video,
+                createdAt: job.createdAt,
+                tries: job.tries || 0,
+                status: 'uploading',
+                progress: 0,
+                totalItems,
+                completedItems: 0,
+            };
+            
+            // Update upload jobs state
+            setUploadJobs(prev => {
+                const existing = prev.find(j => j.jobId === job.jobId);
+                if (existing) {
+                    return prev.map(j => j.jobId === job.jobId ? uploadJob : j);
+                }
+                return [uploadJob, ...prev];
+            });
+            setActiveUploadJob(uploadJob);
+            
             // Discard job if too many retries (avoid infinite loop)
             if ((job.tries || 0) > 10) {
-                 console.error('[processProviderMissionQueue] Job failed too many times, discarding:', job);
-                 writeProviderMissionQueue(jobs.slice(1));
-                 return;
-            }
-
-            const photos = Array.isArray(job.photos) ? job.photos : [];
-            if (photos.length < 5) {
-                // If invalid data, discard
+                console.error('[processProviderMissionQueue] Job failed too many times, discarding:', job);
                 writeProviderMissionQueue(jobs.slice(1));
+                setJobStatus(job.jobId, 'error', 'Trop de tentatives échouées');
+                setIsUploadProcessing(false);
+                setActiveUploadJob(null);
+                providerMissionQueueProcessingRef.current = false;
                 return;
             }
 
-            const finalPhotos = await uploadMissionPhotosIfNeeded(job.missionId, job.kind, photos);
+            const photos = Array.isArray(job.photos) ? job.photos : [];
+            if (photos.length < 5 && !job.video) {
+                // If invalid data, discard
+                writeProviderMissionQueue(jobs.slice(1));
+                setJobStatus(job.jobId, 'error', 'Données invalides - photos ou vidéo requises');
+                setIsUploadProcessing(false);
+                setActiveUploadJob(null);
+                providerMissionQueueProcessingRef.current = false;
+                return;
+            }
+
+            // Upload with progress tracking
+            const onProgress = (completed: number, total: number, percentage: number) => {
+                setUploadJobs(prev => prev.map(j => 
+                    j.jobId === job.jobId 
+                        ? { ...j, completedItems: completed, totalItems: total, progress: percentage, status: 'uploading' }
+                        : j
+                ));
+                setActiveUploadJob(prev => prev?.jobId === job.jobId 
+                    ? { ...prev, completedItems: completed, totalItems: total, progress: percentage, status: 'uploading' }
+                    : prev
+                );
+            };
+
+            const finalPhotos = await uploadMissionPhotosIfNeeded(job.missionId, job.kind, photos, onProgress);
 
             if (job.kind === 'start') {
                 const { error } = await supabase.from('missions').update({
@@ -3676,22 +3771,51 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 if (error) throw error;
 
                 setMissions(prev => prev.map(m => m.id === job.missionId ? { ...m, status: 'completed', endRemark: job.remark, endPhotos: finalPhotos, endVideo: job.video, reportSent: true } : m));
+                
+                const m = missions.find(m => m.id === job.missionId);
+                if (m) {
+                    await addNotification('admin', 'success', 'Mission Terminée', `Mission chez ${m.clientName} terminée par ${m.providerName}.`, undefined, `mission:${job.missionId}`);
+                    await addNotification('client', 'success', 'Mission Terminée', `La mission est terminée. Consultez le compte rendu.`, m.clientId, `mission:${job.missionId}`);
+                }
             }
 
+            // Mark job as completed
+            setJobStatus(job.jobId, 'completed');
             writeProviderMissionQueue(jobs.slice(1));
-        } catch (err) {
+            
+        } catch (err: any) {
             console.error('[processProviderMissionQueue] Error processing job:', err);
+            const jobs = readProviderMissionQueue();
+            if (jobs.length === 0) return;
+            const job = jobs[0];
+            
+            // Update job status to error
+            setJobStatus(job.jobId, 'error', err?.message || 'Erreur lors de l\'upload');
+            
             try {
-                const jobs = readProviderMissionQueue();
-                if (jobs.length === 0) return;
-                const job = jobs[0];
                 const next = [{ ...job, tries: Number(job.tries || 0) + 1 }, ...jobs.slice(1)];
                 writeProviderMissionQueue(next);
             } catch {
+                // ignore
             }
         } finally {
             providerMissionQueueProcessingRef.current = false;
+            setIsUploadProcessing(false);
+            setActiveUploadJob(null);
         }
+    };
+
+    // Helper function to set job status
+    const setJobStatus = (jobId: string, status: UploadStatus, errorMessage?: string) => {
+        setUploadJobs(prev => prev.map(j => 
+            j.jobId === jobId 
+                ? { ...j, status, errorMessage, ...(status === 'completed' ? { progress: 100, completedAt: new Date().toISOString() } : {}) }
+                : j
+        ));
+        setActiveUploadJob(prev => prev?.jobId === jobId 
+            ? { ...prev, status, errorMessage, ...(status === 'completed' ? { progress: 100, completedAt: new Date().toISOString() } : {}) }
+            : prev
+        );
     };
 
     const enqueueStartMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
@@ -7191,6 +7315,47 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
  
+    // Upload job management functions
+    const retryUploadJob = (jobId: string) => {
+        const job = uploadJobs.find(j => j.jobId === jobId);
+        if (!job) return;
+        
+        // Reset job status and add back to queue
+        setUploadJobs(prev => prev.map(j => 
+            j.jobId === jobId 
+                ? { ...j, status: 'retrying', tries: j.tries + 1, progress: 0, errorMessage: undefined }
+                : j
+        ));
+        
+        // Add back to provider mission queue
+        const queueJob: ProviderMissionQueueJob = {
+            jobId: job.jobId,
+            kind: job.kind,
+            missionId: job.missionId,
+            remark: job.remark,
+            photos: job.photos,
+            video: job.video,
+            createdAt: job.createdAt,
+            tries: job.tries + 1,
+        };
+        const jobs = readProviderMissionQueue();
+        writeProviderMissionQueue([queueJob, ...jobs]);
+        
+        // Restart processing
+        void processProviderMissionQueue();
+    };
+
+    const removeUploadJob = (jobId: string) => {
+        setUploadJobs(prev => prev.filter(j => j.jobId !== jobId));
+        if (activeUploadJob?.jobId === jobId) {
+            setActiveUploadJob(null);
+        }
+    };
+
+    const clearCompletedUploadJobs = () => {
+        setUploadJobs(prev => prev.filter(j => j.status !== 'completed'));
+    };
+
      return (
          <DataContext.Provider value={{
              exitDemoMode,
@@ -7244,7 +7409,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             respondToMissionReschedule,
             loadMissionsForRange,
             getMissionDetails,
-            getDocumentDetails
+            getDocumentDetails,
+
+            // Upload progress tracking
+            uploadJobs,
+            activeUploadJob,
+            isUploadProcessing,
+            retryUploadJob,
+            removeUploadJob,
+            clearCompletedUploadJobs
          }}>
              {children}
          </DataContext.Provider>

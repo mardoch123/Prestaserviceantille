@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import PageLoader from './PageLoader';
+import UploadProgressManager from './UploadProgressManager';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
@@ -77,6 +78,13 @@ const ProviderPortal: React.FC = () => {
     visitScans,
     refreshData,
     dataLoading,
+    // Upload progress tracking
+    uploadJobs,
+    activeUploadJob,
+    isUploadProcessing,
+    retryUploadJob,
+    removeUploadJob,
+    clearCompletedUploadJobs,
   } = useData();
 
   const LOADER_SEEN_KEY = 'presta_provider_portal_loader_seen';
@@ -2447,8 +2455,8 @@ const ProviderPortal: React.FC = () => {
               >
                 {isSubmittingExecution ? (
                   <>
-                    <div className="w-16 h-4 bg-white/40 rounded animate-pulse" />
-                    Envoi en cours...
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Envoi en cours...</span>
                   </>
                 ) : (
                   <>
@@ -2458,6 +2466,29 @@ const ProviderPortal: React.FC = () => {
                   </>
                 )}
               </button>
+              
+              {/* Progress bar for upload - visible when submitting */}
+              {isSubmittingExecution && activeUploadJob && (
+                <div className="mt-4 px-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-gray-700">
+                      Upload en cours: {activeUploadJob.progress}%
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {activeUploadJob.completedItems} / {activeUploadJob.totalItems} fichiers
+                    </span>
+                  </div>
+                  <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${activeUploadJob.progress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    Ne fermez pas cette page. L'upload se poursuit en arrière-plan.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2515,6 +2546,16 @@ const ProviderPortal: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Upload Progress Manager - shows upload progress with percentage */}
+      <UploadProgressManager
+        jobs={uploadJobs}
+        activeJob={activeUploadJob}
+        isProcessing={isUploadProcessing}
+        onRetry={retryUploadJob}
+        onRemove={removeUploadJob}
+        onClearCompleted={clearCompletedUploadJobs}
+      />
 
     </div>
   );
