@@ -376,6 +376,11 @@ export const ProviderAvailabilityPage: React.FC = () => {
     return provider.availability.get(date) || 'available';
   };
 
+  // Get available time slots for provider on specific date
+  const getProviderAvailableSlots = (provider: ProviderWithAvailability, date: string): { startTime: string; endTime: string }[] => {
+    return provider.availableSlots?.get(date) || [];
+  };
+
   // Format date display
   const formatDateRange = () => {
     const start = dateRange.startDate;
@@ -628,12 +633,14 @@ export const ProviderAvailabilityPage: React.FC = () => {
                       const config = statusConfig[status];
                       const canAssign = status !== 'leave' && status !== 'unavailable';
                       const unassignedCount = getUnassignedCountForDate(dateStr);
+                      const availableSlots = getProviderAvailableSlots(provider, dateStr);
+                      const hasCustomSlots = availableSlots.length > 0;
 
                       return (
                         <div
                           key={dayIndex}
                           onClick={() => canAssign && handleProviderClick(provider, dateStr)}
-                          className={`p-1 md:p-2 border-r border-slate-200 last:border-r-0 min-h-[40px] md:min-h-[60px] transition-all ${
+                          className={`p-1 md:p-2 border-r border-slate-200 last:border-r-0 min-h-[40px] md:min-h-[60px] transition-all group relative ${
                             canAssign && unassignedCount > 0
                               ? 'cursor-pointer hover:bg-slate-100' 
                               : canAssign
@@ -641,6 +648,19 @@ export const ProviderAvailabilityPage: React.FC = () => {
                                 : 'cursor-not-allowed opacity-60'
                           }`}
                         >
+                          {/* Tooltip avec horaires */}
+                          {hasCustomSlots && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50">
+                              <div className="bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg shadow-lg whitespace-nowrap">
+                                <div className="font-semibold mb-0.5">Créneaux libres:</div>
+                                {availableSlots.map((slot, idx) => (
+                                  <div key={idx}>{slot.startTime} - {slot.endTime}</div>
+                                ))}
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                              </div>
+                            </div>
+                          )}
+                          
                           <div className={`h-full rounded-lg flex flex-col items-center justify-center gap-0.5 md:gap-1 p-1 border-2 transition-all ${
                             canAssign && unassignedCount > 0
                               ? `${config.bgColor} ${config.borderColor} hover:scale-105 hover:shadow-md` 
@@ -650,6 +670,13 @@ export const ProviderAvailabilityPage: React.FC = () => {
                             <span className={`text-[8px] md:text-xs font-semibold ${config.color}`}>
                               {canAssign && unassignedCount > 0 ? `${unassignedCount} mission${unassignedCount > 1 ? 's' : ''}` : config.label}
                             </span>
+                            
+                            {/* Indicateur de créneaux horaires */}
+                            {hasCustomSlots && status === 'available' && (
+                              <span className="text-[7px] md:text-[9px] text-green-600 font-medium mt-0.5">
+                                {availableSlots.length} créneau{availableSlots.length > 1 ? 'x' : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );

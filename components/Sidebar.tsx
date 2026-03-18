@@ -74,11 +74,10 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
-  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads, missions } = useData();
+  const { companySettings, currentUser, messages, contactForms, isSoberMode, toggleSoberMode, clientLeads, missions, serviceTypeFilter, setServiceTypeFilter } = useData();
 
   const [isMarketingOpen, setIsMarketingOpen] = React.useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
-  const [selectedServiceType, setSelectedServiceType] = useState<ServiceTypeFilter>('all');
 
   // Get available service types from missions
   const availableServiceTypes = useMemo(() => {
@@ -493,8 +492,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   </span>
                 </div>
                 <select
-                  value={selectedServiceType}
-                  onChange={(e) => setSelectedServiceType(e.target.value as ServiceTypeFilter)}
+                  value={serviceTypeFilter}
+                  onChange={(e) => setServiceTypeFilter(e.target.value as ServiceTypeFilter)}
                   className={`w-full px-2 py-2 text-xs rounded-lg border focus:ring-2 focus:ring-brand-blue focus:border-brand-blue ${
                     isSoberMode
                       ? 'bg-slate-900 text-slate-200 border-slate-700'
@@ -507,17 +506,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     </option>
                   ))}
                 </select>
-                {selectedServiceType !== 'all' && (
+                {serviceTypeFilter !== 'all' && (
                   <div className="mt-2 flex items-center gap-1">
                     <span className={`text-[10px] px-2 py-1 rounded-full ${
                       isSoberMode
                         ? 'bg-brand-blue/20 text-blue-300'
                         : 'bg-brand-blue/10 text-brand-blue'
                     }`}>
-                      {selectedServiceType}
+                      {serviceTypeFilter}
                     </span>
                     <button
-                      onClick={() => setSelectedServiceType('all')}
+                      onClick={() => setServiceTypeFilter('all')}
                       className={`text-[10px] underline ${isSoberMode ? 'text-slate-400' : 'text-slate-500'}`}
                     >
                       Réinitialiser

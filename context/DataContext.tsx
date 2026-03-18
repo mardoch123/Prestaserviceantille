@@ -5632,15 +5632,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (quote && docToSign?.status !== 'signed') {
                 await generateMissionsFromDocument({ ...quote, status: 'signed' });
-                
-                // Générer automatiquement la facture lors de la signature du devis
-                try {
-                    console.log('[signQuoteWithData] Auto-generating invoice for signed quote:', id);
-                    await convertQuoteToInvoice(id, true);
-                } catch (invoiceErr) {
-                    console.error('[signQuoteWithData] Failed to auto-generate invoice:', invoiceErr);
-                    // Ne pas bloquer la signature si la facture échoue
-                }
+                // Note: La conversion en facture se fait manuellement via le bouton "Convertir en facture"
+                // Le statut reste 'signed' jusqu'à conversion manuelle
             }
         }
     };

@@ -17,12 +17,13 @@ export async function getProvidersWithAvailability(
   startDate: string,
   endDate: string
 ): Promise<ProviderWithAvailability[]> {
-  // Get all active providers
+  // Get all active providers (limit 100)
   const { data: providersData, error: providersError } = await supabase
     .from('providers')
     .select('id, first_name, last_name, email, phone, specialty, status, rating')
     .in('status', ['Active', 'Passive'])
-    .order('first_name', { ascending: true });
+    .order('first_name', { ascending: true })
+    .limit(100);
 
   if (providersError) {
     console.error('Error fetching providers:', providersError);
@@ -33,25 +34,27 @@ export async function getProvidersWithAvailability(
     return [];
   }
 
-  // Get provider availability slots for the date range
+  // Get provider availability slots for the date range (limit 100)
   const { data: availabilityData, error: availabilityError } = await supabase
     .from('provider_availability')
     .select('*')
     .gte('date', startDate)
-    .lte('date', endDate);
+    .lte('date', endDate)
+    .limit(100);
 
   if (availabilityError) {
     console.error('Error fetching availability:', availabilityError);
     throw availabilityError;
   }
 
-  // Get scheduled assignments (missions) for the date range
+  // Get scheduled assignments (missions) for the date range (limit 100)
   const { data: missionsData, error: missionsError } = await supabase
     .from('missions')
     .select('id, provider_id, client_id, client_name, date, start_time, end_time, service, status')
     .gte('date', startDate)
     .lte('date', endDate)
-    .not('provider_id', 'is', null);
+    .not('provider_id', 'is', null)
+    .limit(100);
 
   if (missionsError) {
     console.error('Error fetching missions:', missionsError);
@@ -60,14 +63,18 @@ export async function getProvidersWithAvailability(
 
   // Build availability map for each provider
   const availabilityMap = new Map<string, Map<string, ProviderAvailabilitySlot>>();
+  const availableSlotsMap = new Map<string, Map<string, { startTime: string; endTime: string }[]>>();
 
   providersData.forEach((provider: any) => {
     availabilityMap.set(provider.id, new Map());
+    availableSlotsMap.set(provider.id, new Map());
   });
 
   // Populate availability from database
   availabilityData?.forEach((slot: any) => {
     const providerMap = availabilityMap.get(slot.provider_id);
+    const providerSlotsMap = availableSlotsMap.get(slot.provider_id);
+    
     if (providerMap) {
       providerMap.set(slot.date, {
         id: slot.id,
@@ -80,12 +87,18 @@ export async function getProvidersWithAvailability(
         updatedAt: slot.updated_at,
       });
     }
+    
+    // Store available time slots for 'available' status
+    if (providerSlotsMap && slot.status === 'available' && slot.slots && slot.slots.length > 0) {
+      providerSlotsMap.set(slot.date, slot.slots);
+    }
   });
 
   // Map providers with their availability
   return providersData.map((provider: any) => {
     const domain = mapSpecialtyToDomain(provider.specialty);
     const providerAvailability = availabilityMap.get(provider.id) || new Map();
+    const providerAvailableSlots = availableSlotsMap.get(provider.id) || new Map();
 
     return {
       id: provider.id,
@@ -98,6 +111,7 @@ export async function getProvidersWithAvailability(
       status: provider.status,
       rating: provider.rating || 0,
       availability: providerAvailability,
+      availableSlots: providerAvailableSlots,
     };
   });
 }
@@ -271,7 +285,7 @@ export async function getUnassignedMissions(
   startDate: string,
   endDate: string
 ): Promise<UnassignedMission[]> {
-  // First try: provider_id is null
+  // First try: provider_id is null (limit 100)
   const { data: data1, error: error1 } = await supabase
     .from('missions')
     .select('id, client_id, client_name, date, start_time, end_time, service, status, duration, provider_id')
@@ -279,13 +293,14 @@ export async function getUnassignedMissions(
     .lte('date', endDate)
     .is('provider_id', null)
     .neq('status', 'cancelled')
-    .order('date', { ascending: true });
+    .order('date', { ascending: true })
+    .limit(100);
 
   if (error1) {
     console.error('Error fetching unassigned missions (null check):', error1);
   }
 
-  // Second try: provider_id is empty string (as fallback)
+  // Second try: provider_id is empty string (as fallback) (limit 100)
   const { data: data2, error: error2 } = await supabase
     .from('missions')
     .select('id, client_id, client_name, date, start_time, end_time, service, status, duration, provider_id')
@@ -293,7 +308,8 @@ export async function getUnassignedMissions(
     .lte('date', endDate)
     .eq('provider_id', '')
     .neq('status', 'cancelled')
-    .order('date', { ascending: true });
+    .order('date', { ascending: true })
+    .limit(100);
 
   if (error2) {
     console.error('Error fetching unassigned missions (empty check):', error2);
@@ -345,14 +361,15 @@ export async function assignMissionToProvider(
 }
 
 /**
- * Get clients for assignment dropdown
+ * Get clients for assignment dropdown (limit 100)
  */
 export async function getClientsForAssignment(): Promise<{ id: string; name: string }[]> {
   const { data, error } = await supabase
     .from('clients')
     .select('id, name')
     .eq('status', 'active')
-    .order('name', { ascending: true });
+    .order('name', { ascending: true })
+    .limit(100);
 
   if (error) {
     console.error('Error fetching clients:', error);

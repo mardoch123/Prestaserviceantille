@@ -50,6 +50,11 @@ const MissionReports: React.FC = () => {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'in_progress' | 'completed'>('completed');
     
+    // États pour les filtres de date et période
+    const [startDateFilter, setStartDateFilter] = useState<string>('');
+    const [endDateFilter, setEndDateFilter] = useState<string>('');
+    const [selectedClientFilter, setSelectedClientFilter] = useState<string>('');
+    
     // États pour les nouvelles fonctionnalités
     const [selectedClientForModal, setSelectedClientForModal] = useState<Client | null>(null);
     const [selectedProviderForModal, setSelectedProviderForModal] = useState<Provider | null>(null);
@@ -150,13 +155,14 @@ const MissionReports: React.FC = () => {
         };
     }, []);
 
-    // Filter only completed missions
+    // Filter only completed missions with date and client filters
     const completedMissions = useMemo(() => {
         const base = (reportMissions.length ? reportMissions : missions);
         let result = base
             .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
             .filter(m => m.status === 'completed');
         
+        // Filtre par recherche textuelle
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             result = result.filter(m => 
@@ -166,15 +172,31 @@ const MissionReports: React.FC = () => {
             );
         }
         
+        // Filtre par date de début
+        if (startDateFilter) {
+            result = result.filter(m => new Date(m.date) >= new Date(startDateFilter));
+        }
+        
+        // Filtre par date de fin
+        if (endDateFilter) {
+            result = result.filter(m => new Date(m.date) <= new Date(endDateFilter));
+        }
+        
+        // Filtre par client spécifique
+        if (selectedClientFilter) {
+            result = result.filter(m => m.clientId === selectedClientFilter);
+        }
+        
         // Sort by date desc
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [missions, reportMissions, searchQuery, serviceTypeFilter]);
+    }, [missions, reportMissions, searchQuery, serviceTypeFilter, startDateFilter, endDateFilter, selectedClientFilter]);
 
     const inProgressMissions = useMemo(() => {
         let result = missions
             .filter(m => matchesServiceTypeFilterFromText(m.service, serviceTypeFilter))
             .filter(m => m.status === 'in_progress');
 
+        // Filtre par recherche textuelle
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             result = result.filter(m =>
@@ -183,9 +205,24 @@ const MissionReports: React.FC = () => {
                 m.service.toLowerCase().includes(query)
             );
         }
+        
+        // Filtre par date de début
+        if (startDateFilter) {
+            result = result.filter(m => new Date(m.date) >= new Date(startDateFilter));
+        }
+        
+        // Filtre par date de fin
+        if (endDateFilter) {
+            result = result.filter(m => new Date(m.date) <= new Date(endDateFilter));
+        }
+        
+        // Filtre par client spécifique
+        if (selectedClientFilter) {
+            result = result.filter(m => m.clientId === selectedClientFilter);
+        }
 
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [missions, searchQuery, serviceTypeFilter]);
+    }, [missions, searchQuery, serviceTypeFilter, startDateFilter, endDateFilter, selectedClientFilter]);
 
     const displayedMissions = activeTab === 'completed' ? completedMissions : inProgressMissions;
 
@@ -199,7 +236,7 @@ const MissionReports: React.FC = () => {
     // Reset to page 1 when tab or search changes
     useEffect(() => {
         setCurrentPage(1);
-    }, [activeTab, searchQuery]);
+    }, [activeTab, searchQuery, startDateFilter, endDateFilter, selectedClientFilter]);
 
     const getClientInfo = (clientId?: string | null) => {
         if (!clientId) return null;
@@ -387,38 +424,98 @@ const MissionReports: React.FC = () => {
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setActiveTab('in_progress')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'in_progress' ? 'bg-blue-50 text-brand-blue border-blue-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                    >
-                        Missions en cours ({inProgressMissions.length})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('completed')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                    >
-                        Missions terminées ({completedMissions.length})
-                    </button>
-                </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-col gap-4">
+                {/* Ligne 1: Tabs de statut et recherche */}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setActiveTab('in_progress')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'in_progress' ? 'bg-blue-50 text-brand-blue border-blue-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        >
+                            Missions en cours ({inProgressMissions.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('completed')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${activeTab === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        >
+                            Missions terminées ({completedMissions.length})
+                        </button>
+                    </div>
 
-                <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                    <span>Total chargées: {(reportMissions.length ? reportMissions.length : missions.length)}</span>
-                    {serviceTypeFilter && serviceTypeFilter !== 'all' ? (
-                        <span>Filtre global: {serviceTypeFilter}</span>
-                    ) : null}
+                    <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                        <span>Total chargées: {(reportMissions.length ? reportMissions.length : missions.length)}</span>
+                        {serviceTypeFilter && serviceTypeFilter !== 'all' ? (
+                            <span>Filtre global: {serviceTypeFilter}</span>
+                        ) : null}
+                    </div>
+                    
+                    <div className="relative w-full md:w-96">
+                        <input 
+                            type="text" 
+                            placeholder="Rechercher (Client, Prestataire, Service)..." 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                        />
+                        <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    </div>
                 </div>
                 
-                <div className="relative w-full md:w-96">
-                    <input 
-                        type="text" 
-                        placeholder="Rechercher (Client, Prestataire, Service)..." 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                    />
-                    <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                {/* Ligne 2: Filtres de date et client */}
+                <div className="flex flex-col md:flex-row items-center gap-4 pt-3 border-t border-slate-100">
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <Calendar className="w-4 h-4 text-slate-400" />
+                        <span className="font-medium">Période:</span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                            type="date"
+                            value={startDateFilter}
+                            onChange={(e) => setStartDateFilter(e.target.value)}
+                            className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                            placeholder="Date début"
+                        />
+                        <span className="text-slate-400">→</span>
+                        <input
+                            type="date"
+                            value={endDateFilter}
+                            onChange={(e) => setEndDateFilter(e.target.value)}
+                            className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                            placeholder="Date fin"
+                        />
+                    </div>
+                    
+                    <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+                    
+                    <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-slate-400" />
+                        <select
+                            value={selectedClientFilter}
+                            onChange={(e) => setSelectedClientFilter(e.target.value)}
+                            className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none min-w-[180px]"
+                        >
+                            <option value="">Tous les clients</option>
+                            {clients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    
+                    {/* Bouton réinitialiser les filtres */}
+                    {(startDateFilter || endDateFilter || selectedClientFilter) && (
+                        <button
+                            onClick={() => {
+                                setStartDateFilter('');
+                                setEndDateFilter('');
+                                setSelectedClientFilter('');
+                            }}
+                            className="ml-auto text-xs text-slate-500 hover:text-brand-blue underline flex items-center gap-1"
+                        >
+                            <X className="w-3 h-3" />
+                            Réinitialiser filtres
+                        </button>
+                    )}
                 </div>
             </div>
 

@@ -32,6 +32,8 @@ export type ProviderWithAvailability = {
   rating: number;
   // Availability for a specific date range - maps date to status only
   availability: Map<string, ProviderAvailabilityStatus>;
+  // Available time slots by date
+  availableSlots?: Map<string, TimeSlot[]>;
 };
 
 export type ProviderScheduleAssignment = {
