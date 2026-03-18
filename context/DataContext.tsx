@@ -3819,8 +3819,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const enqueueStartMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const jobId = generateUUID();
         const job: ProviderMissionQueueJob = {
-            jobId: generateUUID(),
+            jobId,
             kind: 'start',
             missionId: id,
             remark,
@@ -3829,14 +3830,37 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             createdAt: getMartiniqueNowISO(),
             tries: 0,
         };
+        
+        // Add to localStorage queue
         const jobs = readProviderMissionQueue();
         writeProviderMissionQueue([job, ...jobs]);
+        
+        // Immediately create upload job for UI feedback
+        const totalItems = (photos?.length || 0) + (video ? 1 : 0);
+        const uploadJob: UploadJob = {
+            jobId,
+            missionId: id,
+            kind: 'start',
+            status: 'idle',
+            progress: 0,
+            totalItems: Math.max(totalItems, 1),
+            completedItems: 0,
+            photos: photos || [],
+            video,
+            remark,
+            createdAt: job.createdAt,
+            tries: 0,
+        };
+        setUploadJobs(prev => [uploadJob, ...prev]);
+        setActiveUploadJob(uploadJob);
+        
         void processProviderMissionQueue();
     };
 
     const enqueueEndMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
+        const jobId = generateUUID();
         const job: ProviderMissionQueueJob = {
-            jobId: generateUUID(),
+            jobId,
             kind: 'end',
             missionId: id,
             remark,
@@ -3845,8 +3869,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             createdAt: getMartiniqueNowISO(),
             tries: 0,
         };
+        
+        // Add to localStorage queue
         const jobs = readProviderMissionQueue();
         writeProviderMissionQueue([job, ...jobs]);
+        
+        // Immediately create upload job for UI feedback
+        const totalItems = (photos?.length || 0) + (video ? 1 : 0);
+        const uploadJob: UploadJob = {
+            jobId,
+            missionId: id,
+            kind: 'end',
+            status: 'idle',
+            progress: 0,
+            totalItems: Math.max(totalItems, 1),
+            completedItems: 0,
+            photos: photos || [],
+            video,
+            remark,
+            createdAt: job.createdAt,
+            tries: 0,
+        };
+        setUploadJobs(prev => [uploadJob, ...prev]);
+        setActiveUploadJob(uploadJob);
+        
         void processProviderMissionQueue();
     };
 
