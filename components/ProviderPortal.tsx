@@ -4,7 +4,6 @@ import { Mission } from '../types';
 import { supabase } from '../utils/supabaseClient';
 import PageLoader from './PageLoader';
 import UploadProgressManager from './UploadProgressManager';
-import UploadDebugPanel from './UploadDebugPanel';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { 
@@ -569,7 +568,7 @@ const ProviderPortal: React.FC = () => {
       const path = `missions/${missionId}/photos/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
       const { error: upErr } = await supabase.storage
         .from('mission-media')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        .upload(path, blob, { contentType: 'image/jpeg' });
 
       if (upErr) throw upErr;
 
@@ -682,7 +681,7 @@ const ProviderPortal: React.FC = () => {
             const path = `missions/${selectedMissionId}/videos/${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
             const { error: upErr } = await supabase.storage
               .from('mission-media')
-              .upload(path, file, { contentType: file.type || 'video/mp4', upsert: true });
+              .upload(path, file, { contentType: file.type || 'video/mp4' });
 
             if (upErr) throw upErr;
 
@@ -2679,13 +2678,6 @@ const ProviderPortal: React.FC = () => {
         onRetry={retryUploadJob}
         onRemove={removeUploadJob}
         onClearCompleted={clearCompletedUploadJobs}
-      />
-
-      {/* Debug Panel - pour voir l'état des jobs */}
-      <UploadDebugPanel
-        uploadJobs={uploadJobs}
-        activeUploadJob={activeUploadJob}
-        isUploadProcessing={isUploadProcessing}
       />
 
     </div>
