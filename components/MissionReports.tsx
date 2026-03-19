@@ -296,9 +296,15 @@ const MissionReports: React.FC = () => {
             try {
                 const detailed = await getMissionDetails(String(mission.id));
                 if (detailed) {
-                    setSelectedMission(detailed);
+                    // Ensure video URL is properly set from detailed data
+                    const m = detailed as any;
+                    const videoUrl = m.endVideo || m.end_video || (m.has_end_video ? m.endVideo : undefined);
+                    setSelectedMission({
+                        ...detailed,
+                        endVideo: videoUrl
+                    });
                 } else {
-                    setDetailsError("Impossible de charger le détail de la mission (photos)." );
+                    setDetailsError("Impossible de charger le détail de la mission (photos/video)." );
                 }
             } catch (e: any) {
                 setDetailsError(String(e?.message || 'Erreur chargement détail mission'));

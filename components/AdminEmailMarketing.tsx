@@ -1,26 +1,27 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Send,
-  Users,
-  Eye,
-  History,
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Mail,
-  Search,
-  Filter,
-  X,
-  FileText,
-  Check,
-  Loader2,
-  Megaphone,
-  Calendar,
-  Package
+import { 
+    Send,
+    Users,
+    Eye,
+    History,
+    ChevronDown,
+    ChevronUp,
+    Trash2,
+    AlertCircle,
+    CheckCircle,
+    Clock,
+    Mail,
+    Search,
+    Filter,
+    X,
+    FileText,
+    Check,
+    Loader2,
+    Megaphone,
+    Calendar,
+    Package,
+    Image
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import type { Pack } from '../types';
@@ -44,6 +45,8 @@ interface EmailEditorState {
   subject: string;
   htmlContent: string;
   selectedPackId?: string;
+  attachedImages: string[];
+  imageUrlInput?: string;
 }
 
 interface TargetFilters {
@@ -87,7 +90,8 @@ export const AdminEmailMarketingPage: React.FC = () => {
   <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
     Presta Services Antilles - Simplifiez votre quotidien
   </p>
-</div>`
+</div>`,
+    attachedImages: []
   });
 
   // Target filters
@@ -501,7 +505,9 @@ export const AdminEmailMarketingPage: React.FC = () => {
   <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
     Presta Services Antilles - Simplifiez votre quotidien
   </p>
-</div>`
+</div>`,
+        attachedImages: [],
+        imageUrlInput: ''
       });
       setFilters({
         allClients: true,
@@ -921,6 +927,96 @@ export const AdminEmailMarketingPage: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-2">
                   Vous pouvez utiliser du HTML pour formater votre email. Assurez-vous d'inclure le style inline.
                 </p>
+              </div>
+
+              {/* Image Attachment Section */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  <Image className="w-4 h-4" />
+                  Images jointes
+                </h3>
+                
+                {/* Add Image URL Input */}
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={editor.imageUrlInput || ''}
+                    onChange={e => setEditor(prev => ({ ...prev, imageUrlInput: e.target.value }))}
+                    placeholder="URL de l'image (https://...)"
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={() => {
+                      if (editor.imageUrlInput?.trim()) {
+                        setEditor(prev => ({
+                          ...prev,
+                          attachedImages: [...prev.attachedImages, prev.imageUrlInput!.trim()],
+                          imageUrlInput: ''
+                        }));
+                      }
+                    }}
+                    disabled={!editor.imageUrlInput?.trim()}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Ajouter
+                  </button>
+                </div>
+
+                {/* Attached Images List */}
+                {editor.attachedImages.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-500">{editor.attachedImages.length} image(s) attachée(s) :</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {editor.attachedImages.map((url, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={url}
+                            alt={`Attached ${index + 1}`}
+                            className="w-full h-24 object-cover rounded-lg border border-slate-200"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%23f1f5f9"/><text x="50" y="50" text-anchor="middle" fill="%2394a3b8" font-size="12">Image invalide</text></svg>';
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              setEditor(prev => ({
+                                ...prev,
+                                attachedImages: prev.attachedImages.filter((_, i) => i !== index)
+                              }));
+                            }}
+                            className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Retirer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                          <p className="text-[10px] text-slate-500 truncate mt-1">Image {index + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Insert into HTML button */}
+                    <button
+                      onClick={() => {
+                        const imagesHtml = editor.attachedImages.map(url => 
+                          `<img src="${url}" style="max-width: 100%; height: auto; margin: 10px 0; border-radius: 8px;" />`
+                        ).join('\n');
+                        setEditor(prev => ({
+                          ...prev,
+                          htmlContent: prev.htmlContent + '\n' + imagesHtml
+                        }));
+                      }}
+                      className="w-full mt-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                    >
+                      Insérer les images dans le HTML
+                    </button>
+                  </div>
+                )}
+
+                {editor.attachedImages.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">
+                    Aucune image attachée. Ajoutez des URLs d'images pour les inclure dans vos emails.
+                  </p>
+                )}
               </div>
 
               {/* Send Button */}
