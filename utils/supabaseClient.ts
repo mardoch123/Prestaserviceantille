@@ -40,7 +40,12 @@ const normalizeSupabaseUrl = (raw: string): string => {
 
     // Allow proxy base like https://localhost:3000/api/supabase for local/dev
     const isProxySupabase = looksLikeApiProxyPath && /\/api\/supabase(\/|$)/i.test(pathname);
-    if (!isLikelySupabaseHosted && looksLikeApiProxyPath && !isProxySupabase) {
+    
+    // Allow VPS/self-hosted Supabase at /api (like outremerfermetures.com/api)
+    const isVpsSupabase = looksLikeApiProxyPath && !isProxySupabase;
+    
+    // If it looks like a random API path (not /api/supabase and not a known VPS), fallback
+    if (!isLikelySupabaseHosted && looksLikeApiProxyPath && !isProxySupabase && !isVpsSupabase) {
       return DEFAULT_URL;
     }
   } catch {
@@ -54,7 +59,7 @@ const preferProxyBase = () => {
   try {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin.replace(/\/+$/, '');
-      return `${origin}/api/supabase`;
+      return `${origin}/api`;
     }
   } catch {}
   return '';

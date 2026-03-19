@@ -80,7 +80,7 @@ const MissionReports: React.FC = () => {
         if (!url) return '';
         if (/^data:/i.test(url) || /^blob:/i.test(url) || /^https?:\/\//i.test(url)) return url;
         if (!isSupabaseConfigured) return url;
-        const cleanedPath = url.replace(/^\/+/, '');
+        const cleanedPath = url.replace(/^\/+/g, '');
         const { data } = supabase.storage.from('mission-media').getPublicUrl(cleanedPath);
         return String(data?.publicUrl || url);
     };
@@ -617,8 +617,11 @@ const MissionReports: React.FC = () => {
                                         <div className="flex justify-center items-center gap-2">
                                             {(() => {
                                                 const v: any = m as any;
-                                                const endCount = typeof v.end_photos_count === 'number' ? v.end_photos_count : (m.endPhotos?.length || 0);
-                                                const startCount = (m.startPhotos?.length || 0);
+                                                // Normalize photos from storage paths to URLs
+                                                const endPhotosArray = Array.isArray(v.endPhotos) ? v.endPhotos : (Array.isArray(v.end_photos) ? v.end_photos : []);
+                                                const startPhotosArray = Array.isArray(v.startPhotos) ? v.startPhotos : (Array.isArray(v.start_photos) ? v.start_photos : []);
+                                                const endCount = typeof v.end_photos_count === 'number' ? v.end_photos_count : endPhotosArray.length;
+                                                const startCount = startPhotosArray.map(normalizeMediaUrl).filter(Boolean).length;
                                                 const count = activeTab === 'completed' ? endCount : startCount;
                                                 if (count > 0) {
                                                     return (
@@ -905,10 +908,13 @@ const MissionReports: React.FC = () => {
                                                 <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
                                                     <Video className="w-3 h-3"/> Vidéo de fin
                                                 </span>
-                                                <div className="aspect-video bg-black rounded-lg flex items-center justify-center text-white relative overflow-hidden group">
-                                                    <p className="text-xs font-bold z-10">Lecture Vidéo</p>
-                                                    {/* In a real scenario, <video src={selectedMission.endVideo} ... /> */}
-                                                    <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-20 transition-opacity"></div>
+                                                <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                                                    <video 
+                                                        src={normalizeMediaUrl(selectedMission.endVideo)} 
+                                                        controls 
+                                                        className="w-full h-full"
+                                                        preload="metadata"
+                                                    />
                                                 </div>
                                             </div>
                                         )}

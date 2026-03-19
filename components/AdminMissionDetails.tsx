@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Calendar, Clock, FileText, MapPin, User } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, FileText, MapPin, User, Camera, Video } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
 import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
+
+const normalizeMediaUrl = (raw: string) => {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  if (/^data:/i.test(url) || /^blob:/i.test(url) || /^https?:\/\//i.test(url)) return url;
+  if (!isSupabaseConfigured) return url;
+  const cleanedPath = url.replace(/^\/+/g, '');
+  const { data } = supabase.storage.from('mission-media').getPublicUrl(cleanedPath);
+  return String(data?.publicUrl || url);
+};
 
 const getStatusStyle = (status?: string) => {
   const s = String(status || '').toLowerCase();
@@ -207,25 +218,78 @@ const AdminMissionDetails: React.FC = () => {
                 </div>
               </div>
 
-              {(mission as any)?.endPhotos && Array.isArray((mission as any).endPhotos) && (mission as any).endPhotos.length > 0 ? (
+              {/* Photos Section - Start & End */}
+              {(mission as any)?.startPhotos?.length > 0 || (mission as any)?.start_photos?.length > 0 ? (
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-orange-500" />
+                    <h2 className="text-sm font-bold text-slate-800">Photos début de chantier</h2>
+                  </div>
+                  <div className="p-5">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {((mission as any).startPhotos || (mission as any).start_photos || []).map((url: string, i: number) => {
+                        const normalizedUrl = normalizeMediaUrl(url);
+                        return normalizedUrl ? (
+                          <a
+                            key={i}
+                            href={normalizedUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-90 transition"
+                            title="Ouvrir"
+                          >
+                            <img src={normalizedUrl} alt={`Photo début ${i+1}`} className="w-full h-full object-cover" />
+                          </a>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {(mission as any)?.endPhotos?.length > 0 || (mission as any)?.end_photos?.length > 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-green-500" />
                     <h2 className="text-sm font-bold text-slate-800">Photos fin de chantier</h2>
                   </div>
                   <div className="p-5">
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                      {(mission as any).endPhotos.map((url: string, i: number) => (
-                        <a
-                          key={i}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50"
-                          title="Ouvrir"
-                        >
-                          <img src={url} alt="Photo chantier" className="w-full h-full object-cover" />
-                        </a>
-                      ))}
+                      {((mission as any).endPhotos || (mission as any).end_photos || []).map((url: string, i: number) => {
+                        const normalizedUrl = normalizeMediaUrl(url);
+                        return normalizedUrl ? (
+                          <a
+                            key={i}
+                            href={normalizedUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-90 transition"
+                            title="Ouvrir"
+                          >
+                            <img src={normalizedUrl} alt={`Photo fin ${i+1}`} className="w-full h-full object-cover" />
+                          </a>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Video Section */}
+              {(mission as any)?.endVideo || (mission as any)?.end_video ? (
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                    <Video className="w-4 h-4 text-purple-500" />
+                    <h2 className="text-sm font-bold text-slate-800">Vidéo de fin</h2>
+                  </div>
+                  <div className="p-5">
+                    <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                      <video 
+                        src={normalizeMediaUrl((mission as any).endVideo || (mission as any).end_video)} 
+                        controls 
+                        className="w-full h-full"
+                        preload="metadata"
+                      />
                     </div>
                   </div>
                 </div>

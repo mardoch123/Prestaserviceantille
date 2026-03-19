@@ -322,7 +322,7 @@ const Dashboard: React.FC = () => {
     if (!url) return '';
     if (/^data:/i.test(url) || /^blob:/i.test(url) || /^https?:\/\//i.test(url)) return url;
     if (!isSupabaseConfigured) return url;
-    const cleanedPath = url.replace(/^\/+/, '');
+    const cleanedPath = url.replace(/^\/+/g, '');
     const { data } = supabase.storage.from('mission-media').getPublicUrl(cleanedPath);
     return String(data?.publicUrl || url);
   };
