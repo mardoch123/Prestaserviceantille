@@ -4,6 +4,7 @@ import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
 import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy } from 'lucide-react';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
+import { SafeImage } from './SafeImage';
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
@@ -279,7 +280,13 @@ const Login: React.FC = () => {
                 <div className="text-center mb-8">
                     <div className="w-32 h-32 mx-auto mb-2 flex items-center justify-center">
                         {companySettings?.logoUrl ? (
-                            <img src={companySettings.logoUrl} alt="Logo Entreprise" className="w-full h-full object-contain drop-shadow-md" />
+                            <SafeImage
+                                src={companySettings.logoUrl}
+                                alt="Logo Entreprise"
+                                className="w-full h-full object-contain drop-shadow-md"
+                                timeout={5000}
+                                retryCount={1}
+                            />
                         ) : (
                             <div className="w-24 h-24 rounded-full bg-white border-4 border-brand-orange flex items-center justify-center shadow-md">
                                 <span className="text-brand-blue font-bold text-xs">LOGO</span>

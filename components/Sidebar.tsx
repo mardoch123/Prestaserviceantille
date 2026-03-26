@@ -1,6 +1,6 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import { SafeImage } from './SafeImage';
 import { 
   LayoutDashboard, 
   BarChart2, 
@@ -235,11 +235,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin') return;
 
+    // Skip API call in development/localhost - l'API n'existe pas en local
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
     let cancelled = false;
 
     const fetchEmailQuota = async () => {
       setEmailQuotaLoading(true);
       try {
+        // En localhost, passer directement au fallback Supabase
+        if (isLocalhost) {
+          throw new Error('Skip API in localhost');
+        }
+        
         // Call the API endpoint for real quota data - use /api prefix for VPS compatibility
         const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
         // Ensure we don't double the /api path
@@ -265,7 +273,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         }
       } catch (err) {
         // Silencieux en production - fallback normal sur VPS avec auth basique
-        console.log('[Sidebar] API quota indisponible (auth basique?), fallback Supabase...');
+        if (!isLocalhost) {
+          console.log('[Sidebar] API quota indisponible (auth basique?), fallback Supabase...');
+        }
         // Fallback: use local Supabase query
         try {
           if (!isSupabaseConfigured) throw new Error('Supabase not configured');
@@ -304,7 +314,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             });
           }
         } catch (fallbackErr) {
-          console.error('[Sidebar] Fallback also failed:', fallbackErr);
+          if (!isLocalhost) {
+            console.error('[Sidebar] Fallback also failed:', fallbackErr);
+          }
           if (!cancelled) {
             setEmailQuota({ 
               used: 0, 
@@ -417,7 +429,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             {/* Dynamic Logo from Settings */}
             {companySettings.logoUrl ? (
                  <div className="w-24 h-24 mb-2 flex items-center justify-center">
-                    <img src={companySettings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                    <SafeImage
+                        src={companySettings.logoUrl}
+                        alt="Logo"
+                        className="w-full h-full object-contain"
+                        timeout={5000}
+                        retryCount={1}
+                    />
                  </div>
             ) : (
                 <div className="w-20 h-20 rounded-full bg-white border-2 border-brand-orange flex items-center justify-center mb-2 shadow-sm overflow-hidden">
@@ -752,20 +770,28 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                       // Reset the quota display (this just reloads the data)
                       setEmailQuotaLoading(true);
                       try {
-                        const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
-                        // Ensure we don't double the /api path
-                        const apiUrl = apiBase.endsWith('/api') 
-                          ? `${apiBase}/emailjs-quota` 
-                          : `${apiBase}/api/emailjs-quota`;
-                        const response = await fetch(apiUrl, { 
-                          credentials: 'same-origin' // Include cookies/auth headers
-                        });
-                        const data = await response.json();
-                        if (data.success && data.quota) {
-                          setEmailQuota(data.quota);
+                        // Skip API call in localhost - l'API n'existe pas en local
+                        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                        
+                        if (!isLocalhost) {
+                          const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
+                          // Ensure we don't double the /api path
+                          const apiUrl = apiBase.endsWith('/api') 
+                            ? `${apiBase}/emailjs-quota` 
+                            : `${apiBase}/api/emailjs-quota`;
+                          const response = await fetch(apiUrl, { 
+                            credentials: 'same-origin' // Include cookies/auth headers
+                          });
+                          const data = await response.json();
+                          if (data.success && data.quota) {
+                            setEmailQuota(data.quota);
+                          }
                         }
                       } catch (err) {
-                        console.error('Failed to refresh quota:', err);
+                        // Silencieux en localhost
+                        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                          console.error('Failed to refresh quota:', err);
+                        }
                       } finally {
                         setEmailQuotaLoading(false);
                       }

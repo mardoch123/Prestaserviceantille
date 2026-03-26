@@ -24,6 +24,8 @@ import {
     toMartiniqueTime,
     MARTINIQUE_TIMEZONE
 } from '../src/utils/martiniqueTime';
+import { dataCache } from '../utils/dataCache';
+import { smartFetch } from '../utils/smartFetch';
 
 // --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://anciens.prestaservicesantilles.com/images/logo.png";
@@ -1536,8 +1538,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const newDoc = mapDocumentRow((payload as any).new);
                     setDocuments(prev => {
                         const exists = prev.some(d => String((d as any).id) === String(newDoc.id));
-                        if (exists) return prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d);
-                        return [...prev, newDoc];
+                        const newDocs = exists ? prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d) : [...prev, newDoc];
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
                     });
                 }
             )
@@ -1552,8 +1556,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const updatedDoc = mapDocumentRow(payload.new);
                     setDocuments(prev => {
                         const exists = prev.some(d => String((d as any).id) === String(updatedDoc.id));
-                        if (!exists) return [...prev, updatedDoc];
-                        return prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                        const newDocs = !exists ? [...prev, updatedDoc] : prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
                     });
                 }
             )
@@ -1567,7 +1573,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 (payload) => {
                     const deletedId = String(((payload as any).old as any)?.id || '');
                     if (!deletedId) return;
-                    setDocuments(prev => prev.filter(d => String((d as any).id) !== deletedId));
+                    setDocuments(prev => {
+                        const newDocs = prev.filter(d => String((d as any).id) !== deletedId);
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
+                    });
                 }
             )
             .subscribe((status) => {
@@ -1622,8 +1633,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const newDoc = mapDocumentRow(payload.new);
                     setDocuments(prev => {
                         const exists = prev.some(d => String((d as any).id) === String(newDoc.id));
-                        if (exists) return prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d);
-                        return [...prev, newDoc];
+                        const newDocs = exists ? prev.map(d => String((d as any).id) === String(newDoc.id) ? newDoc : d) : [...prev, newDoc];
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
                     });
                 }
             )
@@ -1639,8 +1652,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const updatedDoc = mapDocumentRow(payload.new);
                     setDocuments(prev => {
                         const exists = prev.some(d => String((d as any).id) === String(updatedDoc.id));
-                        if (!exists) return [...prev, updatedDoc];
-                        return prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                        const newDocs = !exists ? [...prev, updatedDoc] : prev.map(d => String((d as any).id) === String(updatedDoc.id) ? updatedDoc : d);
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
                     });
                 }
             )
@@ -1655,7 +1670,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 (payload) => {
                     const deletedId = String((payload.old as any)?.id || '');
                     if (!deletedId) return;
-                    setDocuments(prev => prev.filter(d => String((d as any).id) !== deletedId));
+                    setDocuments(prev => {
+                        const newDocs = prev.filter(d => String((d as any).id) !== deletedId);
+                        // Synchroniser avec le cache
+                        dataCache.set('documents', newDocs);
+                        return newDocs;
+                    });
                 }
             )
             .subscribe((status) => {
@@ -1687,7 +1707,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 setIsOnline(true);
 
-                const fetchTable = async (table: string, query: any = '*', timeout: number = 15000, retries = 1): Promise<any[] | null> => {
+                // CHARGEMENT IMMÉDIAT DEPUIS LE CACHE - Affiche les données instantanément
+                // même avec une connexion lente
+                const loadFromCache = () => {
+                    const cachedClients = dataCache.get<any[]>('clients', undefined, 24 * 60 * 60 * 1000);
+                    const cachedProviders = dataCache.get<any[]>('providers', undefined, 24 * 60 * 60 * 1000);
+                    const cachedMissions = dataCache.get<any[]>('missions', undefined, 24 * 60 * 60 * 1000);
+                    const cachedDocuments = dataCache.get<any[]>('documents', undefined, 24 * 60 * 60 * 1000);
+                    const cachedNotifications = dataCache.get<any[]>('notifications', undefined, 24 * 60 * 60 * 1000);
+
+                    if (cachedClients) setClients(cachedClients);
+                    if (cachedProviders) setProviders(cachedProviders);
+                    if (cachedMissions) {
+                        setMissions(cachedMissions);
+                        checkUpcomingReminders(cachedMissions);
+                    }
+                    if (cachedDocuments) setDocuments(cachedDocuments);
+                    if (cachedNotifications) setNotifications(cachedNotifications);
+
+                    return !!(cachedClients || cachedProviders || cachedMissions);
+                };
+
+                // Charger depuis le cache immédiatement (ne bloque pas le thread)
+                const hadCachedData = loadFromCache();
+
+                // Si on a des données en cache, masquer le loader immédiatement
+                if (hadCachedData && shouldShowLoader) {
+                    setDataLoading(false);
+                }
+
+                const fetchTable = async (table: string, query: any = '*', timeout: number = 30000, retries = 2): Promise<any[] | null> => {
                     try {
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error(`Timeout fetching ${table}`)), timeout);
@@ -2122,11 +2171,18 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     fetchTable('reminders', reminderSelect, 20000)
                 ]);
 
-                if (cData) setClients(mapClients(cData, null, null));
-                if (pData) setProviders(mapProviders(pData, null));
+                if (cData) {
+                    setClients(mapClients(cData, null, null));
+                    dataCache.set('clients', cData); // Sauvegarder dans le cache
+                }
+                if (pData) {
+                    setProviders(mapProviders(pData, null));
+                    dataCache.set('providers', pData); // Sauvegarder dans le cache
+                }
                 if (mData) {
                     const mappedMissions = mapMissions(mData);
                     setMissions(mappedMissions);
+                    dataCache.set('missions', mData); // Sauvegarder dans le cache
                     checkUpcomingReminders(mappedMissions);
                 } else {
                     try {
@@ -2191,7 +2247,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
 
                     if (dData) {
-                        setDocuments(dData.map((d: any) => ({
+                        const mappedDocs = dData.map((d: any) => ({
                             ...d,
                             clientId: d.client_id || d.clientId,
                             clientName: d.client_name || d.clientName,
@@ -2208,7 +2264,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             frequency: d.frequency,
                             packId: d.pack_id || d.packId,
                             serviceType: d.service_type || d.serviceType
-                        })));
+                        }));
+                        setDocuments(mappedDocs);
+                        dataCache.set('documents', mappedDocs); // Sauvegarder dans le cache les données mappées
                     }
                     if (packData) {
                         setPacks(packData.map((p: any) => {
@@ -2285,6 +2343,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         targetUserType: n.target_user_type || n.target_user_role,
                         targetUserId: n.target_user_id
                     })));
+                    dataCache.set('notifications', notifData); // Sauvegarder dans le cache
                 }
 
                 if (cfData) {

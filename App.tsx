@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
+import { DataPrefetcher } from './context/DataContext.tanstack';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -70,9 +71,21 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { ToastContainer } from './components/mobile/Toast';
 import { useMobileViewport, useDisableDoubleTapZoom } from './hooks/useMobile';
 import './src/styles/mobile.css';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { queryClient, initQueryPersistance } from './utils/queryClient';
+import { registerServiceWorker } from './utils/serviceWorkerRegistration';
 
 const initNativeFeatures = async () => {
     try {
+        // Initialiser TanStack Query persistance
+        await initQueryPersistance();
+        
+        // Enregistrer Service Worker (production uniquement)
+        if (process.env.NODE_ENV === 'production') {
+            registerServiceWorker();
+        }
+        
         if (Capacitor.isNativePlatform()) {
             try {
                 await StatusBar.setStyle({ style: Style.Light });
@@ -791,12 +804,17 @@ const AppLayout: React.FC = () => {
 const App: React.FC = () => {
     return (
         <ErrorBoundary>
-            <DataProvider>
-                <BrowserRouter>
-                    <ToastContainer />
-                    <AppLayout />
-                </BrowserRouter>
-            </DataProvider>
+            <QueryClientProvider client={queryClient}>
+                <DataProvider>
+                    <DataPrefetcher>
+                        <BrowserRouter>
+                            <ToastContainer />
+                            <AppLayout />
+                        </BrowserRouter>
+                    </DataPrefetcher>
+                </DataProvider>
+                {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+            </QueryClientProvider>
         </ErrorBoundary>
     );
 };

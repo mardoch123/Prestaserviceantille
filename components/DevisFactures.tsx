@@ -470,6 +470,20 @@ const DevisFactures: React.FC = () => {
     const selectedClient = clients.find(c => c.id === selectedClientId);
     const detailClient = selectedDocument ? clients.find(c => c.id === selectedDocument.clientId) : undefined;
 
+    // Helper to get client name with fallback
+    const getClientNameForDoc = (doc: any): string => {
+        if (doc.clientName) return doc.clientName;
+        if (doc.clientId) {
+            const client = clients.find(c => c.id === doc.clientId);
+            if (client) return client.name;
+        }
+        if (doc.client_id) {
+            const client = clients.find(c => c.id === doc.client_id);
+            if (client) return client.name;
+        }
+        return 'Client inconnu';
+    };
+
     useEffect(() => {
         if (!location.state) return;
 
@@ -2785,7 +2799,7 @@ const DevisFactures: React.FC = () => {
                                                     {doc.type}
                                                 </span>
                                             </div>
-                                            <div className="text-slate-700 font-bold mt-1">{doc.clientName}</div>
+                                            <div className="text-slate-700 font-bold mt-1">{getClientNameForDoc(doc)}</div>
                                             <div className="text-xs text-slate-500 mt-1">{doc.date}</div>
                                         </div>
                                     </div>
@@ -3171,7 +3185,7 @@ const DevisFactures: React.FC = () => {
                                             </button>
                                         </td>
                                         <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.ref}</td>
-                                        <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><div className="font-bold text-slate-700">{doc.clientName}</div></td>
+                                        <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><div className="font-bold text-slate-700">{getClientNameForDoc(doc)}</div></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.date}</td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}><span className={`px-2 py-1 rounded text-xs ${doc.type === 'Devis' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-600'}`}>{doc.type}</span></td>
                                         <td className="px-6 py-4 cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>
@@ -4008,9 +4022,9 @@ const DevisFactures: React.FC = () => {
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <h4 className="font-bold text-slate-800 mb-3">Informations Client</h4>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                                    <div><span className="text-slate-500">Nom complet : </span><span className="font-medium">{detailClient?.name || selectedDocument.clientName || '—'}</span></div>
+                                    <div><span className="text-slate-500">Nom complet : </span><span className="font-medium">{detailClient?.name || getClientNameForDoc(selectedDocument) || '—'}</span></div>
                                     <div><span className="text-slate-500">Prénom : </span><span className="font-medium">{(() => {
-                                        const n = (detailClient?.name || selectedDocument.clientName || '').trim();
+                                        const n = (detailClient?.name || getClientNameForDoc(selectedDocument) || '').trim();
                                         if (!n) return '—';
                                         const parts = n.split(' ').filter(Boolean);
                                         if (parts.length <= 1) return n;
@@ -4018,7 +4032,7 @@ const DevisFactures: React.FC = () => {
                                         return parts.join(' ') || '—';
                                     })()}</span></div>
                                     <div><span className="text-slate-500">Nom : </span><span className="font-medium">{(() => {
-                                        const n = (detailClient?.name || selectedDocument.clientName || '').trim();
+                                        const n = (detailClient?.name || getClientNameForDoc(selectedDocument) || '').trim();
                                         if (!n) return '—';
                                         const parts = n.split(' ').filter(Boolean);
                                         if (parts.length <= 1) return n;

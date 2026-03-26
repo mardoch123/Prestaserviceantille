@@ -6,6 +6,7 @@ import ClientQRCode from './ClientQRCode';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
+import { SafeImage, LogoImage } from './SafeImage';
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
@@ -2669,14 +2670,12 @@ const ClientPortal: React.FC = () => {
                                 <div className="bg-white shadow-sm p-4 md:p-8 min-h-full text-xs md:text-sm text-slate-800 leading-relaxed" style={{ fontFamily: 'Times New Roman, serif' }}>
                                     <div className="flex justify-between mb-8 border-b pb-4">
                                         <div className="w-20">
-                                            <img
+                                            <SafeImage
                                                 src={LOGO_NORMAL}
                                                 alt="Logo"
                                                 className="w-full"
-                                                onError={(e) => {
-                                                    const img = e.currentTarget as HTMLImageElement;
-                                                    if (img && img.src !== LOGO_BASE64) img.src = LOGO_BASE64;
-                                                }}
+                                                timeout={5000}
+                                                retryCount={1}
                                             />
                                         </div>
                                         <div className="text-right">

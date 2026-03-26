@@ -23,8 +23,8 @@ const getEnvVar = (key: string): string => {
 };
 
 // Valeurs du projet Supabase principal (fallback si pas de .env)
-const DEFAULT_URL = 'https://myzbkbqkjykdsaymujvl.supabase.co';
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15emJrYnFranlrZHNheW11anZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMzk1NjcsImV4cCI6MjA3OTYxNTU2N30.LFFKlGHjC6hfCQynUDCZp_2XdZLDrxAuK9D4NNFYbKI';
+const DEFAULT_URL = 'https://outremerfermetures.com/api';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzcyNTc4ODAwLCJleHAiOjE5MzAzNDUyMDB9.JTRP_WOGEdKzb8rMaSP_FMox5AN0WD4bD_hgP6dW-PA';
 
 const normalizeSupabaseUrl = (raw: string): string => {
   const value = String(raw || '').trim().replace(/\/+$/, '');
