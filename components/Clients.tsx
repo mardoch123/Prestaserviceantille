@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import PageLoader from './PageLoader';
+import EnhancedLoader from './EnhancedLoader';
 import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
@@ -752,7 +753,9 @@ Lien de connexion : https://presta-antilles.app/login`);
     return null;
   };
 
-  return dataLoading ? <PageLoader /> : (
+  return dataLoading ? (
+    <EnhancedLoader type="clients" />
+  ) : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">

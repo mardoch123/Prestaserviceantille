@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import PageLoader from './PageLoader';
+import EnhancedLoader from './EnhancedLoader';
 import dayjs from 'dayjs';
 import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -187,7 +188,6 @@ const DevisFactures: React.FC = () => {
 
     // Loading state
     const [isSubmitting, setIsSubmitting] = useState(false);
-
     const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set());
     const [prefilledRef, setPrefilledRef] = useState<string>('');
     const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
@@ -2670,7 +2670,9 @@ const DevisFactures: React.FC = () => {
         return pack?.name.toLowerCase().includes(str.toLowerCase()) || false;
     };
 
-    return dataLoading ? <PageLoader /> : (
+    return dataLoading ? (
+        <EnhancedLoader type="documents" />
+    ) : (
         <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 relative">
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
