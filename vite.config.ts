@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
         filename: 'service-worker.js',
         workbox: {
           globPatterns: ['**/*.{js,css,html,png,jpg,jpeg,svg,gif,woff,woff2,ttf,json}'],
+          maximumFileSizeToCacheInBytes: 7 * 1024 * 1024, // 7 MB
           navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api\//, /^\/rest\/v1\//, /^\/auth\/v1\//, /^\/service-worker\.js$/],
           runtimeCaching: [
