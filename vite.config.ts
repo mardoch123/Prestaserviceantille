@@ -23,10 +23,11 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
+        filename: 'service-worker.js',
         workbox: {
           globPatterns: ['**/*.{js,css,html,png,jpg,jpeg,svg,gif,woff,woff2,ttf,json}'],
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//, /^\/rest\/v1\//, /^\/auth\/v1\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/rest\/v1\//, /^\/auth\/v1\//, /^\/service-worker\.js$/],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/myzbkbqkjykdsaymujvl\.supabase\.co\/rest\/v1\/.*/,
