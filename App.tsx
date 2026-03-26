@@ -359,6 +359,25 @@ const AppLayout: React.FC = () => {
             const navEntry = (performance.getEntriesByType?.('navigation')?.[0] as any) || null;
             const type = navEntry?.type || '';
             setIsManualReload(type === 'reload');
+            
+            // Si c'est un rechargement manuel, nettoyer les vieux caches
+            if (type === 'reload' && 'caches' in window) {
+                console.log('[App] Rechargement détecté - nettoyage des caches...');
+                caches.keys().then((cacheNames) => {
+                    cacheNames.forEach((cacheName) => {
+                        // Supprimer tous les caches sauf l'API Supabase
+                        if (!cacheName.includes('supabase-api')) {
+                            console.log('[App] Suppression du cache:', cacheName);
+                            caches.delete(cacheName);
+                        }
+                    });
+                });
+                
+                // Demander au Service Worker de vérifier les mises à jour
+                if (navigator.serviceWorker?.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'CHECK_UPDATE' });
+                }
+            }
         } catch {
             setIsManualReload(false);
         }

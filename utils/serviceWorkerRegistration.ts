@@ -28,7 +28,8 @@ export function registerServiceWorker() {
 
     // Événement: Controlling - le SW prend le contrôle
     wb.addEventListener('controlling', (event) => {
-      console.log('[SW] Service Worker prend le contrôle');
+      console.log('[SW] Service Worker prend le contrôle - rechargement...');
+      // Forcer le rechargement pour utiliser les nouveaux caches
       window.location.reload();
     });
 
@@ -58,6 +59,17 @@ export function registerServiceWorker() {
         // Déclencher un refresh des données via React Query
         window.dispatchEvent(new CustomEvent('sw-refresh-data'));
       }
+      
+      // Quand le cache est nettoyé, recharger la page
+      if (event.data?.type === 'CACHE_CLEARED') {
+        console.log('[SW] Cache nettoyé - rechargement...');
+        window.location.reload();
+      }
+      
+      // Quand le SW est activé, vérifier si on doit recharger
+      if (event.data?.type === 'SW_ACTIVATED') {
+        console.log('[SW] Nouveau SW activé:', event.data.version);
+      }
     });
 
     // Gérer les changements de connexion
@@ -69,6 +81,12 @@ export function registerServiceWorker() {
     window.addEventListener('offline', () => {
       console.log('[SW] Mode offline activé');
     });
+
+    // Vérifier les mises à jour toutes les 5 minutes et à chaque reprise de connexion
+    setInterval(() => {
+      console.log('[SW] Vérification périodique des mises à jour...');
+      wb?.update();
+    }, 5 * 60 * 1000); // 5 minutes
 
     return wb;
   }

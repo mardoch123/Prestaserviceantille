@@ -156,7 +156,7 @@ registerRoute(
 // ============ GESTION DES ÉVÉNEMENTS ============
 
 // Écouter les messages du client
-self.addEventListener('message', (event) => {
+self.addEventListener('message', (event: MessageEvent) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
@@ -165,54 +165,78 @@ self.addEventListener('message', (event) => {
     event.ports[0]?.postMessage('PONG');
   }
   
-  // Forcer le rafraîchissement du cache
+  // Forcer le rafraîchissement complet du cache
   if (event.data && event.data.type === 'REFRESH_CACHE') {
+    console.log('[Service Worker] Rafraîchissement du cache demandé');
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== 'supabase-api-cache') {
+          // Ne pas supprimer le cache API
+          if (!cacheName.includes('supabase-api')) {
+            console.log('[Service Worker] Suppression:', cacheName);
             return caches.delete(cacheName);
           }
         })
-      );
+      ).then(() => {
+        // Informer le client que le cache est nettoyé
+        event.source?.postMessage({ type: 'CACHE_CLEARED' });
+      });
     });
+  }
+  
+  // Vérifier les mises à jour
+  if (event.data && event.data.type === 'CHECK_UPDATE') {
+    console.log('[Service Worker] Vérification des mises à jour...');
+    self.registration.update();
   }
 });
 
 // Gestion de l'installation
-self.addEventListener('install', (event) => {
+self.addEventListener('install', (event: any) => {
   console.log('[Service Worker] Installation...');
   event.waitUntil(self.skipWaiting());
 });
 
 // Gestion de l'activation
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', (event: any) => {
   console.log('[Service Worker] Activation...');
   
-  // Nettoyer les vieux caches
+  // Nettoyer TOUS les vieux caches (sauf celui de l'API Supabase pour les données)
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
           .filter((cacheName) => {
-            return ![
+            // Garder uniquement le cache API Supabase et le nouveau cache d'assets
+            const validCaches = [
               'supabase-api-cache',
-              'images-cache',
-              'fonts-cache',
-              'static-resources-cache',
-              'fallback-cache',
-            ].includes(cacheName);
+              'workbox-precache-v2-' + self.registration.scope,
+            ];
+            return !validCaches.some(valid => cacheName.startsWith(valid) || cacheName === valid);
           })
-          .map((cacheName) => caches.delete(cacheName))
+          .map((cacheName) => {
+            console.log('[Service Worker] Suppression du cache:', cacheName);
+            return caches.delete(cacheName);
+          })
       );
     })
   );
   
+  // Prendre le contrôle immédiatement de toutes les pages
   event.waitUntil(self.clients.claim());
+  
+  // Informer tous les clients que le SW est activé
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clients: any[]) => {
+      clients.forEach((client: any) => {
+        client.postMessage({ type: 'SW_ACTIVATED', version: new Date().toISOString() });
+      });
+    })
+  );
 });
 
 // Gestion des erreurs de fetch avec fallback
-self.addEventListener('fetch', (event) => {
+self.addEventListener('fetch', (event: any) => {
   const { request } = event;
   
   // Fallback pour les images qui timeout
@@ -236,11 +260,11 @@ self.addEventListener('fetch', (event) => {
 });
 
 // Sync périodique pour rafraîchir les données (quand l'app revient online)
-self.addEventListener('sync', (event) => {
+self.addEventListener('sync', (event: any) => {
   if (event.tag === 'refresh-data') {
     event.waitUntil(
-      self.clients.matchAll().then((clients) => {
-        clients.forEach((client) => {
+      self.clients.matchAll().then((clients: any[]) => {
+        clients.forEach((client: any) => {
           client.postMessage({ type: 'REFRESH_DATA' });
         });
       })
