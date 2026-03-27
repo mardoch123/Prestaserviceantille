@@ -1293,9 +1293,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         }
                     }
 
-                    // Rafraîchir les scans pour les prestataires et clients
+                    // Rafraîchir les scans pour les prestataires et clients (en arrière-plan, sans loader)
                     if (user.role === 'provider' || user.role === 'client') {
-                        await refreshData();
+                        await refreshData({ silent: true });
                     }
                 } catch (error) {
                     console.warn('[NotificationPolling] Error:', error);
@@ -1689,7 +1689,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     }, [currentUser, isDemoMode]);
 
     // --- DATA FETCHING ---
-    const refreshData = async () => {
+    const refreshData = async (options?: { silent?: boolean }) => {
         if (isDemoMode && !!localStorage.getItem('presta_demo_mode')) {
             return;
         }
@@ -1698,7 +1698,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
-        const shouldShowLoader = !hasLoadedOnceRef.current;
+        const shouldShowLoader = !options?.silent && !hasLoadedOnceRef.current;
         if (shouldShowLoader) setDataLoading(true);
 
         const run = (async () => {
