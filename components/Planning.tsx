@@ -695,7 +695,7 @@ const Planning: React.FC = () => {
       const missionStart = new Date(`${dateStr}T${startTime}`);
       const missionEnd = new Date(`${dateStr}T${endTime}`);
       
-      for (const leave of provider.leaves) {
+      for (const leave of (provider.leaves || [])) {
           // Skip if rejected
           if (leave.status === 'rejected') continue;
 

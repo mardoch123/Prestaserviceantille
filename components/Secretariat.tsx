@@ -1613,7 +1613,7 @@ const Secretariat: React.FC = () => {
     const absenceConflicts = useMemo(() => {
         const conflicts: { mission: Mission, providerName: string, leaveStart: string, leaveEnd: string }[] = [];
         providers.forEach(provider => {
-            provider.leaves.forEach(leave => {
+            (provider.leaves || []).forEach(leave => {
                 if (leave.status === 'rejected') return; // Ignore rejected leaves
                 const start = new Date(leave.startDate);
                 const end = new Date(leave.endDate);
