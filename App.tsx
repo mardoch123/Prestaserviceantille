@@ -66,6 +66,7 @@ import ClientDetailPage from './components/ClientDetailPage';
 import ProviderDetailPage from './components/ProviderDetailPage';
 import { App as CapacitorApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import UpdateNotification from './components/UpdateNotification';
 
 // Mobile components & hooks
 import { ToastContainer } from './components/mobile/Toast';
@@ -828,6 +829,7 @@ const App: React.FC = () => {
                     <DataPrefetcher>
                         <BrowserRouter>
                             <ToastContainer />
+                            <UpdateNotification />
                             <AppLayout />
                         </BrowserRouter>
                     </DataPrefetcher>

@@ -866,7 +866,7 @@ const ProviderPortal: React.FC = () => {
             )}
           </button>
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-            {provider.firstName.charAt(0)}{provider.lastName.charAt(0)}
+            {provider?.firstName?.charAt(0) || ''}{provider?.lastName?.charAt(0) || ''}
           </div>
         </div>
       </header>
@@ -924,7 +924,7 @@ const ProviderPortal: React.FC = () => {
               <p className="text-xs text-emerald-600 font-medium">Prestataire</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-              {provider.firstName.charAt(0)}{provider.lastName.charAt(0)}
+              {provider?.firstName?.charAt(0) || ''}{provider?.lastName?.charAt(0) || ''}
             </div>
           </div>
         </div>
@@ -1269,7 +1269,7 @@ const ProviderPortal: React.FC = () => {
                                 {/* Nom client */}
                                 <div className="flex items-center gap-2 mb-1">
                                   <div className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                                    {m.clientName.charAt(0)}
+                                    {m.clientName?.charAt(0) || '?'}
                                   </div>
                                   <h4 className="font-bold text-gray-800 text-sm truncate">{m.clientName}</h4>
                                 </div>
@@ -1357,7 +1357,7 @@ const ProviderPortal: React.FC = () => {
                                       <td className="px-4 py-3">
                                         <div className="flex items-center gap-3">
                                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                                            {m.clientName.charAt(0)}
+                                            {m.clientName?.charAt(0) || '?'}
                                           </div>
                                           <span className="text-sm font-medium text-gray-800">{m.clientName}</span>
                                         </div>
@@ -1581,7 +1581,7 @@ const ProviderPortal: React.FC = () => {
                                   {/* Nom complet client */}
                                   <div className="flex items-center gap-2">
                                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                                      {m.clientName.charAt(0)}
+                                      {m.clientName?.charAt(0) || '?'}
                                     </div>
                                     <h3 className="font-bold text-gray-900 text-lg">{m.clientName}</h3>
                                   </div>

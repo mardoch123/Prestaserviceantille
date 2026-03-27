@@ -404,6 +404,47 @@ const Planning: React.FC = () => {
       return () => clearTimeout(timeoutId);
   }, [planningLoading, filteredMissions.length, filteredProvisionalMissions.length, filteredReminders.length]);
 
+  // --- SAFETY: Auto-reload when missions disappear unexpectedly ---
+  const lastMissionsCountRef = useRef(missions.length);
+  const safetyReloadTriggeredRef = useRef(false);
+
+  useEffect(() => {
+      // Skip if still loading or if reload already triggered in this session
+      if (dataLoading || planningLoading || safetyReloadTriggeredRef.current) return;
+      
+      const currentCount = missions.length;
+      const hadMissionsBefore = lastMissionsCountRef.current > 0;
+      const hasNoMissionsNow = currentCount === 0;
+      
+      // If we had missions before but now we have none, and we're in a valid date range
+      // This likely means TanStack Query invalidated the cache
+      if (hadMissionsBefore && hasNoMissionsNow && !customDateRange) {
+          console.log('[Planning] Missions disappeared unexpectedly, triggering reload...');
+          safetyReloadTriggeredRef.current = true;
+          
+          // Force reload the current range
+          if (loadMissionsForRange) {
+              const startStr = weekStart.format('YYYY-MM-DD');
+              const endStr = weekEnd.format('YYYY-MM-DD');
+              loadMissionsForRange(startStr, endStr).then(() => {
+                  console.log('[Planning] Safety reload completed');
+                  // Reset the flag after 5 seconds to allow future reloads if needed
+                  setTimeout(() => {
+                      safetyReloadTriggeredRef.current = false;
+                  }, 5000);
+              });
+          }
+      }
+      
+      lastMissionsCountRef.current = currentCount;
+  }, [missions.length, dataLoading, planningLoading, customDateRange, weekStart, weekEnd, loadMissionsForRange]);
+
+  // Reset safety flag when changing date ranges
+  useEffect(() => {
+      safetyReloadTriggeredRef.current = false;
+      lastMissionsCountRef.current = missions.length;
+  }, [currentWeekOffset, customDateRange, startDate, endDate, missions.length]);
+
   // Stats Logic
   const statsDate = focusedDate || getMartiniqueToday();
   const missionsCountToday = missions.filter(m => String(m.date || '') === String(statsDate)).length; 

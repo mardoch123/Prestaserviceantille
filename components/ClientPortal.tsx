@@ -1387,7 +1387,7 @@ const ClientPortal: React.FC = () => {
                   )}
                 </button>
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-                  {client.name.charAt(0)}
+                  {client?.name?.charAt(0) || '?'}
                 </div>
               </div>
             </header>
@@ -1445,7 +1445,7 @@ const ClientPortal: React.FC = () => {
                     <p className="text-xs text-emerald-600 font-medium">Client</p>
                   </div>
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-                    {client.name.charAt(0)}
+                    {client?.name?.charAt(0) || '?'}
                   </div>
                 </div>
               </div>
@@ -1514,7 +1514,7 @@ const ClientPortal: React.FC = () => {
                                 <div className="px-8 pb-8">
                                     <div className="relative flex justify-between items-end -mt-12 mb-6">
                                         <div className="w-24 h-24 rounded-full border-4 border-white bg-slate-200 flex items-center justify-center text-3xl font-bold text-slate-500 shadow-md">
-                                            {client.name.charAt(0)}
+                                            {client?.name?.charAt(0) || '?'}
                                         </div>
                                         <div className="flex gap-3">
                                             <button onClick={handleLogout} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm hover:bg-slate-50 flex items-center gap-2">
