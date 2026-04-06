@@ -59,6 +59,7 @@ import { AccountingStatistics } from './modules/accounting';
 import AdminServiceRequestsPage from './modules/serviceRequests/ui/AdminServiceRequestsPage';
 import AdminServiceRequestDetailPage from './modules/serviceRequests/ui/AdminServiceRequestDetailPage';
 import { ProviderAvailabilityPage } from './modules/providerAvailability';
+import { SAVPage } from './modules/sav/ui';
 import AdminEmailMarketing from './components/AdminEmailMarketing';
 import DocumentDetailPage from './components/DocumentDetailPage';
 import MissionDetailPage from './components/MissionDetailPage';
@@ -804,6 +805,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/admin/referrers-performance/:referrerId" element={<AdminReferrerPerformanceDetailsPage />} />
                         <Route path="/admin/service-requests" element={<AdminServiceRequestsPage />} />
                         <Route path="/admin/service-requests/:requestId" element={<AdminServiceRequestDetailPage />} />
+                        <Route path="/sav" element={<SAVPage />} />
                         <Route path="/admin/email-marketing" element={<AdminEmailMarketing />} />
                         <Route path="/provider-availability" element={<ProviderAvailabilityPage />} />
                         <Route path="/nouvelle-demande" element={<NewServiceRequestPage />} />

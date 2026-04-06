@@ -28,7 +28,8 @@ import {
   Filter,
   Settings,
   Check,
-  MailCheck
+  MailCheck,
+  Headphones
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
@@ -64,7 +65,7 @@ const navItems: NavItem[] = [
   { label: 'Filleuls', path: '/admin/referrals', icon: UserPlus },
   { label: 'Parrains (performance)', path: '/admin/referrers-performance', icon: Users },
   { label: 'Récompenses & Points', path: '/admin/rewards', icon: Gift },
-  { label: 'Demandes Services', path: '/admin/service-requests', icon: FileText },
+  { label: 'SAV', path: '/sav', icon: Headphones },
 ];
 
 interface SidebarProps {
@@ -138,6 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const [newOfferInterestedCount, setNewOfferInterestedCount] = useState(0);
   const [newReferrersCount, setNewReferrersCount] = useState(0);
   const [pendingServiceRequestsCount, setPendingServiceRequestsCount] = useState(0);
+  const [savPendingCount, setSavPendingCount] = useState(0);
   const [showEmailMarketingBadge, setShowEmailMarketingBadge] = useState(false);
   
   // EmailJS quota tracking with detailed stats
@@ -194,10 +196,66 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           .is('admin_seen_at', null);
         const serviceReqCount = serviceReqRes?.count || 0;
 
+        // Count completed missions without SAV
+        const { data: savMissions } = await supabase
+          .from('sav_records')
+          .select('mission_id');
+        const missionIdsWithSav = (savMissions || []).map((r: any) => r.mission_id);
+        
+        // Also get missions with satisfaction surveys
+        const { data: surveyMissions } = await supabase
+          .from('satisfaction_surveys')
+          .select('mission_id');
+        const missionIdsWithSurveys = (surveyMissions || []).map((s: any) => s.mission_id);
+        
+        // Combine both lists
+        const allMissionIdsToExclude = [...new Set([...missionIdsWithSav, ...missionIdsWithSurveys])];
+        
+        // Essayer d'abord avec 'completed'
+        let savCount = 0;
+        
+        let savQuery = supabase
+          .from('missions')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'completed');
+        
+        if (allMissionIdsToExclude.length > 0) {
+          savQuery = savQuery.not('id', 'in', `(${allMissionIdsToExclude.join(',')})`);
+        }
+        
+        const { count: completedCount, error: completedError } = await savQuery;
+        
+        if (!completedError && completedCount) {
+          savCount = completedCount;
+        }
+        
+        // Si 0, essayer avec d'autres statuts possibles
+        if (savCount === 0) {
+          const possibleStatuses = ['terminee', 'done', 'finished', 'validated', 'termine', 'fini'];
+          
+          for (const status of possibleStatuses) {
+            let altQuery = supabase
+              .from('missions')
+              .select('*', { count: 'exact', head: true })
+              .eq('status', status);
+            
+            if (allMissionIdsToExclude.length > 0) {
+              altQuery = altQuery.not('id', 'in', `(${allMissionIdsToExclude.join(',')})`);
+            }
+            
+            const { count: altCount, error: altError } = await altQuery;
+            
+            if (!altError && altCount) {
+              savCount += altCount;
+            }
+          }
+        }
+
         if (cancelled) return;
         setNewOfferInterestedCount(Number(reqCount) || 0);
         setNewReferrersCount(Number(refCount) || 0);
         setPendingServiceRequestsCount(Number(serviceReqCount) || 0);
+        setSavPendingCount(Number(savCount) || 0);
 
         // Check if email marketing badge should be shown
         try {
@@ -599,6 +657,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   {item.path === '/provider-availability' && (
                     <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-bold rounded-full">
                       NEW
+                    </span>
+                  )}
+                  {item.path === '/sav' && savPendingCount > 0 && (
+                    <span className="min-w-[22px] h-[22px] px-2 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold">
+                      {savPendingCount}
                     </span>
                   )}
                   {item.path === '/accounting' && (

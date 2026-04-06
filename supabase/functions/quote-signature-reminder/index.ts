@@ -257,6 +257,26 @@ serve(async (req: Request) => {
           continue;
         }
 
+        // Check if reminder was already sent within last 24 hours
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: recentReminder, error: recentReminderError } = await supabaseAdmin
+          .from('email_logs')
+          .select('id, sent_at')
+          .eq('recipient_email', clientEmail)
+          .eq('template_type', 'quote_signature_reminder')
+          .gte('sent_at', twentyFourHoursAgo)
+          .maybeSingle();
+
+        if (recentReminderError) {
+          console.error('[quote-signature-reminder] Error checking recent reminders:', recentReminderError);
+        }
+
+        if (recentReminder) {
+          skipped++;
+          results.push({ docId, status: 'skipped', reason: 'reminder_already_sent_within_24h' });
+          continue;
+        }
+
         // Detect login since quote creation (best-effort)
         if (!force) {
           const { data: userProfile, error: profileError } = await supabaseAdmin
