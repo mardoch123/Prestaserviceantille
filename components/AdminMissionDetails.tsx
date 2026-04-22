@@ -275,7 +275,27 @@ const AdminMissionDetails: React.FC = () => {
                 </div>
               ) : null}
 
-              {/* Video Section */}
+              {/* Video Section - Start */}
+              {(mission as any)?.startVideo || (mission as any)?.start_video ? (
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                    <Video className="w-4 h-4 text-orange-500" />
+                    <h2 className="text-sm font-bold text-slate-800">Vidéo de début</h2>
+                  </div>
+                  <div className="p-5">
+                    <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                      <video
+                        src={normalizeMediaUrl((mission as any).startVideo || (mission as any).start_video)}
+                        controls
+                        className="w-full h-full"
+                        preload="metadata"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Video Section - End */}
               {(mission as any)?.endVideo || (mission as any)?.end_video ? (
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
@@ -284,9 +304,9 @@ const AdminMissionDetails: React.FC = () => {
                   </div>
                   <div className="p-5">
                     <div className="aspect-video bg-black rounded-lg overflow-hidden">
-                      <video 
-                        src={normalizeMediaUrl((mission as any).endVideo || (mission as any).end_video)} 
-                        controls 
+                      <video
+                        src={normalizeMediaUrl((mission as any).endVideo || (mission as any).end_video)}
+                        controls
                         className="w-full h-full"
                         preload="metadata"
                       />

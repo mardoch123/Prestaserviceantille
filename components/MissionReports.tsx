@@ -296,12 +296,14 @@ const MissionReports: React.FC = () => {
             try {
                 const detailed = await getMissionDetails(String(mission.id));
                 if (detailed) {
-                    // Ensure video URL is properly set from detailed data
+                    // Ensure video URLs are properly set from detailed data
                     const m = detailed as any;
-                    const videoUrl = m.endVideo || m.end_video || (m.has_end_video ? m.endVideo : undefined);
+                    const endVideoUrl = m.endVideo || m.end_video || (m.has_end_video ? m.endVideo : undefined);
+                    const startVideoUrl = m.startVideo || m.start_video || (m.has_start_video ? m.startVideo : undefined);
                     setSelectedMission({
                         ...detailed,
-                        endVideo: videoUrl
+                        endVideo: endVideoUrl,
+                        startVideo: startVideoUrl
                     });
                 } else {
                     setDetailsError("Impossible de charger le détail de la mission (photos/video)." );
@@ -840,6 +842,23 @@ const MissionReports: React.FC = () => {
                                                 );
                                             })()}
                                         </div>
+
+                                        {/* Video */}
+                                        {(selectedMission as any).startVideo && (
+                                            <div className="mt-4 pt-4 border-t border-slate-100">
+                                                <span className="text-xs font-bold text-slate-400 uppercase block mb-2 flex items-center gap-2">
+                                                    <Video className="w-3 h-3"/> Vidéo de début
+                                                </span>
+                                                <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                                                    <video
+                                                        src={normalizeMediaUrl((selectedMission as any).startVideo)}
+                                                        controls
+                                                        className="w-full h-full"
+                                                        preload="metadata"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 

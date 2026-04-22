@@ -143,6 +143,37 @@ export const ProviderAvailabilityPage: React.FC = () => {
     }
   };
 
+  // Helper: Check if a given time falls within any of the time ranges
+  const isTimeInRanges = (hour: number, ranges?: Array<{ start: string; end: string }>): boolean => {
+    if (!ranges || ranges.length === 0) return false;
+    return ranges.some(range => {
+      const startHour = parseInt(range.start?.split(':')[0] || '0');
+      const endHour = parseInt(range.end?.split(':')[0] || '0');
+      return hour >= startHour && hour < endHour;
+    });
+  };
+
+  // Helper: Get available hours for a provider on a specific day
+  const getProviderAvailableHours = (provider: any, dayOfWeek: number): number[] => {
+    const availabilityMode = provider.availabilityMode || 'unavailable';
+    const availabilityHours = provider.availabilityHours || {};
+    const nonInterventionHours = provider.nonInterventionHours || {};
+
+    const workingHours = Array.from({ length: 12 }, (_, i) => i + 8); // 08:00 to 19:00
+
+    if (availabilityMode === 'available') {
+      // Mode "available": Provider is ONLY available during availabilityHours
+      const ranges = availabilityHours[dayOfWeek] || [];
+      if (ranges.length === 0) return []; // No availability defined = not available at all
+      return workingHours.filter(hour => isTimeInRanges(hour, ranges));
+    } else {
+      // Mode "unavailable" (default): Provider is available except during nonInterventionHours
+      const ranges = nonInterventionHours[dayOfWeek] || [];
+      if (ranges.length === 0) return workingHours; // No restrictions = fully available
+      return workingHours.filter(hour => !isTimeInRanges(hour, ranges));
+    }
+  };
+
   // Calculate provider availability based on real data
   const providersWithAvailability = useMemo(() => {
     console.log('Calculating providers with availability:', {
@@ -150,76 +181,87 @@ export const ProviderAvailabilityPage: React.FC = () => {
       allMissionsCount: allMissions?.length,
       dateRange
     });
-    
+
     if (!allProviders || allProviders.length === 0) {
       console.warn('No providers data available');
       return [];
     }
-    
+
     const providers = allProviders.filter(p => {
       const isActive = p.status === 'Active' || p.status === 'Passive';
       console.log(`Provider ${p.firstName} ${p.lastName}: status=${p.status}, isActive=${isActive}`);
       return isActive;
     });
-    
+
     console.log(`Filtered ${providers.length} active providers from ${allProviders.length} total`);
-    
+
     return providers.map(provider => {
       const availability = new Map<string, ProviderAvailabilityStatus>();
-      
+      const availabilityMode = (provider as any).availabilityMode || 'unavailable';
+
       // Generate availability for each day in range
       const current = new Date(dateRange.startDate);
       const end = new Date(dateRange.endDate);
-      
+
       while (current <= end) {
         const dateStr = current.toISOString().split('T')[0];
         const dayOfWeek = current.getDay();
-        
-        // Check if provider has non-intervention day
-        const nonInterventionDays = (provider as any).nonInterventionDays || [];
-        const isNonInterventionDay = nonInterventionDays.includes(dayOfWeek);
-        
+
         // Check if provider is on leave (leaves are stored on provider)
-        const providerLeaves = (provider.leaves || []).filter((l: any) => 
-          dateStr >= l.startDate && 
+        const providerLeaves = (provider.leaves || []).filter((l: any) =>
+          dateStr >= l.startDate &&
           dateStr <= l.endDate &&
           l.status === 'approved'
         );
-        
+
         const isOnLeave = providerLeaves.length > 0;
-        
+
+        // Check availability based on mode
+        let isDayUnavailable = false;
+        if (availabilityMode === 'available') {
+          // Mode "available": Check if provider has ANY availability hours this day
+          const availableHours = getProviderAvailableHours(provider, dayOfWeek);
+          isDayUnavailable = availableHours.length === 0;
+        } else {
+          // Mode "unavailable" (default): Check non-intervention days
+          const nonInterventionDays = (provider as any).nonInterventionDays || [];
+          isDayUnavailable = nonInterventionDays.includes(dayOfWeek);
+        }
+
         // Check if provider has missions this day
-        const providerMissions = allMissions?.filter(m => 
-          m.providerId === provider.id && 
+        const providerMissions = allMissions?.filter(m =>
+          m.providerId === provider.id &&
           m.date === dateStr &&
           m.status !== 'cancelled'
         ) || [];
-        
+
         const hasMissions = providerMissions.length > 0;
-        
+
         // Determine status
         let status: ProviderAvailabilityStatus;
         if (isOnLeave) {
           status = 'leave';
-        } else if (isNonInterventionDay) {
+        } else if (isDayUnavailable) {
           status = 'unavailable';
         } else if (hasMissions) {
           status = 'busy';
         } else {
           status = 'available';
         }
-        
+
         availability.set(dateStr, status);
-        
+
         current.setDate(current.getDate() + 1);
       }
-      
+
       const domain = mapSpecialtyToDomain(provider.specialty);
-      
+
       return {
         ...provider,
         domain,
         availability,
+        availabilityMode,
+        getAvailableHours: (dayOfWeek: number) => getProviderAvailableHours(provider, dayOfWeek),
       };
     });
   }, [allProviders, allMissions, dateRange.start, dateRange.end]);
@@ -601,12 +643,16 @@ export const ProviderAvailabilityPage: React.FC = () => {
                   <div className="divide-y divide-slate-100">
                     {filteredProviders.map((provider) => {
                       const dateStr = selectedDate.toISOString().split('T')[0];
+                      const dayOfWeek = selectedDate.getDay();
                       const dayStatus = getProviderStatus(provider, dateStr);
-                      const isUnavailable = dayStatus === 'leave' || dayStatus === 'unavailable';
-                      
+                      const isDayUnavailable = dayStatus === 'leave' || dayStatus === 'unavailable';
+
+                      // Get available hours for this provider on this day
+                      const availableHours = (provider as any).getAvailableHours?.(dayOfWeek) || [];
+
                       // Get missions for this provider on this date
-                      const providerMissions = (allMissions || []).filter(m => 
-                        m.providerId === provider.id && 
+                      const providerMissions = (allMissions || []).filter(m =>
+                        m.providerId === provider.id &&
                         m.date === dateStr &&
                         m.status !== 'cancelled'
                       );
@@ -637,7 +683,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
                             const hour = i + 8;
                             const hourStr = `${hour.toString().padStart(2, '0')}:00`;
                             const nextHourStr = `${(hour + 1).toString().padStart(2, '0')}:00`;
-                            
+
                             // Check if there's a mission during this hour
                             const missionDuringHour = providerMissions.find(m => {
                               const startHour = parseInt(m.startTime?.split(':')[0] || '0');
@@ -645,10 +691,15 @@ export const ProviderAvailabilityPage: React.FC = () => {
                               return hour >= startHour && hour < endHour;
                             });
 
+                            // Check if this specific hour is available
+                            const isHourAvailable = availableHours.includes(hour);
+
                             // Determine status for this hour
                             let hourStatus: ProviderAvailabilityStatus;
-                            if (isUnavailable) {
-                              hourStatus = dayStatus;
+                            if (dayStatus === 'leave') {
+                              hourStatus = 'leave';
+                            } else if (!isHourAvailable) {
+                              hourStatus = 'unavailable';
                             } else if (missionDuringHour) {
                               hourStatus = 'busy';
                             } else {

@@ -62,6 +62,9 @@ export interface Provider {
     isActive?: boolean; // Champ pour vérifier si le prestataire est actif (dérivé de status)
     nonInterventionDays?: number[]; // 0=Dimanche ... 6=Samedi
     nonInterventionHours?: Record<number, WeeklyTimeRange[]>; // plages horaires récurrentes par jour de semaine
+    // Nouveau système de gestion des disponibilités
+    availabilityMode?: 'unavailable' | 'available'; // Mode: 'unavailable' = heures d'indisponibilité, 'available' = heures de disponibilité uniquement
+    availabilityHours?: Record<number, WeeklyTimeRange[]>; // plages de disponibilité (quand availabilityMode = 'available')
 }
 
 // DTO for creating a provider (no ID)

@@ -161,7 +161,10 @@ const Providers: React.FC = () => {
     email: '',
     status: 'Active',
     nonInterventionDays: [] as number[],
-    nonInterventionHours: {} as Record<number, Array<{ start: string; end: string }>>
+    nonInterventionHours: {} as Record<number, Array<{ start: string; end: string }>>,
+    // Nouveau système de disponibilité
+    availabilityMode: 'unavailable' as 'unavailable' | 'available',
+    availabilityHours: {} as Record<number, Array<{ start: string; end: string }>>
   });
 
   const [leaveForm, setLeaveForm] = useState({
@@ -302,7 +305,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {} });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {} });
       setIsModalOpen(true);
   };
 
@@ -317,7 +320,9 @@ const Providers: React.FC = () => {
           email: provider.email,
           status: provider.status,
           nonInterventionDays: Array.isArray(provider?.nonInterventionDays) ? provider.nonInterventionDays : [],
-          nonInterventionHours: (provider?.nonInterventionHours && typeof provider.nonInterventionHours === 'object') ? provider.nonInterventionHours : {}
+          nonInterventionHours: (provider?.nonInterventionHours && typeof provider.nonInterventionHours === 'object') ? provider.nonInterventionHours : {},
+          availabilityMode: provider?.availabilityMode || 'unavailable',
+          availabilityHours: (provider?.availabilityHours && typeof provider.availabilityHours === 'object') ? provider.availabilityHours : {}
       });
       setIsModalOpen(true);
   };
@@ -409,7 +414,9 @@ const Providers: React.FC = () => {
                   email: formData.email,
                   status: formData.status as any,
                   nonInterventionDays: formData.nonInterventionDays,
-                  nonInterventionHours: formData.nonInterventionHours
+                  nonInterventionHours: formData.nonInterventionHours,
+                  availabilityMode: formData.availabilityMode,
+                  availabilityHours: formData.availabilityHours
               });
               showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
               setIsModalOpen(false);
@@ -423,7 +430,9 @@ const Providers: React.FC = () => {
                   email: formData.email,
                   status: formData.status as 'Active',
                   nonInterventionDays: formData.nonInterventionDays,
-                  nonInterventionHours: formData.nonInterventionHours
+                  nonInterventionHours: formData.nonInterventionHours,
+                  availabilityMode: formData.availabilityMode,
+                  availabilityHours: formData.availabilityHours
               });
               
               setIsModalOpen(false);
@@ -436,7 +445,7 @@ const Providers: React.FC = () => {
               }
           }
           // Reset form
-          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {} });
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {} });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
           showToast(String((error as any)?.message || 'Une erreur est survenue.'), 'error');
@@ -919,20 +928,94 @@ Lien de connexion : https://presta-antilles.app/login`);
                     </div>
 
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Heures de non-interventions (récurrent)</label>
+                        {/* En-tête avec label et toggle */}
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="block text-sm font-bold text-slate-700">
+                                {formData.availabilityMode === 'unavailable' ? 'Heures de non-disponibilité (récurrent)' : 'Heures de disponibilité (récurrent)'}
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-xs font-medium ${formData.availabilityMode === 'unavailable' ? 'text-orange-600' : 'text-slate-400'}`}>
+                                    Indisponibilité
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(prev => ({ ...prev, availabilityMode: prev.availabilityMode === 'unavailable' ? 'available' : 'unavailable' }))}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue focus:ring-offset-2 ${
+                                        formData.availabilityMode === 'available' ? 'bg-green-500' : 'bg-orange-500'
+                                    }`}
+                                >
+                                    <span
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                            formData.availabilityMode === 'available' ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                    />
+                                </button>
+                                <span className={`text-xs font-medium ${formData.availabilityMode === 'available' ? 'text-green-600' : 'text-slate-400'}`}>
+                                    Disponibilité
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Message explicatif clair */}
+                        <div className={`mb-3 p-3 rounded-lg border text-sm ${
+                            formData.availabilityMode === 'unavailable'
+                                ? 'bg-orange-50 border-orange-200 text-orange-800'
+                                : 'bg-green-50 border-green-200 text-green-800'
+                        }`}>
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">
+                                        {formData.availabilityMode === 'unavailable'
+                                            ? 'Mode Indisponibilité : Définissez les plages où le prestataire NE PEUT PAS travailler'
+                                            : 'Mode Disponibilité : Définissez UNIQUEMENT les plages où le prestataire PEUT travailler'}
+                                    </p>
+                                    <p className="text-xs opacity-90">
+                                        {formData.availabilityMode === 'unavailable'
+                                            ? 'Les missions ne pourront pas être programmées pendant ces horaires. Le prestataire est considéré disponible en dehors de ces plages.'
+                                            : 'Les missions ne pourront être programmées QUE pendant ces horaires. Le prestataire est considéré indisponible en dehors de ces plages.'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
                             {NON_INTERVENTION_DAY_OPTIONS.map(d => {
-                                const ranges = (formData.nonInterventionHours && Array.isArray((formData.nonInterventionHours as any)[d.value]))
-                                    ? (formData.nonInterventionHours as any)[d.value]
-                                    : [];
+                                const ranges = formData.availabilityMode === 'unavailable'
+                                    ? ((formData.nonInterventionHours && Array.isArray((formData.nonInterventionHours as any)[d.value]))
+                                        ? (formData.nonInterventionHours as any)[d.value]
+                                        : [])
+                                    : ((formData.availabilityHours && Array.isArray((formData.availabilityHours as any)[d.value]))
+                                        ? (formData.availabilityHours as any)[d.value]
+                                        : []);
                                 return (
                                     <div key={`hours-${d.value}`} className="bg-white border border-slate-200 rounded-lg p-3">
                                         <div className="flex items-center justify-between">
                                             <div className="text-xs font-bold text-slate-700">{d.label}</div>
                                             <button
                                                 type="button"
-                                                onClick={() => addNonInterventionRange(d.value)}
-                                                className="text-xs font-bold text-brand-blue hover:underline"
+                                                onClick={() => {
+                                                    if (formData.availabilityMode === 'unavailable') {
+                                                        addNonInterventionRange(d.value);
+                                                    } else {
+                                                        setFormData(prev => {
+                                                            const current = (prev as any).availabilityHours && typeof (prev as any).availabilityHours === 'object'
+                                                                ? (prev as any).availabilityHours
+                                                                : {};
+                                                            const ranges = Array.isArray(current[d.value]) ? current[d.value] : [];
+                                                            return {
+                                                                ...prev,
+                                                                availabilityHours: {
+                                                                    ...current,
+                                                                    [d.value]: [...ranges, { start: '08:00', end: '18:00' }]
+                                                                }
+                                                            };
+                                                        });
+                                                    }
+                                                }}
+                                                className={`text-xs font-bold hover:underline ${
+                                                    formData.availabilityMode === 'unavailable' ? 'text-brand-blue' : 'text-green-600'
+                                                }`}
                                             >
                                                 + Ajouter une plage
                                             </button>
@@ -945,19 +1028,87 @@ Lien de connexion : https://presta-antilles.app/login`);
                                                         <input
                                                             type="time"
                                                             value={r.start || '08:00'}
-                                                            onChange={(e) => updateNonInterventionRange(d.value, idx, 'start', e.target.value)}
-                                                            className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                                            onChange={(e) => {
+                                                                if (formData.availabilityMode === 'unavailable') {
+                                                                    updateNonInterventionRange(d.value, idx, 'start', e.target.value);
+                                                                } else {
+                                                                    setFormData(prev => {
+                                                                        const current = (prev as any).availabilityHours && typeof (prev as any).availabilityHours === 'object'
+                                                                            ? (prev as any).availabilityHours
+                                                                            : {};
+                                                                        const ranges = Array.isArray(current[d.value]) ? current[d.value].slice() : [];
+                                                                        if (!ranges[idx]) return prev;
+                                                                        ranges[idx] = { ...ranges[idx], start: e.target.value };
+                                                                        return {
+                                                                            ...prev,
+                                                                            availabilityHours: {
+                                                                                ...current,
+                                                                                [d.value]: ranges
+                                                                            }
+                                                                        };
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className={`p-2 border rounded-lg text-xs font-medium ${
+                                                                formData.availabilityMode === 'unavailable'
+                                                                    ? 'bg-orange-50 border-orange-200'
+                                                                    : 'bg-green-50 border-green-200'
+                                                            }`}
                                                         />
                                                         <span className="text-xs text-slate-500">à</span>
                                                         <input
                                                             type="time"
                                                             value={r.end || '10:00'}
-                                                            onChange={(e) => updateNonInterventionRange(d.value, idx, 'end', e.target.value)}
-                                                            className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                                            onChange={(e) => {
+                                                                if (formData.availabilityMode === 'unavailable') {
+                                                                    updateNonInterventionRange(d.value, idx, 'end', e.target.value);
+                                                                } else {
+                                                                    setFormData(prev => {
+                                                                        const current = (prev as any).availabilityHours && typeof (prev as any).availabilityHours === 'object'
+                                                                            ? (prev as any).availabilityHours
+                                                                            : {};
+                                                                        const ranges = Array.isArray(current[d.value]) ? current[d.value].slice() : [];
+                                                                        if (!ranges[idx]) return prev;
+                                                                        ranges[idx] = { ...ranges[idx], end: e.target.value };
+                                                                        return {
+                                                                            ...prev,
+                                                                            availabilityHours: {
+                                                                                ...current,
+                                                                                [d.value]: ranges
+                                                                            }
+                                                                        };
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className={`p-2 border rounded-lg text-xs font-medium ${
+                                                                formData.availabilityMode === 'unavailable'
+                                                                    ? 'bg-orange-50 border-orange-200'
+                                                                    : 'bg-green-50 border-green-200'
+                                                            }`}
                                                         />
                                                         <button
                                                             type="button"
-                                                            onClick={() => removeNonInterventionRange(d.value, idx)}
+                                                            onClick={() => {
+                                                                if (formData.availabilityMode === 'unavailable') {
+                                                                    removeNonInterventionRange(d.value, idx);
+                                                                } else {
+                                                                    setFormData(prev => {
+                                                                        const current = (prev as any).availabilityHours && typeof (prev as any).availabilityHours === 'object'
+                                                                            ? (prev as any).availabilityHours
+                                                                            : {};
+                                                                        const ranges = Array.isArray(current[d.value]) ? current[d.value].slice() : [];
+                                                                        const nextRanges = ranges.filter((_: any, i: number) => i !== idx);
+                                                                        const next = { ...current, [d.value]: nextRanges };
+                                                                        if (nextRanges.length === 0) {
+                                                                            delete (next as any)[d.value];
+                                                                        }
+                                                                        return {
+                                                                            ...prev,
+                                                                            availabilityHours: next
+                                                                        };
+                                                                    });
+                                                                }
+                                                            }}
                                                             className="ml-auto p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
                                                             title="Supprimer"
                                                         >
@@ -967,7 +1118,11 @@ Lien de connexion : https://presta-antilles.app/login`);
                                                 ))}
                                             </div>
                                         ) : (
-                                            <div className="mt-2 text-xs text-slate-400">Aucune plage</div>
+                                            <div className="mt-2 text-xs text-slate-400">
+                                                {formData.availabilityMode === 'unavailable'
+                                                    ? 'Aucune plage d\'indisponibilité'
+                                                    : 'Disponible toute la journée (ou non défini)'}
+                                            </div>
                                         )}
                                     </div>
                                 );

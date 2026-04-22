@@ -1798,6 +1798,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         nonInterventionHours: (p.non_intervention_hours && typeof p.non_intervention_hours === 'object')
                             ? p.non_intervention_hours
                             : ((p.nonInterventionHours && typeof p.nonInterventionHours === 'object') ? p.nonInterventionHours : {}),
+                        // Nouveau système de disponibilité
+                        availabilityMode: p.availability_mode || p.availabilityMode || 'unavailable',
+                        availabilityHours: (p.availability_hours && typeof p.availability_hours === 'object')
+                            ? p.availability_hours
+                            : ((p.availabilityHours && typeof p.availabilityHours === 'object') ? p.availabilityHours : {}),
                         leaves: leavesData ? leavesData.map((l: any) => ({
                             id: l.id,
                             providerId: l.provider_id,
@@ -4347,6 +4352,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 non_intervention_hours: ((providerData as any).nonInterventionHours && typeof (providerData as any).nonInterventionHours === 'object')
                     ? (providerData as any).nonInterventionHours
                     : {},
+                availability_mode: (providerData as any).availabilityMode || 'unavailable',
+                availability_hours: ((providerData as any).availabilityHours && typeof (providerData as any).availabilityHours === 'object')
+                    ? (providerData as any).availabilityHours
+                    : {},
                 hours_worked: 0,
                 rating: 5
             };
@@ -4415,6 +4424,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     nonInterventionHours: (newProvider.non_intervention_hours && typeof newProvider.non_intervention_hours === 'object')
                         ? newProvider.non_intervention_hours
                         : (((providerData as any).nonInterventionHours && typeof (providerData as any).nonInterventionHours === 'object') ? (providerData as any).nonInterventionHours : {}),
+                    availabilityMode: newProvider.availability_mode || 'unavailable',
+                    availabilityHours: (newProvider.availability_hours && typeof newProvider.availability_hours === 'object')
+                        ? newProvider.availability_hours
+                        : (((providerData as any).availabilityHours && typeof (providerData as any).availabilityHours === 'object') ? (providerData as any).availabilityHours : {}),
                     leaves: []
                 }]);
 
@@ -4958,6 +4971,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (Array.isArray((data as any).nonInterventionDays)) dbData.non_intervention_days = (data as any).nonInterventionDays;
         if ((data as any).nonInterventionHours && typeof (data as any).nonInterventionHours === 'object') {
             dbData.non_intervention_hours = (data as any).nonInterventionHours;
+        }
+        // Nouveau système de disponibilité
+        if ((data as any).availabilityMode) dbData.availability_mode = (data as any).availabilityMode;
+        if ((data as any).availabilityHours && typeof (data as any).availabilityHours === 'object') {
+            dbData.availability_hours = (data as any).availabilityHours;
         }
         const { error } = await supabase.from('providers').update(dbData).eq('id', id);
         if (!error) {
