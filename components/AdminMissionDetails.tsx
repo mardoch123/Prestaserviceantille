@@ -181,19 +181,30 @@ const AdminMissionDetails: React.FC = () => {
                   <Clock className="w-4 h-4 text-slate-500" />
                   <h2 className="text-sm font-bold text-slate-800">Créneau</h2>
                 </div>
-                <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-xs font-bold text-slate-500">Début</p>
+                    <p className="text-xs font-bold text-slate-500">Début prévu</p>
                     <p className="text-sm font-bold text-slate-800 mt-1">{mission.startTime || '—'}</p>
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-xs font-bold text-slate-500">Fin</p>
+                    <p className="text-xs font-bold text-slate-500">Fin prévue</p>
                     <p className="text-sm font-bold text-slate-800 mt-1">{mission.endTime || '—'}</p>
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                     <p className="text-xs font-bold text-slate-500">Durée</p>
                     <p className="text-sm font-bold text-slate-800 mt-1">{Number.isFinite(Number(mission.duration)) ? `${Number(mission.duration).toFixed(2)}h` : '—'}</p>
                   </div>
+                  {mission.startedAt && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <p className="text-xs font-bold text-blue-600">Démarrage réel</p>
+                      <p className="text-sm font-bold text-blue-800 mt-1">
+                        {dayjs(mission.startedAt).tz(MARTINIQUE_TIMEZONE).format('HH:mm')}
+                      </p>
+                      <p className="text-xs text-blue-600 mt-0.5">
+                        {dayjs(mission.startedAt).tz(MARTINIQUE_TIMEZONE).format('DD/MM/YYYY')}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 

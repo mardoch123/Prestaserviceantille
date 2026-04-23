@@ -2697,6 +2697,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             endVideo: m.end_video,
             startRemark: m.start_remark,
             endRemark: m.end_remark,
+            startedAt: m.started_at,
             cancellationReason: m.cancellation_reason,
             lateCancellation: m.late_cancellation,
             reminder48hSent: m.reminder_48h_sent,
@@ -3618,11 +3619,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             finalPhotos = photos;
         }
 
+        // Enregistrer l'heure exacte de démarrage
+        const nowISO = new Date().toISOString();
+
         const { error } = await supabase.from('missions').update({
             status: 'in_progress',
             start_remark: remark,
             start_photos: finalPhotos,
-            start_video: video
+            start_video: video,
+            started_at: nowISO
         }).eq('id', id);
 
         if (error) {
@@ -3631,7 +3636,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         if (!error) {
-            setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'in_progress', startRemark: remark, startPhotos: finalPhotos, startVideo: video } : m));
+            setMissions(prev => prev.map(m => m.id === id ? {
+                ...m,
+                status: 'in_progress',
+                startRemark: remark,
+                startPhotos: finalPhotos,
+                startVideo: video,
+                startedAt: nowISO
+            } : m));
 
             const m = missions.find(m => m.id === id);
             if (m) {

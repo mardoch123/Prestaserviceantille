@@ -198,6 +198,7 @@ export interface Mission {
     endVideo?: string;
     startRemark?: string;
     endRemark?: string;
+    startedAt?: string; // Heure exacte de démarrage de la mission (ISO timestamp)
 
     cancellationReason?: string;
     lateCancellation?: boolean;

@@ -58,3 +58,43 @@ export const formatPDFDateTime = (date: Date | string | number): string => {
     return `${p1}${m.charAt(0).toUpperCase()}${m.slice(1)}`;
   });
 };
+
+// Fonction sécurisée pour formater une date (évite les erreurs sur iPhone avec des dates invalides)
+export const safeFormatDate = (
+  date: Date | string | number | null | undefined,
+  format: string = 'DD/MM/YYYY'
+): string => {
+  if (!date) return '';
+  const d = dayjs(date);
+  if (!d.isValid()) return '';
+  return d.tz(MARTINIQUE_TIMEZONE).format(format);
+};
+
+// Fonction sécurisée pour formater une date avec Intl.DateTimeFormat (fallback sécurisé)
+export const safeLocaleDateString = (
+  date: Date | string | number | null | undefined,
+  locale: string = 'fr-FR',
+  options?: Intl.DateTimeFormatOptions
+): string => {
+  if (!date) return '';
+
+  // Vérifier si la date est valide
+  let d: Date;
+  if (date instanceof Date) {
+    d = date;
+  } else {
+    d = new Date(date);
+  }
+
+  // Vérifier si la date est valide (pas Invalid Date)
+  if (!Number.isFinite(d.getTime())) {
+    return '';
+  }
+
+  try {
+    return d.toLocaleDateString(locale, options);
+  } catch (e) {
+    // Fallback sur dayjs si toLocaleDateString échoue
+    return safeFormatDate(date, 'DD/MM/YYYY');
+  }
+};

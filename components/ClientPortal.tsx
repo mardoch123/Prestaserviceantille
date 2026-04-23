@@ -2783,7 +2783,10 @@ const ClientPortal: React.FC = () => {
                                                     </div>
                                                 )}
                                                 {selectedQuote.signatureDate && (
-                                                    <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signatureDate).toLocaleDateString('fr-FR')}</p>
+                                                    <p className="text-xs text-slate-600">Signé le {(() => {
+                                                        const d = new Date(selectedQuote.signatureDate);
+                                                        return Number.isFinite(d.getTime()) ? d.toLocaleDateString('fr-FR') : selectedQuote.signatureDate;
+                                                    })()}</p>
                                                 )}
                                             </div>
                                         </div>
@@ -2794,7 +2797,10 @@ const ClientPortal: React.FC = () => {
                                                     <img src={selectedQuote.signatureData} alt="Signature client" className="h-16 border border-slate-300 rounded shadow-sm" />
                                                     <p className="text-xs text-green-600 font-bold">Signature enregistrée</p>
                                                     {selectedQuote.signatureDate && (
-                                                        <p className="text-xs text-slate-600">Signé le {new Date(selectedQuote.signatureDate).toLocaleDateString('fr-FR')}</p>
+                                                        <p className="text-xs text-slate-600">Signé le {(() => {
+                                                            const d = new Date(selectedQuote.signatureDate);
+                                                            return Number.isFinite(d.getTime()) ? d.toLocaleDateString('fr-FR') : selectedQuote.signatureDate;
+                                                        })()}</p>
                                                     )}
                                                 </div>
                                             ) : (
