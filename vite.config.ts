@@ -8,9 +8,21 @@ import { versionInjectorPlugin } from './scripts/version-plugin'
 export default defineConfig(({ mode }) => {
   const isCapacitor = mode === 'capacitor';
 
+  // Générer un identifiant unique de build basé sur la date/heure
+  // Ce sera utilisé pour détecter les mises à jour et vider le cache
+  const buildTime = new Date().toISOString();
+  const appVersion = process.env.npm_package_version || '1.0.0';
+
   return {
     // En mode Android (Capacitor), on force des chemins relatifs pour charger correctement depuis file://
     base: isCapacitor ? './' : undefined,
+
+    // Injecter la version et le build time comme variables d'environnement
+    define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+      'import.meta.env.VITE_BUILD_TIME': JSON.stringify(buildTime),
+    },
+
     plugins: [
       react(),
       versionInjectorPlugin(), // Inject version meta tags

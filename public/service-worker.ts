@@ -197,17 +197,17 @@ self.addEventListener('install', (event: any) => {
   event.waitUntil(self.skipWaiting());
 });
 
-// Gestion de l'activation
+// Gestion de l'activation - NETTOYAGE AGRESSIF DES CACHES
 self.addEventListener('activate', (event: any) => {
   console.log('[Service Worker] Activation...');
-  
+
   // Nettoyer TOUS les vieux caches (sauf celui de l'API Supabase pour les données)
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
           .filter((cacheName) => {
-            // Garder uniquement le cache API Supabase et le nouveau cache d'assets
+            // Garder uniquement le cache API Supabase et le nouveau cache d'assets Workbox
             const validCaches = [
               'supabase-api-cache',
               'workbox-precache-v2-' + self.registration.scope,
@@ -215,21 +215,25 @@ self.addEventListener('activate', (event: any) => {
             return !validCaches.some(valid => cacheName.startsWith(valid) || cacheName === valid);
           })
           .map((cacheName) => {
-            console.log('[Service Worker] Suppression du cache:', cacheName);
+            console.log('[Service Worker] Suppression du vieux cache:', cacheName);
             return caches.delete(cacheName);
           })
       );
     })
   );
-  
+
   // Prendre le contrôle immédiatement de toutes les pages
   event.waitUntil(self.clients.claim());
-  
-  // Informer tous les clients que le SW est activé
+
+  // Informer tous les clients que le SW est activé avec un flag de nettoyage
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clients: any[]) => {
       clients.forEach((client: any) => {
-        client.postMessage({ type: 'SW_ACTIVATED', version: new Date().toISOString() });
+        client.postMessage({
+          type: 'SW_ACTIVATED',
+          version: new Date().toISOString(),
+          cacheCleared: true  // Indiquer que le cache a été nettoyé
+        });
       });
     })
   );

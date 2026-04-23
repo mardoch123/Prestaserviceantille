@@ -213,6 +213,9 @@ const ClientPortal: React.FC = () => {
     const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [messageInput, setMessageInput] = useState('');
     const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
+
+    // État pour empêcher les annulations multiples (évite les emails dupliqués)
+    const [cancellingMissionIds, setCancellingMissionIds] = useState<Set<string>>(new Set());
     
     // New State for Saturation Error
     const [showSaturationError, setShowSaturationError] = useState(false);
@@ -1243,9 +1246,28 @@ const ClientPortal: React.FC = () => {
         }
     };
 
-    const handleCancelMission = (missionId: string) => {
-        cancelMissionByClient(missionId);
-        showToast('Demande d\'annulation envoyée.');
+    const handleCancelMission = async (missionId: string) => {
+        // Empêcher les clics multiples sur le même bouton d'annulation
+        if (cancellingMissionIds.has(missionId)) {
+            return;
+        }
+
+        // Ajouter la mission à l'ensemble des missions en cours d'annulation
+        setCancellingMissionIds(prev => new Set(prev).add(missionId));
+
+        try {
+            await cancelMissionByClient(missionId);
+            showToast('Demande d\'annulation envoyée.');
+        } catch (error) {
+            showToast('Erreur lors de l\'annulation. Veuillez réessayer.', 'error');
+        } finally {
+            // Retirer la mission de l'ensemble une fois terminé
+            setCancellingMissionIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(missionId);
+                return newSet;
+            });
+        }
     };
 
     const handleRespondChangeRequest = async (decision: 'approved' | 'rejected') => {
@@ -1877,7 +1899,13 @@ const ClientPortal: React.FC = () => {
                                                     {m.status === 'planned' && (
                                                         <>
                                                             {cancelable ? (
-                                                                <button onClick={() => handleCancelMission(m.id)} className="w-full md:w-auto text-red-500 text-sm font-bold border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition">Annuler RDV</button>
+                                                                <button
+                                                                    onClick={() => handleCancelMission(m.id)}
+                                                                    disabled={cancellingMissionIds.has(m.id)}
+                                                                    className="w-full md:w-auto text-red-500 text-sm font-bold border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    {cancellingMissionIds.has(m.id) ? 'Annulation en cours...' : 'Annuler RDV'}
+                                                                </button>
                                                             ) : (
                                                                 <div className="text-center md:text-right bg-red-50 p-2 rounded-lg border border-red-100">
                                                                     <span className="text-xs font-bold text-red-600 block mb-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Annulation impossible</span>

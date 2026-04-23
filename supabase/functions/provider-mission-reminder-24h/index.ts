@@ -211,6 +211,19 @@ serve(async (req: Request) => {
         });
 
         if (!dryRun) {
+          // Vérification de sécurité : s'assurer que le reminder n'a pas été envoyé entre temps
+          const { data: freshMission } = await supabase
+            .from("missions")
+            .select("reminder_24h_provider_sent")
+            .eq("id", missionId)
+            .single();
+
+          if (freshMission?.reminder_24h_provider_sent) {
+            skipped++;
+            results.push({ id: missionId, status: "skipped", reason: "already_sent_race_condition" });
+            continue;
+          }
+
           await sendEmailViaEmailJS({ to: providerEmail, subject, message });
 
           // Log email in email_logs

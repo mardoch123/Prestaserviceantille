@@ -429,6 +429,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const toggleSoberMode = () => setIsSoberMode(prev => !prev);
 
+    // Ref pour empêcher les annulations multiples (évite les emails dupliqués)
+    const cancellingMissionIdsRef = useRef<Set<string>>(new Set());
+
+    // Ref pour empêcher les envois multiples de reminders (évite les emails dupliqués)
+    const sendingReminderIdsRef = useRef<Set<string>>(new Set());
+
     const demoBlocked = () => {
         try {
             alert('Vous êtes en mode démo');
@@ -2790,33 +2796,69 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const now = new Date();
         const fortyEightHoursInMs = 48 * 60 * 60 * 1000;
 
-        currentMissions.forEach(async (m) => {
+        // Utiliser for...of au lieu de forEach pour un traitement séquentiel et contrôlé
+        for (const m of currentMissions) {
+            // Vérifier si cette mission est déjà en cours d'envoi de reminder (évite les doublons)
+            if (sendingReminderIdsRef.current.has(m.id)) {
+                console.log(`[checkUpcomingReminders] Mission ${m.id} déjà en cours de traitement, ignorée`);
+                continue;
+            }
+
             if (m.status === 'planned' && m.date && !m.reminder48hSent) {
                 const missionDate = new Date(`${m.date}T${m.startTime}`);
                 const diff = missionDate.getTime() - now.getTime();
 
                 // If between 24h and 48h
                 if (diff > 0 && diff <= fortyEightHoursInMs) {
-                    // Send Email Notification
-                    const client = clients.find(c => c.id === m.clientId);
-                    if (client && client.email) {
-                        await sendEmail(client.email, 'Rappel Intervention - Annulation impossible sans frais', 'reminder_48h', {
-                            clientName: m.clientName,
-                            date: m.date,
-                            time: m.startTime
-                        });
+                    // Marquer immédiatement comme en cours d'envoi pour éviter les doublons
+                    sendingReminderIdsRef.current.add(m.id);
 
-                        // Mark as sent in DB
-                        const recordingsBaseUrl = process.env.NODE_ENV === 'production' 
-                            ? 'https://recordings.presta-services.com' 
-                            : 'http://localhost:3001/recordings';
-                        await supabase.from('missions').update({ reminder_48h_sent: true }).eq('id', m.id);
-                        await addNotification('admin', 'info', 'Rappel 48h Envoyé', `Rappel annulation envoyé au client ${m.clientName} pour le ${m.date}.`, undefined);
-                        await addNotification('client', 'alert', 'Rappel Intervention', `Votre intervention du ${m.date} est à moins de 48h. Toute annulation entraîne une facturation à 100%.`, m.clientId);
+                    try {
+                        // Vérifier à nouveau dans la DB que le reminder n'a pas déjà été envoyé
+                        const { data: missionCheck } = await supabase
+                            .from('missions')
+                            .select('reminder_48h_sent')
+                            .eq('id', m.id)
+                            .single();
+
+                        if (missionCheck?.reminder_48h_sent) {
+                            console.log(`[checkUpcomingReminders] Mission ${m.id} reminder déjà envoyé selon DB, ignoré`);
+                            continue;
+                        }
+
+                        // Send Email Notification
+                        const client = clients.find(c => c.id === m.clientId);
+                        if (client && client.email) {
+                            await sendEmail(client.email, 'Rappel Intervention - Annulation impossible sans frais', 'reminder_48h', {
+                                clientName: m.clientName,
+                                date: m.date,
+                                time: m.startTime
+                            });
+
+                            // Mark as sent in DB IMMÉDIATEMENT après l'envoi
+                            await supabase.from('missions').update({ reminder_48h_sent: true }).eq('id', m.id);
+
+                            // Mettre à jour le state local aussi
+                            setMissions(prev => prev.map(mission =>
+                                mission.id === m.id ? { ...mission, reminder48hSent: true } : mission
+                            ));
+
+                            await addNotification('admin', 'info', 'Rappel 48h Envoyé', `Rappel annulation envoyé au client ${m.clientName} pour le ${m.date}.`, undefined);
+                            await addNotification('client', 'alert', 'Rappel Intervention', `Votre intervention du ${m.date} est à moins de 48h. Toute annulation entraîne une facturation à 100%.`, m.clientId);
+
+                            console.log(`[checkUpcomingReminders] Rappel 48h envoyé pour mission ${m.id}`);
+                        }
+                    } catch (error) {
+                        console.error(`[checkUpcomingReminders] Erreur pour mission ${m.id}:`, error);
+                    } finally {
+                        // Retirer du set après un délai pour éviter les appels immédiats répétés
+                        setTimeout(() => {
+                            sendingReminderIdsRef.current.delete(m.id);
+                        }, 60000); // 1 minute de protection
                     }
                 }
             }
-        });
+        }
         setIsOnline(true);
         return true;
     };
@@ -4686,72 +4728,89 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
-        const m = missions.find(m => m.id === id);
-        if (m) {
-            const isLate = !canCancelMission(m); // isLate means < 48h
-            const { error } = await supabase.from('missions').update({
-                // IMPORTANT (demande): une mission annulée doit revenir en "non attribué" pour ré-attribution.
-                status: 'planned',
-                cancellation_reason: 'Annulé par client',
-                late_cancellation: isLate,
-                provider_id: null,
-                provider_name: 'À assigner',
-                color: 'gray'
-            }).eq('id', id);
 
-            if (!error) {
-                setMissions(prev => prev.map(mission => mission.id === id ? {
-                    ...mission,
+        // Empêcher les appels multiples pour la même mission (évite les emails dupliqués)
+        if (cancellingMissionIdsRef.current.has(id)) {
+            console.log(`[cancelMissionByClient] Mission ${id} déjà en cours d'annulation, ignoré`);
+            return;
+        }
+
+        // Marquer la mission comme étant en cours d'annulation
+        cancellingMissionIdsRef.current.add(id);
+
+        try {
+            const m = missions.find(m => m.id === id);
+            if (m) {
+                const isLate = !canCancelMission(m); // isLate means < 48h
+                const { error } = await supabase.from('missions').update({
+                    // IMPORTANT (demande): une mission annulée doit revenir en "non attribué" pour ré-attribution.
                     status: 'planned',
-                    providerId: null,
-                    providerName: 'À assigner',
-                    color: 'gray',
-                    cancellationReason: 'Annulé par client',
-                    lateCancellation: isLate
-                } : mission));
+                    cancellation_reason: 'Annulé par client',
+                    late_cancellation: isLate,
+                    provider_id: null,
+                    provider_name: 'À assigner',
+                    color: 'gray'
+                }).eq('id', id);
 
-                // EMAIL CLIENT (confirmation détaillée)
-                try {
-                    const client = clients.find(c => c.id === m.clientId);
-                    if (client && client.email) {
-                        const policyText = isLate
-                            ? "Votre annulation intervient à moins de 48h de l'intervention : la prestation est due à 100%."
-                            : "Votre annulation intervient à plus de 48h : aucune facturation liée à l'annulation ne s'applique.";
+                if (!error) {
+                    setMissions(prev => prev.map(mission => mission.id === id ? {
+                        ...mission,
+                        status: 'planned',
+                        providerId: null,
+                        providerName: 'À assigner',
+                        color: 'gray',
+                        cancellationReason: 'Annulé par client',
+                        lateCancellation: isLate
+                    } : mission));
 
-                        await sendEmail(client.email, 'Confirmation d’annulation de votre prestation', 'client_mission_cancelled', {
+                    // EMAIL CLIENT (confirmation détaillée) - Une seule fois par mission
+                    try {
+                        const client = clients.find(c => c.id === m.clientId);
+                        if (client && client.email) {
+                            const policyText = isLate
+                                ? "Votre annulation intervient à moins de 48h de l'intervention : la prestation est due à 100%."
+                                : "Votre annulation intervient à plus de 48h : aucune facturation liée à l'annulation ne s'applique.";
+
+                            await sendEmail(client.email, "Confirmation d'annulation de votre prestation", 'client_mission_cancelled', {
+                                clientName: m.clientName,
+                                date: m.date,
+                                time: m.startTime,
+                                startTime: m.startTime,
+                                service: m.service,
+                                policyText,
+                            });
+                        }
+                    } catch {
+                        // ignore
+                    }
+
+                    if (isLate) {
+                        await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée à moins de 48h. Conformément à nos conditions, la prestation est due à 100%.`, m.clientId, `mission:${id}`);
+                        await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 100%.`, undefined, `mission:${id}`);
+                        // EMAIL ADMIN
+                        await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
                             clientName: m.clientName,
-                            date: m.date,
-                            time: m.startTime,
-                            startTime: m.startTime,
-                            service: m.service,
-                            policyText,
+                            date: m.date
+                        });
+                    } else {
+                        await addNotification('admin', 'info', 'Mission à ré-attribuer', `Client: ${m.clientName} a annulé le RDV (Délai respecté). Mission remise en "À assigner".`, undefined, `mission:${id}`);
+                        // EMAIL ADMIN
+                        await sendEmail(companySettings.email, 'Annulation Client', 'admin_client_cancelled', {
+                            clientName: m.clientName,
+                            date: m.date
                         });
                     }
-                } catch {
-                    // ignore
-                }
 
-                if (isLate) {
-                    await addNotification('client', 'alert', 'Annulation Tardive', `Votre mission a été annulée à moins de 48h. Conformément à nos conditions, la prestation est due à 100%.`, m.clientId, `mission:${id}`);
-                    await addNotification('admin', 'alert', 'Mission à ré-attribuer (Annulation tardive)', `Le client ${m.clientName} a annulé < 48h. Mission remise en "À assigner". A facturer 100%.`, undefined, `mission:${id}`);
-                    // EMAIL ADMIN
-                    await sendEmail(companySettings.email, 'URGENT - Annulation Tardive Client', 'admin_client_cancelled_late', {
-                        clientName: m.clientName,
-                        date: m.date
-                    });
-                } else {
-                    await addNotification('admin', 'info', 'Mission à ré-attribuer', `Client: ${m.clientName} a annulé le RDV (Délai respecté). Mission remise en "À assigner".`, undefined, `mission:${id}`);
-                    // EMAIL ADMIN
-                    await sendEmail(companySettings.email, 'Annulation Client', 'admin_client_cancelled', {
-                        clientName: m.clientName,
-                        date: m.date
-                    });
-                }
-
-                if (m.providerId) {
-                    await addNotification('provider', 'alert', 'Mission Annulée', `Le client ${m.clientName} a annulé la mission du ${m.date}. Le créneau est libéré.`, m.providerId);
+                    if (m.providerId) {
+                        await addNotification('provider', 'alert', 'Mission Annulée', `Le client ${m.clientName} a annulé la mission du ${m.date}. Le créneau est libéré.`, m.providerId);
+                    }
                 }
             }
+        } finally {
+            // Libérer le verrou après un délai pour éviter tout appel immédiat supplémentaire
+            setTimeout(() => {
+                cancellingMissionIdsRef.current.delete(id);
+            }, 5000); // 5 secondes de protection
         }
     };
 

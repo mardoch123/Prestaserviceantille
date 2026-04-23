@@ -59,16 +59,25 @@ export function registerServiceWorker() {
         // Déclencher un refresh des données via React Query
         window.dispatchEvent(new CustomEvent('sw-refresh-data'));
       }
-      
-      // Quand le cache est nettoyé, recharger la page
+
+      // Quand le cache est nettoyé via message
       if (event.data?.type === 'CACHE_CLEARED') {
-        console.log('[SW] Cache nettoyé - rechargement...');
-        window.location.reload();
+        console.log('[SW] Cache nettoyé via message');
+        // Option: recharger la page après nettoyage
+        // window.location.reload();
       }
-      
-      // Quand le SW est activé, vérifier si on doit recharger
+
+      // Quand le SW est activé (nouvelle version déployée)
       if (event.data?.type === 'SW_ACTIVATED') {
         console.log('[SW] Nouveau SW activé:', event.data.version);
+
+        // Si le cache a été nettoyé lors de l'activation, informer l'application
+        if (event.data?.cacheCleared) {
+          console.log('[SW] Cache automatiquement nettoyé lors de la mise à jour');
+          window.dispatchEvent(new CustomEvent('sw-cache-cleared', {
+            detail: { version: event.data.version }
+          }));
+        }
       }
     });
 
