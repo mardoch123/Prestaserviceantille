@@ -1144,7 +1144,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
             return (
               <>
                 <View style={[styles.totalRow, styles.grandTotalBrand]}>
-                  <Text style={styles.labelBrand}>Total:</Text>
+                  <Text style={styles.labelBrand}>Total TTC:</Text>
                   <Text>{total}€</Text>
                 </View>
                 {creditActive ? (

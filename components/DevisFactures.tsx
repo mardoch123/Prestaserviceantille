@@ -259,6 +259,17 @@ const DevisFactures: React.FC = () => {
     const [providersModalTitle, setProvidersModalTitle] = useState('');
     const [providersModalItems, setProvidersModalItems] = useState<any[]>([]);
 
+    // State for warning modal when no provider available for manual slot change
+    const [isNoProviderWarningOpen, setIsNoProviderWarningOpen] = useState(false);
+    const [noProviderWarningData, setNoProviderWarningData] = useState<{
+        slotIndex: number;
+        date: string;
+        startTime: string;
+        endTime: string;
+        field: keyof InterventionSlot;
+        value: string;
+    } | null>(null);
+
     const getAvailableProvidersForSlot = (slot: InterventionSlot): any[] => {
         if (!slot?.date) return [];
 
@@ -1040,11 +1051,9 @@ const DevisFactures: React.FC = () => {
         
         const qualifiedProviders = providers.filter(p => {
             if (p.status !== 'Active') return false;
-            // Idéalement : vérifier p.specialty vs requiredService
-            // Pour l'instant on suppose que tous les actifs sont potentiellement éligibles
-            // ou on ajoute un filtre basique sur specialty si disponible
+            // Vérifier que la spécialité du prestataire correspond au type de service requis
             if (p.specialty && !p.specialty.toLowerCase().includes(requiredService.toLowerCase())) {
-                 // return false; // Uncomment for strict specialty check locally if data is good
+                 return false;
             }
             return true;
         });
@@ -1192,6 +1201,48 @@ const DevisFactures: React.FC = () => {
         }
     };
 
+    // Handle force continue when no provider available for slot
+    const handleForceContinueSlot = () => {
+        if (!noProviderWarningData) return;
+        
+        const { slotIndex, field, value } = noProviderWarningData;
+        const newSlots = [...interventionSlots];
+        const currentSlot = newSlots[slotIndex];
+
+        if (field === 'date') {
+            newSlots[slotIndex] = { ...currentSlot, date: value };
+        } else if (field === 'startTime') {
+            const end = addHoursToTime(value, currentSlot.duration);
+            newSlots[slotIndex] = { ...currentSlot, startTime: value, endTime: end };
+        } else if (field === 'endTime') {
+            const dur = calculateDuration(currentSlot.startTime, value);
+            newSlots[slotIndex] = { ...currentSlot, endTime: value, duration: dur };
+        }
+
+        setInterventionSlots(newSlots);
+        setIsNoProviderWarningOpen(false);
+        setNoProviderWarningData(null);
+        toast.warning('Créneau modifié mais aucun prestataire disponible pour ce type de service.');
+    };
+
+    // Check if slot has available provider before updating
+    const checkSlotAvailabilityBeforeUpdate = (index: number, field: keyof InterventionSlot, value: string): boolean => {
+        const currentSlot = interventionSlots[index];
+        let testSlot = { ...currentSlot };
+
+        if (field === 'date') {
+            testSlot = { ...testSlot, date: value };
+        } else if (field === 'startTime') {
+            const end = addHoursToTime(value, currentSlot.duration);
+            testSlot = { ...testSlot, startTime: value, endTime: end };
+        } else if (field === 'endTime') {
+            testSlot = { ...testSlot, endTime: value };
+        }
+
+        // Check if any provider is available for this slot with the required specialty
+        return isAnyProviderAvailableForSlotStrict(testSlot);
+    };
+
     const updateSlot = (index: number, field: keyof InterventionSlot, value: string, options?: { validate?: boolean }) => {
         const newSlots = [...interventionSlots];
         const currentSlot = newSlots[index];
@@ -1226,10 +1277,40 @@ const DevisFactures: React.FC = () => {
         if (field === 'startTime') {
             // Garder la durée constante si possible, décaler l'heure de fin
             const end = addHoursToTime(value, currentSlot.duration);
+            
+            // Check provider availability before updating
+            if (shouldValidate && !checkSlotAvailabilityBeforeUpdate(index, field, value)) {
+                setNoProviderWarningData({
+                    slotIndex: index,
+                    date: currentSlot.date,
+                    startTime: value,
+                    endTime: end,
+                    field,
+                    value
+                });
+                setIsNoProviderWarningOpen(true);
+                return;
+            }
+            
             newSlots[index] = { ...currentSlot, startTime: value, endTime: end };
         } else if (field === 'endTime') {
             // Recalculer la durée
             const dur = calculateDuration(currentSlot.startTime, value);
+            
+            // Check provider availability before updating
+            if (shouldValidate && !checkSlotAvailabilityBeforeUpdate(index, field, value)) {
+                setNoProviderWarningData({
+                    slotIndex: index,
+                    date: currentSlot.date,
+                    startTime: currentSlot.startTime,
+                    endTime: value,
+                    field,
+                    value
+                });
+                setIsNoProviderWarningOpen(true);
+                return;
+            }
+            
             newSlots[index] = { ...currentSlot, endTime: value, duration: dur };
 
             // Vérifier si cette modification respecte les contraintes du pack
@@ -1309,6 +1390,21 @@ const DevisFactures: React.FC = () => {
                     }
                 }
             }
+        } else if (field === 'date') {
+            // Check provider availability before updating date
+            if (shouldValidate && !checkSlotAvailabilityBeforeUpdate(index, field, value)) {
+                setNoProviderWarningData({
+                    slotIndex: index,
+                    date: value,
+                    startTime: currentSlot.startTime,
+                    endTime: currentSlot.endTime,
+                    field,
+                    value
+                });
+                setIsNoProviderWarningOpen(true);
+                return;
+            }
+            newSlots[index] = { ...currentSlot, [field]: value };
         } else {
             newSlots[index] = { ...currentSlot, [field]: value };
         }
@@ -4366,6 +4462,58 @@ const DevisFactures: React.FC = () => {
                                     Supprimer
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* No Provider Available Warning Modal */}
+            {isNoProviderWarningOpen && noProviderWarningData && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-slate-100 bg-amber-50">
+                            <div className="flex items-center gap-3">
+                                <AlertTriangle className="w-6 h-6 text-amber-600" />
+                                <h3 className="text-lg font-bold text-slate-800">Attention</h3>
+                            </div>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                <p className="text-sm text-amber-800">
+                                    <strong>Aucun prestataire disponible</strong> pour ce créneau horaire avec la spécialité requise.
+                                </p>
+                                <p className="text-xs text-amber-700 mt-2">
+                                    Type de service : <strong>{serviceCategory || 'Non spécifié'}</strong><br/>
+                                    Date : {noProviderWarningData.date}<br/>
+                                    Horaire : {noProviderWarningData.startTime} - {noProviderWarningData.endTime}
+                                </p>
+                            </div>
+
+                            <p className="text-sm text-slate-600">
+                                Vous pouvez :
+                            </p>
+                            <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
+                                <li>Revenir à une date/heure où des prestataires sont disponibles</li>
+                                <li>Continuer quand même (le créneau sera marqué comme sans disponibilité)</li>
+                            </ul>
+                        </div>
+
+                        <div className="p-6 border-t border-slate-100 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsNoProviderWarningOpen(false)}
+                                className="flex-1 py-3 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition"
+                            >
+                                Revenir en arrière
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleForceContinueSlot}
+                                className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold transition"
+                            >
+                                Continuer de force
+                            </button>
                         </div>
                     </div>
                 </div>

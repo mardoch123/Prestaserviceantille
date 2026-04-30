@@ -140,7 +140,7 @@ const ClientDetailPage: React.FC = () => {
                 <div>
                   <h1 className="text-xl font-bold text-slate-800">{client.name || 'Client sans nom'}</h1>
                   <p className="text-sm text-slate-500">
-                    Client depuis {dayjs(client.createdAt).format('DD/MM/YYYY')}
+                    Client depuis {dayjs(client.since).format('DD/MM/YYYY')}
                   </p>
                 </div>
               </div>
@@ -440,7 +440,7 @@ const ClientDetailPage: React.FC = () => {
                 <div className="w-2 h-2 bg-brand-blue rounded-full mt-2" />
                 <div>
                   <p className="text-slate-800">Client créé</p>
-                  <p className="text-sm text-slate-500">{dayjs(client.createdAt).format('DD/MM/YYYY HH:mm')}</p>
+                  <p className="text-sm text-slate-500">{dayjs(client.since).format('DD/MM/YYYY HH:mm')}</p>
                 </div>
               </div>
               {clientMissions.length > 0 && (

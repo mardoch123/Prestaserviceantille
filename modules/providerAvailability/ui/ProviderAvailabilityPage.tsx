@@ -117,9 +117,17 @@ export const ProviderAvailabilityPage: React.FC = () => {
         break;
     }
 
+    // Use local date formatting to avoid UTC conversion issues
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0],
+      start: formatLocalDate(start),
+      end: formatLocalDate(end),
       startDate: start,
       endDate: end,
     };
@@ -204,7 +212,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
       const end = new Date(dateRange.endDate);
 
       while (current <= end) {
-        const dateStr = current.toISOString().split('T')[0];
+        const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
         const dayOfWeek = current.getDay();
 
         // Check if provider is on leave (leaves are stored on provider)
@@ -297,7 +305,8 @@ export const ProviderAvailabilityPage: React.FC = () => {
   // Get upcoming missions for selected provider
   const upcomingMissionsForProvider = useMemo(() => {
     if (!selectedProvider) return [];
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     return (allMissions || [])
       .filter(m =>
         m.providerId === selectedProvider.id &&
@@ -395,9 +404,11 @@ export const ProviderAvailabilityPage: React.FC = () => {
       
       // Silent refresh - don't show full page loader
       loadData(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error assigning mission:', error);
-      alert('Erreur lors de l\'attribution de la mission');
+      const errorMessage = error?.message || 'Erreur lors de l\'attribution de la mission';
+      setShowSuccessMessage(errorMessage);
+      setTimeout(() => setShowSuccessMessage(null), 5000);
     } finally {
       setIsSubmitting(false);
     }
@@ -642,7 +653,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
                   {/* Provider Rows with Hourly Slots */}
                   <div className="divide-y divide-slate-100">
                     {filteredProviders.map((provider) => {
-                      const dateStr = selectedDate.toISOString().split('T')[0];
+                      const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
                       const dayOfWeek = selectedDate.getDay();
                       const dayStatus = getProviderStatus(provider, dateStr);
                       const isDayUnavailable = dayStatus === 'leave' || dayStatus === 'unavailable';
@@ -770,9 +781,11 @@ export const ProviderAvailabilityPage: React.FC = () => {
                       Prestataires
                     </div>
                     {calendarDays.map((day, index) => {
-                      const dateStr = day.toISOString().split('T')[0];
+                      const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
                       const unassignedCount = getUnassignedCountForDate(dateStr);
-                      const isToday = dateStr === new Date().toISOString().split('T')[0];
+                      const now = new Date();
+                      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                      const isToday = dateStr === todayStr;
                       
                       return (
                         <div
@@ -822,7 +835,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
                         {/* Day Cells */}
                         {calendarDays.map((day, dayIndex) => {
-                          const dateStr = day.toISOString().split('T')[0];
+                          const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
                           const status = getProviderStatus(provider, dateStr);
                           const config = statusConfig[status];
                           const canAssign = status !== 'leave' && status !== 'unavailable';

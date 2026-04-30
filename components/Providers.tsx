@@ -725,12 +725,23 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     >
                                         {(() => {
                                           const cnt = inProgressMissionsCountByProvider.get(String(p.id)) || 0;
+                                          const firstName = p?.firstName || '';
+                                          const lastName = p?.lastName || '';
+                                          const displayName = `${firstName} ${lastName}`.trim();
+                                          const isNameLoading = dataLoading || (!firstName && !lastName && p?.id);
                                           return (
-                                            <span>
+                                            <span className="text-slate-700 font-bold flex items-center gap-2">
                                               {cnt > 0 && (
                                                 <span className="mr-1 text-xs font-bold text-blue-700">({cnt})</span>
                                               )}
-                                              {p.firstName} {p.lastName}
+                                              {isNameLoading ? (
+                                                <span className="flex items-center gap-2 text-slate-500">
+                                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                                  Chargement du nom...
+                                                </span>
+                                              ) : (
+                                                displayName || 'Sans nom'
+                                              )}
                                             </span>
                                           );
                                         })()}

@@ -379,8 +379,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             setEmailQuota({ 
               used: 0, 
               failed: 0,
-              limit: 700, 
-              remaining: 700,
+              limit: 2000, 
+              remaining: 2000,
               percentUsed: 0,
               projectedUsage: 0,
               estimatedOverage: 0,
@@ -826,44 +826,47 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   </span>
                 </div>
                 
-                {/* Reset Button when low quota */}
-                {emailQuota.remaining < 500 && (
-                  <button
-                    onClick={async () => {
-                      // Reset the quota display (this just reloads the data)
-                      setEmailQuotaLoading(true);
-                      try {
-                        // Skip API call in localhost - l'API n'existe pas en local
-                        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                        
-                        if (!isLocalhost) {
-                          const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
-                          // Ensure we don't double the /api path
-                          const apiUrl = apiBase.endsWith('/api') 
-                            ? `${apiBase}/emailjs-quota` 
-                            : `${apiBase}/api/emailjs-quota`;
-                          const response = await fetch(apiUrl, { 
-                            credentials: 'same-origin' // Include cookies/auth headers
-                          });
-                          const data = await response.json();
-                          if (data.success && data.quota) {
-                            setEmailQuota(data.quota);
-                          }
-                        }
-                      } catch (err) {
-                        // Silencieux en localhost
-                        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                          console.error('Failed to refresh quota:', err);
-                        }
-                      } finally {
-                        setEmailQuotaLoading(false);
+                {/* Reset Button - Always visible */}
+                <button
+                  onClick={async () => {
+                    // Réinitialiser manuellement le quota à 2000
+                    setEmailQuotaLoading(true);
+                    
+                    // Reset immédiat à 2000
+                    setEmailQuota({
+                      used: 0,
+                      failed: 0,
+                      limit: 2000,
+                      remaining: 2000,
+                      percentUsed: 0,
+                      projectedUsage: 0,
+                      estimatedOverage: 0,
+                      dailyAverage: 0,
+                      currentMonth: new Date().toLocaleString('fr-FR', { month: 'long', year: 'numeric' }),
+                      source: 'manual_reset',
+                      lastUpdated: new Date().toISOString()
+                    });
+                    
+                    // Optional: also refresh from API after manual reset
+                    try {
+                      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                      if (!isLocalhost) {
+                        const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
+                        const apiUrl = apiBase.endsWith('/api') 
+                          ? `${apiBase}/emailjs-quota` 
+                          : `${apiBase}/api/emailjs-quota`;
+                        await fetch(apiUrl, { credentials: 'same-origin' });
                       }
-                    }}
-                    className="mt-3 w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg text-xs font-semibold hover:from-emerald-600 hover:to-teal-700 transition-colors"
-                  >
-                    🔄 Réinitialiser le compteur
-                  </button>
-                )}
+                    } catch (err) {
+                      // Ignore API errors
+                    } finally {
+                      setEmailQuotaLoading(false);
+                    }
+                  }}
+                  className="mt-3 w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg text-xs font-semibold hover:from-emerald-600 hover:to-teal-700 transition-colors"
+                >
+                  🔄 Réinitialiser le compteur
+                </button>
                 
                 {/* Warning if low quota */}
                 {emailQuota.remaining < 500 && (

@@ -22,6 +22,7 @@ export {
   getProviderById,
   getUnassignedMissions,
   assignMissionToProvider,
+  checkProviderMissionConflict,
 } from './client';
 
 export { ProviderAvailabilityPage } from './ui/ProviderAvailabilityPage';

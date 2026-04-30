@@ -3,7 +3,7 @@ import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
 import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
-import { Mission } from '../types';
+import { Mission, Provider } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
@@ -727,33 +727,100 @@ const Planning: React.FC = () => {
   };
 
   
-  const isProviderAvailable = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59') => {
+  // Get the specific reason why a provider is unavailable
+  const getProviderUnavailableReason = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59', excludeMissionId?: string): string | null => {
       const provider = providers.find(p => p.id === providerId);
-      if (!provider) return false;
+      if (!provider) return 'Prestataire introuvable';
 
-      if (isProviderNonWorkingDay(providerId, dateStr)) return false;
-      
+      // Check non-working day
+      if (isProviderNonWorkingDay(providerId, dateStr)) {
+          return 'Ne travaille pas ce jour';
+      }
+
       const missionStart = new Date(`${dateStr}T${startTime}`);
       const missionEnd = new Date(`${dateStr}T${endTime}`);
-      
+
+      // Check for conflicts with existing missions
+      const conflictingMissions = missions.filter(m => {
+          if (m.status === 'cancelled' || !m.date || m.providerId !== providerId) return false;
+          if (excludeMissionId && m.id === excludeMissionId) return false;
+          const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+          const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+          const slotStart = dayjs.tz(`${dateStr} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+          const slotEnd = dayjs.tz(`${dateStr} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+          return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
+      });
+
+      if (conflictingMissions.length > 0) {
+          return 'Déjà assigné à une mission sur ce créneau';
+      }
+
+      // Check for leaves
       for (const leave of (provider.leaves || [])) {
-          // Skip if rejected
           if (leave.status === 'rejected') continue;
 
-          // Default full day if times missing
           const lStartTime = leave.startTime || '00:00';
           const lEndTime = leave.endTime || '23:59';
-
           const leaveStart = new Date(`${leave.startDate}T${lStartTime}`);
           const leaveEnd = new Date(`${leave.endDate}T${lEndTime}`);
-          
-          // Check overlap
-          // Overlap condition: (StartA < EndB) and (EndA > StartB)
+
           if (missionStart < leaveEnd && missionEnd > leaveStart) {
-              return false;
+              return 'En congé';
           }
       }
-      return true;
+
+      // Check non-working hours
+      if (isProviderNonWorkingHours(providerId, dateStr, startTime, endTime)) {
+          return 'Hors plage horaire de travail';
+      }
+
+      return null;
+  };
+
+  const isProviderAvailable = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59', excludeMissionId?: string) => {
+      return getProviderUnavailableReason(providerId, dateStr, startTime, endTime, excludeMissionId) === null;
+  };
+
+  // Get service type from mission by finding its source document (quote)
+  const getMissionServiceType = (mission: Mission): string => {
+      if (!mission.sourceDocumentId) return '';
+      const doc = documents.find(d => d.id === mission.sourceDocumentId);
+      return doc?.serviceType || doc?.description || '';
+  };
+
+  // Find providers whose specialty matches the service type
+  const findProvidersByServiceType = (serviceType: string): Provider[] => {
+      if (!serviceType) return providers.filter(p => p.status === 'Active');
+      const normalizedService = serviceType.toLowerCase();
+      return providers.filter(p => {
+          if (p.status !== 'Active') return false;
+          if (!p.specialty) return true; // If no specialty defined, consider compatible
+          const normalizedSpecialty = p.specialty.toLowerCase();
+          // Check if service type is contained in specialty or vice versa
+          return normalizedSpecialty.includes(normalizedService) ||
+                 normalizedService.includes(normalizedSpecialty);
+      });
+  };
+
+  // Check if any provider with matching specialty is available for a slot
+  const hasAvailableProviderForService = (dateStr: string, startTime: string, endTime: string, serviceType: string, excludeMissionId?: string): { hasAvailable: boolean; compatibleProviders: Provider[]; availableCount: number } => {
+      const compatibleProviders = findProvidersByServiceType(serviceType);
+      if (compatibleProviders.length === 0) {
+          return { hasAvailable: false, compatibleProviders: [], availableCount: 0 };
+      }
+
+      let availableCount = 0;
+      for (const provider of compatibleProviders) {
+          if (isProviderAvailable(provider.id, dateStr, startTime, endTime, excludeMissionId)) {
+              availableCount++;
+          }
+      }
+
+      return {
+          hasAvailable: availableCount > 0,
+          compatibleProviders,
+          availableCount
+      };
   };
 
   const handleAssignMission = async () => {
@@ -763,25 +830,35 @@ const Planning: React.FC = () => {
           return;
       }
 
+      const mission = missions.find(m => m.id === selectedMissionId);
+      const provider = providers.find(p => p.id === assignProviderId);
+
+      if (!mission || !provider) {
+          toast.error('Mission ou prestataire introuvable.');
+          return;
+      }
+
+      // Check if provider is available (includes mission conflict check)
+      if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
+          toast.error(`${provider.firstName} ${provider.lastName} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
+          hapticError();
+          return;
+      }
+
       setIsSubmitting(true);
       try {
-          const mission = missions.find(m => m.id === selectedMissionId);
-          const provider = providers.find(p => p.id === assignProviderId);
-          
-          if (mission && provider) {
-              // Ensure we are using valid IDs from refreshed data
-              await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
-              
-              toast.success(`Prestataire assigné ! Email envoyé.`);
-              success();
-              if (refreshData) await refreshData();
-              
-              // Reset states
-              setSelectedMissionId(null);
-              setAssignProviderId('');
-          }
-      } catch (error) {
-          toast.error('Erreur lors de l\'assignation.');
+          // Ensure we are using valid IDs from refreshed data
+          await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
+
+          toast.success(`Prestataire assigné ! Email envoyé.`);
+          success();
+          if (refreshData) await refreshData();
+
+          // Reset states
+          setSelectedMissionId(null);
+          setAssignProviderId('');
+      } catch (error: any) {
+          toast.error(error?.message || 'Erreur lors de l\'assignation.');
           hapticError();
       } finally {
           setIsSubmitting(false);
@@ -789,39 +866,41 @@ const Planning: React.FC = () => {
   };
 
   const handleConfirmAssignment = async () => {
-      if (selectedMissionId && assignProviderId) {
-          const mission = missions.find(m => m.id === selectedMissionId);
-          const provider = providers.find(p => p.id === assignProviderId);
-          
-          if (mission && provider) {
-              if (isSubmitting) return;
-              if (isProviderNonWorkingDay(provider.id, mission.date)) {
-                  toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : ne travaille pas aujourd'hui.`);
-                  return;
-              }
-              if (isProviderNonWorkingHours(provider.id, mission.date, mission.startTime, mission.endTime)) {
-                  toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible sur ce créneau horaire.`);
-                  return;
-              }
-              setIsSubmitting(true);
-              try {
-                  // Ensure we are using valid IDs from refreshed data
-                  await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
-                  
-                  toast.success(`Prestataire assigné ! Email envoyé.`);
-                  success();
-                  if (refreshData) await refreshData();
-                  
-                  // Reset states => closes modal
-                  setSelectedMissionId(null);
-                  setAssignProviderId('');
-              } catch (error) {
-                  toast.error('Erreur lors de l\'assignation.');
-                  hapticError();
-              } finally {
-                  setIsSubmitting(false);
-              }
-          }
+      if (!selectedMissionId || !assignProviderId) return;
+
+      const mission = missions.find(m => m.id === selectedMissionId);
+      const provider = providers.find(p => p.id === assignProviderId);
+
+      if (!mission || !provider) {
+          toast.error('Mission ou prestataire introuvable.');
+          return;
+      }
+
+      if (isSubmitting) return;
+
+      // Check if provider is available (includes mission conflict, non-working days, leaves)
+      if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
+          toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible ou conflit avec une autre mission.`);
+          return;
+      }
+
+      setIsSubmitting(true);
+      try {
+          // Ensure we are using valid IDs from refreshed data
+          await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
+
+          toast.success(`Prestataire assigné ! Email envoyé.`);
+          success();
+          if (refreshData) await refreshData();
+
+          // Reset states => closes modal
+          setSelectedMissionId(null);
+          setAssignProviderId('');
+      } catch (error: any) {
+          toast.error(error?.message || 'Erreur lors de l\'assignation.');
+          hapticError();
+      } finally {
+          setIsSubmitting(false);
       }
   };
   
@@ -848,6 +927,17 @@ const Planning: React.FC = () => {
       status: 'planned' as Mission['status']
   });
   const [editMissionOriginalProviderId, setEditMissionOriginalProviderId] = useState<string>('');
+
+  // State for warning modal when no provider available
+  const [isNoProviderWarningOpen, setIsNoProviderWarningOpen] = useState(false);
+  const [noProviderWarningData, setNoProviderWarningData] = useState<{
+      missionId: string;
+      nextDate: string;
+      nextStart: string;
+      nextEnd: string;
+      serviceType: string;
+      compatibleCount: number;
+  } | null>(null);
 
   const [isProvisionalDetailsModalOpen, setIsProvisionalDetailsModalOpen] = useState(false);
   const [selectedProvisionalDetails, setSelectedProvisionalDetails] = useState<any>(null);
@@ -888,15 +978,61 @@ const Planning: React.FC = () => {
       setIsEditMissionModalOpen(true);
   };
 
+  // Handle force continue when no provider available
+  const handleForceContinueEdit = async () => {
+      if (!noProviderWarningData || !selectedMissionDetails) return;
+      setIsNoProviderWarningOpen(false);
+
+      setIsSubmitting(true);
+      try {
+          const { missionId, nextDate, nextStart, nextEnd } = noProviderWarningData;
+          const nextProviderId = editMissionForm.providerId || '';
+          const nextProvider = nextProviderId ? providers.find(p => p.id === nextProviderId) : undefined;
+
+          // Apply date/time changes
+          await updateMission(missionId, {
+              date: nextDate,
+              startTime: nextStart,
+              endTime: nextEnd,
+              service: editMissionForm.service,
+              status: editMissionForm.status
+          });
+
+          // Handle provider change if needed
+          if (nextProviderId !== editMissionOriginalProviderId) {
+              if (!nextProviderId) {
+                  await updateMission(missionId, {
+                      providerId: null,
+                      providerName: 'À assigner',
+                      status: 'planned',
+                      color: 'gray'
+                  });
+              } else if (nextProvider) {
+                  await assignProvider(missionId, nextProvider.id, `${nextProvider.firstName} ${nextProvider.lastName}`);
+              }
+          }
+
+          if (refreshData) await refreshData();
+          toast.success('Mission modifiée (sans prestataire disponible pour ce type de service).');
+          buttonPress();
+          setIsEditMissionModalOpen(false);
+          setNoProviderWarningData(null);
+      } catch (error: any) {
+          console.error('[editMission] error:', error);
+          toast.error(error?.message || 'Erreur lors de la modification');
+          hapticError();
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
   const handleEditMissionSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!selectedMissionDetails) return;
       if (isSubmitting) return;
 
-      setIsSubmitting(true);
       try {
           const missionId = selectedMissionDetails.id;
-
           const nextDate = editMissionForm.date;
           const nextStart = editMissionForm.startTime;
           const nextEnd = editMissionForm.endTime;
@@ -918,6 +1054,30 @@ const Planning: React.FC = () => {
           if (nextProvider && isProviderNonWorkingDay(nextProvider.id, nextDate)) {
               throw new Error(`Impossible de programmer ${nextProvider.firstName} ${nextProvider.lastName} le ${nextDate} : ne travaille pas aujourd'hui.`);
           }
+
+          // Check if any provider with matching specialty is available for this slot
+          if (scheduleChanged) {
+              const serviceType = getMissionServiceType(selectedMissionDetails);
+              const { hasAvailable, compatibleProviders, availableCount } = hasAvailableProviderForService(
+                  nextDate, nextStart, nextEnd, serviceType, missionId
+              );
+
+              if (!hasAvailable) {
+                  // Show warning modal - no provider available for this service type
+                  setNoProviderWarningData({
+                      missionId,
+                      nextDate,
+                      nextStart,
+                      nextEnd,
+                      serviceType,
+                      compatibleCount: compatibleProviders.length
+                  });
+                  setIsNoProviderWarningOpen(true);
+                  return; // Stop here, user must choose to continue or cancel
+              }
+          }
+
+          setIsSubmitting(true);
 
           // 1) Si date/heure changent, appliquer directement sans confirmation client
           if (scheduleChanged) {
@@ -944,6 +1104,10 @@ const Planning: React.FC = () => {
                       color: 'gray'
                   });
               } else if (nextProvider) {
+                  // Check for conflicts before assigning new provider
+                  if (!isProviderAvailable(nextProvider.id, nextDate, nextStart, nextEnd, missionId)) {
+                      throw new Error(`${nextProvider.firstName} ${nextProvider.lastName} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
+                  }
                   await assignProvider(missionId, nextProvider.id, `${nextProvider.firstName} ${nextProvider.lastName}`);
               }
           }
@@ -1981,11 +2145,11 @@ const Planning: React.FC = () => {
                              >
                                 <option value="">(À assigner plus tard)</option>
                                 {providers.map(p => {
-                                    const nonWorking = missionForm.date ? isProviderNonWorkingDay(p.id, missionForm.date) : false;
-                                    const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
+                                    const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
+                                    const available = reason === null;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available}>
-                                            {p.firstName} {p.lastName} {nonWorking ? '(Ne travaille pas ce jour)' : (!available ? '(Congés/Indisp.)' : '')}
+                                            {p.firstName} {p.lastName} {reason ? `(${reason})` : ''}
                                         </option>
                                     );
                                 })}
@@ -1994,12 +2158,11 @@ const Planning: React.FC = () => {
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
                                     ...providers.map(p => {
-                                        const nonWorking = missionForm.date ? isProviderNonWorkingDay(p.id, missionForm.date) : false;
-                                        const available = missionForm.date ? isProviderAvailable(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : true;
+                                        const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
                                             value: p.id,
-                                            label: `${p.firstName} ${p.lastName}${nonWorking ? ' (Ne travaille pas ce jour)' : (!available ? ' (Congés/Indisp.)' : '')}`,
-                                            disabled: !available
+                                            label: `${p.firstName} ${p.lastName}${reason ? ` (${reason})` : ''}`,
+                                            disabled: reason !== null
                                         };
                                     })
                                 ]}
@@ -2191,12 +2354,16 @@ const Planning: React.FC = () => {
                             >
                                 <option value="">Sélectionner dans la liste...</option>
                                 {providers.map(p => {
-                                    const available = missionToAssign.date ? isProviderAvailable(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : true;
+                                    const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
+                                    const available = reason === null;
                                     const isActive = p.status === 'Active';
                                     const canAssign = available && isActive;
+                                    let label = p.firstName + ' ' + p.lastName;
+                                    if (!isActive) label += ' (Inactif)';
+                                    else if (reason) label += ` (${reason})`;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!canAssign} className={!canAssign ? 'text-slate-400' : ''}>
-                                            {p.firstName} {p.lastName} {isActive ? (available ? '✅' : '(Indisponible/Congés)') : '(Inactif)'}
+                                            {label}
                                         </option>
                                     )
                                 })}
@@ -2573,12 +2740,11 @@ const Planning: React.FC = () => {
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
                                     ...providers.map(p => {
-                                        const nonWorking = editMissionForm.date ? isProviderNonWorkingDay(p.id, editMissionForm.date) : false;
-                                        const available = editMissionForm.date ? isProviderAvailable(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime) : true;
+                                        const reason = editMissionForm.date ? getProviderUnavailableReason(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime, selectedMissionDetails?.id) : null;
                                         return {
                                             value: p.id,
-                                            label: `${p.firstName} ${p.lastName}${nonWorking ? ' (Ne travaille pas ce jour)' : (!available ? ' (Congés/Indisp.)' : '')}`,
-                                            disabled: !available
+                                            label: `${p.firstName} ${p.lastName}${reason ? ` (${reason})` : ''}`,
+                                            disabled: reason !== null
                                         };
                                     })
                                 ]}
@@ -2667,6 +2833,60 @@ const Planning: React.FC = () => {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+      )}
+
+      {/* No Provider Available Warning Modal */}
+      {isNoProviderWarningOpen && noProviderWarningData && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
+                <div className="p-6 border-b border-slate-100 bg-amber-50">
+                    <div className="flex items-center gap-3">
+                        <AlertTriangle className="w-6 h-6 text-amber-600" />
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Attention</h3>
+                    </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <p className="text-sm text-amber-800">
+                            <strong>Aucun prestataire disponible</strong> pour ce créneau horaire avec la spécialité requise.
+                        </p>
+                        <p className="text-xs text-amber-700 mt-2">
+                            Type de service : <strong>{noProviderWarningData.serviceType || 'Non spécifié'}</strong><br/>
+                            Date : {noProviderWarningData.nextDate}<br/>
+                            Horaire : {noProviderWarningData.nextStart} - {noProviderWarningData.nextEnd}<br/>
+                            Prestataires compatibles : {noProviderWarningData.compatibleCount}
+                        </p>
+                    </div>
+
+                    <p className="text-sm text-slate-600">
+                        Vous pouvez :
+                    </p>
+                    <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
+                        <li>Revenir à une date/heure où des prestataires sont disponibles</li>
+                        <li>Continuer quand même (la mission restera sans prestataire assigné)</li>
+                    </ul>
+                </div>
+
+                <div className="p-6 border-t border-slate-100 flex gap-3">
+                    <button
+                        type="button"
+                        onClick={() => setIsNoProviderWarningOpen(false)}
+                        className="flex-1 py-3 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition"
+                    >
+                        Revenir en arrière
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleForceContinueEdit}
+                        disabled={isSubmitting}
+                        className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold transition disabled:opacity-50"
+                    >
+                        {isSubmitting ? 'Sauvegarde...' : 'Continuer de force'}
+                    </button>
+                </div>
             </div>
         </div>
       )}

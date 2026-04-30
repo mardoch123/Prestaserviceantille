@@ -55,8 +55,8 @@ export default async function handler(req, res) {
       console.error('[emailjs-quota] Error counting failed emails:', failedError);
     }
 
-    // EmailJS subscription limit - starting with 700 emails remaining
-    const monthlyLimit = 700;
+    // EmailJS subscription limit - starting with 2000 emails remaining
+    const monthlyLimit = 2000;
     const used = sentCount || 0;
     const failed = failedCount || 0;
     const remaining = Math.max(0, monthlyLimit - used);
@@ -104,8 +104,8 @@ export default async function handler(req, res) {
       quota: {
         used: 0,
         failed: 0,
-        limit: 700,
-        remaining: 700,
+        limit: 2000,
+        remaining: 2000,
         percentUsed: 0,
         projectedUsage: 0,
         estimatedOverage: 0,

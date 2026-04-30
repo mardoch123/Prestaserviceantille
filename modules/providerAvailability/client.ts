@@ -337,6 +337,54 @@ export async function getUnassignedMissions(
 }
 
 /**
+ * Check if a provider has a mission time conflict
+ */
+export async function checkProviderMissionConflict(
+  providerId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeMissionId?: string
+): Promise<{ hasConflict: boolean; conflictingMission?: any }> {
+  // Get all missions for this provider on this date
+  const { data: missions, error } = await supabase
+    .from('missions')
+    .select('id, client_name, start_time, end_time, service, status')
+    .eq('provider_id', providerId)
+    .eq('date', date)
+    .neq('status', 'cancelled');
+
+  if (error) {
+    console.error('Error checking mission conflicts:', error);
+    throw error;
+  }
+
+  // Convert times to minutes for comparison
+  const missionStart = timeToMinutes(startTime);
+  const missionEnd = timeToMinutes(endTime);
+
+  // Check for conflicts
+  for (const mission of (missions || [])) {
+    // Skip the mission we're trying to assign (in case of update)
+    if (excludeMissionId && mission.id === excludeMissionId) continue;
+
+    const existingStart = timeToMinutes(mission.start_time);
+    const existingEnd = timeToMinutes(mission.end_time);
+
+    // Check if time ranges overlap
+    // Overlap occurs when: missionStart < existingEnd AND missionEnd > existingStart
+    if (missionStart < existingEnd && missionEnd > existingStart) {
+      return {
+        hasConflict: true,
+        conflictingMission: mission
+      };
+    }
+  }
+
+  return { hasConflict: false };
+}
+
+/**
  * Assign an existing unassigned mission to a provider
  */
 export async function assignMissionToProvider(
@@ -344,6 +392,34 @@ export async function assignMissionToProvider(
   providerId: string,
   providerName: string
 ): Promise<void> {
+  // First, get the mission details to check for conflicts
+  const { data: mission, error: missionError } = await supabase
+    .from('missions')
+    .select('date, start_time, end_time')
+    .eq('id', missionId)
+    .single();
+
+  if (missionError) {
+    console.error('Error fetching mission:', missionError);
+    throw missionError;
+  }
+
+  // Check for time conflicts
+  const conflictCheck = await checkProviderMissionConflict(
+    providerId,
+    mission.date,
+    mission.start_time,
+    mission.end_time,
+    missionId
+  );
+
+  if (conflictCheck.hasConflict) {
+    const conflict = conflictCheck.conflictingMission;
+    throw new Error(
+      `Conflit d'horaire : le prestataire a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
+    );
+  }
+
   const { error } = await supabase
     .from('missions')
     .update({

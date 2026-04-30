@@ -26,6 +26,7 @@ import {
 } from '../src/utils/martiniqueTime';
 import { dataCache } from '../utils/dataCache';
 import { smartFetch } from '../utils/smartFetch';
+import { checkProviderMissionConflict } from '../modules/providerAvailability/client';
 
 // --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://anciens.prestaservicesantilles.com/images/logo.png";
@@ -4862,6 +4863,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 if (hasHourBlock) {
                     throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible sur ce créneau horaire.`);
                 }
+            }
+
+            // Check for mission time conflicts with other missions
+            const conflictCheck = await checkProviderMissionConflict(
+                providerId,
+                existingMission.date,
+                existingMission.startTime,
+                existingMission.endTime,
+                missionId
+            );
+
+            if (conflictCheck.hasConflict) {
+                const conflict = conflictCheck.conflictingMission;
+                throw new Error(
+                    `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
+                );
             }
         }
 
