@@ -3063,6 +3063,7 @@ const DevisFactures: React.FC = () => {
                     </div>
                 ) : (
                     // Affichage desktop en tableau
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10">
                             <tr>
@@ -3497,6 +3498,7 @@ const DevisFactures: React.FC = () => {
                             )}
                         </tbody>
                     </table>
+                    </div>
                 )}
 
                 <Pagination
@@ -3708,31 +3710,40 @@ const DevisFactures: React.FC = () => {
                                                                             <Trash2 className="w-3 h-3" />
                                                                         </button>
                                                                     </div>
-                                                                    <div className="grid grid-cols-3 gap-2">
-                                                                        <input
-                                                                            type="date"
-                                                                            className="p-2 border border-slate-200 rounded text-sm"
-                                                                            min={getTodayMartiniqueStr()}
-                                                                            value={slot.date}
-                                                                            onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })}
-                                                                            onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })}
-                                                                        />
-                                                                        <input
-                                                                            type="time"
-                                                                            className="p-2 border border-slate-200 rounded text-sm"
-                                                                            min={getMinStartTimeForSlot(slot.date)}
-                                                                            value={slot.startTime}
-                                                                            onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })}
-                                                                            onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })}
-                                                                        />
-                                                                        <input
-                                                                            type="time"
-                                                                            className="p-2 border border-slate-200 rounded text-sm"
-                                                                            min={getMinStartTimeForSlot(slot.date)}
-                                                                            value={slot.endTime}
-                                                                            onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })}
-                                                                            onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })}
-                                                                        />
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                        <div className="flex flex-col">
+                                                                            <label className="text-xs text-slate-500 mb-1">Date</label>
+                                                                            <input
+                                                                                type="date"
+                                                                                className="p-2 border border-slate-200 rounded text-sm"
+                                                                                min={getTodayMartiniqueStr()}
+                                                                                value={slot.date}
+                                                                                onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })}
+                                                                                onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })}
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <label className="text-xs text-slate-500 mb-1">Début</label>
+                                                                            <input
+                                                                                type="time"
+                                                                                className="p-2 border border-slate-200 rounded text-sm"
+                                                                                min={getMinStartTimeForSlot(slot.date)}
+                                                                                value={slot.startTime}
+                                                                                onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })}
+                                                                                onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })}
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <label className="text-xs text-slate-500 mb-1">Fin</label>
+                                                                            <input
+                                                                                type="time"
+                                                                                className="p-2 border border-slate-200 rounded text-sm"
+                                                                                min={getMinStartTimeForSlot(slot.date)}
+                                                                                value={slot.endTime}
+                                                                                onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })}
+                                                                                onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })}
+                                                                            />
+                                                                        </div>
                                                                     </div>
                                                                     <div className="text-xs text-slate-500">
                                                                         Durée : {slot.duration.toFixed(1)}h
@@ -3878,39 +3889,43 @@ const DevisFactures: React.FC = () => {
                                                 </div>
 
                                                 {interventionSlots.length === 0 ? (<div className="p-6 text-center text-slate-400 text-sm">Aucun créneau défini. Cliquez sur générer ou ajoutez manuellement.</div>) : (
-                                                    interventionSlots.map((slot, index) => {
-                                                        const avail = slotAvailability.get(slot.id) || [];
-                                                        const availCount = avail.length;
-                                                        return (
-                                                        <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50">
-                                                            <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
-                                                            {availCount === 0 && (
-                                                                <span title="Aucun prestataire disponible">
-                                                                    <AlertTriangle className="w-4 h-4 text-red-500" />
-                                                                </span>
-                                                            )}
-                                                            <input type="date" className="flex-1 p-2 border rounded bg-white text-sm" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
-                                                            <div className="flex items-center gap-1">
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
-                                                                <span className="text-slate-400 text-xs">à</span>
-                                                                <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
-                                                            </div>
-                                                            <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => openProvidersModal(slot)}
-                                                                className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${availCount === 0
-                                                                    ? 'bg-red-50 text-red-700 border-red-200'
-                                                                    : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-                                                                }`}
-                                                                title="Voir les prestataires disponibles"
-                                                            >
-                                                                {availCount}
-                                                            </button>
-                                                            <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
+                                                    <div className="overflow-x-auto -mx-2 px-2">
+                                                        <div className="inline-flex min-w-full">
+                                                            {interventionSlots.map((slot, index) => {
+                                                                const avail = slotAvailability.get(slot.id) || [];
+                                                                const availCount = avail.length;
+                                                                return (
+                                                                <div key={slot.id} className="p-3 border-b border-slate-100 last:border-0 flex items-center gap-3 hover:bg-slate-50 flex-shrink-0">
+                                                                    <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
+                                                                    {availCount === 0 && (
+                                                                        <span title="Aucun prestataire disponible">
+                                                                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                                                                        </span>
+                                                                    )}
+                                                                    <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
+                                                                    <div className="flex items-center gap-1">
+                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
+                                                                        <span className="text-slate-400 text-xs">à</span>
+                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
+                                                                    </div>
+                                                                    <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openProvidersModal(slot)}
+                                                                        className={`text-[11px] font-extrabold px-2 py-1 rounded-full border flex-shrink-0 ${availCount === 0
+                                                                            ? 'bg-red-50 text-red-700 border-red-200'
+                                                                            : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                                                        }`}
+                                                                        title="Voir les prestataires disponibles"
+                                                                    >
+                                                                        {availCount}
+                                                                    </button>
+                                                                    <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600 flex-shrink-0"><X className="w-4 h-4" /></button>
+                                                                </div>
+                                                                );
+                                                            })}
                                                         </div>
-                                                        );
-                                                    })
+                                                    </div>
                                                 )}
 
                                                 {/* Total calculation */}
@@ -4417,15 +4432,18 @@ const DevisFactures: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {providersModalItems.map((p: any) => (
+                                    {providersModalItems.map((p: any) => {
+                                        const providerName = p.firstName && p.lastName ? `${p.firstName} ${p.lastName}` : (p.name || p.providerName || 'Prestataire');
+                                        return (
                                         <div key={p.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl">
                                             <div className="min-w-0">
-                                                <div className="font-bold text-slate-800 text-sm truncate">{p.firstName} {p.lastName}</div>
-                                                <div className="text-xs text-slate-500 truncate">{p.specialty || ''}</div>
+                                                <div className="font-bold text-slate-800 text-sm truncate">{providerName}</div>
+                                                <div className="text-xs text-slate-500 truncate">{p.specialty || p.service || ''}</div>
                                             </div>
                                             <div className="text-xs font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-full">Dispo</div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>

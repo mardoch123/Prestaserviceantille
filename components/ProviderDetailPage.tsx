@@ -36,13 +36,13 @@ const ProviderDetailPage: React.FC = () => {
     const providerIdFromQuery = searchParams.get('id');
     const effectiveId = id || providerIdFromQuery;
     
-    if (effectiveId && providers.length > 0) {
+    if (effectiveId && providers && providers.length > 0) {
       const foundProvider = providers.find(p => p.id === effectiveId);
       if (foundProvider) {
         setProvider(foundProvider);
         
         // Get provider missions
-        const foundMissions = missions.filter(m => m.providerId === effectiveId);
+        const foundMissions = (missions || []).filter(m => m.providerId === effectiveId);
         setProviderMissions(foundMissions);
       }
     }

@@ -52,7 +52,9 @@ import {
   Sparkles,
   Search,
   Filter,
-  Loader2
+  Loader2,
+  Share,
+  Share2
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
@@ -102,7 +104,7 @@ const ProviderPortal: React.FC = () => {
   const PULL_THRESHOLD = 70;
 
   // Date selection state for calendar
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   // Dashboard view mode
   const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar' | 'horizontal' | 'grid'>('overview');
@@ -150,6 +152,8 @@ const ProviderPortal: React.FC = () => {
 
   const [isReferrer, setIsReferrer] = useState(false);
   const [referralCode, setReferralCode] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showMobileUserMenu, setShowMobileUserMenu] = useState(false);
 
   useEffect(() => {
     try {
@@ -338,7 +342,7 @@ const ProviderPortal: React.FC = () => {
 
   // Optimized filtered missions by date
   const filteredMissionsByDate = useMemo(() => {
-    if (!selectedDate) return paginatedMissions;
+    if (!selectedDate) return providerMissions.slice(0, 50);
     const selectedDateStr = dayjs(selectedDate).format('YYYY-MM-DD');
     // Use all missions for date filtering, not just paginated
     return providerMissions.filter(m => m.date === selectedDateStr).slice(0, 50);
@@ -865,8 +869,23 @@ const ProviderPortal: React.FC = () => {
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             )}
           </button>
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-            {provider?.firstName?.charAt(0) || ''}{provider?.lastName?.charAt(0) || ''}
+          <div className="relative">
+            <button 
+              onClick={() => setShowMobileUserMenu(!showMobileUserMenu)}
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200"
+            >
+              {provider?.firstName?.charAt(0) || ''}{provider?.lastName?.charAt(0) || ''}
+            </button>
+            {showMobileUserMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-1">
+                <button onClick={() => { setShowShareModal(true); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                  <Share2 className="w-4 h-4" /> Partage
+                </button>
+                <button onClick={() => { setSimulatedProviderId(null); logout(true); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2">
+                  <LogOut className="w-4 h-4" /> Déconnexion
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -918,13 +937,19 @@ const ProviderPortal: React.FC = () => {
             )}
           </button>
           
-          <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+          <div className="flex items-center gap-3 pl-4 border-l border-gray-200 cursor-pointer group relative">
             <div className="text-right">
-              <p className="text-sm font-bold text-gray-800">{provider?.firstName} {provider?.lastName}</p>
+              <p className="text-sm font-bold text-gray-800 group-hover:text-emerald-600 transition">{provider?.firstName} {provider?.lastName}</p>
               <p className="text-xs text-emerald-600 font-medium">Prestataire</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
               {provider?.firstName?.charAt(0) || ''}{provider?.lastName?.charAt(0) || ''}
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 transition-transform group-hover:rotate-90" />
+            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1">
+              <button onClick={() => { setSimulatedProviderId(null); logout(true); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2">
+                <LogOut className="w-4 h-4" /> Déconnexion
+              </button>
             </div>
           </div>
         </div>
@@ -959,7 +984,10 @@ const ProviderPortal: React.FC = () => {
                 <CalendarX className="w-5 h-5" /> Absences
               </button>
               <div className="border-t border-gray-200 pt-4 mt-4">
-                <button onClick={() => { setSimulatedProviderId(null); logout(true); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition">
+                <button onClick={() => { setShowShareModal(true); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
+                  <Share2 className="w-5 h-5" /> Partage
+                </button>
+                <button onClick={() => { setSimulatedProviderId(null); logout(true); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition mt-2">
                   <LogOut className="w-5 h-5" /> Déconnexion
                 </button>
               </div>
@@ -1020,9 +1048,15 @@ const ProviderPortal: React.FC = () => {
                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-emerald-100 text-sm font-medium">{dayjs(selectedDate).format('dddd')}</p>
-                            <h2 className="text-3xl font-bold">{dayjs(selectedDate).format('D')}</h2>
-                            <p className="text-emerald-100 text-sm">{dayjs(selectedDate).format('MMMM YYYY')}</p>
+                            <p className="text-emerald-100 text-sm font-medium">{selectedDate ? dayjs(selectedDate).format('dddd') : 'Toutes les missions'}</p>
+                            {selectedDate ? (
+                              <>
+                                <h2 className="text-3xl font-bold">{dayjs(selectedDate).format('D')}</h2>
+                                <p className="text-emerald-100 text-sm">{dayjs(selectedDate).format('MMMM YYYY')}</p>
+                              </>
+                            ) : (
+                              <h2 className="text-2xl font-bold">{providerMissions.length} mission{providerMissions.length > 1 ? 's' : ''}</h2>
+                            )}
                           </div>
                           <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
                             <Calendar className="w-7 h-7 text-white" />
@@ -1030,14 +1064,25 @@ const ProviderPortal: React.FC = () => {
                         </div>
                         <div className="mt-3 pt-3 border-t border-white/20 flex items-center justify-between">
                           <span className="text-sm text-emerald-100">
-                            {filteredMissionsByDate.length} mission{filteredMissionsByDate.length > 1 ? 's' : ''} aujourd'hui
+                            {selectedDate 
+                              ? `${filteredMissionsByDate.length} mission${filteredMissionsByDate.length > 1 ? 's' : ''}`
+                              : `${providerMissions.length} mission${providerMissions.length > 1 ? 's' : ''}`
+                            }
                           </span>
-                          <button 
-                            onClick={() => setSelectedDate(new Date())}
-                            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition"
-                          >
-                            Aujourd'hui
-                          </button>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => setSelectedDate(null)}
+                              className={`text-xs px-3 py-1.5 rounded-lg transition ${!selectedDate ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'}`}
+                            >
+                              Toutes
+                            </button>
+                            <button 
+                              onClick={() => setSelectedDate(new Date())}
+                              className={`text-xs px-3 py-1.5 rounded-lg transition ${selectedDate ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'}`}
+                            >
+                              Aujourd'hui
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1111,7 +1156,12 @@ const ProviderPortal: React.FC = () => {
                       <div className="flex items-start justify-between">
                         <div>
                           <h1 className="text-2xl font-bold text-gray-900">Bienvenue, {provider?.firstName}</h1>
-                          <p className="text-gray-500 mt-1">Vous avez {activeMissions.length} mission{activeMissions.length > 1 ? 's' : ''} active{activeMissions.length > 1 ? 's' : ''} aujourd'hui</p>
+                          <p className="text-gray-500 mt-1">
+                            {selectedDate 
+                              ? `Vous avez ${activeMissions.length} mission${activeMissions.length > 1 ? 's' : ''} active${activeMissions.length > 1 ? 's' : ''} aujourd'hui`
+                              : `Vous avez ${providerMissions.length} mission${providerMissions.length > 1 ? 's' : ''} au total`
+                            }
+                          </p>
                         </div>
                         <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
                           <button
@@ -1145,7 +1195,7 @@ const ProviderPortal: React.FC = () => {
                           { label: 'En cours', value: providerMissions.filter(m => m.status === 'in_progress').length, color: 'bg-blue-50' },
                           { label: 'Terminées', value: providerMissions.filter(m => m.status === 'completed').length, color: 'bg-emerald-50' },
                           { label: 'Annulées', value: providerMissions.filter(m => m.status === 'cancelled').length, color: 'bg-red-50' },
-                          { label: "Aujourd'hui", value: filteredMissionsByDate.length, color: 'bg-purple-50' },
+                          { label: selectedDate ? 'Filtrées' : 'Total', value: selectedDate ? filteredMissionsByDate.length : providerMissions.length, color: 'bg-purple-50' },
                         ].map((stat, idx) => (
                           <div key={idx} className={`${stat.color} rounded-2xl p-4 border border-gray-100`}>
                             <p className="text-xs text-gray-500 font-medium">{stat.label}</p>
@@ -1175,8 +1225,14 @@ const ProviderPortal: React.FC = () => {
                               </button>
                             </div>
                             <button 
-                              onClick={() => setCurrentMonth(dayjs())}
-                              className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition"
+                              onClick={() => setSelectedDate(null)}
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${!selectedDate ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                            >
+                              Toutes
+                            </button>
+                            <button 
+                              onClick={() => { setCurrentMonth(dayjs()); setSelectedDate(new Date()); }}
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${selectedDate ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                             >
                               Aujourd'hui
                             </button>
@@ -1543,8 +1599,8 @@ const ProviderPortal: React.FC = () => {
                         <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
                           <Briefcase className="w-10 h-10 text-gray-400" />
                         </div>
-                        <p className="text-gray-500 font-medium">Aucune mission pour cette date</p>
-                        <p className="text-sm text-gray-400 mt-1">Sélectionnez une autre date ou consultez toutes vos missions</p>
+                        <p className="text-gray-500 font-medium">{selectedDate ? 'Aucune mission pour cette date' : 'Aucune mission'}</p>
+                        <p className="text-sm text-gray-400 mt-1">{selectedDate ? 'Sélectionnez une autre date ou cliquez sur "Toutes"' : 'Vous n\'avez pas de missions pour le moment'}</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -2679,6 +2735,80 @@ const ProviderPortal: React.FC = () => {
         onRemove={removeUploadJob}
         onClearCompleted={clearCompletedUploadJobs}
       />
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                <Share2 className="w-5 h-5" /> Partage
+              </h3>
+              <button onClick={() => setShowShareModal(false)} className="p-1 rounded-full hover:bg-white/20 transition">
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {isReferrer && referralLink ? (
+                <>
+                  <div className="bg-gradient-to-r from-teal-50 to-blue-50 rounded-xl p-4 border border-teal-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Megaphone className="w-5 h-5 text-teal-600" />
+                      <span className="font-bold text-slate-800">Lien de parrainage</span>
+                    </div>
+                    <p className="text-xs text-slate-600 mb-3">Partagez ce lien pour que vos filleuls s'inscrivent automatiquement avec votre code.</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={referralLink}
+                        readOnly
+                        className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(referralLink);
+                            setToast({ show: true, message: 'Lien copié !', type: 'success' });
+                            setTimeout(() => setToast(t => ({ ...t, show: false })), 3000);
+                          } catch {
+                            setToast({ show: true, message: 'Impossible de copier', type: 'warning' });
+                            setTimeout(() => setToast(t => ({ ...t, show: false })), 3000);
+                          }
+                        }}
+                        className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition"
+                      >
+                        Copier
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(referralLink);
+                          setToast({ show: true, message: 'Lien copié !', type: 'success' });
+                          setTimeout(() => setToast(t => ({ ...t, show: false })), 3000);
+                        } catch {
+                          setToast({ show: true, message: 'Impossible de copier', type: 'warning' });
+                          setTimeout(() => setToast(t => ({ ...t, show: false })), 3000);
+                        }
+                      }}
+                      className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                    >
+                      <Share className="w-4 h-4" /> Copier le lien
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-6">
+                  <Share2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-600 text-sm">Pas de code de parrainage disponible pour le moment.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

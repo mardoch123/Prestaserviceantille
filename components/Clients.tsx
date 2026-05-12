@@ -174,6 +174,9 @@ const Clients: React.FC = () => {
 
   const [sortOption, setSortOption] = useState<'since_desc' | 'alpha_asc' | 'alpha_desc' | 'last_intervention_desc' | 'next_intervention_asc'>('since_desc');
 
+  // Responsive filter state
+  const [showFilters, setShowFilters] = useState(false);
+
   useEffect(() => {
     if (location.state) {
         const state = location.state as { filter?: string; applyFilter?: boolean };
@@ -758,84 +761,109 @@ Lien de connexion : https://presta-antilles.app/login`);
   ) : (
     <div className="p-8 h-full overflow-y-auto bg-white/40 relative">
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div><h2 className="text-3xl font-serif font-bold text-slate-800">Clients</h2><p className="text-sm text-slate-500 mt-1">Gestion de la base client</p></div>
-        <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <div className="flex items-center gap-4">
+          <div><h2 className="text-3xl font-serif font-bold text-slate-800">Clients</h2><p className="text-sm text-slate-500 mt-1">Gestion de la base client</p></div>
+          <button 
+            onClick={() => setShowFilters(!showFilters)}
+            className="md:hidden flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm text-sm font-medium text-slate-600 hover:bg-slate-50 transition"
+          >
+            <Filter className="w-4 h-4" />
+            Filtres
+            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc') && (
+              <span className="w-2 h-2 bg-brand-orange rounded-full"></span>
+            )}
+          </button>
+        </div>
+        <div className="flex gap-3 flex-wrap">
            {selectedIds.size > 0 && (
                <button onClick={confirmBulkDelete} className="bg-red-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
-                   <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
+                   <Trash2 className="w-4 h-4" /> <span className="hidden sm:inline">Supprimer</span> ({selectedIds.size})
                </button>
            )}
-           <div className="flex items-center gap-3">
-               <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-                <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                <SearchableSelect
-                    options={[
-                        { value: 'all', label: 'Tous les clients' },
-                        { value: 'active', label: 'Clients Actifs' },
-                        { value: 'new', label: 'Nouveaux Clients' },
-                        { value: 'prospect', label: 'Prospects' }
-                    ]}
-                    value={filterStatus}
-                    onChange={(value) => setFilterStatus(value)}
-                    className="min-w-[220px]"
-                />
-              </div>
-              <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-                <MapPin className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                <SearchableSelect
-                    options={[
-                        { value: '', label: 'Toutes les villes' },
-                        ...martiniqueDepartments.map(dept => ({ value: dept, label: dept }))
-                    ]}
-                    value={cityFilter}
-                    onChange={(value) => setCityFilter(value)}
-                    className="min-w-[220px]"
-                />
-              </div>
-              <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-                <Clock className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-                <SearchableSelect
-                    options={[
-                        { value: 'since_desc', label: "Ordre d'inscription (récent → ancien)" },
-                        { value: 'alpha_asc', label: 'Nom (A → Z)' },
-                        { value: 'alpha_desc', label: 'Nom (Z → A)' },
-                        { value: 'last_intervention_desc', label: 'Dernière intervention (récent → ancien)' },
-                        { value: 'next_intervention_asc', label: 'Prochaine intervention (bientôt → tard)' }
-                    ]}
-                    value={sortOption}
-                    onChange={(value) => setSortOption(value as any)}
-                    className="min-w-[260px]"
-                />
-              </div>
-              <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> Nouveau</button>
+           <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> <span className="hidden sm:inline">Nouveau</span></button>
+        </div>
+      </div>
+
+      {/* Filtres - Responsive collapsible */}
+      <div className={`${showFilters ? 'block' : 'hidden'} md:block mb-6`}>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[180px]">
+              <Filter className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
+              >
+                <option value="all">Tous les clients</option>
+                <option value="active">Clients Actifs</option>
+                <option value="new">Nouveaux Clients</option>
+                <option value="prospect">Prospects</option>
+              </select>
             </div>
+            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[180px]">
+              <MapPin className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+              <select
+                value={cityFilter}
+                onChange={(e) => setCityFilter(e.target.value)}
+                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
+              >
+                <option value="">Toutes les villes</option>
+                {martiniqueDepartments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[200px]">
+              <Clock className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value as any)}
+                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
+              >
+                <option value="since_desc">Inscription (récent)</option>
+                <option value="alpha_asc">Nom (A → Z)</option>
+                <option value="alpha_desc">Nom (Z → A)</option>
+                <option value="last_intervention_desc">Dernière intervention</option>
+                <option value="next_intervention_asc">Prochaine intervention</option>
+              </select>
+            </div>
+            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc') && (
+              <button 
+                onClick={() => { setFilterStatus('all'); setCityFilter(''); setSortOption('since_desc'); }}
+                className="flex items-center gap-1 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition"
+              >
+                <X className="w-4 h-4" /> Réinitialiser
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-cream-50/50">
-            <div className="relative flex-1 max-w-md">
+         <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-cream-50/50">
+            <div className="relative flex-1 w-full max-w-md">
                 <input type="text" placeholder="Rechercher par nom, ville..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all"/>
                 <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
             </div>
-            <div className="text-sm text-slate-500"><strong>{columnFilteredClients.length}</strong> client(s) trouvé(s)</div>
+            <div className="text-sm text-slate-500 whitespace-nowrap"><strong>{columnFilteredClients.length}</strong> client(s)</div>
          </div>
 
          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm text-left hidden md:table">
                 <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 border-b border-slate-100">
                     <tr>
-                        <th className="px-6 py-4 w-10">
+                        <th className="px-4 py-3 w-10">
                             <button onClick={toggleSelectAll} className="text-slate-500 hover:text-slate-700">
                                 {selectedIds.size > 0 && selectedIds.size === columnFilteredClients.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
                         </th>
-                        <th className="px-6 py-4 font-bold">Nom</th>
-                        <th className="px-6 py-4 font-bold">Contact</th>
-                        <th className="px-6 py-4 font-bold">Ville</th>
-                        <th className="px-6 py-4 font-bold text-center">Statut</th>
-                        <th className="px-6 py-4 font-bold text-right">Actions</th>
+                        <th className="px-4 py-3 font-bold">Nom</th>
+                        <th className="px-4 py-3 font-bold">Contact</th>
+                        <th className="px-4 py-3 font-bold">Ville</th>
+                        <th className="px-4 py-3 font-bold text-center">Statut</th>
+                        <th className="px-4 py-3 font-bold text-right">Actions</th>
                     </tr>
                     <tr className="bg-white/60">
                         <th className="px-6 py-2"></th>
@@ -937,6 +965,61 @@ Lien de connexion : https://presta-antilles.app/login`);
                     )}
                 </tbody>
             </table>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden divide-y divide-slate-100">
+                {columnFilteredClients.length > 0 ? (
+                    pagedClients.map(client => (
+                        <div key={client.id} className={`p-4 hover:bg-slate-50 transition-colors ${selectedIds.has(client.id) ? 'bg-blue-50' : ''}`}>
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    <button onClick={() => toggleSelection(client.id)} className="text-slate-400 hover:text-brand-blue flex-shrink-0">
+                                        {selectedIds.has(client.id) ? <CheckSquare className="w-5 h-5 text-brand-blue" /> : <Square className="w-5 h-5" />}
+                                    </button>
+                                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm text-slate-600 font-bold flex-shrink-0">
+                                        {client.name.charAt(0)}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <button
+                                            onClick={() => {
+                                                setSelectedClientDetailsId(client.id);
+                                                setIsClientDetailsOpen(true);
+                                            }}
+                                            className="font-bold text-slate-700 hover:underline block truncate"
+                                        >
+                                            {client.name}
+                                        </button>
+                                        <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                            <Phone className="w-3 h-3" /> {client.phone}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                    {client.status === 'active' && <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-xs font-bold">Actif</span>}
+                                    {client.status === 'new' && <span className="bg-brand-orange/20 text-brand-orange px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1"><Star className="w-3 h-3" fill="currentColor" /> Nouveau</span>}
+                                    {client.status === 'prospect' && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs font-bold">Prospect</span>}
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => openEditModal(client)} className="p-1.5 text-slate-400 hover:text-brand-blue hover:bg-slate-100 rounded" title="Modifier">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => { setSelectedClientId(client.id); setLoyaltyModalOpen(true); }} className="p-1.5 text-yellow-500 hover:text-yellow-600 hover:bg-yellow-50 rounded" title="Cadeau">
+                                            <Gift className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => handleResetPassword(client)} disabled={passwordResettingId === client.id} className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50" title="Reset MDP">
+                                            <KeyRound className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-2 ml-11 text-xs text-slate-500 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" /> {client.city}
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="p-8 text-center text-slate-400">Aucun client trouvé pour cette recherche.</div>
+                )}
+            </div>
 
             <Pagination
                 page={page}

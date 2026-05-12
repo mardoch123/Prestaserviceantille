@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
-import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy } from 'lucide-react';
+import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy, Eye, EyeOff, Mail } from 'lucide-react';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { SafeImage } from './SafeImage';
 
@@ -15,6 +15,11 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
 
     const [sessionExpiredPopup, setSessionExpiredPopup] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+    const [showForgotPassword, setShowForgotPassword] = useState(false);
+    const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+    const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+    const [forgotPasswordMessage, setForgotPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     // Loading states for test generation
     const [creatingClient, setCreatingClient] = useState(false);
@@ -315,15 +320,31 @@ const Login: React.FC = () => {
                         <label className="block text-sm font-bold text-slate-700 mb-2">Mot de passe</label>
                         <div className="relative">
                             <input
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-blue focus:border-transparent outline-none transition pr-10"
+                                className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-blue focus:border-transparent outline-none transition pr-12"
                                 placeholder="••••••••"
                             />
-                            <Lock className="w-5 h-5 text-slate-400 absolute right-3 top-3.5" />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-3.5 text-slate-400 hover:text-brand-blue transition"
+                            >
+                                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            </button>
                         </div>
+                    </div>
+
+                    <div className="text-right">
+                        <button
+                            type="button"
+                            onClick={() => setShowForgotPassword(true)}
+                            className="text-sm text-brand-blue hover:text-teal-700 font-medium transition"
+                        >
+                            Mot de passe oublié ?
+                        </button>
                     </div>
 
                     {error && (
@@ -460,6 +481,94 @@ const Login: React.FC = () => {
                                 className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition shadow-lg"
                             >
                                 Utiliser ces identifiants
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Forgot Password Modal */}
+            {showForgotPassword && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-300">
+                        <div className="bg-gradient-to-br from-brand-blue to-teal-600 p-6 text-center text-white">
+                            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                                <Lock className="w-8 h-8 text-white" />
+                            </div>
+                            <h3 className="text-xl font-bold">Mot de passe oublié ?</h3>
+                            <p className="text-blue-100 text-sm mt-1">Entrez votre email pour réinitialiser votre mot de passe</p>
+                        </div>
+
+                        <div className="p-6">
+                            {forgotPasswordMessage ? (
+                                <div className={`p-4 rounded-xl text-center ${forgotPasswordMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                    {forgotPasswordMessage.type === 'success' ? (
+                                        <CheckCircle className="w-8 h-8 mx-auto mb-2" />
+                                    ) : (
+                                        <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+                                    )}
+                                    <p className="font-medium">{forgotPasswordMessage.text}</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="relative mb-4">
+                                        <Mail className="w-5 h-5 text-slate-400 absolute left-3 top-3.5" />
+                                        <input
+                                            type="email"
+                                            value={forgotPasswordEmail}
+                                            onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                                            className="w-full pl-10 p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-blue focus:border-transparent outline-none transition"
+                                            placeholder="votre@email.com"
+                                        />
+                                    </div>
+
+                                    <button
+                                        onClick={async () => {
+                                            if (!forgotPasswordEmail.trim()) {
+                                                setForgotPasswordMessage({ type: 'error', text: 'Veuillez entrer votre adresse email' });
+                                                return;
+                                            }
+                                            setForgotPasswordLoading(true);
+                                            setForgotPasswordMessage(null);
+                                            try {
+                                                console.log('Sending password reset to:', forgotPasswordEmail.trim());
+                                                const { error, data } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
+                                                    redirectTo: `${window.location.origin}/reset-password`
+                                                });
+                                                console.log('Password reset response:', { error, data });
+                                                if (error) {
+                                                    setForgotPasswordMessage({ type: 'error', text: error.message });
+                                                } else {
+                                                    setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
+                                                }
+                                            } catch (e: any) {
+                                                console.error('Password reset error:', e);
+                                                setForgotPasswordMessage({ type: 'error', text: e?.message || 'Une erreur est survenue' });
+                                            } finally {
+                                                setForgotPasswordLoading(false);
+                                            }
+                                        }}
+                                        disabled={forgotPasswordLoading}
+                                        className="w-full bg-brand-blue text-white py-3 rounded-xl font-bold hover:bg-teal-700 transition shadow-lg disabled:opacity-70 flex justify-center items-center gap-2"
+                                    >
+                                        {forgotPasswordLoading ? (
+                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                        ) : (
+                                            'Envoyer le lien'
+                                        )}
+                                    </button>
+                                </>
+                            )}
+
+                            <button
+                                onClick={() => {
+                                    setShowForgotPassword(false);
+                                    setForgotPasswordEmail('');
+                                    setForgotPasswordMessage(null);
+                                }}
+                                className="w-full mt-3 text-slate-500 hover:text-slate-700 py-2 font-medium transition"
+                            >
+                                {forgotPasswordMessage ? 'Fermer' : 'Annuler'}
                             </button>
                         </div>
                     </div>

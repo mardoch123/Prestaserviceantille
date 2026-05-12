@@ -24,6 +24,7 @@ import NewServiceRequestPage from './components/NewServiceRequestPage';
 import MissionReports from './components/MissionReports';
 import DemoAccounts from './components/DemoAccounts';
 import Login from './components/Login';
+import ResetPassword from './components/ResetPassword';
 import ScanPage from './components/ScanPage';
 import ScanSuccess from './components/ScanSuccess';
 import ContactPage from './components/ContactPage';
@@ -699,6 +700,15 @@ const AppLayout: React.FC = () => {
     );
 
     if (!currentUser) {
+        // Check for reset-password route
+        if (location.pathname === '/reset-password') {
+            return (
+                <>
+                    {offerModal}
+                    <ResetPassword />
+                </>
+            );
+        }
         return (
             <>
                 {offerModal}

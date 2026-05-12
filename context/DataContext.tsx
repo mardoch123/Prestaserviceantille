@@ -312,6 +312,7 @@ interface DataContextType {
 
     getAvailableSlots: (date: string) => { time: string, provider: string, score: number, reason: string }[];
     refreshData: () => Promise<void>;
+    refreshVisitScansOnly: () => Promise<void>;
     sendEmail: (to: string, subject: string, template: string, context: any) => Promise<void>;
 
     serviceTypeFilter: ServiceTypeFilter;
@@ -1300,9 +1301,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         }
                     }
 
-                    // Rafraîchir les scans pour les prestataires et clients (en arrière-plan, sans loader)
+                    // Rafraîchir uniquement les scans pour les prestataires et clients (en arrière-plan, sans loader)
+                    // Utilise refreshVisitScansOnly pour éviter de réinitialiser tout l'état et causer une perte de données UI
                     if (user.role === 'provider' || user.role === 'client') {
-                        await refreshData({ silent: true });
+                        await refreshVisitScansOnly();
                     }
                 } catch (error) {
                     console.warn('[NotificationPolling] Error:', error);
@@ -2473,6 +2475,66 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             refreshInFlightRef.current = null;
             hasLoadedOnceRef.current = true;
             if (shouldShowLoader) setDataLoading(false);
+        }
+    };
+
+    // Targeted refresh for providers/clients - only refresh visitScans and notifications
+    // This avoids resetting all state and causing UI data loss
+    const refreshVisitScansOnly = async () => {
+        if (isDemoMode && !!localStorage.getItem('presta_demo_mode')) {
+            return;
+        }
+        if (!isSupabaseConfigured || !currentUser) return;
+
+        const activeProviderId = currentUser.relatedEntityId;
+        const activeClientId = currentUser.relatedEntityId;
+
+        try {
+            if (currentUser.role === 'provider' && activeProviderId) {
+                const { data: vsData } = await supabase
+                    .from('visit_scans')
+                    .select('*')
+                    .eq('scanner_id', activeProviderId)
+                    .order('timestamp', { ascending: false })
+                    .limit(50);
+
+                if (vsData && vsData.length > 0) {
+                    const sorted = vsData.sort((a: any, b: any) =>
+                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    );
+                    setVisitScans(sorted.map((s: any) => ({
+                        ...s,
+                        clientId: s.client_id || s.clientId,
+                        scannerId: s.scanner_id || s.scannerId,
+                        scannerName: s.scanner_name || s.scannerName,
+                        scanType: s.scan_type || s.scanType,
+                        locationData: s.location_data
+                    })));
+                }
+            } else if (currentUser.role === 'client' && activeClientId) {
+                const { data: vsData } = await supabase
+                    .from('visit_scans')
+                    .select('*')
+                    .eq('client_id', activeClientId)
+                    .order('timestamp', { ascending: false })
+                    .limit(50);
+
+                if (vsData && vsData.length > 0) {
+                    const sorted = vsData.sort((a: any, b: any) =>
+                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    );
+                    setVisitScans(sorted.map((s: any) => ({
+                        ...s,
+                        clientId: s.client_id || s.clientId,
+                        scannerId: s.scanner_id || s.scannerId,
+                        scannerName: s.scanner_name || s.scannerName,
+                        scanType: s.scan_type || s.scanType,
+                        locationData: s.location_data
+                    })));
+                }
+            }
+        } catch (error) {
+            console.warn('[refreshVisitScansOnly] Error:', error);
         }
     };
 
@@ -7647,7 +7709,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              isOnline, pendingSyncCount, loading, dataLoading,
              extendReadingSession, endReadingSession, isReadingDocument,
              connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
-             getAvailableSlots, refreshData, sendEmail,
+             getAvailableSlots, refreshData, refreshVisitScansOnly, sendEmail,
  
              serviceTypeFilter,
              serviceTypeOptions,

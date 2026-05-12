@@ -25,9 +25,11 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { notifications, markNotificationRead, currentUser, logout, missions } = useData();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
+  const [showMobileUserMenu, setShowMobileUserMenu] = useState(false);
   const [selectedMissionReportId, setSelectedMissionReportId] = useState<string | null>(null);
   const navigate = useNavigate();
   const notificationRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Fermer le menu notifications au clic externe
   useEffect(() => {
@@ -45,6 +47,23 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showNotifications]);
+
+  // Fermer le menu utilisateur mobile au clic externe
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowMobileUserMenu(false);
+      }
+    };
+
+    if (showMobileUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMobileUserMenu]);
 
   const adminNotifs = notifications
     .filter(n => n.targetUserType === 'admin')
@@ -149,14 +168,27 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
             </div>
         )}
         <div className="h-8 w-px bg-slate-100 hidden md:block"></div>
-        <div className="flex items-center gap-3 cursor-pointer group relative">
-          <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center border border-brand-blue/20 text-brand-blue font-bold shadow-sm"><User className="w-5 h-5" /></div>
-          <div className="hidden md:block text-left"><p className="text-sm font-bold text-slate-700 group-hover:text-brand-blue transition-colors">{currentUser?.name}</p><p className="text-[10px] text-slate-400 capitalize">{currentUser?.role}</p></div>
-          <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-transform group-hover:translate-y-0.5 hidden md:block" />
-          <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1">
+        <div className="flex items-center gap-3 cursor-pointer group relative" ref={userMenuRef}>
+          <button 
+            onClick={() => setShowMobileUserMenu(!showMobileUserMenu)}
+            className="flex items-center gap-3"
+          >
+            <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center border border-brand-blue/20 text-brand-blue font-bold shadow-sm"><User className="w-5 h-5" /></div>
+            <div className="hidden md:block text-left"><p className="text-sm font-bold text-slate-700 group-hover:text-brand-blue transition-colors">{currentUser?.name}</p><p className="text-[10px] text-slate-400 capitalize">{currentUser?.role}</p></div>
+            <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-transform group-hover:translate-y-0.5 hidden md:block" />
+          </button>
+          {/* Desktop dropdown menu */}
+          <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1 hidden md:block">
              <button onClick={() => navigate('/settings')} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-cream-50 rounded-lg flex items-center gap-2"><Settings className="w-4 h-4" /> Paramètres</button>
              <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2"><LogOut className="w-4 h-4" /> Déconnexion</button>
           </div>
+          {/* Mobile dropdown menu */}
+          {showMobileUserMenu && (
+            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 z-50 p-1 md:hidden">
+               <button onClick={() => { navigate('/settings'); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-cream-50 rounded-lg flex items-center gap-2"><Settings className="w-4 h-4" /> Paramètres</button>
+               <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2"><LogOut className="w-4 h-4" /> Déconnexion</button>
+            </div>
+          )}
         </div>
       </div>
 

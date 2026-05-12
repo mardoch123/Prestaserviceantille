@@ -63,7 +63,9 @@ import {
     ScanLine,
     CalendarX,
     Home,
-    Filter
+    Filter,
+    Share,
+    Share2
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -251,8 +253,10 @@ const ClientPortal: React.FC = () => {
 
     // Mobile Menu State
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [showMobileUserMenu, setShowMobileUserMenu] = useState(false);
     const [isReferrer, setIsReferrer] = useState(false);
     const [referralCode, setReferralCode] = useState('');
+    const [showShareModal, setShowShareModal] = useState(false);
 
     // Modals
     const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -1408,8 +1412,26 @@ const ClientPortal: React.FC = () => {
                     <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
                   )}
                 </button>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
-                  {client?.name?.charAt(0) || '?'}
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowMobileUserMenu(!showMobileUserMenu)}
+                    className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200"
+                  >
+                    {client?.name?.charAt(0) || '?'}
+                  </button>
+                  {showMobileUserMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-1">
+                      <button onClick={() => { setShowShareModal(true); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                        <Share2 className="w-4 h-4" /> Parrainage
+                      </button>
+                      <button onClick={() => { setActiveTab('planning'); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                        <Star className="w-4 h-4" /> Mes heures
+                      </button>
+                      <button onClick={() => { handleLogout(); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2">
+                        <LogOut className="w-4 h-4" /> Déconnexion
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </header>
@@ -1461,13 +1483,22 @@ const ClientPortal: React.FC = () => {
                   )}
                 </button>
                 
-                <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+                <div className="flex items-center gap-3 pl-4 border-l border-gray-200 cursor-pointer group relative">
                   <div className="text-right">
-                    <p className="text-sm font-bold text-gray-800">{client?.name}</p>
+                    <p className="text-sm font-bold text-gray-800 group-hover:text-emerald-600 transition">{client?.name}</p>
                     <p className="text-xs text-emerald-600 font-medium">Client</p>
                   </div>
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-emerald-200">
                     {client?.name?.charAt(0) || '?'}
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 transition-transform group-hover:translate-y-0.5" />
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1">
+                    <button onClick={() => { setShowShareModal(true); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                      <Share2 className="w-4 h-4" /> Parrainage
+                    </button>
+                    <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2">
+                      <LogOut className="w-4 h-4" /> Déconnexion
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1509,6 +1540,12 @@ const ClientPortal: React.FC = () => {
                         <button onClick={() => { setActiveTab('live'); setShowMobileMenu(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors relative ${activeTab === 'live' ? 'bg-red-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
                           <Wifi className={`w-5 h-5 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo
                           {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}
+                        </button>
+                        <button onClick={() => { setShowShareModal(true); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
+                          <Share2 className="w-5 h-5" /> Parrainage
+                        </button>
+                        <button onClick={() => { setActiveTab('planning'); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
+                          <Star className="w-5 h-5" /> Mes heures fidélité
                         </button>
                         <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition mt-2">
                           <LogOut className="w-5 h-5" /> Déconnexion
@@ -3242,6 +3279,76 @@ const ClientPortal: React.FC = () => {
             </div>
             </div>
         </div>
+        )}
+
+        {/* Share Modal */}
+        {showShareModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                    <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex justify-between items-center">
+                        <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                            <Share2 className="w-5 h-5" /> Partage
+                        </h3>
+                        <button onClick={() => setShowShareModal(false)} className="p-1 rounded-full hover:bg-white/20 transition">
+                            <X className="w-5 h-5 text-white" />
+                        </button>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        {isReferrer && referralLink ? (
+                            <>
+                                <div className="bg-gradient-to-r from-teal-50 to-blue-50 rounded-xl p-4 border border-teal-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Megaphone className="w-5 h-5 text-teal-600" />
+                                        <span className="font-bold text-slate-800">Lien de parrainage</span>
+                                    </div>
+                                    <p className="text-xs text-slate-600 mb-3">Partagez ce lien pour que vos filleuls s'inscrivent automatiquement avec votre code.</p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            value={referralLink}
+                                            readOnly
+                                            className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs bg-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(referralLink);
+                                                    showToast('Lien copié !', 'success');
+                                                } catch {
+                                                    showToast('Impossible de copier', 'warning');
+                                                }
+                                            }}
+                                            className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition"
+                                        >
+                                            Copier
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                await navigator.clipboard.writeText(referralLink);
+                                                showToast('Lien copié !', 'success');
+                                            } catch {
+                                                showToast('Impossible de copier', 'warning');
+                                            }
+                                        }}
+                                        className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                                    >
+                                        <Share className="w-4 h-4" /> Copier le lien
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="text-center py-6">
+                                <Share2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                <p className="text-slate-600 text-sm">Pas de code de parrainage disponible pour le moment.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
         )}
         </div>
     );
