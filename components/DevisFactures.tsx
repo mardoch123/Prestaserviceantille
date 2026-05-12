@@ -4432,18 +4432,15 @@ const DevisFactures: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {providersModalItems.map((p: any) => {
-                                        const providerName = p.firstName && p.lastName ? `${p.firstName} ${p.lastName}` : (p.name || p.providerName || 'Prestataire');
-                                        return (
+                                    {providersModalItems.map((p: any) => (
                                         <div key={p.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl">
                                             <div className="min-w-0">
-                                                <div className="font-bold text-slate-800 text-sm truncate">{providerName}</div>
-                                                <div className="text-xs text-slate-500 truncate">{p.specialty || p.service || ''}</div>
+                                                <div className="font-bold text-slate-800 text-sm truncate">{p.firstName} {p.lastName}</div>
+                                                <div className="text-xs text-slate-500 truncate">{p.specialty || ''}</div>
                                             </div>
                                             <div className="text-xs font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-full">Dispo</div>
                                         </div>
-                                        );
-                                    })}
+                                    ))}
                                 </div>
                             )}
                         </div>
