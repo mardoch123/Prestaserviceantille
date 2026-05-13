@@ -532,12 +532,12 @@ const Login: React.FC = () => {
                                             setForgotPasswordMessage(null);
                                             try {
                                                 console.log('Sending password reset to:', forgotPasswordEmail.trim());
-                                                const { error, data } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-                                                    redirectTo: `${window.location.origin}/reset-password`
+                                                const { data, error } = await supabase.functions.invoke('send-password-reset', {
+                                                    body: { email: forgotPasswordEmail.trim() }
                                                 });
                                                 console.log('Password reset response:', { error, data });
-                                                if (error) {
-                                                    setForgotPasswordMessage({ type: 'error', text: error.message });
+                                                if (error || data?.error) {
+                                                    setForgotPasswordMessage({ type: 'error', text: error?.message || data?.error || 'Une erreur est survenue' });
                                                 } else {
                                                     setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
                                                 }

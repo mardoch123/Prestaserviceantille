@@ -19,6 +19,9 @@ ALTER TABLE public.mkt_referrers ADD COLUMN IF NOT EXISTS admin_seen_at timestam
 -- Devis: expiration automatique à +48h et blocage de signature
 -- ================================
 
+-- 0) Ajouter la colonne pour enregistrer la date d'expiration
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS expired_at timestamptz;
+
 -- 1) Expire tous les devis "sent" non signés dont created_at a plus de 48h
 CREATE OR REPLACE FUNCTION expire_quotes_older_than_48h()
 RETURNS INTEGER
@@ -28,7 +31,7 @@ DECLARE
   updated_count INTEGER;
 BEGIN
   UPDATE documents
-  SET status = 'expired'
+  SET status = 'expired', expired_at = now()
   WHERE type = 'Devis'
     AND status = 'sent'
     AND created_at < (now() - interval '48 hours');
