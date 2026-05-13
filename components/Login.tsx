@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { supabase } from '../utils/supabaseClient';
+import { sendEmailViaEmailJS } from '../utils/emailService';
 import { Lock, Loader2, Wand2, X, CheckCircle, AlertTriangle, Users, Briefcase, Copy, Eye, EyeOff, Mail } from 'lucide-react';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { SafeImage } from './SafeImage';
@@ -532,14 +533,38 @@ const Login: React.FC = () => {
                                             setForgotPasswordMessage(null);
                                             try {
                                                 console.log('Sending password reset to:', forgotPasswordEmail.trim());
-                                                const { data, error } = await supabase.functions.invoke('send-password-reset', {
-                                                    body: { email: forgotPasswordEmail.trim() }
+                                                
+                                                // Generate reset link via Supabase admin
+                                                const { data: resetData, error: resetError } = await supabase.auth.admin.generateLink({
+                                                    type: 'recovery',
+                                                    email: forgotPasswordEmail.trim()
                                                 });
-                                                console.log('Password reset response:', { error, data });
-                                                if (error || data?.error) {
-                                                    setForgotPasswordMessage({ type: 'error', text: error?.message || data?.error || 'Une erreur est survenue' });
-                                                } else {
+                                                
+                                                if (resetError) {
+                                                    console.error('Reset link error:', resetError);
+                                                    // Don't reveal if email exists
                                                     setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
+                                                    setForgotPasswordLoading(false);
+                                                    return;
+                                                }
+                                                
+                                                const resetLink = (resetData as any)?.properties?.href;
+                                                
+                                                // Send via EmailJS
+                                                const emailSent = await sendEmailViaEmailJS(
+                                                    forgotPasswordEmail.trim(),
+                                                    'Réinitialisation de votre mot de passe',
+                                                    'password_reset_link',
+                                                    {
+                                                        link: resetLink,
+                                                        email: forgotPasswordEmail.trim()
+                                                    }
+                                                );
+                                                
+                                                if (emailSent) {
+                                                    setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
+                                                } else {
+                                                    setForgotPasswordMessage({ type: 'error', text: 'Erreur lors de l\'envoi de l\'email. Veuillez réessayer.' });
                                                 }
                                             } catch (e: any) {
                                                 console.error('Password reset error:', e);

@@ -516,6 +516,26 @@ Se connecter : https://www.prestaservicesantilles.com/`
                 )
             };
 
+        case 'password_reset_link':
+            return {
+                subject: `Réinitialisation de votre mot de passe`,
+                message: createTextEmail(
+                    'Réinitialisation de Mot de Passe',
+                    `Bonjour,
+
+Vous avez demandé la réinitialisation de votre mot de passe.
+
+Cliquez sur le lien ci-dessous pour créer un nouveau mot de passe :
+${context.link || 'https://www.prestaservicesantilles.com/reset-password'}
+
+Ce lien expire dans 1 heure.
+
+Si vous n'avez pas demandé cette réinitialisation, vous pouvez ignorer cet email.
+
+- L'équipe Presta Services Antilles`
+                )
+            };
+
         case 'agenda_reminder':
             return {
                 subject: `Rappel Agenda`,
