@@ -76,6 +76,9 @@ serve(async (req) => {
       );
     }
 
+    console.log("Envoi email via Resend à:", email);
+    console.log("Reset link:", resetLink);
+
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -125,6 +128,10 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("Email Resend envoyé avec succès à:", email);
+    const responseData = await resendResponse.text();
+    console.log("Resend response:", responseData);
 
     return new Response(
       JSON.stringify({ success: true, message: "Email de réinitialisation envoyé" }),
