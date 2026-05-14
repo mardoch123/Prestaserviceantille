@@ -16,28 +16,39 @@ const ResetPassword: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
     const [isValidToken, setIsValidToken] = useState<boolean | null>(null);
+    const [tokenValue, setTokenValue] = useState<string | null>(null);
+    const [tokenRecord, setTokenRecord] = useState<any>(null);
 
     useEffect(() => {
         const verifyToken = async () => {
             const token = searchParams.get('token');
-            const type = searchParams.get('type');
             
-            if (token && type === 'recovery') {
-                try {
-                    const { error } = await supabase.auth.getSession();
-                    if (error) {
-                        setIsValidToken(false);
-                        setMessage({ type: 'error', text: 'Lien de réinitialisation invalide ou expiré.' });
-                    } else {
-                        setIsValidToken(true);
-                    }
-                } catch {
-                    setIsValidToken(false);
-                    setMessage({ type: 'error', text: 'Lien de réinitialisation invalide ou expiré.' });
-                }
-            } else {
+            if (!token) {
                 setIsValidToken(false);
                 setMessage({ type: 'error', text: 'Lien de réinitialisation invalide.' });
+                return;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('password_reset_tokens')
+                    .select('id,email,user_type,entity_id,expires_at')
+                    .eq('token', token)
+                    .is('used_at', null)
+                    .gt('expires_at', new Date().toISOString())
+                    .maybeSingle();
+
+                if (error || !data) {
+                    setIsValidToken(false);
+                    setMessage({ type: 'error', text: 'Lien de réinitialisation invalide ou expiré.' });
+                } else {
+                    setIsValidToken(true);
+                    setTokenValue(token);
+                    setTokenRecord(data);
+                }
+            } catch {
+                setIsValidToken(false);
+                setMessage({ type: 'error', text: 'Lien de réinitialisation invalide ou expiré.' });
             }
         };
         
@@ -61,23 +72,38 @@ const ResetPassword: React.FC = () => {
             setMessage({ type: 'error', text: 'Les mots de passe ne correspondent pas.' });
             return;
         }
+
+        if (!tokenValue || !tokenRecord) {
+            setMessage({ type: 'error', text: 'Token manquant. Veuillez utiliser le lien reçu par email.' });
+            return;
+        }
         
         setLoading(true);
         setMessage(null);
         
         try {
-            const { error } = await supabase.auth.updateUser({
-                password: newPassword
-            });
+            // Mettre à jour le mot de passe dans la bonne table
+            const table = tokenRecord.user_type === 'client' ? 'clients' : 'providers';
+            const { error: updateError } = await supabase
+                .from(table)
+                .update({ initial_password: newPassword })
+                .eq('id', tokenRecord.entity_id);
             
-            if (error) {
-                setMessage({ type: 'error', text: error.message });
-            } else {
-                setMessage({ type: 'success', text: 'Mot de passe réinitialisé avec succès !' });
-                setTimeout(() => {
-                    navigate('/login');
-                }, 3000);
+            if (updateError) {
+                setMessage({ type: 'error', text: 'Erreur lors de la mise à jour du mot de passe.' });
+                return;
             }
+            
+            // Marquer le token comme utilisé
+            await supabase
+                .from('password_reset_tokens')
+                .update({ used_at: new Date().toISOString() })
+                .eq('id', tokenRecord.id);
+            
+            setMessage({ type: 'success', text: 'Mot de passe réinitialisé avec succès ! Redirection...' });
+            setTimeout(() => {
+                navigate('/login');
+            }, 3000);
         } catch (err: any) {
             setMessage({ type: 'error', text: err?.message || 'Une erreur est survenue.' });
         } finally {

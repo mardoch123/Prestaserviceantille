@@ -524,7 +524,9 @@ const Login: React.FC = () => {
                                     </div>
 
                                     <button
-                                        onClick={async () => {
+                                        type="button"
+                                        onClick={async (e) => {
+                                            e.preventDefault();
                                             if (!forgotPasswordEmail.trim()) {
                                                 setForgotPasswordMessage({ type: 'error', text: 'Veuillez entrer votre adresse email' });
                                                 return;
@@ -532,43 +534,83 @@ const Login: React.FC = () => {
                                             setForgotPasswordLoading(true);
                                             setForgotPasswordMessage(null);
                                             try {
-                                                console.log('Sending password reset to:', forgotPasswordEmail.trim());
+                                                const emailInput = forgotPasswordEmail.trim().toLowerCase();
+                                                console.log('[RESET] 1. Recherche email:', emailInput);
                                                 
-                                                // Generate reset link via Supabase admin
-                                                const { data: resetData, error: resetError } = await supabase.auth.admin.generateLink({
-                                                    type: 'recovery',
-                                                    email: forgotPasswordEmail.trim()
-                                                });
+                                                // Chercher dans clients
+                                                let userType = '';
+                                                let entityId = '';
+                                                const { data: clientData, error: clientErr } = await supabase
+                                                    .from('clients')
+                                                    .select('id,email')
+                                                    .ilike('email', emailInput)
+                                                    .maybeSingle();
+                                                console.log('[RESET] 2. Client trouvé:', clientData, 'Erreur:', clientErr);
                                                 
-                                                if (resetError) {
-                                                    console.error('Reset link error:', resetError);
-                                                    // Don't reveal if email exists
-                                                    setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
-                                                    setForgotPasswordLoading(false);
-                                                    return;
-                                                }
-                                                
-                                                const resetLink = (resetData as any)?.properties?.href;
-                                                
-                                                // Send via EmailJS
-                                                const emailSent = await sendEmailViaEmailJS(
-                                                    forgotPasswordEmail.trim(),
-                                                    'Réinitialisation de votre mot de passe',
-                                                    'password_reset_link',
-                                                    {
-                                                        link: resetLink,
-                                                        email: forgotPasswordEmail.trim()
-                                                    }
-                                                );
-                                                
-                                                if (emailSent) {
-                                                    setForgotPasswordMessage({ type: 'success', text: 'Un email de réinitialisation vous a été envoyé ! Vérifiez votre boîte de réception (et vos spam).' });
+                                                if (clientData) {
+                                                    userType = 'client';
+                                                    entityId = clientData.id;
                                                 } else {
-                                                    setForgotPasswordMessage({ type: 'error', text: 'Erreur lors de l\'envoi de l\'email. Veuillez réessayer.' });
+                                                    const { data: providerData, error: provErr } = await supabase
+                                                        .from('providers')
+                                                        .select('id,email')
+                                                        .ilike('email', emailInput)
+                                                        .maybeSingle();
+                                                    console.log('[RESET] 3. Provider trouvé:', providerData, 'Erreur:', provErr);
+                                                    if (providerData) {
+                                                        userType = 'provider';
+                                                        entityId = providerData.id;
+                                                    }
                                                 }
+                                                
+                                                console.log('[RESET] 4. Résultat:', { userType, entityId });
+                                                
+                                                if (userType && entityId) {
+                                                    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                                                        .map(b => b.toString(16).padStart(2, '0')).join('');
+                                                    console.log('[RESET] 5. Token généré:', token.substring(0, 8) + '...');
+                                                    
+                                                    // Insérer le nouveau token
+                                                    const { error: insertErr } = await supabase
+                                                        .from('password_reset_tokens')
+                                                        .insert({
+                                                            email: emailInput,
+                                                            user_type: userType,
+                                                            entity_id: entityId,
+                                                            token,
+                                                            expires_at: new Date(Date.now() + 3600000).toISOString()
+                                                        });
+                                                    console.log('[RESET] 6. Insert token erreur:', insertErr);
+                                                    
+                                                    if (insertErr) {
+                                                        console.error('[RESET] ERREUR insert token:', insertErr);
+                                                        setForgotPasswordMessage({ type: 'error', text: 'Erreur serveur. Réessayez.' });
+                                                        return;
+                                                    }
+                                                    
+                                                    // Envoyer l'email
+                                                    const siteUrl = window.location.origin;
+                                                    const resetLink = `${siteUrl}/reset-password?token=${token}`;
+                                                    console.log('[RESET] 7. Envoi email à:', emailInput, 'Lien:', resetLink);
+                                                    
+                                                    const emailSent = await sendEmailViaEmailJS(
+                                                        emailInput,
+                                                        'Réinitialisation de votre mot de passe',
+                                                        'password_reset_link',
+                                                        { link: resetLink, email: emailInput }
+                                                    );
+                                                    console.log('[RESET] 8. Email envoyé:', emailSent);
+                                                    
+                                                    if (!emailSent) {
+                                                        setForgotPasswordMessage({ type: 'error', text: 'Erreur lors de l\'envoi de l\'email. Réessayez.' });
+                                                        return;
+                                                    }
+                                                }
+                                                
+                                                setForgotPasswordMessage({ type: 'success', text: 'Si cet email existe, un lien de réinitialisation a été envoyé. Vérifiez votre boîte de réception (et vos spam).' });
                                             } catch (e: any) {
-                                                console.error('Password reset error:', e);
-                                                setForgotPasswordMessage({ type: 'error', text: e?.message || 'Une erreur est survenue' });
+                                                console.error('[RESET] ERREUR GLOBALE:', e);
+                                                setForgotPasswordMessage({ type: 'error', text: 'Erreur: ' + (e.message || 'Réessayez.') });
                                             } finally {
                                                 setForgotPasswordLoading(false);
                                             }

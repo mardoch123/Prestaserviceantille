@@ -6,7 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
+// EmailJS Configuration
+const EMAILJS_SERVICE_ID = "service_0u67mco";
+const EMAILJS_TEMPLATE_ID = "template_dhqrmbu";
+const EMAILJS_PUBLIC_KEY = "jjYNnpHbr5djyFBlK";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -33,105 +36,69 @@ serve(async (req) => {
       );
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+    // Appeler l'API admin directement pour générer le lien
+    const adminResponse = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey
+      },
+      body: JSON.stringify({
+        type: "recovery",
+        email: email,
+        options: {
+          redirectTo: "https://prestaservicesantilles.com/reset-password"
+        }
+      })
+    });
 
-    // Vérifier si l'utilisateur existe
-    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.listUsers();
-    
-    const user = userData?.users?.find((u) => 
-      u.email?.toLowerCase() === email.toLowerCase()
-    );
-
-    if (!user) {
-      // Ne pas révéler si l'email existe ou non pour des raisons de sécurité
+    if (!adminResponse.ok) {
+      const errorText = await adminResponse.text();
+      console.error("Erreur API admin:", adminResponse.status, errorText);
+      // Ne pas révéler si l'email existe
       return new Response(
         JSON.stringify({ success: true, message: "Si cet email existe, un lien de réinitialisation a été envoyé" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Générer le lien de réinitialisation via Supabase
-    const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "recovery",
-      email: email,
-    });
-
-    if (resetError) {
-      console.error("Erreur génération lien:", resetError);
-      return new Response(
-        JSON.stringify({ error: "Erreur lors de la génération du lien" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
+    const resetData = await adminResponse.json();
     const resetLink = resetData.properties?.href;
     const appUrl = Deno.env.get("SITE_URL") || "https://prestaservicesantilles.com";
 
-    // Envoyer l'email via Resend
-    if (!RESEND_API_KEY) {
-      console.error("RESEND_API_KEY non configurée");
-      return new Response(
-        JSON.stringify({ error: "Service email non configuré" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log("Envoi email via Resend à:", email);
+    // Envoyer l'email via EmailJS
+    console.log("Envoi email via EmailJS à:", email);
     console.log("Reset link:", resetLink);
 
-    const resendResponse = await fetch("https://api.resend.com/emails", {
+    const emailjsResponse = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "Presta Services Antilles <onboarding@resend.dev>",
-        to: email,
-        subject: "Réinitialisation de votre mot de passe",
-        html: `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            </head>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <div style="background: linear-gradient(135deg, #1e40af 0%, #0d9488 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                <h1 style="color: white; margin: 0; font-size: 24px;">Presta Services Antilles</h1>
-              </div>
-              <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; border-top: none;">
-                <h2 style="color: #1e293b; margin-top: 0;">Réinitialisation de votre mot de passe</h2>
-                <p>Vous avez demandé la réinitialisation de votre mot de passe.</p>
-                <p>Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe :</p>
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="${resetLink}" style="background: #1e40af; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">Réinitialiser mon mot de passe</a>
-                </div>
-                <p style="font-size: 14px; color: #64748b;">Ce lien expire dans 1 heure.</p>
-                <p style="font-size: 14px; color: #64748b;">Si vous n'avez pas demandé cette réinitialisation, vous pouvez ignorer cet email.</p>
-                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
-                <p style="font-size: 12px; color: #94a3b8; text-align: center;">
-                  © 2026 Presta Services Antilles - Martinique
-                </p>
-              </div>
-            </body>
-          </html>
-        `,
+        service_id: EMAILJS_SERVICE_ID,
+        template_id: EMAILJS_TEMPLATE_ID,
+        user_id: EMAILJS_PUBLIC_KEY,
+        template_params: {
+          to_email: email,
+          name: "Presta Services Antilles",
+          subject: "Réinitialisation de votre mot de passe",
+          message: `Cliquez sur le lien suivant pour réinitialiser votre mot de passe : ${resetLink}\n\nCe lien expire dans 1 heure.\n\nSi vous n'avez pas demandé cette réinitialisation, ignorez cet email.`
+        }
       }),
     });
 
-    if (!resendResponse.ok) {
-      const errorData = await resendResponse.text();
-      console.error("Erreur Resend:", errorData);
+    if (!emailjsResponse.ok) {
+      const errorData = await emailjsResponse.text();
+      console.error("Erreur EmailJS:", errorData);
       return new Response(
         JSON.stringify({ error: "Erreur lors de l'envoi de l'email" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Email Resend envoyé avec succès à:", email);
-    const responseData = await resendResponse.text();
-    console.log("Resend response:", responseData);
+    console.log("Email EmailJS envoyé avec succès à:", email);
 
     return new Response(
       JSON.stringify({ success: true, message: "Email de réinitialisation envoyé" }),
