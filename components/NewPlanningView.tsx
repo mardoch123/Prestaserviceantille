@@ -55,6 +55,7 @@ interface NewPlanningViewProps {
   onSwitchToOldVersion: () => void;
   providers: Provider[];
   missions: Mission[];
+  documents?: any[];
   addMission?: (mission: Mission) => Promise<void>;
   convertQuoteToInvoice?: (quoteId: string) => Promise<void>;
   markInvoicePaid?: (id: string) => Promise<void>;
@@ -66,6 +67,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   onSwitchToOldVersion, 
   providers, 
   missions,
+  documents = [],
   addMission,
   convertQuoteToInvoice,
   markInvoicePaid,
@@ -353,15 +355,34 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
 
   const getUnassignedMissionsForProvider = useMemo(() => {
     return (providerId: string): Mission[] => {
+      const provider = providers.find(p => p.id === providerId);
+      const specialty = provider?.specialty?.toLowerCase() || '';
+      
       return missions.filter(m => {
         const isUnassigned = !m.providerId || m.providerId === 'null';
         const isSameDate = m.date === currentDateStr;
         const isNotCancelled = m.status !== 'cancelled';
         
-        return isUnassigned && isSameDate && isNotCancelled;
+        if (!isUnassigned || !isSameDate || !isNotCancelled) return false;
+        
+        // Get service type from the linked quote (devis)
+        const sourceDoc = documents.find(d => d.id === m.sourceDocumentId);
+        const missionServiceType = (sourceDoc?.serviceType || sourceDoc?.description || m.serviceType || m.service || '').toLowerCase();
+        
+        if (specialty.includes('jardinage') || specialty.includes('jardin')) {
+          return missionServiceType.includes('jardinage') || missionServiceType.includes('jardin');
+        }
+        if (specialty.includes('ménage') || specialty.includes('menage')) {
+          return missionServiceType.includes('ménage') || missionServiceType.includes('menage');
+        }
+        if (specialty.includes('bricolage')) {
+          return missionServiceType.includes('bricolage');
+        }
+        
+        return true;
       });
     };
-  }, [missions, currentDateStr]);
+  }, [missions, currentDateStr, providers, documents]);
 
   const filteredProviders = useMemo(() => {
     let filtered = availableProviders;

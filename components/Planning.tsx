@@ -1282,6 +1282,7 @@ const Planning: React.FC = () => {
         onSwitchToOldVersion={() => setUseNewPlanningView(false)} 
         providers={providers}
         missions={missions}
+        documents={documents}
         addMission={addMission}
         convertQuoteToInvoice={convertQuoteToInvoice}
         markInvoicePaid={markInvoicePaid}
