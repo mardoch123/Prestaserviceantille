@@ -15,8 +15,10 @@ import { useHaptic } from '../hooks/useHaptic';
 import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
+import NewPlanningView from './NewPlanningView';
+
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, updateMessageConfig } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -37,6 +39,9 @@ const Planning: React.FC = () => {
   const [planningLoading, setPlanningLoading] = useState(false);
   const [planningProgress, setPlanningProgress] = useState(0);
   const [encouragementIndex, setEncouragementIndex] = useState(0);
+  
+  // New Planning View toggle (default: true = new view)
+  const [useNewPlanningView, setUseNewPlanningView] = useState(true);
   
   // Modal & Toast (using mobile toast now)
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1271,6 +1276,21 @@ const Planning: React.FC = () => {
       setIsStatsModalOpen(false);
   };
 
+  if (useNewPlanningView) {
+    return (
+      <NewPlanningView 
+        onSwitchToOldVersion={() => setUseNewPlanningView(false)} 
+        providers={providers}
+        missions={missions}
+        addMission={addMission}
+        convertQuoteToInvoice={convertQuoteToInvoice}
+        markInvoicePaid={markInvoicePaid}
+        updateDocumentStatus={updateDocumentStatus}
+        updateMessageConfig={updateMessageConfig}
+      />
+    );
+  }
+
   return dataLoading ? <PageLoader /> : (
     <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
 
@@ -1357,6 +1377,13 @@ const Planning: React.FC = () => {
 
       <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end mb-2 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+               <button
+                   onClick={() => setUseNewPlanningView(true)}
+                   className="w-fit bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm hover:opacity-90 transition flex items-center gap-2"
+               >
+                   <Calendar className="w-4 h-4" />
+                   Nouvelle version →
+               </button>
                <h2 className="text-2xl md:text-3xl font-serif font-bold text-slate-800">Planning</h2>
                {false && (
                 <button

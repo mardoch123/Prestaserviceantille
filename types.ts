@@ -381,7 +381,11 @@ export interface CompanySettings {
     tvaRateDefault: number;
     emailNotifications: boolean;
     loyaltyRewardHours: number;
-    logoUrl?: string; // Storage URL or Base64
+    logoUrl?: string;
+    // API Config for WhatsApp/SMS
+    messageProvider?: 'smsmode' | 'wa_me' | 'custom';
+    messageApiKey?: string;
+    messageBaseUrl?: string;
 }
 
 export interface VisitScan {
