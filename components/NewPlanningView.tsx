@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, ArrowLeft, Sun, Sunset, Clock, Plus, X, AlertCircle, CheckCircle, Send, Settings, Search, Grid3X3, FileText, Download, Printer, Link, History, Users } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { Provider, Mission } from '../types';
+import { sendEmailViaEmailJS } from '../utils/emailService';
 import { getApiConfig, setApiConfig, MESSAGE_PROVIDERS } from '../src/config/apiConfig';
 import type { MessageProvider } from '../src/config/apiConfig';
 import { 
@@ -57,10 +58,13 @@ interface NewPlanningViewProps {
   missions: Mission[];
   documents?: any[];
   addMission?: (mission: Mission) => Promise<void>;
+  assignProvider?: (missionId: string, providerId: string, providerName: string) => Promise<void>;
+  updateMission?: (id: string, data: Partial<Mission>) => Promise<void>;
   convertQuoteToInvoice?: (quoteId: string) => Promise<void>;
   markInvoicePaid?: (id: string) => Promise<void>;
   updateDocumentStatus?: (id: string, status: string) => Promise<{ success: boolean; status: string }>;
   updateMessageConfig?: (config: { messageProvider?: 'smsmode' | 'wa_me' | 'custom'; messageApiKey?: string; messageBaseUrl?: string }) => Promise<void>;
+  loadMissionsForRange?: (start: string, end: string, onProgress?: (p: number) => void) => Promise<boolean>;
 }
 
 const NewPlanningView: React.FC<NewPlanningViewProps> = ({ 
@@ -69,9 +73,12 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   missions,
   documents = [],
   addMission,
+  assignProvider,
+  updateMission,
   convertQuoteToInvoice,
   markInvoicePaid,
   updateDocumentStatus,
+  loadMissionsForRange,
   updateMessageConfig
 }) => {
   const [currentDate, setCurrentDate] = useState(getMartiniqueNowDayjs());
@@ -83,15 +90,16 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [closedDays, setClosedDays] = useState<Set<string>>(new Set());
-  const [showBillingPanel, setShowBillingPanel] = useState(true);
+  const [showBillingPanel, setShowBillingPanel] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<MessageProvider>(getApiConfig().provider);
   const [apiKey, setApiKey] = useState(getApiConfig().apiKey || '');
   const [customBaseUrl, setCustomBaseUrl] = useState(getApiConfig().baseUrl || '');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unplanned' | 'planned' | 'available'>('all');
   const [timeSlotFilter, setTimeSlotFilter] = useState<'all' | 'morning' | 'afternoon' | 'full'>('all');
+  const [sortOrder, setSortOrder] = useState<'name' | 'load_asc' | 'load_desc'>('name');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showWeeklyView, setShowWeeklyView] = useState(false);
+  const [showWeeklyView, setShowWeeklyView] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string; undoAction?: () => void } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ missionId: string; providerName: string; timeSlot: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,6 +107,20 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const [showSidebar, setShowSidebar] = useState(false);
   const [smsSending, setSmsSending] = useState<{ current: number; total: number } | null>(null);
   const [sentMessages, setSentMessages] = useState<Set<string>>(new Set());
+  const [specialtyFilter, setSpecialtyFilter] = useState<'all' | 'menage' | 'jardinage' | 'bricolage'>('all');
+  const [providerNotes, setProviderNotes] = useState<Record<string, string>>({});
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [missionDateFilter, setMissionDateFilter] = useState<'day' | 'future' | 'all'>('day');
+  const [customStartTime, setCustomStartTime] = useState('');
+  const [customEndTime, setCustomEndTime] = useState('');
+  const [showUnassignedPanel, setShowUnassignedPanel] = useState(false);
+  const [panelSearch, setPanelSearch] = useState('');
+  const [billingSearch, setBillingSearch] = useState('');
+  const [quickAssignMission, setQuickAssignMission] = useState<Mission | null>(null);
+  const [quickAssignProviderId, setQuickAssignProviderId] = useState('');
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCardExpand = (id: string) => setExpandedCards(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const ShimmerLoader = ({ className }: { className?: string }) => (
     <div className={`animate-pulse bg-slate-200 rounded ${className}`} />
@@ -166,7 +188,15 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
           <tbody>
             ${providersWithMissions.map(p => p.missions.map(m => `
               <tr>
-                <td>${p.provider.firstName} ${p.provider.lastName}</td>
+                <td>${(() => {
+                  const pa = p.provider as any;
+                  const first = (pa?.firstName || pa?.first_name || '').toString().trim();
+                  const last = (pa?.lastName || pa?.last_name || '').toString().trim();
+                  const n = [first, last].filter(s => s.length > 0).join(' ');
+                  if (n) return n;
+                  if (pa?.name && pa.name.toString().trim()) return pa.name.toString().trim();
+                  return pa?.specialty || 'Prestataire';
+                })()}</td>
                 <td>${m.startTime} - ${m.endTime}</td>
                 <td>${m.duration}h</td>
                 <td>${m.clientName || '-'}</td>
@@ -241,14 +271,14 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const todayFormatted = getMartiniqueNowDayjs().format('dddd D MMMM YYYY');
   
   const handlePrevDay = () => {
-    setCurrentDate(prev => prev.subtract(1, 'day'));
+    setCurrentDate(prev => showWeeklyView ? prev.subtract(7, 'day') : prev.subtract(1, 'day'));
     setSelectedProviderId(null);
     setShowAssignModal(false);
     setSentMessages(new Set());
   };
   
   const handleNextDay = () => {
-    setCurrentDate(prev => prev.add(1, 'day'));
+    setCurrentDate(prev => showWeeklyView ? prev.add(7, 'day') : prev.add(1, 'day'));
     setSelectedProviderId(null);
     setShowAssignModal(false);
     setSentMessages(new Set());
@@ -263,16 +293,24 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const isToday = currentDateStr === today;
   const dayOfWeek = currentDate.day();
 
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 't' || e.key === 'T') { setCurrentDate(getMartiniqueNowDayjs()); setSentMessages(new Set()); }
+      if (e.key === 'ArrowLeft') handlePrevDay();
+      if (e.key === 'ArrowRight') handleNextDay();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
   const isDataReady = providers.length > 0 || missions.length > 0;
   
   React.useEffect(() => {
-    if (!isDataReady) {
-      setIsLoading(true);
-    } else {
-      setIsLoading(true);
-      const timer = setTimeout(() => setIsLoading(false), 600);
-      return () => clearTimeout(timer);
-    }
+    setIsLoading(true);
+    const delay = isDataReady ? 600 : 4000;
+    const timer = setTimeout(() => setIsLoading(false), delay);
+    return () => clearTimeout(timer);
   }, [currentDateStr, isDataReady]);
 
   const todayAuditLog = useMemo(() => getAuditLogForDate(currentDateStr), [currentDateStr]);
@@ -286,7 +324,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     if (provider.availabilityMode === 'available') {
       const availHours = provider.availabilityHours?.[dayOfWeek];
       if (!availHours || availHours.length === 0) {
-        return { available: false, reason: 'Pas de disponibilité' };
+        return { available: true, hours: ['08:00-18:00'], mode: 'default' as const };
       }
       return { 
         available: true, 
@@ -319,6 +357,23 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     }
   }, [toast]);
 
+  useEffect(() => {
+    if (showUnassignedPanel) { setPanelSearch(''); setQuickAssignMission(null); }
+  }, [showUnassignedPanel]);
+
+  const [isRangeLoading, setIsRangeLoading] = useState(false);
+
+  // Load missions from DB for the visible date range when currentDate changes
+  useEffect(() => {
+    if (!loadMissionsForRange) return;
+    const start = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
+    const end = currentDate.add(1, 'week').format('YYYY-MM-DD');
+    setIsRangeLoading(true);
+    loadMissionsForRange(start, end)
+      .catch(() => {})
+      .finally(() => setIsRangeLoading(false));
+  }, [currentDate.format('YYYY-MM-DD')]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { availableProviders, unavailableProviders } = useMemo(() => {
     const available: { provider: Provider; availability: ReturnType<typeof getProviderAvailabilityForDay> }[] = [];
     const unavailable: { provider: Provider; reason: string }[] = [];
@@ -329,16 +384,23 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
         return;
       }
       
+      const hasMissionsToday = missions.some(
+        m => m.providerId === provider.id && m.date === currentDateStr && m.status !== 'cancelled'
+      );
+
       const availability = getProviderAvailabilityForDay(provider);
-      if (availability.available) {
-        available.push({ provider, availability });
+      if (availability.available || hasMissionsToday) {
+        available.push({ 
+          provider, 
+          availability: availability.available ? availability : { available: true as const, hours: ['08:00-18:00'], mode: 'default' as const }
+        });
       } else {
         unavailable.push({ provider, reason: availability.reason || 'Indisponible' });
       }
     });
     
     return { availableProviders: available, unavailableProviders: unavailable };
-  }, [providers, dayOfWeek]);
+  }, [providers, dayOfWeek, missions, currentDateStr]);
 
   const providerMissions = useMemo(() => {
     const map = new Map<string, Mission[]>();
@@ -354,45 +416,57 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   }, [missions, availableProviders, currentDateStr]);
 
   const getUnassignedMissionsForProvider = useMemo(() => {
-    return (providerId: string): Mission[] => {
+    return (providerId: string, dateMode: 'day' | 'future' | 'all' = 'day'): Mission[] => {
       const provider = providers.find(p => p.id === providerId);
       const specialty = provider?.specialty?.toLowerCase() || '';
-      
-      return missions.filter(m => {
-        const isUnassigned = !m.providerId || m.providerId === 'null';
-        const isSameDate = m.date === currentDateStr;
-        const isNotCancelled = m.status !== 'cancelled';
-        
-        if (!isUnassigned || !isSameDate || !isNotCancelled) return false;
-        
-        // Get service type from the linked quote (devis)
-        const sourceDoc = documents.find(d => d.id === m.sourceDocumentId);
-        const missionServiceType = (sourceDoc?.serviceType || sourceDoc?.description || m.serviceType || m.service || '').toLowerCase();
-        
+      const todayStr = getMartiniqueNowDayjs().format('YYYY-MM-DD');
+
+      const matchesSpecialty = (serviceType: string): boolean => {
+        if (!specialty) return true;
+        if (!serviceType) return true; // Unknown type — show to all providers
         if (specialty.includes('jardinage') || specialty.includes('jardin')) {
-          return missionServiceType.includes('jardinage') || missionServiceType.includes('jardin');
+          return serviceType.includes('jardinage') || serviceType.includes('jardin');
         }
-        if (specialty.includes('ménage') || specialty.includes('menage')) {
-          return missionServiceType.includes('ménage') || missionServiceType.includes('menage');
+        if (specialty.includes('ménage') || specialty.includes('menage') || specialty.includes('entretien')) {
+          return serviceType.includes('ménage') || serviceType.includes('menage') || serviceType.includes('entretien');
         }
         if (specialty.includes('bricolage')) {
-          return missionServiceType.includes('bricolage');
+          return serviceType.includes('bricolage');
         }
-        
         return true;
-      });
+      };
+
+      const passesDate = (date: string): boolean => {
+        if (dateMode === 'day') return date === currentDateStr;
+        if (dateMode === 'future') return date >= todayStr;
+        return true;
+      };
+
+      return missions
+        .filter(m => {
+          const isUnassigned = !m.providerId || m.providerId === 'null' || m.providerId === '';
+          if (!isUnassigned) return false;
+          if (m.status === 'cancelled' || m.status === 'completed') return false;
+          if (!passesDate(m.date)) return false;
+          const sourceDoc = documents.find((d: any) => d.id === m.sourceDocumentId);
+          const svcType = (sourceDoc?.serviceType || sourceDoc?.category || m.serviceType || m.service || '').toLowerCase();
+          return matchesSpecialty(svcType);
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
     };
-  }, [missions, currentDateStr, providers, documents]);
+  }, [missions, currentDateStr, providers, documents, missionDateFilter]);
 
   const filteredProviders = useMemo(() => {
     let filtered = availableProviders;
     
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(({ provider }) => 
-        provider.firstName.toLowerCase().includes(query) ||
-        provider.lastName.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter(({ provider }) => {
+        const first = (provider.firstName || '').toLowerCase();
+        const last = (provider.lastName || '').toLowerCase();
+        const spec = (provider.specialty || '').toLowerCase();
+        return first.includes(query) || last.includes(query) || spec.includes(query);
+      });
     }
     
     if (statusFilter !== 'all') {
@@ -420,8 +494,149 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
       });
     }
     
+    if (specialtyFilter !== 'all') {
+      filtered = filtered.filter(({ provider }) => {
+        const sp = provider.specialty?.toLowerCase() || '';
+        if (specialtyFilter === 'menage') return sp.includes('ménage') || sp.includes('menage');
+        if (specialtyFilter === 'jardinage') return sp.includes('jardinage') || sp.includes('jardin');
+        if (specialtyFilter === 'bricolage') return sp.includes('bricolage');
+        return true;
+      });
+    }
+    
+    // Sort
+    filtered = [...filtered].sort((a, b) => {
+      if (sortOrder === 'name') return `${a.provider.firstName} ${a.provider.lastName}`.localeCompare(`${b.provider.firstName} ${b.provider.lastName}`);
+      const hA = (providerMissions.get(a.provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
+      const hB = (providerMissions.get(b.provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
+      return sortOrder === 'load_asc' ? hA - hB : hB - hA;
+    });
     return filtered;
-  }, [availableProviders, providerMissions, searchQuery, statusFilter, timeSlotFilter]);
+  }, [availableProviders, providerMissions, searchQuery, statusFilter, timeSlotFilter, specialtyFilter, sortOrder]);
+
+  const dayStats = useMemo(() => {
+    const totalProviders = availableProviders.length;
+    const plannedCount = availableProviders.filter(({ provider }) => (providerMissions.get(provider.id) || []).length > 0).length;
+    const fullCount = availableProviders.filter(({ provider }) => {
+      const h = (providerMissions.get(provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
+      return h >= 7;
+    }).length;
+    const totalHours = availableProviders.reduce((sum, { provider }) => {
+      return sum + (providerMissions.get(provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
+    }, 0);
+    const unassignedMissions = missions.filter(m =>
+      m.date === currentDateStr &&
+      (!m.providerId || m.providerId === 'null' || m.providerId === '') &&
+      m.status !== 'cancelled' && m.status !== 'completed'
+    );
+    return { totalProviders, plannedCount, fullCount, totalHours, unassignedCount: unassignedMissions.length, unassignedMissions };
+  }, [availableProviders, providerMissions, missions, currentDateStr]);
+
+  const provisionalMissionsForDay = useMemo(() => {
+    return (documents || [])
+      .filter((d: any) => d.type === 'Devis')
+      .filter((d: any) => d.status === 'sent' || d.status === 'signed')
+      .filter((d: any) => Array.isArray(d.slotsData) && d.slotsData.length > 0)
+      .flatMap((d: any) => (d.slotsData || []).map((slot: any, idx: number) => ({
+        id: `provisional-${d.id}-${idx}`,
+        date: slot?.date,
+        startTime: slot?.startTime || '',
+        endTime: slot?.endTime || '',
+        duration: typeof slot?.duration === 'number' ? slot.duration : 0,
+        service: d.description || 'Devis',
+        clientId: d.clientId,
+        clientName: d.clientName || 'Client',
+        providerId: null as null,
+        providerName: 'À assigner',
+        status: 'planned' as const,
+        sourceDocumentId: d.id,
+        isProvisional: true,
+      })))
+      .filter((item: any) => item.date === currentDateStr);
+  }, [documents, currentDateStr]);
+
+  const allFutureProvisional = useMemo(() => {
+    const todayStr = getMartiniqueNowDayjs().format('YYYY-MM-DD');
+    const list = (documents || [])
+      .filter((d: any) => d.type === 'Devis')
+      .filter((d: any) => d.status === 'sent' || d.status === 'signed')
+      .filter((d: any) => Array.isArray(d.slotsData) && d.slotsData.length > 0)
+      .flatMap((d: any) => (d.slotsData || []).map((slot: any, idx: number) => ({
+        id: `provisional-${d.id}-${idx}`,
+        date: slot?.date,
+        startTime: slot?.startTime || '',
+        endTime: slot?.endTime || '',
+        service: d.description || 'Devis',
+        clientName: d.clientName || 'Client',
+        sourceDocumentId: d.id,
+      })))
+      .filter((item: any) => item.date && item.date >= todayStr)
+      .sort((a: any, b: any) => a.date.localeCompare(b.date));
+    const grouped: Record<string, any[]> = {};
+    for (const m of list) {
+      if (!grouped[m.date]) grouped[m.date] = [];
+      grouped[m.date].push(m);
+    }
+    return { list, grouped };
+  }, [documents]);
+
+  const allFutureUnassigned = useMemo(() => {
+    const todayStr = getMartiniqueNowDayjs().format('YYYY-MM-DD');
+    const list = missions
+      .filter(m =>
+        m.date >= todayStr &&
+        (!m.providerId || m.providerId === 'null' || m.providerId === '') &&
+        m.status !== 'cancelled' && m.status !== 'completed'
+      )
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const grouped: Record<string, Mission[]> = {};
+    for (const m of list) {
+      if (!grouped[m.date]) grouped[m.date] = [];
+      grouped[m.date].push(m);
+    }
+    return { list, grouped };
+  }, [missions]);
+
+  const sendAssignmentEmail = async (provider: Provider, mission: Mission) => {
+    if (!provider.email) return;
+    try {
+      await sendEmailViaEmailJS(
+        provider.email,
+        'Nouvelle mission assignée',
+        'provider_mission_assigned',
+        {
+          providerName: `${provider.firstName} ${provider.lastName}`,
+          clientName: mission.clientName,
+          missionId: mission.id,
+          date: dayjs(mission.date).format('dddd D MMMM YYYY'),
+          startTime: mission.startTime,
+          endTime: mission.endTime,
+          service: mission.service || mission.serviceType || 'Prestation',
+        }
+      );
+    } catch {
+      // Email failure is non-blocking
+    }
+  };
+
+  const handleQuickAssign = async () => {
+    if (!quickAssignMission || !quickAssignProviderId) return;
+    const provider = providers.find(p => p.id === quickAssignProviderId);
+    const providerName = `${provider?.firstName || ''} ${provider?.lastName || ''}`.trim();
+    try {
+      if (assignProvider && quickAssignMission.id) {
+        await assignProvider(quickAssignMission.id, quickAssignProviderId, providerName);
+      } else if (addMission) {
+        await addMission({ ...quickAssignMission, id: '', providerId: quickAssignProviderId, providerName, status: 'planned', color: 'orange' });
+      }
+      if (provider) await sendAssignmentEmail(provider, quickAssignMission);
+      setToast({ type: 'success', message: `✅ ${quickAssignMission.clientName} → ${provider?.firstName}${provider?.email ? ' · 📧 Email envoyé' : ''}` });
+      setQuickAssignMission(null);
+      setQuickAssignProviderId('');
+    } catch (e: any) {
+      setToast({ type: 'error', message: `❌ ${e.message}` });
+    }
+  };
 
   const weeklyStats = useMemo(() => {
     const startOfWeek = currentDate.startOf('week');
@@ -486,13 +701,13 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     
     const result: BillingInfo[] = [];
     docMap.forEach((data, docId) => {
-      if (data.completed >= 2) {
+      if (data.total >= 1) {
         result.push({
           documentId: docId,
           clientName: data.clientName,
           totalMissions: data.total,
           completedMissions: data.completed,
-          status: data.completed >= data.total && data.total >= 6 ? 'complete' : 'partial',
+          status: data.completed >= data.total && data.total >= 1 ? 'complete' : 'partial',
           isPackUltime: data.isPackUltime
         });
       }
@@ -505,8 +720,28 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     });
   }, [missions]);
 
-  const partialBillings = billingAnalysis.filter(b => b.status === 'partial');
-  const completeBillings = billingAnalysis.filter(b => b.status === 'complete');
+  const filteredBillingAnalysis = useMemo(() => {
+    if (!billingSearch.trim()) return billingAnalysis;
+    const q = billingSearch.trim().toLowerCase();
+    return billingAnalysis.filter(b => {
+      const name = (b.clientName || '').toLowerCase();
+      return name.includes(q);
+    });
+  }, [billingAnalysis, billingSearch]);
+
+  const partialBillings = filteredBillingAnalysis.filter(b => b.status === 'partial');
+  const completeBillings = filteredBillingAnalysis.filter(b => b.status === 'complete');
+
+  const getSpecialtyEmoji = (specialty?: string): string => {
+    if (!specialty) return '👤';
+    const s = specialty.toLowerCase();
+    if (s.includes('ménage') || s.includes('menage') || s.includes('entretien')) return '🧹';
+    if (s.includes('jardinage') || s.includes('jardin')) return '🌿';
+    if (s.includes('bricolage')) return '🔧';
+    if (s.includes('garde') || s.includes('enfant')) return '👶';
+    if (s.includes('cuisine') || s.includes('cuisinier')) return '🍳';
+    return '⭐';
+  };
 
   const getProviderStatus = (providerId: string): 'unplanned' | 'partial' | 'full' => {
     const dayMissions = providerMissions.get(providerId) || [];
@@ -563,10 +798,10 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
 
   const getDayColorClasses = (status: DayColorStatus): string => {
     switch (status) {
-      case 'available': return 'bg-green-50 border-green-200';
-      case 'almost': return 'bg-amber-50 border-amber-200';
-      case 'full': return 'bg-orange-50 border-orange-200';
-      case 'closed': return 'bg-cyan-50 border-cyan-200';
+      case 'available': return 'bg-emerald-50 border-emerald-400';
+      case 'almost':   return 'bg-yellow-50 border-yellow-400';
+      case 'full':     return 'bg-orange-100 border-orange-500';
+      case 'closed':   return 'bg-cyan-100 border-cyan-500';
     }
   };
 
@@ -811,16 +1046,34 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     setSelectedMission(null);
     setAssignError(null);
     setAssignSuccess(null);
+    setMissionDateFilter('day');
+    setCustomStartTime('');
+    setCustomEndTime('');
     setShowAssignModal(true);
   };
 
   const handleConfirmAssignment = async () => {
-    if (!selectedProviderId || !selectedTimeSlot || !selectedMission) return;
-    
-    const error = validateTimeSlot(selectedProviderId, selectedTimeSlot);
-    if (error) {
-      setAssignError(error);
+    if (!selectedProviderId || !selectedMission) return;
+
+    const effectiveStart = customStartTime || selectedTimeSlot?.start;
+    const effectiveEnd = customEndTime || selectedTimeSlot?.end;
+    const effectiveDuration = selectedTimeSlot?.duration || (
+      effectiveStart && effectiveEnd
+        ? Math.round((parseInt(effectiveEnd.split(':')[0]) * 60 + parseInt(effectiveEnd.split(':')[1]) - parseInt(effectiveStart.split(':')[0]) * 60 - parseInt(effectiveStart.split(':')[1])) / 60 * 10) / 10
+        : 0
+    );
+
+    if (!effectiveStart || !effectiveEnd) {
+      setAssignError('Veuillez sélectionner un créneau horaire');
       return;
+    }
+
+    if (selectedTimeSlot) {
+      const error = validateTimeSlot(selectedProviderId, selectedTimeSlot);
+      if (error) {
+        setAssignError(error);
+        return;
+      }
     }
     
     setIsSubmitting(true);
@@ -828,35 +1081,56 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     
     try {
       const provider = providers.find(p => p.id === selectedProviderId);
-      
-      if (addMission) {
+      const providerName = `${provider?.firstName || ''} ${provider?.lastName || ''}`.trim();
+
+      // Determine the target date for this mission
+      const targetDate = selectedMission.date !== currentDateStr && missionDateFilter !== 'day'
+        ? selectedMission.date
+        : currentDateStr;
+
+      if (assignProvider && selectedMission.id) {
+        // Update time/date if changed, then assign
+        if (updateMission) {
+          await updateMission(selectedMission.id, {
+            date: targetDate,
+            startTime: effectiveStart,
+            endTime: effectiveEnd,
+            duration: effectiveDuration
+          });
+        }
+        await assignProvider(selectedMission.id, selectedProviderId, providerName);
+        if (provider) await sendAssignmentEmail(provider, { ...selectedMission, date: targetDate, startTime: effectiveStart, endTime: effectiveEnd });
+        setAssignSuccess(`✅ Mission assignée à ${provider?.firstName}`);
+        setToast({ type: 'success', message: `✅ ${selectedMission.clientName} → ${provider?.firstName}${provider?.email ? ' · 📧 Email envoyé' : ''}` });
+      } else if (addMission) {
         const newMission: Mission = {
           ...selectedMission,
           id: '',
           providerId: selectedProviderId,
-          providerName: `${provider?.firstName} ${provider?.lastName}`,
-          date: currentDateStr,
-          startTime: selectedTimeSlot.start,
-          endTime: selectedTimeSlot.end,
-          duration: selectedTimeSlot.duration,
+          providerName,
+          date: targetDate,
+          startTime: effectiveStart,
+          endTime: effectiveEnd,
+          duration: effectiveDuration,
           status: 'planned',
-          color: 'blue'
+          color: 'orange'
         };
-        
         await addMission(newMission);
-        setToast({ type: 'success', message: `✅ Prestation ajoutée avec succès pour ${provider?.firstName}` });
-        setSelectedTimeSlot(null);
-        setSelectedMission(null);
-        
-        setTimeout(() => {
-          setShowAssignModal(false);
-        }, 1500);
+        if (provider) await sendAssignmentEmail(provider, newMission);
+        setAssignSuccess(`✅ Mission créée pour ${provider?.firstName}`);
+        setToast({ type: 'success', message: `✅ Mission créée pour ${provider?.firstName}${provider?.email ? ' · 📧 Email envoyé' : ''}` });
       } else {
         setToast({ type: 'success', message: '✅ Prestation attribuée (mode simulation)' });
-        setTimeout(() => {
-          setShowAssignModal(false);
-        }, 1500);
       }
+
+      setSelectedTimeSlot(null);
+      setSelectedMission(null);
+      setCustomStartTime('');
+      setCustomEndTime('');
+      setTimeout(() => {
+        setShowAssignModal(false);
+        setAssignSuccess(null);
+      }, 1500);
     } catch (err: any) {
       setToast({ type: 'error', message: `❌ ${err.message || 'Erreur lors de l\'attribution'}` });
     } finally {
@@ -1065,6 +1339,19 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               <span className="hidden sm:inline">Partager</span>
             </button>
             <button
+              onClick={() => setShowUnassignedPanel(true)}
+              className="relative flex items-center gap-1 md:gap-2 px-2 md:px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg font-bold text-sm transition"
+              title="Voir toutes les missions à assigner"
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">À assigner</span>
+              {allFutureUnassigned.list.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {allFutureUnassigned.list.length > 9 ? '9+' : allFutureUnassigned.list.length}
+                </span>
+              )}
+            </button>
+            <button
               onClick={sendAllWhatsAppMessages}
               disabled={!!smsSending}
               className="flex items-center gap-1 md:gap-2 px-2 md:px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-sm transition disabled:opacity-50"
@@ -1120,6 +1407,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleGoToToday}
+              title="Aller à aujourd'hui (T)"
               className={`px-4 py-1.5 rounded-full text-sm font-bold transition ${
                 isToday 
                   ? 'bg-blue-500 text-white' 
@@ -1128,9 +1416,28 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
             >
               Aujourd'hui
             </button>
-            <span className="text-lg font-bold text-slate-800 px-2">
-              {currentDate.format('D MMMM')}
-            </span>
+            <div className="relative">
+              <button
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className="text-lg font-bold text-slate-800 px-2 hover:text-blue-600 transition flex items-center gap-1"
+                title="Choisir une date"
+              >
+                {currentDate.format('D MMMM')}
+                <span className="text-xs text-slate-400">▾</span>
+              </button>
+              {showDatePicker && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-2">
+                  <input
+                    type="date"
+                    autoFocus
+                    value={currentDateStr}
+                    onChange={e => { if (e.target.value) { setCurrentDate(dayjs(e.target.value)); setSentMessages(new Set()); } setShowDatePicker(false); }}
+                    onBlur={() => setTimeout(() => setShowDatePicker(false), 150)}
+                    className="border-0 outline-none text-sm text-slate-700 cursor-pointer"
+                  />
+                </div>
+              )}
+            </div>
           </div>
           
           <button
@@ -1178,6 +1485,40 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               <option value="afternoon">AM</option>
               <option value="full">Jour</option>
             </select>
+
+            <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5 bg-slate-50">
+              {([['all', 'Tous'], ['menage', '🧹'], ['jardinage', '🌿'], ['bricolage', '🔧']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setSpecialtyFilter(val)}
+                  className={`px-2 py-1 rounded text-xs font-bold transition ${specialtyFilter === val ? 'bg-white shadow text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                  title={val === 'all' ? 'Toutes spécialités' : val}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <select
+              value={sortOrder}
+              onChange={e => setSortOrder(e.target.value as typeof sortOrder)}
+              className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 text-slate-600"
+              title="Trier les prestataires"
+            >
+              <option value="name">A–Z</option>
+              <option value="load_asc">Charge ↑</option>
+              <option value="load_desc">Charge ↓</option>
+            </select>
+
+            {(searchQuery || statusFilter !== 'all' || timeSlotFilter !== 'all' || specialtyFilter !== 'all') && (
+              <button
+                onClick={() => { setSearchQuery(''); setStatusFilter('all'); setTimeSlotFilter('all'); setSpecialtyFilter('all'); }}
+                className="flex items-center gap-1 text-xs px-2 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg font-bold hover:bg-red-100 transition"
+                title="Effacer tous les filtres"
+              >
+                <X className="w-3 h-3" /> Effacer
+              </button>
+            )}
           </div>
           
           <div className="flex items-center gap-2 md:gap-3">
@@ -1202,10 +1543,15 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
             </button>
             <button
               onClick={() => setShowSidebar(!showSidebar)}
-              className="md:hidden p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+              className="md:hidden relative p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
               title="Afficher les prestataires"
             >
               <Users className="w-4 h-4" />
+              {(statusFilter !== 'all' || timeSlotFilter !== 'all' || specialtyFilter !== 'all') && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {[statusFilter !== 'all', timeSlotFilter !== 'all', specialtyFilter !== 'all'].filter(Boolean).length}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -1215,10 +1561,10 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
             <div className="grid grid-cols-7 gap-2">
               {weeklyStats.days.map((day, idx) => {
                 const isCurrentDay = day.date === currentDateStr;
-                const colorClass = day.totalHours >= 7 ? 'bg-orange-100 border-orange-300' : 
-                                  day.totalHours >= 4 ? 'bg-amber-100 border-amber-300' :
-                                  day.totalHours > 0 ? 'bg-green-100 border-green-300' :
-                                  'bg-slate-100 border-slate-200';
+                const colorClass = day.totalHours >= 7 ? 'bg-orange-200 border-orange-500' :
+                                  day.totalHours >= 4 ? 'bg-yellow-100 border-yellow-400' :
+                                  day.totalHours > 0 ? 'bg-emerald-100 border-emerald-400' :
+                                  'bg-slate-100 border-slate-300';
                 
                 return (
                   <button
@@ -1226,10 +1572,16 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                     onClick={() => setCurrentDate(dayjs(day.date))}
                     className={`p-2 rounded-lg border-2 text-center transition ${colorClass} ${isCurrentDay ? 'ring-2 ring-blue-500' : 'hover:border-slate-400'}`}
                   >
-                    <div className="text-xs font-bold text-slate-600">{day.dayName}</div>
-                    <div className="text-lg font-bold text-slate-800">{dayjs(day.date).format('D')}</div>
+                    <div className="text-xs font-bold text-slate-600 capitalize">{day.dayName}</div>
+                    <div className={`text-lg font-bold ${isCurrentDay ? 'text-blue-600' : 'text-slate-800'}`}>{dayjs(day.date).format('D')}</div>
                     <div className="text-xs text-slate-500">{day.missions.length} miss.</div>
                     <div className="text-xs font-medium text-slate-600">{day.totalHours}h</div>
+                    {(() => {
+                      const unassigned = missions.filter(m => m.date === day.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled' && m.status !== 'completed').length;
+                      return unassigned > 0 ? (
+                        <div className="text-[10px] font-bold text-red-500 bg-red-50 rounded px-1 mt-0.5">{unassigned} ⚠</div>
+                      ) : null;
+                    })()}
                   </button>
                 );
               })}
@@ -1353,6 +1705,30 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               </p>
             )}
             
+            {(dayStats.unassignedMissions.length > 0 || provisionalMissionsForDay.length > 0) && (
+              <div className="mt-4 pt-4 border-t border-orange-100">
+                <h3 className="text-xs font-bold text-orange-600 mb-2 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></span>
+                  À assigner ({dayStats.unassignedMissions.length + provisionalMissionsForDay.length})
+                </h3>
+                <div className="space-y-1">
+                  {dayStats.unassignedMissions.map(m => (
+                    <div key={m.id} className="text-xs bg-red-50 border border-red-100 rounded p-2">
+                      <div className="font-bold text-red-700 truncate">{m.clientName || 'Client'}</div>
+                      <div className="text-red-500">{m.startTime}–{m.endTime} · {m.service || m.serviceType || '—'}</div>
+                    </div>
+                  ))}
+                  {provisionalMissionsForDay.map((m: any) => (
+                    <div key={m.id} className="text-xs bg-orange-50 border border-orange-200 rounded p-2">
+                      <div className="font-bold text-orange-700 truncate">{m.clientName}</div>
+                      <div className="text-orange-500">{m.startTime}–{m.endTime} · {m.service || '—'}</div>
+                      <div className="text-[10px] text-orange-400 italic">Devis en attente</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {unavailableProviders.length > 0 && (
               <div className="mt-4 pt-4 border-t border-slate-200">
                 <h3 className="text-xs font-bold text-slate-400 mb-2">Indisponibles</h3>
@@ -1372,34 +1748,251 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
         <div className="flex-1 overflow-auto bg-white">
           <div className="p-4">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-slate-800">
-                {currentDate.format('dddd D MMMM')}
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {showWeeklyView
+                  ? `Semaine du ${currentDate.startOf('week').format('D MMMM')} au ${currentDate.endOf('week').format('D MMMM')}`
+                  : currentDate.format('dddd D MMMM')}
+                {isRangeLoading && (
+                  <span className="inline-flex items-center gap-1 text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block"></span>
+                    Chargement…
+                  </span>
+                )}
               </h2>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-500 font-bold">Légende:</span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 bg-green-100 border border-green-300 rounded"></span>
-                  Dispo
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 bg-amber-100 border border-amber-300 rounded"></span>
-                  Presque plein
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 bg-orange-100 border border-orange-300 rounded"></span>
-                  Plein
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 bg-cyan-100 border border-cyan-300 rounded"></span>
-                  Clos
-                </span>
-                <span className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300">
-                  <span className="w-3 h-3 bg-pink-100 border border-pink-300 rounded"></span>
-                  Mission
-                </span>
-              </div>
+              {!showWeeklyView && (
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-slate-500 font-bold">Légende:</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-emerald-400"></span>
+                    <span className="text-slate-600">Dispo</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-yellow-400"></span>
+                    <span className="text-slate-600">Presque plein</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-orange-500"></span>
+                    <span className="text-slate-600">Plein</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-cyan-500"></span>
+                    <span className="text-slate-600">Clos</span>
+                  </span>
+                  <span className="flex items-center gap-1.5 ml-2 pl-2 border-l border-slate-300">
+                    <span className="w-3 h-3 rounded-sm bg-pink-500"></span>
+                    <span className="text-slate-600">Mission</span>
+                  </span>
+                </div>
+              )}
             </div>
             
+            {showWeeklyView && (
+              <div className="grid grid-cols-7 gap-3 min-w-0">
+                {weeklyStats.days.map((day) => {
+                  let dayMissionsList = day.missions.filter(m => m.status !== 'cancelled');
+                  if (searchQuery) {
+                    const q = searchQuery.toLowerCase();
+                    dayMissionsList = dayMissionsList.filter(m => {
+                      const client = (m.clientName || '').toLowerCase();
+                      const svc = (m.service || '').toLowerCase();
+                      const prov = (m.providerName || '').toLowerCase();
+                      return client.includes(q) || svc.includes(q) || prov.includes(q);
+                    });
+                  }
+                  if (statusFilter !== 'all') {
+                    dayMissionsList = dayMissionsList.filter(m => {
+                      if (statusFilter === 'unplanned') return !m.providerId || m.providerId === 'null';
+                      if (statusFilter === 'planned') return !!m.providerId && m.providerId !== 'null';
+                      if (statusFilter === 'available') return m.status !== 'completed';
+                      return true;
+                    });
+                  }
+                  if (timeSlotFilter !== 'all') {
+                    dayMissionsList = dayMissionsList.filter(m => {
+                      const startHour = parseInt(m.startTime?.split(':')[0] || '0');
+                      const hasMorning = startHour < 12;
+                      const hasAfternoon = startHour >= 12;
+                      if (timeSlotFilter === 'morning') return hasMorning;
+                      if (timeSlotFilter === 'afternoon') return hasAfternoon;
+                      if (timeSlotFilter === 'full') return hasMorning && hasAfternoon;
+                      return true;
+                    });
+                  }
+                  if (specialtyFilter !== 'all') {
+                    dayMissionsList = dayMissionsList.filter(m => {
+                      const svc = (m.service || '').toLowerCase();
+                      if (specialtyFilter === 'menage') return svc.includes('ménage') || svc.includes('menage');
+                      if (specialtyFilter === 'jardinage') return svc.includes('jardinage') || svc.includes('jardin');
+                      if (specialtyFilter === 'bricolage') return svc.includes('bricolage');
+                      return true;
+                    });
+                  }
+                  const dayDate = dayjs(day.date);
+                  const isTodayDay = day.date === today;
+                  const dayUnassigned = missions.filter(m => m.date === day.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled' && m.status !== 'completed');
+                  const dayProv = allFutureProvisional.list.filter((m: any) => m.date === day.date);
+                  return (
+                    <div key={day.date} className={`border rounded-xl overflow-hidden flex flex-col ${isTodayDay ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'}`}>
+                      <button
+                        onClick={() => { setCurrentDate(dayDate); }}
+                        className={`px-2 py-2 text-center ${isTodayDay ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} transition`}
+                      >
+                        <div className="text-xs font-bold uppercase">{dayDate.format('ddd')}</div>
+                        <div className="text-lg font-bold">{dayDate.format('D')}</div>
+                        <div className="text-[10px] opacity-80">{dayMissionsList.length} miss · {day.totalHours}h</div>
+                        {dayUnassigned.length > 0 && (
+                          <div className="text-[10px] text-red-200 font-bold mt-0.5">{dayUnassigned.length} ⚠</div>
+                        )}
+                      </button>
+                      <div className="p-2 space-y-2 bg-white flex-1 overflow-y-auto max-h-[60vh]">
+                        {dayMissionsList.length === 0 && dayProv.length === 0 && dayUnassigned.length === 0 && (
+                          <p className="text-[10px] text-slate-400 italic text-center py-2">—</p>
+                        )}
+                        {dayProv.map((m: any) => (
+                          <div key={m.id} className="bg-orange-50 border-l-2 border-orange-400 rounded p-1.5 text-[10px]">
+                            <p className="font-bold text-orange-800 truncate">{m.clientName}</p>
+                            <p className="text-orange-600">{m.startTime}–{m.endTime}</p>
+                            <span className="text-[9px] text-orange-500 italic">En attente</span>
+                          </div>
+                        ))}
+                        {dayUnassigned.map(m => (
+                          <div key={m.id} className="bg-red-50 border-l-2 border-red-400 rounded p-1.5 text-[10px]">
+                            <p className="font-bold text-red-800 truncate">{m.clientName || 'Client'}</p>
+                            <p className="text-red-600">{m.startTime}–{m.endTime}</p>
+                            <span className="text-[9px] text-red-500 italic">Non attribuée</span>
+                          </div>
+                        ))}
+                        {dayMissionsList.map(m => {
+                          const p = providers.find(pr => pr.id === m.providerId);
+                          return (
+                            <div key={m.id} className="bg-pink-50 border-l-2 border-pink-400 rounded p-1.5 text-[10px]">
+                              <p className="font-bold text-slate-800 truncate">{m.clientName || m.service}</p>
+                              <p className="text-slate-600">{m.startTime}–{m.endTime}</p>
+                              <p className="text-[9px] text-slate-500 truncate">{p ? `${p.firstName} ${p.lastName}` : m.providerName || '—'}</p>
+                              <div className="mt-1 flex items-center gap-1">
+                                <span className={`text-[9px] px-1 py-0.5 rounded-full font-bold ${
+                                  m.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                  m.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-pink-100 text-pink-700'
+                                }`}>
+                                  {m.status === 'completed' ? '✅' : m.status === 'in_progress' ? '🔄' : '📋'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!showWeeklyView && (<>{dayStats.totalProviders > 0 && (
+              <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex flex-col">
+                  <span className="text-xs text-blue-500 font-medium">Planifiés</span>
+                  <span className="text-xl font-bold text-blue-700">{dayStats.plannedCount}<span className="text-sm font-medium text-blue-400">/{dayStats.totalProviders}</span></span>
+                  <div className="w-full bg-blue-100 rounded-full h-1.5 mt-1">
+                    <div className="bg-blue-400 h-1.5 rounded-full transition-all" style={{ width: `${dayStats.totalProviders > 0 ? (dayStats.plannedCount / dayStats.totalProviders) * 100 : 0}%` }} />
+                  </div>
+                </div>
+                <div className="bg-green-50 border border-green-100 rounded-lg px-3 py-2 flex flex-col">
+                  <span className="text-xs text-green-500 font-medium">Jours complets</span>
+                  <span className="text-xl font-bold text-green-700">{dayStats.fullCount}<span className="text-sm font-medium text-green-400">/{dayStats.totalProviders}</span></span>
+                  <div className="w-full bg-green-100 rounded-full h-1.5 mt-1">
+                    <div className="bg-green-400 h-1.5 rounded-full transition-all" style={{ width: `${dayStats.totalProviders > 0 ? (dayStats.fullCount / dayStats.totalProviders) * 100 : 0}%` }} />
+                  </div>
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 flex flex-col">
+                  <span className="text-xs text-amber-500 font-medium">Heures planifiées</span>
+                  <span className="text-xl font-bold text-amber-700">{dayStats.totalHours}<span className="text-sm font-medium text-amber-400">h</span></span>
+                  <div className="w-full bg-amber-100 rounded-full h-1.5 mt-1">
+                    <div className="bg-amber-400 h-1.5 rounded-full transition-all" style={{ width: `${Math.min((dayStats.totalHours / (dayStats.totalProviders * 7)) * 100, 100)}%` }} />
+                  </div>
+                </div>
+                <button
+                  onClick={() => (dayStats.unassignedCount + provisionalMissionsForDay.length) > 0 && setShowUnassignedPanel(true)}
+                  className={`border rounded-lg px-3 py-2 flex flex-col text-left transition ${
+                    (dayStats.unassignedCount + provisionalMissionsForDay.length) > 0
+                      ? 'bg-orange-50 border-orange-200 hover:bg-orange-100 cursor-pointer'
+                      : 'bg-slate-50 border-slate-100 cursor-default'
+                  }`}
+                >
+                  <span className={`text-xs font-medium ${
+                    (dayStats.unassignedCount + provisionalMissionsForDay.length) > 0 ? 'text-orange-600' : 'text-slate-400'
+                  }`}>À assigner</span>
+                  <span className={`text-xl font-bold ${
+                    (dayStats.unassignedCount + provisionalMissionsForDay.length) > 0 ? 'text-orange-700' : 'text-slate-400'
+                  }`}>{dayStats.unassignedCount + provisionalMissionsForDay.length}</span>
+                  {(dayStats.unassignedCount + provisionalMissionsForDay.length) === 0
+                    ? <span className="text-xs text-green-500 mt-0.5">✓ Tout assigné</span>
+                    : <span className="text-xs text-orange-500 mt-0.5">
+                        {dayStats.unassignedCount > 0 && <span>{dayStats.unassignedCount} mission{dayStats.unassignedCount > 1 ? 's' : ''}</span>}
+                        {dayStats.unassignedCount > 0 && provisionalMissionsForDay.length > 0 && ' + '}
+                        {provisionalMissionsForDay.length > 0 && <span>{provisionalMissionsForDay.length} devis</span>}
+                      </span>
+                  }
+                </button>
+              </div>
+            )}
+
+            {provisionalMissionsForDay.length > 0 && (
+              <div className="mb-4 border-2 border-orange-300 rounded-xl bg-orange-50 overflow-hidden">
+                <div className="px-4 py-2 bg-orange-100 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-orange-700 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse inline-block"></span>
+                    Devis en attente — créneaux à valider ({provisionalMissionsForDay.length})
+                  </h3>
+                  <span className="text-xs text-orange-600 font-medium bg-orange-200 px-2 py-0.5 rounded-full">En attente client</span>
+                </div>
+                <div className="p-3 flex flex-wrap gap-2">
+                  {provisionalMissionsForDay.map((m: any) => (
+                    <div key={m.id} className="bg-white border border-orange-200 rounded-lg px-3 py-2 text-xs shadow-sm min-w-[160px]">
+                      <p className="font-bold text-orange-800 truncate">{m.clientName}</p>
+                      <p className="text-orange-500 mt-0.5">{m.startTime && m.endTime ? `${m.startTime}–${m.endTime}` : 'Horaire ?'}</p>
+                      <p className="text-slate-500 truncate mt-0.5">{m.service || '—'}</p>
+                      <span className="mt-1.5 inline-block text-[10px] font-bold bg-orange-100 text-orange-600 rounded px-2 py-0.5">
+                        🕐 En attente
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {dayStats.unassignedMissions.length > 0 && (
+              <div className="mb-4 border-2 border-red-200 rounded-xl bg-red-50 overflow-hidden">
+                <div className="px-4 py-2 bg-red-100 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-red-700 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block"></span>
+                    Missions non attribuées ce jour ({dayStats.unassignedMissions.length})
+                  </h3>
+                  <button
+                    onClick={() => setShowUnassignedPanel(true)}
+                    className="text-xs font-bold text-red-600 hover:text-red-800 underline"
+                  >
+                    Assigner →
+                  </button>
+                </div>
+                <div className="p-3 flex flex-wrap gap-2">
+                  {dayStats.unassignedMissions.map(m => (
+                    <div key={m.id} className="bg-white border border-red-200 rounded-lg px-3 py-2 text-xs shadow-sm min-w-[160px]">
+                      <p className="font-bold text-red-800 truncate">{m.clientName || 'Client'}</p>
+                      <p className="text-red-500 mt-0.5">{m.startTime && m.endTime ? `${m.startTime}–${m.endTime}` : 'Horaire ?'}</p>
+                      <p className="text-slate-500 truncate mt-0.5">{m.service || m.serviceType || '—'}</p>
+                      <button
+                        onClick={() => { setShowUnassignedPanel(true); }}
+                        className="mt-1.5 w-full text-[10px] font-bold bg-red-100 hover:bg-red-200 text-red-700 rounded px-2 py-1 transition"
+                      >
+                        + Assigner
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               {filteredProviders.map(({ provider, availability }) => {
                 const dayMissions = providerMissions.get(provider.id) || [];
@@ -1409,22 +2002,29 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                 const colorClasses = getDayColorClasses(colorStatus);
                 const isClosed = colorStatus === 'closed';
                 
+                const isExpanded = expandedCards.has(provider.id);
                 return (
-                  <div key={provider.id} className={`border-2 rounded-lg overflow-hidden ${colorClasses}`}>
-                    <div className="px-4 py-2 flex items-center justify-between bg-white/50">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center">
+                  <div key={provider.id} className={`border-2 rounded-xl overflow-hidden shadow-sm ${colorClasses}`}>
+                    <div className="px-4 py-2 flex items-center justify-between bg-white/60">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          className="relative w-9 h-9 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 hover:scale-105 transition"
+                          onClick={() => toggleCardExpand(provider.id)}
+                          title={isExpanded ? 'Réduire' : 'Détailler'}
+                        >
                           <span className="text-xs font-bold text-pink-600">
                             {(provider.firstName || '')[0]}{(provider.lastName || '')[0]}
                           </span>
-                        </div>
-                        <div>
-                          <p className="font-bold text-sm text-slate-800">
+                          <span className="absolute -bottom-0.5 -right-0.5 text-[11px]" title={provider.specialty || ''}>{getSpecialtyEmoji(provider.specialty)}</span>
+                        </button>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-slate-800 truncate">
                             {provider.firstName} {provider.lastName}
                           </p>
-                          <p className="text-xs text-slate-500">
-                            {totalHours}h / 7h
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-slate-500">{totalHours}h / 7h</p>
+                            {provider.specialty && <span className="text-[10px] text-slate-400 hidden sm:inline truncate">{provider.specialty}</span>}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1447,8 +2047,8 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                         <button
                           onClick={() => toggleClosedDay(provider.id)}
                           className={`text-xs px-2 py-1 rounded font-bold transition ${
-                            isClosed 
-                              ? 'bg-cyan-200 text-cyan-800 hover:bg-cyan-300' 
+                            isClosed
+                              ? 'bg-cyan-500 text-white hover:bg-cyan-600'
                               : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
                           }`}
                           title={isClosed ? 'Rouvrir la journée' : 'Clôturer la journée'}
@@ -1472,7 +2072,18 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                       </div>
                     </div>
                     
-                    <div className="p-4 bg-white">
+                    <div className={`bg-white transition-all duration-200 overflow-hidden ${dayMissions.length === 0 && !isExpanded ? 'max-h-14' : ''}`}>
+                      {/* Compact missions strip always visible */}
+                      {dayMissions.length > 0 && !isExpanded && (
+                        <div className="px-4 py-1.5 flex flex-wrap gap-1 border-t border-slate-100">
+                          {dayMissions.map(m => (
+                            <span key={m.id} className="text-[10px] bg-pink-50 text-pink-700 border border-pink-200 px-1.5 py-0.5 rounded-full font-medium">
+                              {m.startTime}–{m.endTime} · {m.clientName || m.service}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    <div className={`p-4 ${!isExpanded && dayMissions.length > 0 ? 'hidden' : ''}`}>
                       <div className="relative h-12 bg-slate-100 rounded overflow-hidden">
                         {dayMissions.length === 0 && (
                           <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">
@@ -1513,6 +2124,42 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                           ))}
                         </div>
                       </div>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-1.5 rounded-full transition-all duration-500 ${totalHours >= 7 ? 'bg-orange-400' : totalHours >= 4 ? 'bg-amber-400' : 'bg-green-400'}`}
+                            style={{ width: `${Math.min((totalHours / 7) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-400 w-8 text-right">{Math.round((totalHours / 7) * 100)}%</span>
+                      </div>
+
+                      {editingNoteId === provider.id ? (
+                        <div className="mt-2 flex gap-1">
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="Note rapide..."
+                            defaultValue={providerNotes[provider.id] || ''}
+                            onBlur={e => { setProviderNotes(prev => ({ ...prev, [provider.id]: e.target.value })); setEditingNoteId(null); }}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingNoteId(null); }}
+                            className="flex-1 text-xs border border-blue-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          className="mt-1 cursor-pointer group"
+                          onClick={() => setEditingNoteId(provider.id)}
+                        >
+                          {providerNotes[provider.id] ? (
+                            <p className="text-xs text-slate-500 italic group-hover:text-blue-500 transition truncate">📝 {providerNotes[provider.id]}</p>
+                          ) : (
+                            <p className="text-[10px] text-slate-300 group-hover:text-slate-400 transition">+ Note...</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     </div>
                   </div>
                 );
@@ -1524,122 +2171,380 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                   <p>Aucune prestataire disponible ce jour</p>
                 </div>
               )}
-            </div>
+              {!isLoading && availableProviders.length > 0 && filteredProviders.length === 0 && (
+                <div className="text-center py-10 text-slate-400">
+                  <Search className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p className="font-medium">Aucun prestataire ne correspond aux filtres</p>
+                  <button
+                    onClick={() => { setSearchQuery(''); setStatusFilter('all'); setTimeSlotFilter('all'); setSpecialtyFilter('all'); }}
+                    className="mt-3 text-sm text-blue-500 underline hover:text-blue-700"
+                  >
+                    Effacer les filtres
+                  </button>
+                </div>
+              )}
+            </div></>)}
           </div>
         </div>
       </div>
 
       {showBillingPanel && (
-        <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 p-4 max-h-48 overflow-y-auto">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
-                {billingAnalysis.length}
-              </span>
-              Suivi Facturation
-            </h3>
-            <button
-              onClick={() => setShowBillingPanel(false)}
-              className="text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          
-          {billingAnalysis.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-2">
-              Aucune facturation en attente
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {completeBillings.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-purple-700 mb-1 flex items-center gap-1">
-                    <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                    Pack ultime — Facturation complète ({completeBillings.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {completeBillings.map(billing => (
-                      <div key={billing.documentId} className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-purple-800">{billing.clientName}</span>
-                          <span className="text-xs text-purple-600">{billing.completedMissions}/{billing.totalMissions}</span>
-                        </div>
-                        <button 
-                          onClick={() => {
-                            if (convertQuoteToInvoice) {
-                              convertQuoteToInvoice(billing.documentId).then(() => {
-                                setToast({ type: 'success', message: '✅ Facture créée avec succès' });
-                              }).catch(() => {
-                                setToast({ type: 'error', message: '❌ Erreur lors de la création de la facture' });
-                              });
-                            } else {
-                              setToast({ type: 'info', message: '📄 Conversion devis → facture' });
-                            }
-                          }}
-                          className="mt-1 w-full text-xs bg-purple-500 text-white px-2 py-1 rounded font-bold hover:bg-purple-600 transition"
-                        >
-                          Émettre la facture
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-600" />
+                Suivi Facturation
+                <span className="text-sm font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                  {filteredBillingAnalysis.length} dossier{filteredBillingAnalysis.length !== 1 ? 's' : ''}
+                </span>
+              </h3>
+              <button
+                onClick={() => { setShowBillingPanel(false); setBillingSearch(''); }}
+                className="p-1.5 hover:bg-slate-100 rounded-lg transition"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 pt-4 pb-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Rechercher un client..."
+                  value={billingSearch}
+                  onChange={e => setBillingSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 space-y-5">
+              {billingAnalysis.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="font-medium">Aucune facturation en attente</p>
                 </div>
-              )}
-              
-              {partialBillings.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-blue-700 mb-1 flex items-center gap-1">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    Facturation partielle ({partialBillings.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {partialBillings.map(billing => (
-                      <div key={billing.documentId} className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-blue-800">{billing.clientName}</span>
-                          <span className="text-xs text-blue-600">{billing.completedMissions}/{billing.totalMissions}</span>
-                        </div>
-                        <button 
-                          onClick={() => {
-                            if (updateDocumentStatus) {
-                              updateDocumentStatus(billing.documentId, 'sent').then(() => {
-                                setToast({ type: 'success', message: '✅ Document marqué comme envoyé' });
-                              }).catch(() => {
-                                setToast({ type: 'error', message: '❌ Erreur lors de la mise à jour' });
-                              });
-                            } else if (markInvoicePaid) {
-                              markInvoicePaid(billing.documentId).then(() => {
-                                setToast({ type: 'success', message: '✅ Marque comme payé' });
-                              }).catch(() => {
-                                setToast({ type: 'error', message: '❌ Erreur' });
-                              });
-                            } else {
-                              setToast({ type: 'info', message: '📄 Facturation partielle' });
-                            }
-                          }}
-                          className="mt-1 w-full text-xs bg-blue-500 text-white px-2 py-1 rounded font-bold hover:bg-blue-600 transition"
-                        >
-                          Facturation partielle
-                        </button>
+              ) : (
+                <>
+                  {completeBillings.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-purple-700 mb-3 flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 bg-purple-500 rounded-full"></span>
+                        Pack ultime — Facturation complète ({completeBillings.length})
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {completeBillings.map(billing => (
+                          <div key={billing.documentId} className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="text-sm font-bold text-purple-800">{billing.clientName}</span>
+                              <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-bold">
+                                {billing.completedMissions}/{billing.totalMissions} missions
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (convertQuoteToInvoice) {
+                                  convertQuoteToInvoice(billing.documentId).then(() => {
+                                    setToast({ type: 'success', message: '✅ Facture créée avec succès' });
+                                  }).catch(() => {
+                                    setToast({ type: 'error', message: '❌ Erreur lors de la création de la facture' });
+                                  });
+                                } else {
+                                  setToast({ type: 'info', message: '📄 Conversion devis → facture' });
+                                }
+                              }}
+                              className="w-full text-sm bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-purple-600 transition"
+                            >
+                              Émettre la facture
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  )}
+
+                  {partialBillings.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-blue-700 mb-3 flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                        Facturation partielle ({partialBillings.length})
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {partialBillings.map(billing => (
+                          <div key={billing.documentId} className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="text-sm font-bold text-blue-800">{billing.clientName}</span>
+                              <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
+                                {billing.completedMissions}/{billing.totalMissions} missions
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (updateDocumentStatus) {
+                                  updateDocumentStatus(billing.documentId, 'sent').then(() => {
+                                    setToast({ type: 'success', message: '✅ Document marqué comme envoyé' });
+                                  }).catch(() => {
+                                    setToast({ type: 'error', message: '❌ Erreur lors de la mise à jour' });
+                                  });
+                                } else if (markInvoicePaid) {
+                                  markInvoicePaid(billing.documentId).then(() => {
+                                    setToast({ type: 'success', message: '✅ Marque comme payé' });
+                                  }).catch(() => {
+                                    setToast({ type: 'error', message: '❌ Erreur' });
+                                  });
+                                } else {
+                                  setToast({ type: 'info', message: '📄 Facturation partielle' });
+                                }
+                              }}
+                              className="w-full text-sm bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-600 transition"
+                            >
+                              Facturation partielle
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-          )}
+
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setShowBillingPanel(false)}
+                className="text-sm text-slate-600 bg-white border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-100 transition font-medium"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {!showBillingPanel && (
+      {(dayStats.unassignedCount + provisionalMissionsForDay.length) > 0 && !showUnassignedPanel && !showBillingPanel && (
         <button
-          onClick={() => setShowBillingPanel(true)}
-          className="fixed bottom-4 right-4 bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 transition"
+          onClick={() => setShowUnassignedPanel(true)}
+          className="fixed bottom-20 right-4 bg-orange-500 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold flex items-center gap-2 hover:bg-orange-600 transition z-40 animate-bounce"
         >
-          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          Facturation ({billingAnalysis.length})
+          <Users className="w-4 h-4" />
+          {dayStats.unassignedCount + provisionalMissionsForDay.length} à assigner aujourd'hui !
         </button>
+      )}
+
+      <button
+        onClick={() => setShowBillingPanel(true)}
+        className="fixed bottom-4 right-4 bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 transition z-30"
+      >
+        <span className={`w-2 h-2 rounded-full ${billingAnalysis.length > 0 ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`}></span>
+        Facturation
+        {billingAnalysis.length > 0 && (
+          <span className="bg-green-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+            {billingAnalysis.length}
+          </span>
+        )}
+      </button>
+
+      {showUnassignedPanel && (
+        <div className="fixed inset-0 z-50 flex bg-slate-900/50 backdrop-blur-sm">
+          <div className="hidden sm:flex flex-1" onClick={() => { setShowUnassignedPanel(false); setPanelSearch(''); setQuickAssignMission(null); }} />
+          <div className="w-full sm:max-w-md bg-white h-full overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-amber-800">🗓 Missions à assigner</h3>
+                  <p className="text-xs text-amber-600">
+                    {allFutureUnassigned.list.length} mission{allFutureUnassigned.list.length !== 1 ? 's' : ''} en attente
+                    {dayStats.unassignedCount > 0 && <span className="ml-1 text-red-600 font-bold">· {dayStats.unassignedCount} urgent{dayStats.unassignedCount > 1 ? 'es' : 'e'} aujourd'hui</span>}
+                  </p>
+                </div>
+                <button onClick={() => { setShowUnassignedPanel(false); setPanelSearch(''); setQuickAssignMission(null); }} className="p-2 hover:bg-amber-100 rounded-lg transition">
+                  <X className="w-5 h-5 text-amber-700" />
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher un client, service..."
+                  value={panelSearch}
+                  onChange={e => setPanelSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-amber-200 rounded-lg bg-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {(() => {
+                const q = panelSearch.toLowerCase();
+                const filteredGrouped = Object.entries(allFutureUnassigned.grouped)
+                  .map(([date, ms]) => [date, q ? ms.filter(m => m.clientName.toLowerCase().includes(q) || (m.service || '').toLowerCase().includes(q) || (m.serviceType || '').toLowerCase().includes(q)) : ms] as [string, Mission[]])
+                  .filter(([, ms]) => ms.length > 0);
+                if (allFutureUnassigned.list.length === 0) return (
+                  <div className="text-center py-12">
+                    <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                    <p className="text-slate-600 font-bold">Toutes les missions sont assignées !</p>
+                    <p className="text-slate-400 text-xs mt-1">Excellent travail 🎉</p>
+                  </div>
+                );
+                if (filteredGrouped.length === 0) return (
+                  <div className="text-center py-8">
+                    <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-slate-400 text-sm">Aucun résultat pour "{panelSearch}"</p>
+                  </div>
+                );
+                return filteredGrouped.map(([date, dayMissions]) => (
+                  <div key={date}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-slate-500 uppercase">
+                        {dayjs(date).format('dddd D MMMM')}
+                      </span>
+                      <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">{dayMissions.length}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {dayMissions.map(m => (
+                        <div key={m.id} className={`border rounded-xl p-3 transition-all ${quickAssignMission?.id === m.id ? 'border-blue-400 bg-blue-50 shadow-md' : 'border-slate-200 bg-white hover:border-amber-300 hover:shadow-sm'}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm text-slate-800 truncate">{m.clientName}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                <span className="text-xs text-slate-500">{m.service || m.serviceType || '—'}</span>
+                                {m.startTime && m.endTime && (
+                                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">⏰ {m.startTime}–{m.endTime}</span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => { setCurrentDate(dayjs(date)); setQuickAssignMission(m); setQuickAssignProviderId(''); }}
+                              className="shrink-0 text-xs bg-blue-500 text-white px-2.5 py-1.5 rounded-lg font-bold hover:bg-blue-600 transition active:scale-95"
+                            >
+                              Assigner
+                            </button>
+                          </div>
+                          {quickAssignMission?.id === m.id && (
+                            <div className="mt-3 space-y-2">
+                              {(() => {
+                                const mDate = m.date;
+                                const mStart = m.startTime || '';
+                                const mEnd = m.endTime || '';
+                                const mDayOfWeek = dayjs(mDate).day();
+                                const st = ((m as any).serviceType || m.service || '').toLowerCase();
+
+                                const getName = (p: Provider) => {
+                                  const pa = p as any;
+                                  const first = (pa.firstName || pa.first_name || '').toString().trim();
+                                  const last = (pa.lastName || pa.last_name || '').toString().trim();
+                                  const n = [first, last].filter(s => s.length > 0).join(' ');
+                                  if (n) return p.specialty ? `${n} — ${p.specialty}` : n;
+                                  if (pa.name && pa.name.toString().trim()) return pa.name.toString().trim();
+                                  const id = pa.phone ? pa.phone : pa.email ? pa.email.split('@')[0] : null;
+                                  const spec = p.specialty || 'Prestataire';
+                                  return id ? `${spec} · ${id}` : spec;
+                                };
+
+                                const matchesSpecialty = (p: Provider) => {
+                                  const sp = p.specialty?.toLowerCase() || '';
+                                  if (!sp || !st) return true;
+                                  if (st.includes('ménage') || st.includes('menage')) return sp.includes('ménage') || sp.includes('menage') || sp.includes('entretien');
+                                  if (st.includes('jardinage')) return sp.includes('jardin');
+                                  if (st.includes('bricolage')) return sp.includes('bricolage');
+                                  return true;
+                                };
+
+                                const available: Provider[] = [];
+                                const busyList: Array<{ provider: Provider; reason: string }> = [];
+                                const unavailList: Array<{ provider: Provider; reason: string }> = [];
+
+                                providers.filter(matchesSpecialty).forEach(p => {
+                                  if (p.status === 'Inactive' || p.status === 'Passive') return;
+                                  const nonDays: number[] = (p as any).nonInterventionDays || [];
+                                  if (nonDays.includes(mDayOfWeek)) {
+                                    unavailList.push({ provider: p, reason: 'Repos ce jour' });
+                                    return;
+                                  }
+                                  if (mStart && mEnd) {
+                                    const conflict = missions.find(ex =>
+                                      ex.providerId === p.id &&
+                                      ex.date === mDate &&
+                                      ex.status !== 'cancelled' &&
+                                      ex.id !== m.id &&
+                                      ex.startTime < mEnd &&
+                                      ex.endTime > mStart
+                                    );
+                                    if (conflict) {
+                                      busyList.push({ provider: p, reason: `Occupé ${conflict.startTime}–${conflict.endTime}` });
+                                      return;
+                                    }
+                                  }
+                                  available.push(p);
+                                });
+
+                                return (
+                                  <select
+                                    value={quickAssignProviderId}
+                                    onChange={e => setQuickAssignProviderId(e.target.value)}
+                                    className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 bg-white"
+                                  >
+                                    <option value="">— Choisir un prestataire —</option>
+                                    {available.length > 0 && (
+                                      <optgroup label={`✅ Disponibles (${available.length})`}>
+                                        {available.map(p => (
+                                          <option key={p.id} value={p.id}>
+                                            {getName(p)}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                    {busyList.length > 0 && (
+                                      <optgroup label={`⚠ Occupés à cette heure (${busyList.length})`}>
+                                        {busyList.map(({ provider: p, reason }) => (
+                                          <option key={p.id} value={p.id} disabled>
+                                            {getName(p)} · {reason}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                    {unavailList.length > 0 && (
+                                      <optgroup label={`🚫 Indisponibles ce jour (${unavailList.length})`}>
+                                        {unavailList.map(({ provider: p, reason }) => (
+                                          <option key={p.id} value={p.id} disabled>
+                                            {getName(p)} · {reason}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                    {available.length === 0 && (
+                                      <option value="" disabled>Aucun prestataire libre à cette heure</option>
+                                    )}
+                                  </select>
+                                );
+                              })()}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleQuickAssign}
+                                  disabled={!quickAssignProviderId}
+                                  className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-green-500 text-white px-3 py-2 rounded-lg font-bold hover:bg-green-600 disabled:opacity-40 transition active:scale-95"
+                                >
+                                  <CheckCircle className="w-4 h-4" /> Confirmer
+                                </button>
+                                <button
+                                  onClick={() => setQuickAssignMission(null)}
+                                  className="text-sm bg-slate-100 text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-200 transition"
+                                >
+                                  Annuler
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
       )}
 
       {showAssignModal && selectedProviderId && (
@@ -1674,68 +2579,157 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               
               {(() => {
                 const provider = providers.find(p => p.id === selectedProviderId);
-                const availableMissions = getUnassignedMissionsForProvider(selectedProviderId);
+                const availableMissions = getUnassignedMissionsForProvider(selectedProviderId!, missionDateFilter);
                 
-                if (availableMissions.length === 0) {
-                  return (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-sm text-amber-700 font-bold">Aucune mission disponible pour ce prestataire</p>
-                      <p className="text-xs text-amber-600 mt-1">
-                        Spécialité du prestataire: {provider?.specialty || 'Non définie'}
-                      </p>
-                    </div>
-                  );
-                }
-                
+                const providerDayMissions = providerMissions.get(selectedProviderId!) || [];
+                const pa = provider as any;
+                const providerFirst = (pa?.firstName || pa?.first_name || '').toString().trim();
+                const providerLast = (pa?.lastName || pa?.last_name || '').toString().trim();
+                const providerFullName = [providerFirst, providerLast].filter(s => s.length > 0).join(' ');
+                const providerIdFallback = pa?.phone ? pa.phone : pa?.email ? pa.email.split('@')[0] : null;
+                const providerSpec = provider?.specialty || 'Prestataire';
+                const providerName = providerFullName || (pa?.name?.toString().trim()) || (providerIdFallback ? `${providerSpec} · ${providerIdFallback}` : providerSpec);
+                const selectedConflict = selectedMission ? providerDayMissions.find(ex =>
+                  ex.date === (selectedMission.date || currentDateStr) &&
+                  ex.status !== 'cancelled' &&
+                  ex.startTime < (selectedMission.endTime || '99:00') &&
+                  ex.endTime > (selectedMission.startTime || '00:00')
+                ) : null;
+
                 return (
                   <div className="space-y-4">
+                    {/* Provider info + day summary */}
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-pink-600">
+                            {(provider?.firstName || '')[0]}{(provider?.lastName || '')[0]}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{providerName}</p>
+                          {provider?.specialty && <p className="text-xs text-slate-400">{provider.specialty}</p>}
+                        </div>
+                        <span className="ml-auto text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                          {providerDayMissions.length} mission{providerDayMissions.length !== 1 ? 's' : ''} ce jour
+                        </span>
+                      </div>
+                      {providerDayMissions.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Planning du {currentDate.format('D/MM')} :</p>
+                          {providerDayMissions.map(dm => (
+                            <div key={dm.id} className="flex items-center gap-2 text-xs bg-white border border-pink-100 rounded px-2 py-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 flex-shrink-0"></span>
+                              <span className="font-bold text-pink-700">{dm.startTime}–{dm.endTime}</span>
+                              <span className="text-slate-500 truncate">{dm.clientName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-green-600 font-medium">✓ Libre ce jour</p>
+                      )}
+                    </div>
+
+                    {selectedConflict && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Conflit d'horaire détecté !</p>
+                          <p>Ce prestataire a déjà une mission {selectedConflict.startTime}–{selectedConflict.endTime} ({selectedConflict.clientName}) à cette date.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Date scope filter */}
                     <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">
-                        Missions disponibles ({availableMissions.length})
-                      </label>
-                      <div className="space-y-2 max-h-40 overflow-y-auto">
-                        {availableMissions.map((mission, idx) => (
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Période de recherche</label>
+                      <div className="flex gap-1">
+                        {(['day', 'future', 'all'] as const).map(mode => (
                           <button
-                            key={mission.id}
-                            onClick={() => setSelectedMission(mission)}
-                            className={`w-full p-3 rounded-lg text-left text-sm transition border-2 ${
-                              selectedMission?.id === mission.id
-                                ? 'bg-blue-50 border-blue-500'
-                                : 'bg-white border-slate-200 hover:border-blue-300'
+                            key={mode}
+                            onClick={() => { setMissionDateFilter(mode); setSelectedMission(null); setSelectedTimeSlot(null); }}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                              missionDateFilter === mode ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
-                            <div className="font-bold text-slate-800">{mission.clientName}</div>
-                            <div className="text-xs text-slate-500">{mission.service} {mission.serviceType && `• ${mission.serviceType}`}</div>
+                            {mode === 'day' ? `📅 ${currentDate.format('D/MM')}` : mode === 'future' ? '📆 À venir' : '🗂 Toutes'}
                           </button>
                         ))}
                       </div>
                     </div>
-                    
+
+                    {availableMissions.length === 0 ? (
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-sm text-amber-700 font-bold">Aucune mission non assignée</p>
+                        <p className="text-xs text-amber-600 mt-1">Spécialité: {provider?.specialty || 'Non définie'}</p>
+                        <button
+                          onClick={() => { setMissionDateFilter('all'); setSelectedMission(null); }}
+                          className="mt-2 text-xs text-blue-600 underline"
+                        >Rechercher sur toutes les dates</button>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          Missions disponibles ({availableMissions.length})
+                        </label>
+                        <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                          {availableMissions.map(mission => {
+                            const srcDoc = documents.find(d => d.id === mission.sourceDocumentId);
+                            const serviceLabel = srcDoc?.serviceType || mission.serviceType || mission.service || '—';
+                            return (
+                              <button
+                                key={mission.id}
+                                onClick={() => {
+                                  setSelectedMission(mission);
+                                  // Auto-select time slot if mission has existing times
+                                  if (mission.startTime && mission.endTime) {
+                                    const match = TIME_SLOTS.find(s => s.start === mission.startTime && s.end === mission.endTime);
+                                    if (match) {
+                                      setSelectedTimeSlot(match);
+                                      setCustomStartTime('');
+                                      setCustomEndTime('');
+                                    } else {
+                                      setSelectedTimeSlot(null);
+                                      setCustomStartTime(mission.startTime);
+                                      setCustomEndTime(mission.endTime);
+                                    }
+                                  }
+                                }}
+                                className={`w-full p-3 rounded-lg text-left text-sm transition border-2 ${
+                                  selectedMission?.id === mission.id
+                                    ? 'bg-blue-50 border-blue-500'
+                                    : 'bg-white border-slate-200 hover:border-blue-300'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-800">{mission.clientName}</span>
+                                  <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{dayjs(mission.date).format('D/MM')}</span>
+                                </div>
+                                <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
+                                  <span>{serviceLabel}</span>
+                                  {mission.startTime && mission.endTime && (
+                                    <span className="text-blue-500 font-medium">{mission.startTime}–{mission.endTime}</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {selectedMission && (
-                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <h4 className="text-sm font-bold text-blue-800 mb-3">Informations du client</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-start gap-2">
-                            <span className="font-medium text-blue-700">Client:</span>
-                            <span className="text-blue-900">{selectedMission.clientName}</span>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <span className="font-medium text-blue-700">Service:</span>
-                            <span className="text-blue-900">{selectedMission.service}</span>
-                          </div>
-                          {selectedMission.serviceType && (
-                            <div className="flex items-start gap-2">
-                              <span className="font-medium text-blue-700">Type:</span>
-                              <span className="text-blue-900">{selectedMission.serviceType}</span>
-                            </div>
-                          )}
-                          {selectedMission.sourceDocumentId && (
-                            <div className="flex items-start gap-2">
-                              <span className="font-medium text-blue-700">Devis:</span>
-                              <span className="text-blue-900 font-mono text-xs">{selectedMission.sourceDocumentId.slice(0, 8)}...</span>
-                            </div>
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-blue-800">📋 {selectedMission.clientName}</span>
+                          {selectedMission.date !== currentDateStr && (
+                            <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">Reprogrammé au {currentDateStr}</span>
                           )}
                         </div>
+                        <div className="text-blue-700">{selectedMission.service}{selectedMission.serviceType ? ` · ${selectedMission.serviceType}` : ''}</div>
+                        {selectedMission.sourceDocumentId && (
+                          <div className="text-blue-500">Devis #{selectedMission.sourceDocumentId.slice(0, 8)}</div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1748,14 +2742,14 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {TIME_SLOTS.map(slot => {
-                    const error = validateTimeSlot(selectedProviderId, slot);
-                    const isSelected = selectedTimeSlot?.id === slot.id;
+                    const error = validateTimeSlot(selectedProviderId!, slot);
+                    const isSelected = selectedTimeSlot?.id === slot.id && !customStartTime;
                     const isDisabled = error !== null;
                     
                     return (
                       <button
                         key={slot.id}
-                        onClick={() => !isDisabled && setSelectedTimeSlot(slot)}
+                        onClick={() => { if (!isDisabled) { setSelectedTimeSlot(slot); setCustomStartTime(''); setCustomEndTime(''); } }}
                         disabled={isDisabled}
                         className={`p-2 rounded-lg text-left text-sm transition ${
                           isSelected 
@@ -1772,6 +2766,34 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                       </button>
                     );
                   })}
+                </div>
+                <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-500 mb-2">Ou horaire personnalisé</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={customStartTime}
+                      onChange={e => { setCustomStartTime(e.target.value); setSelectedTimeSlot(null); }}
+                      className="flex-1 text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="text-slate-400 text-sm">→</span>
+                    <input
+                      type="time"
+                      value={customEndTime}
+                      onChange={e => { setCustomEndTime(e.target.value); setSelectedTimeSlot(null); }}
+                      className="flex-1 text-sm border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                    />
+                    {(customStartTime || customEndTime) && (
+                      <button onClick={() => { setCustomStartTime(''); setCustomEndTime(''); }} className="text-slate-400 hover:text-red-500">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  {customStartTime && customEndTime && (
+                    <p className="text-xs text-green-600 mt-1 font-medium">
+                      ✓ Horaire personnalisé : {customStartTime}–{customEndTime}
+                    </p>
+                  )}
                 </div>
               </div>
               
@@ -1803,9 +2825,9 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               </button>
               <button
                 onClick={handleConfirmAssignment}
-                disabled={!selectedTimeSlot || !selectedMission || isSubmitting}
+                disabled={!(selectedTimeSlot || (customStartTime && customEndTime)) || !selectedMission || isSubmitting}
                 className={`flex-1 py-2 px-4 rounded-lg font-bold transition ${
-                  selectedTimeSlot && selectedMission && !isSubmitting
+                  (selectedTimeSlot || (customStartTime && customEndTime)) && selectedMission && !isSubmitting
                     ? 'bg-blue-500 text-white hover:bg-blue-600'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}

@@ -1284,10 +1284,13 @@ const Planning: React.FC = () => {
         missions={missions}
         documents={documents}
         addMission={addMission}
+        assignProvider={assignProvider}
+        updateMission={updateMission}
         convertQuoteToInvoice={convertQuoteToInvoice}
         markInvoicePaid={markInvoicePaid}
         updateDocumentStatus={updateDocumentStatus}
         updateMessageConfig={updateMessageConfig}
+        loadMissionsForRange={loadMissionsForRange}
       />
     );
   }
