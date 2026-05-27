@@ -1292,10 +1292,19 @@ const ProviderPortal: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Recent Missions Cards - Only in overview mode */}
-                      {dashboardViewMode === 'overview' && providerMissions.slice(0, 4).length > 0 && (
-                        <div className="grid grid-cols-4 gap-4">
-                          {providerMissions.slice(0, 4).map((m, idx) => {
+                      {/* Recent Missions Cards - Only in overview mode, only today+tomorrow */}
+                      {dashboardViewMode === 'overview' && (() => {
+                        const todayStr = dayjs().format('YYYY-MM-DD');
+                        const tomorrowStr = dayjs().add(1, 'day').format('YYYY-MM-DD');
+                        const nearMissions = providerMissions
+                          .filter(m => (m.date === todayStr || m.date === tomorrowStr) && m.status !== 'cancelled' && m.status !== 'completed')
+                          .slice(0, 4);
+                        if (nearMissions.length === 0) return null;
+                        return (
+                        <div>
+                          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Missions prochaines (aujourd'hui &amp; demain)</p>
+                          <div className="grid grid-cols-4 gap-4">
+                          {nearMissions.map((m, idx) => {
                             const clientById = clients.find(c => String(c.id) === String(m.clientId || ''));
                             const normalizedMissionClientName = String(m.clientName || '').trim().toLowerCase();
                             const clientByName = !clientById && normalizedMissionClientName
@@ -1343,8 +1352,10 @@ const ProviderPortal: React.FC = () => {
                               </div>
                             );
                           })}
+                          </div>
                         </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Missions Table - Only in overview mode */}
                       {dashboardViewMode === 'overview' && (

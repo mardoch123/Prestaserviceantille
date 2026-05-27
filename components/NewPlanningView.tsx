@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, ArrowLeft, Sun, Sunset, Clock, Plus, X, AlertCircle, CheckCircle, Send, Settings, Search, Grid3X3, FileText, Download, Printer, Link, History, Users } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
-import { Provider, Mission } from '../types';
+import { Provider, Mission, Client } from '../types';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import { getApiConfig, setApiConfig, MESSAGE_PROVIDERS } from '../src/config/apiConfig';
 import type { MessageProvider } from '../src/config/apiConfig';
@@ -56,6 +56,7 @@ interface NewPlanningViewProps {
   onSwitchToOldVersion: () => void;
   providers: Provider[];
   missions: Mission[];
+  clients?: Client[];
   documents?: any[];
   addMission?: (mission: Mission) => Promise<void>;
   assignProvider?: (missionId: string, providerId: string, providerName: string) => Promise<void>;
@@ -71,6 +72,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   onSwitchToOldVersion, 
   providers, 
   missions,
+  clients = [],
   documents = [],
   addMission,
   assignProvider,
@@ -121,6 +123,23 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const [quickAssignProviderId, setQuickAssignProviderId] = useState('');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const toggleCardExpand = (id: string) => setExpandedCards(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const [missionDetailsModal, setMissionDetailsModal] = useState<Mission | null>(null);
+  const [hideEmptyDays, setHideEmptyDays] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [editMissionTime, setEditMissionTime] = useState<{ start: string; end: string } | null>(null);
+  const [savingMissionEdit, setSavingMissionEdit] = useState(false);
+  const [provisionalTimeOverrides, setProvisionalTimeOverrides] = useState<Record<string, { startTime: string; endTime: string }>>({});
+
+  const getProviderDisplayName = (p: Provider | undefined | null): string => {
+    if (!p) return '—';
+    const pa = p as any;
+    const first = (pa?.firstName || pa?.first_name || '').toString().trim();
+    const last = (pa?.lastName || pa?.last_name || '').toString().trim();
+    const n = [first, last].filter(s => s.length > 0).join(' ');
+    if (n) return n;
+    if (pa?.name && pa.name.toString().trim()) return pa.name.toString().trim();
+    return pa?.specialty || 'Prestataire';
+  };
 
   const ShimmerLoader = ({ className }: { className?: string }) => (
     <div className={`animate-pulse bg-slate-200 rounded ${className}`} />
@@ -295,10 +314,17 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === 't' || e.key === 'T') { setCurrentDate(getMartiniqueNowDayjs()); setSentMessages(new Set()); }
-      if (e.key === 'ArrowLeft') handlePrevDay();
-      if (e.key === 'ArrowRight') handleNextDay();
+      if (e.key === 'ArrowLeft') { e.preventDefault(); handlePrevDay(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); handleNextDay(); }
+      if (e.key === 'w' || e.key === 'W') setShowWeeklyView(v => !v);
+      if (e.key === 'Escape') {
+        setMissionDetailsModal(null);
+        setEditMissionTime(null);
+        setShowUnassignedPanel(false);
+        setShowBillingPanel(false);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -307,11 +333,15 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const isDataReady = providers.length > 0 || missions.length > 0;
   
   React.useEffect(() => {
-    setIsLoading(true);
-    const delay = isDataReady ? 600 : 4000;
-    const timer = setTimeout(() => setIsLoading(false), delay);
-    return () => clearTimeout(timer);
-  }, [currentDateStr, isDataReady]);
+    if (!isDataReady) {
+      setIsLoading(true);
+      const timer = setTimeout(() => setIsLoading(false), 4000);
+      return () => clearTimeout(timer);
+    } else {
+      const timer = setTimeout(() => setIsLoading(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isDataReady]);
 
   const todayAuditLog = useMemo(() => getAuditLogForDate(currentDateStr), [currentDateStr]);
 
@@ -462,10 +492,15 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(({ provider }) => {
-        const first = (provider.firstName || '').toLowerCase();
-        const last = (provider.lastName || '').toLowerCase();
-        const spec = (provider.specialty || '').toLowerCase();
-        return first.includes(query) || last.includes(query) || spec.includes(query);
+        const pa = provider as any;
+        const first = (pa.firstName || pa.first_name || '').toString().toLowerCase();
+        const last = (pa.lastName || pa.last_name || '').toString().toLowerCase();
+        const fullName = `${first} ${last}`.trim();
+        const name = (pa.name || '').toString().toLowerCase();
+        const specialty = (pa.specialty || '').toString().toLowerCase();
+        const phone = (pa.phone || '').toString().toLowerCase();
+        const email = (pa.email || '').toString().toLowerCase();
+        return fullName.includes(query) || name.includes(query) || specialty.includes(query) || phone.includes(query) || email.includes(query);
       });
     }
     
@@ -506,7 +541,11 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     
     // Sort
     filtered = [...filtered].sort((a, b) => {
-      if (sortOrder === 'name') return `${a.provider.firstName} ${a.provider.lastName}`.localeCompare(`${b.provider.firstName} ${b.provider.lastName}`);
+      if (sortOrder === 'name') {
+        const nameA = `${a.provider.firstName || ''} ${a.provider.lastName || ''}`.trim().toLowerCase();
+        const nameB = `${b.provider.firstName || ''} ${b.provider.lastName || ''}`.trim().toLowerCase();
+        return nameA.localeCompare(nameB);
+      }
       const hA = (providerMissions.get(a.provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
       const hB = (providerMissions.get(b.provider.id) || []).reduce((s, m) => s + (m.duration || 0), 0);
       return sortOrder === 'load_asc' ? hA - hB : hB - hA;
@@ -532,10 +571,21 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     return { totalProviders, plannedCount, fullCount, totalHours, unassignedCount: unassignedMissions.length, unassignedMissions };
   }, [availableProviders, providerMissions, missions, currentDateStr]);
 
+  const isDevisValid = (d: any): boolean => {
+    if (d.status === 'expired' || d.status === 'refused' || d.status === 'cancelled') return false;
+    if (d.status !== 'sent' && d.status !== 'signed') return false;
+    const expiry = d.expirationDate || d.expiryDate || d.validUntil || d.expiry;
+    if (expiry) {
+      const expiryDay = dayjs(expiry);
+      if (expiryDay.isValid() && expiryDay.isBefore(dayjs(), 'day')) return false;
+    }
+    return true;
+  };
+
   const provisionalMissionsForDay = useMemo(() => {
     return (documents || [])
       .filter((d: any) => d.type === 'Devis')
-      .filter((d: any) => d.status === 'sent' || d.status === 'signed')
+      .filter(isDevisValid)
       .filter((d: any) => Array.isArray(d.slotsData) && d.slotsData.length > 0)
       .flatMap((d: any) => (d.slotsData || []).map((slot: any, idx: number) => ({
         id: `provisional-${d.id}-${idx}`,
@@ -546,11 +596,15 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
         service: d.description || 'Devis',
         clientId: d.clientId,
         clientName: d.clientName || 'Client',
+        clientPhone: d.clientPhone || d.phone || d.client?.phone || '',
+        clientAddress: d.clientAddress || d.address || d.client?.address || '',
+        clientEmail: d.clientEmail || d.email || d.client?.email || '',
         providerId: null as null,
         providerName: 'À assigner',
         status: 'planned' as const,
         sourceDocumentId: d.id,
         isProvisional: true,
+        devisStatus: d.status,
       })))
       .filter((item: any) => item.date === currentDateStr);
   }, [documents, currentDateStr]);
@@ -559,7 +613,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     const todayStr = getMartiniqueNowDayjs().format('YYYY-MM-DD');
     const list = (documents || [])
       .filter((d: any) => d.type === 'Devis')
-      .filter((d: any) => d.status === 'sent' || d.status === 'signed')
+      .filter(isDevisValid)
       .filter((d: any) => Array.isArray(d.slotsData) && d.slotsData.length > 0)
       .flatMap((d: any) => (d.slotsData || []).map((slot: any, idx: number) => ({
         id: `provisional-${d.id}-${idx}`,
@@ -567,8 +621,14 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
         startTime: slot?.startTime || '',
         endTime: slot?.endTime || '',
         service: d.description || 'Devis',
+        clientId: d.clientId,
         clientName: d.clientName || 'Client',
+        clientPhone: d.clientPhone || d.phone || d.client?.phone || '',
+        clientAddress: d.clientAddress || d.address || d.client?.address || '',
+        clientEmail: d.clientEmail || d.email || d.client?.email || '',
         sourceDocumentId: d.id,
+        isProvisional: true,
+        devisStatus: d.status,
       })))
       .filter((item: any) => item.date && item.date >= todayStr)
       .sort((a: any, b: any) => a.date.localeCompare(b.date));
@@ -619,18 +679,49 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     }
   };
 
+  const buildProviderOptionsForMission = (m: Mission | null) => {
+    if (!m) return { available: [] as Provider[], busyList: [] as { provider: Provider; reason: string }[], unavailList: [] as { provider: Provider; reason: string }[] };
+    const mDate = m.date;
+    const mStart = m.startTime || '';
+    const mEnd = m.endTime || '';
+    const mDayOfWeek = dayjs(mDate).day();
+    const st = ((m as any).serviceType || m.service || '').toLowerCase();
+    const matchesSp = (p: Provider) => {
+      const sp = p.specialty?.toLowerCase() || '';
+      if (!sp || !st) return true;
+      if (st.includes('ménage') || st.includes('menage')) return sp.includes('ménage') || sp.includes('menage') || sp.includes('entretien');
+      if (st.includes('jardinage')) return sp.includes('jardin');
+      if (st.includes('bricolage')) return sp.includes('bricolage');
+      return true;
+    };
+    const available: Provider[] = [], busyList: { provider: Provider; reason: string }[] = [], unavailList: { provider: Provider; reason: string }[] = [];
+    providers.filter(matchesSp).forEach(p => {
+      if (p.status === 'Inactive' || p.status === 'Passive') return;
+      const nonDays: number[] = (p as any).nonInterventionDays || [];
+      if (nonDays.includes(mDayOfWeek)) { unavailList.push({ provider: p, reason: 'Repos ce jour' }); return; }
+      if (mStart && mEnd) {
+        const conflict = missions.find(ex => ex.providerId === p.id && ex.date === mDate && ex.status !== 'cancelled' && ex.id !== m.id && ex.startTime < mEnd && ex.endTime > mStart);
+        if (conflict) { busyList.push({ provider: p, reason: `Occupé ${conflict.startTime}–${conflict.endTime}` }); return; }
+      }
+      available.push(p);
+    });
+    return { available, busyList, unavailList };
+  };
+
   const handleQuickAssign = async () => {
     if (!quickAssignMission || !quickAssignProviderId) return;
     const provider = providers.find(p => p.id === quickAssignProviderId);
-    const providerName = `${provider?.firstName || ''} ${provider?.lastName || ''}`.trim();
+    const providerName = getProviderDisplayName(provider);
+    const isProvisional = (quickAssignMission as any).isProvisional || String(quickAssignMission.id || '').startsWith('provisional-');
     try {
-      if (assignProvider && quickAssignMission.id) {
+      if (!isProvisional && assignProvider && quickAssignMission.id) {
         await assignProvider(quickAssignMission.id, quickAssignProviderId, providerName);
       } else if (addMission) {
-        await addMission({ ...quickAssignMission, id: '', providerId: quickAssignProviderId, providerName, status: 'planned', color: 'orange' });
+        const { id: _id, isProvisional: _ip, ...rest } = quickAssignMission as any;
+        await addMission({ ...rest, id: '', providerId: quickAssignProviderId, providerName, status: 'planned', color: 'orange' });
       }
       if (provider) await sendAssignmentEmail(provider, quickAssignMission);
-      setToast({ type: 'success', message: `✅ ${quickAssignMission.clientName} → ${provider?.firstName}${provider?.email ? ' · 📧 Email envoyé' : ''}` });
+      setToast({ type: 'success', message: `✅ ${quickAssignMission.clientName} → ${providerName}${provider?.email ? ' · 📧 Email envoyé' : ''}` });
       setQuickAssignMission(null);
       setQuickAssignProviderId('');
     } catch (e: any) {
@@ -662,15 +753,30 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
     });
     
     const uniqueProviders = new Set(allWeekMissions.map(m => m.providerId).filter(Boolean));
-    const pendingBillings = allWeekMissions.filter(m => m.status === 'completed').length;
+    const completedCount = allWeekMissions.filter(m => m.status === 'completed').length;
+    const pendingBillings = completedCount;
+    const completionRate = allWeekMissions.length > 0 ? Math.round((completedCount / allWeekMissions.length) * 100) : 0;
     
     return {
       days: weekDays,
       totalHours: allWeekMissions.reduce((sum, m) => sum + (m.duration || 0), 0),
       uniqueProviders: uniqueProviders.size,
-      pendingBillings
+      pendingBillings,
+      completedCount,
+      totalMissions: allWeekMissions.length,
+      completionRate
     };
   }, [missions, currentDate]);
+
+  const nextUnassignedDay = useMemo(() => {
+    const todayStr = getMartiniqueNowDayjs().format('YYYY-MM-DD');
+    const futureDates = [...new Set(missions.filter(m =>
+      m.date >= todayStr &&
+      (!m.providerId || m.providerId === 'null' || m.providerId === '') &&
+      m.status !== 'cancelled' && m.status !== 'completed'
+    ).map(m => m.date))].sort();
+    return futureDates[0] || null;
+  }, [missions]);
 
   interface BillingInfo {
     documentId: string;
@@ -723,10 +829,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
   const filteredBillingAnalysis = useMemo(() => {
     if (!billingSearch.trim()) return billingAnalysis;
     const q = billingSearch.trim().toLowerCase();
-    return billingAnalysis.filter(b => {
-      const name = (b.clientName || '').toLowerCase();
-      return name.includes(q);
-    });
+    return billingAnalysis.filter(b => (b.clientName || '').toLowerCase().includes(q));
   }, [billingAnalysis, billingSearch]);
 
   const partialBillings = filteredBillingAnalysis.filter(b => b.status === 'partial');
@@ -1190,7 +1293,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm text-slate-800 truncate">
-              {provider.firstName} {provider.lastName}
+              {getProviderDisplayName(provider)}
             </p>
             <p className="text-xs text-slate-500">{provider.specialty}</p>
           </div>
@@ -1457,13 +1560,14 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Rechercher..."
+                placeholder={showWeeklyView ? 'Filtrer missions...' : 'Rechercher prestataire...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg w-32 md:w-40 focus:outline-none focus:border-blue-500"
+                className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg w-40 md:w-52 focus:outline-none focus:border-blue-500"
               />
             </div>
-            
+
+            {!showWeeklyView && (<>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
@@ -1480,10 +1584,10 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               onChange={(e) => setTimeSlotFilter(e.target.value as typeof timeSlotFilter)}
               className="text-sm border border-slate-300 rounded-lg px-2 py-1.5"
             >
-              <option value="all">Tous</option>
+              <option value="all">Tous créneaux</option>
               <option value="morning">Matin</option>
-              <option value="afternoon">AM</option>
-              <option value="full">Jour</option>
+              <option value="afternoon">Après-midi</option>
+              <option value="full">Journée</option>
             </select>
 
             <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5 bg-slate-50">
@@ -1509,12 +1613,13 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
               <option value="load_asc">Charge ↑</option>
               <option value="load_desc">Charge ↓</option>
             </select>
+            </>)}
 
-            {(searchQuery || statusFilter !== 'all' || timeSlotFilter !== 'all' || specialtyFilter !== 'all') && (
+            {(searchQuery || (!showWeeklyView && (statusFilter !== 'all' || timeSlotFilter !== 'all' || specialtyFilter !== 'all'))) && (
               <button
                 onClick={() => { setSearchQuery(''); setStatusFilter('all'); setTimeSlotFilter('all'); setSpecialtyFilter('all'); }}
                 className="flex items-center gap-1 text-xs px-2 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg font-bold hover:bg-red-100 transition"
-                title="Effacer tous les filtres"
+                title="Effacer les filtres"
               >
                 <X className="w-3 h-3" /> Effacer
               </button>
@@ -1523,15 +1628,35 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
           
           <div className="flex items-center gap-2 md:gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600">
-              <span className="bg-slate-100 px-2 py-1 rounded">
+              <span className="bg-slate-100 px-2 py-1 rounded" title="Heures planifiées cette semaine">
                 {weeklyStats.totalHours}h/sem
               </span>
-              <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+              <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded" title="Prestataires cette semaine">
                 {weeklyStats.uniqueProviders} prest.
               </span>
-              <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded">
-                {weeklyStats.pendingBillings} facturer
-              </span>
+              {weeklyStats.totalMissions > 0 && (
+                <div className="flex items-center gap-1.5" title={`${weeklyStats.completedCount}/${weeklyStats.totalMissions} terminées`}>
+                  <div className="w-20 h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${weeklyStats.completionRate === 100 ? 'bg-green-500' : weeklyStats.completionRate >= 50 ? 'bg-blue-400' : 'bg-amber-400'}`}
+                      style={{ width: `${weeklyStats.completionRate}%` }}
+                    />
+                  </div>
+                  <span className={`font-bold ${weeklyStats.completionRate === 100 ? 'text-green-600' : 'text-slate-500'}`}>
+                    {weeklyStats.completionRate}%
+                  </span>
+                </div>
+              )}
+              {nextUnassignedDay && (
+                <button
+                  onClick={() => { setCurrentDate(dayjs(nextUnassignedDay)); setShowWeeklyView(false); }}
+                  className="flex items-center gap-1 bg-red-50 text-red-600 border border-red-200 px-2 py-1 rounded-lg font-bold hover:bg-red-100 transition"
+                  title={`Prochain jour avec missions non assignées : ${dayjs(nextUnassignedDay).format('ddd D MMM')}`}
+                >
+                  <span className="animate-pulse">⚡</span>
+                  {dayjs(nextUnassignedDay).format('ddd D')}
+                </button>
+              )}
             </div>
             
             <button
@@ -1541,6 +1666,26 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
             >
               <Grid3X3 className="w-4 h-4" />
             </button>
+            {showWeeklyView && (<>
+              <button
+                onClick={() => setHideEmptyDays(!hideEmptyDays)}
+                className={`px-2 py-1.5 text-xs font-bold rounded-lg transition border ${
+                  hideEmptyDays ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-100'
+                }`}
+                title={hideEmptyDays ? 'Afficher tous les jours' : 'Masquer jours vides'}
+              >
+                {hideEmptyDays ? '📅 Tous' : '🗓 Jours actifs'}
+              </button>
+              <button
+                onClick={() => setHideCompleted(!hideCompleted)}
+                className={`px-2 py-1.5 text-xs font-bold rounded-lg transition border ${
+                  hideCompleted ? 'bg-green-600 text-white border-green-600' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-100'
+                }`}
+                title={hideCompleted ? 'Afficher missions terminées' : 'Masquer missions terminées'}
+              >
+                {hideCompleted ? '✅ Toutes' : '✅ Masquer OK'}
+              </button>
+            </>)}
             <button
               onClick={() => setShowSidebar(!showSidebar)}
               className="md:hidden relative p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
@@ -1640,7 +1785,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                     <div className="space-y-1">
                       {unavailableProviders.map(({ provider, reason }) => (
                         <div key={provider.id} className="text-xs text-slate-400 p-2 bg-slate-100 rounded">
-                          {provider.firstName} {provider.lastName}
+                          {getProviderDisplayName(provider)}
                           <span className="block text-slate-400">{reason}</span>
                         </div>
                       ))}
@@ -1713,18 +1858,28 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                 </h3>
                 <div className="space-y-1">
                   {dayStats.unassignedMissions.map(m => (
-                    <div key={m.id} className="text-xs bg-red-50 border border-red-100 rounded p-2">
+                    <div key={m.id} className="text-xs bg-red-50 border border-red-200 rounded p-2 cursor-pointer hover:bg-red-100 transition"
+                      onClick={() => { setShowUnassignedPanel(true); setQuickAssignMission(m); setQuickAssignProviderId(''); }}>
                       <div className="font-bold text-red-700 truncate">{m.clientName || 'Client'}</div>
                       <div className="text-red-500">{m.startTime}–{m.endTime} · {m.service || m.serviceType || '—'}</div>
+                      <div className="text-[10px] text-red-400 font-bold mt-0.5">Tap pour attribuer →</div>
                     </div>
                   ))}
-                  {provisionalMissionsForDay.map((m: any) => (
-                    <div key={m.id} className="text-xs bg-orange-50 border border-orange-200 rounded p-2">
-                      <div className="font-bold text-orange-700 truncate">{m.clientName}</div>
-                      <div className="text-orange-500">{m.startTime}–{m.endTime} · {m.service || '—'}</div>
-                      <div className="text-[10px] text-orange-400 italic">Devis en attente</div>
+                  {provisionalMissionsForDay.map((m: any) => {
+                    const canAssign = m.devisStatus === 'signed';
+                    return (
+                    <div key={m.id}
+                      className={`text-xs rounded p-2 transition ${canAssign ? 'bg-orange-50 border border-orange-200 cursor-pointer hover:bg-orange-100' : 'bg-yellow-50 border border-yellow-200 cursor-default'}`}
+                      onClick={() => { if (canAssign) { setShowUnassignedPanel(true); setQuickAssignMission(m as any); setQuickAssignProviderId(''); } else { setMissionDetailsModal(m); } }}
+                    >
+                      <div className={`font-bold truncate ${canAssign ? 'text-orange-700' : 'text-yellow-700'}`}>{m.clientName}</div>
+                      <div className={canAssign ? 'text-orange-500' : 'text-yellow-500'}>{m.startTime}–{m.endTime} · {m.service || '—'}</div>
+                      <div className={`text-[10px] italic font-bold mt-0.5 ${canAssign ? 'text-orange-400' : 'text-yellow-500'}`}>
+                        {canAssign ? 'Devis signé · Tap pour attribuer →' : '⏳ En attente de signature'}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1735,7 +1890,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                 <div className="space-y-1">
                   {unavailableProviders.map(({ provider, reason }) => (
                     <div key={provider.id} className="p-2 bg-slate-100 rounded text-xs opacity-50">
-                      <span className="font-bold text-slate-600">{provider.firstName} {provider.lastName?.[0]}.</span>
+                      <span className="font-bold text-slate-600">{getProviderDisplayName(provider)}</span>
                       <span className="text-slate-400 ml-1">{reason}</span>
                     </div>
                   ))}
@@ -1787,97 +1942,100 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
             </div>
             
             {showWeeklyView && (
-              <div className="grid grid-cols-7 gap-3 min-w-0">
-                {weeklyStats.days.map((day) => {
-                  let dayMissionsList = day.missions.filter(m => m.status !== 'cancelled');
-                  if (searchQuery) {
-                    const q = searchQuery.toLowerCase();
-                    dayMissionsList = dayMissionsList.filter(m => {
-                      const client = (m.clientName || '').toLowerCase();
-                      const svc = (m.service || '').toLowerCase();
-                      const prov = (m.providerName || '').toLowerCase();
-                      return client.includes(q) || svc.includes(q) || prov.includes(q);
-                    });
-                  }
-                  if (statusFilter !== 'all') {
-                    dayMissionsList = dayMissionsList.filter(m => {
-                      if (statusFilter === 'unplanned') return !m.providerId || m.providerId === 'null';
-                      if (statusFilter === 'planned') return !!m.providerId && m.providerId !== 'null';
-                      if (statusFilter === 'available') return m.status !== 'completed';
-                      return true;
-                    });
-                  }
-                  if (timeSlotFilter !== 'all') {
-                    dayMissionsList = dayMissionsList.filter(m => {
-                      const startHour = parseInt(m.startTime?.split(':')[0] || '0');
-                      const hasMorning = startHour < 12;
-                      const hasAfternoon = startHour >= 12;
-                      if (timeSlotFilter === 'morning') return hasMorning;
-                      if (timeSlotFilter === 'afternoon') return hasAfternoon;
-                      if (timeSlotFilter === 'full') return hasMorning && hasAfternoon;
-                      return true;
-                    });
-                  }
-                  if (specialtyFilter !== 'all') {
-                    dayMissionsList = dayMissionsList.filter(m => {
-                      const svc = (m.service || '').toLowerCase();
-                      if (specialtyFilter === 'menage') return svc.includes('ménage') || svc.includes('menage');
-                      if (specialtyFilter === 'jardinage') return svc.includes('jardinage') || svc.includes('jardin');
-                      if (specialtyFilter === 'bricolage') return svc.includes('bricolage');
-                      return true;
-                    });
-                  }
+              <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: `repeat(${hideEmptyDays ? weeklyStats.days.filter(d => d.missions.length > 0 || missions.filter(m => m.date === d.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled').length > 0).length || 7 : 7}, minmax(0, 1fr))` }}>
+                {weeklyStats.days.filter(d => !hideEmptyDays || d.missions.length > 0 || missions.filter(m => m.date === d.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled').length > 0 || allFutureProvisional.list.filter((m: any) => m.date === d.date).length > 0).map((day) => {
                   const dayDate = dayjs(day.date);
                   const isTodayDay = day.date === today;
-                  const dayUnassigned = missions.filter(m => m.date === day.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled' && m.status !== 'completed');
-                  const dayProv = allFutureProvisional.list.filter((m: any) => m.date === day.date);
+                  const wkSearch = searchQuery.trim().toLowerCase();
+                  const rawUnassigned = missions.filter(m => m.date === day.date && (!m.providerId || m.providerId === 'null' || m.providerId === '') && m.status !== 'cancelled' && m.status !== 'completed');
+                  const rawProv = allFutureProvisional.list.filter((m: any) => m.date === day.date);
+                  const rawMissions = day.missions.filter(m => m.status !== 'cancelled');
+                  const applyWkSearch = <T extends { clientName?: string; service?: string }>(arr: T[]) =>
+                    wkSearch ? arr.filter(m => (m.clientName || '').toLowerCase().includes(wkSearch) || (m.service || '').toLowerCase().includes(wkSearch)) : arr;
+                  const dayUnassigned = applyWkSearch(rawUnassigned);
+                  const dayProv = applyWkSearch(rawProv as any[]);
+                  const dayMissions = applyWkSearch(hideCompleted ? rawMissions.filter(m => m.status !== 'completed') : rawMissions);
                   return (
                     <div key={day.date} className={`border rounded-xl overflow-hidden flex flex-col ${isTodayDay ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'}`}>
                       <button
-                        onClick={() => { setCurrentDate(dayDate); }}
+                        onClick={() => { setCurrentDate(dayDate); setShowWeeklyView(false); }}
                         className={`px-2 py-2 text-center ${isTodayDay ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} transition`}
                       >
                         <div className="text-xs font-bold uppercase">{dayDate.format('ddd')}</div>
                         <div className="text-lg font-bold">{dayDate.format('D')}</div>
-                        <div className="text-[10px] opacity-80">{dayMissionsList.length} miss · {day.totalHours}h</div>
-                        {dayUnassigned.length > 0 && (
-                          <div className="text-[10px] text-red-200 font-bold mt-0.5">{dayUnassigned.length} ⚠</div>
+                        <div className="text-[10px] opacity-80">{rawMissions.length} miss · {day.totalHours}h</div>
+                        {rawUnassigned.length > 0 && (
+                          <div className="text-[10px] text-red-200 font-bold mt-0.5">{rawUnassigned.length} ⚠</div>
                         )}
                       </button>
-                      <div className="p-2 space-y-2 bg-white flex-1 overflow-y-auto max-h-[60vh]">
-                        {dayMissionsList.length === 0 && dayProv.length === 0 && dayUnassigned.length === 0 && (
+                      <div className="p-2 space-y-1.5 bg-white flex-1 overflow-y-auto max-h-[60vh]">
+                        {rawMissions.length === 0 && rawProv.length === 0 && rawUnassigned.length === 0 && (
                           <p className="text-[10px] text-slate-400 italic text-center py-2">—</p>
                         )}
-                        {dayProv.map((m: any) => (
-                          <div key={m.id} className="bg-orange-50 border-l-2 border-orange-400 rounded p-1.5 text-[10px]">
-                            <p className="font-bold text-orange-800 truncate">{m.clientName}</p>
-                            <p className="text-orange-600">{m.startTime}–{m.endTime}</p>
-                            <span className="text-[9px] text-orange-500 italic">En attente</span>
-                          </div>
-                        ))}
-                        {dayUnassigned.map(m => (
-                          <div key={m.id} className="bg-red-50 border-l-2 border-red-400 rounded p-1.5 text-[10px]">
-                            <p className="font-bold text-red-800 truncate">{m.clientName || 'Client'}</p>
-                            <p className="text-red-600">{m.startTime}–{m.endTime}</p>
-                            <span className="text-[9px] text-red-500 italic">Non attribuée</span>
-                          </div>
-                        ))}
-                        {dayMissionsList.map(m => {
-                          const p = providers.find(pr => pr.id === m.providerId);
+                        {dayProv.map((m: any) => {
+                          const canAssign = m.devisStatus === 'signed';
                           return (
-                            <div key={m.id} className="bg-pink-50 border-l-2 border-pink-400 rounded p-1.5 text-[10px]">
-                              <p className="font-bold text-slate-800 truncate">{m.clientName || m.service}</p>
-                              <p className="text-slate-600">{m.startTime}–{m.endTime}</p>
-                              <p className="text-[9px] text-slate-500 truncate">{p ? `${p.firstName} ${p.lastName}` : m.providerName || '—'}</p>
-                              <div className="mt-1 flex items-center gap-1">
-                                <span className={`text-[9px] px-1 py-0.5 rounded-full font-bold ${
-                                  m.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                  m.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-pink-100 text-pink-700'
-                                }`}>
-                                  {m.status === 'completed' ? '✅' : m.status === 'in_progress' ? '🔄' : '📋'}
-                                </span>
-                              </div>
+                          <div key={m.id}
+                            onClick={() => setMissionDetailsModal(m)}
+                            className={`border rounded-lg p-1.5 text-[10px] cursor-pointer transition group ${canAssign ? 'bg-orange-50 border-orange-300 hover:bg-orange-100' : 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100'}`}
+                          >
+                            <p className={`font-bold truncate ${canAssign ? 'text-orange-800' : 'text-yellow-800'}`}>{m.clientName}</p>
+                            <p className={canAssign ? 'text-orange-600' : 'text-yellow-600'}>{m.startTime}–{m.endTime}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className={`text-[9px] italic ${canAssign ? 'text-orange-400' : 'text-yellow-500'}`}>
+                                {canAssign ? 'Signé · À attribuer' : '⏳ En attente signature'}
+                              </span>
+                              {canAssign && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); setCurrentDate(dayDate); setShowUnassignedPanel(true); setQuickAssignMission(m as any); setQuickAssignProviderId(''); }}
+                                  className="text-[9px] font-bold bg-orange-500 text-white px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition"
+                                >Attribuer</button>
+                              )}
+                            </div>
+                          </div>
+                          );
+                        })}
+                        {dayUnassigned.map(m => (
+                          <div key={m.id}
+                            onClick={() => setMissionDetailsModal(m)}
+                            className="bg-red-50 border border-red-300 rounded-lg p-1.5 text-[10px] cursor-pointer hover:bg-red-100 transition group"
+                          >
+                            <p className="font-bold text-red-800 truncate">{m.clientName || 'Client'}</p>
+                            <p className="text-red-600">{m.startTime}–{m.endTime} · {m.service || '—'}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[9px] text-red-400 italic">Non attribuée</span>
+                              <button
+                                onClick={e => { e.stopPropagation(); setCurrentDate(dayDate); setShowUnassignedPanel(true); setQuickAssignMission(m); setQuickAssignProviderId(''); }}
+                                className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition"
+                              >Attribuer</button>
+                            </div>
+                          </div>
+                        ))}
+                        {dayMissions.map(m => {
+                          const p = providers.find(pr => pr.id === m.providerId);
+                          const cardColor =
+                            m.status === 'completed' ? 'bg-green-50 border-green-300 hover:bg-green-100' :
+                            m.status === 'in_progress' ? 'bg-blue-50 border-blue-300 hover:bg-blue-100' :
+                            'bg-white border-slate-200 hover:border-pink-300 hover:bg-pink-50';
+                          const textColor =
+                            m.status === 'completed' ? 'text-green-800' :
+                            m.status === 'in_progress' ? 'text-blue-800' :
+                            'text-slate-800';
+                          return (
+                            <div key={m.id}
+                              onClick={() => setMissionDetailsModal(m)}
+                              className={`border rounded-lg p-1.5 text-[10px] cursor-pointer transition ${cardColor}`}
+                            >
+                              <p className={`font-bold truncate ${textColor}`}>{m.clientName || m.service}</p>
+                              <p className="text-slate-500">{m.startTime}–{m.endTime}</p>
+                              <p className="text-[9px] text-slate-400 truncate">{getProviderDisplayName(p)}</p>
+                              <span className={`mt-0.5 inline-block text-[9px] px-1 py-0.5 rounded-full font-bold ${
+                                m.status === 'completed' ? 'bg-green-200 text-green-700' :
+                                m.status === 'in_progress' ? 'bg-blue-200 text-blue-700' :
+                                'bg-pink-100 text-pink-700'
+                              }`}>
+                                {m.status === 'completed' ? '✅ Terminée' : m.status === 'in_progress' ? '🔄 En cours' : '📋'}
+                              </span>
                             </div>
                           );
                         })}
@@ -2019,7 +2177,7 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                         </button>
                         <div className="min-w-0">
                           <p className="font-bold text-sm text-slate-800 truncate">
-                            {provider.firstName} {provider.lastName}
+                            {getProviderDisplayName(provider)}
                           </p>
                           <div className="flex items-center gap-2">
                             <p className="text-xs text-slate-500">{totalHours}h / 7h</p>
@@ -2077,9 +2235,13 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                       {dayMissions.length > 0 && !isExpanded && (
                         <div className="px-4 py-1.5 flex flex-wrap gap-1 border-t border-slate-100">
                           {dayMissions.map(m => (
-                            <span key={m.id} className="text-[10px] bg-pink-50 text-pink-700 border border-pink-200 px-1.5 py-0.5 rounded-full font-medium">
+                            <button
+                              key={m.id}
+                              onClick={() => setMissionDetailsModal(m)}
+                              className="text-[10px] bg-pink-50 text-pink-700 border border-pink-200 px-1.5 py-0.5 rounded-full font-medium hover:bg-pink-200 transition cursor-pointer"
+                            >
                               {m.startTime}–{m.endTime} · {m.clientName || m.service}
-                            </span>
+                            </button>
                           ))}
                         </div>
                       )}
@@ -2100,7 +2262,8 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                           return (
                             <div
                               key={mission.id || idx}
-                              className="absolute top-1 bottom-1 bg-pink-100 border border-pink-300 rounded flex items-center px-2 overflow-hidden"
+                              onClick={() => setMissionDetailsModal(mission)}
+                              className="absolute top-1 bottom-1 bg-pink-100 border border-pink-300 rounded flex items-center px-2 overflow-hidden cursor-pointer hover:bg-pink-200 transition"
                               style={{
                                 left: `${Math.max(0, leftPercent)}%`,
                                 width: `${Math.min(100 - leftPercent, widthPercent)}%`
@@ -2323,6 +2486,237 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
         </div>
       )}
 
+      {missionDetailsModal && (() => {
+        const m = missionDetailsModal;
+        const isProvisional = (m as any).isProvisional || String(m.id || '').startsWith('provisional-');
+        const override = provisionalTimeOverrides[m.id || ''];
+        const effectiveStart = override?.startTime ?? m.startTime;
+        const effectiveEnd = override?.endTime ?? m.endTime;
+        const assignedProvider = providers.find(p => p.id === m.providerId);
+        const linkedDoc = documents.find((d: any) => d.id === (m as any).sourceDocumentId);
+        const clientInfo = clients.find(c => c.id === (m.clientId || (m as any).clientId));
+        const clientPhone = clientInfo?.phone || (m as any).clientPhone || linkedDoc?.clientPhone || linkedDoc?.phone || '';
+        const clientAddress = clientInfo?.address || (m as any).clientAddress || (m as any).address || linkedDoc?.clientAddress || linkedDoc?.address || '';
+        const clientEmail = clientInfo?.email || (m as any).clientEmail || linkedDoc?.clientEmail || linkedDoc?.email || '';
+        const statusConfig: Record<string, { label: string; color: string }> = {
+          planned: { label: isProvisional ? 'En attente' : 'Planifiée', color: isProvisional ? 'bg-orange-100 text-orange-700' : 'bg-amber-100 text-amber-700' },
+          in_progress: { label: 'En cours', color: 'bg-blue-100 text-blue-700' },
+          completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
+          cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700' },
+        };
+        const sc = statusConfig[m.status] || statusConfig.planned;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-pink-50 to-purple-50">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">{m.clientName || 'Client'}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{dayjs(m.date).format('dddd D MMMM YYYY')}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${sc.color}`}>{sc.label}</span>
+                  <button onClick={() => { setMissionDetailsModal(null); setEditMissionTime(null); }} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
+                    <X className="w-5 h-5 text-slate-500" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                {isProvisional && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-center gap-2">
+                    <span className="text-base">📄</span>
+                    <div>
+                      <p className="text-xs font-bold text-orange-600">Planning issu d'un devis</p>
+                      <p className="text-xs text-orange-500">Ce créneau sera confirmé une fois le prestataire attribué</p>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-400 mb-1">Créneau</p>
+                    <p className="font-bold text-slate-700">{effectiveStart && effectiveEnd ? `${effectiveStart} – ${effectiveEnd}` : 'Horaire à définir'}</p>
+                    <p className="text-xs text-slate-500">{m.duration ? `${m.duration}h` : '—'}{override ? <span className="ml-1 text-blue-500">· modifié</span> : null}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-400 mb-1">Service</p>
+                    <p className="font-bold text-slate-700 truncate">{m.service || '—'}</p>
+                    {(m as any).serviceType && <p className="text-xs text-slate-500">{(m as any).serviceType}</p>}
+                  </div>
+                </div>
+
+                {(clientPhone || clientAddress || clientEmail) && (
+                  <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-1.5">
+                    <p className="text-xs font-bold text-sky-600 mb-1">Contact client</p>
+                    {clientPhone && (
+                      <a href={`tel:${clientPhone}`} className="flex items-center gap-2 text-sm text-sky-700 hover:text-sky-900 font-bold">
+                        <span className="text-base">📞</span> {clientPhone}
+                      </a>
+                    )}
+                    {clientEmail && (
+                      <a href={`mailto:${clientEmail}`} className="flex items-center gap-2 text-xs text-sky-600 hover:text-sky-800 truncate">
+                        <span className="text-base">✉️</span> {clientEmail}
+                      </a>
+                    )}
+                    {clientAddress && (
+                      <div className="flex items-start gap-2 text-xs text-sky-700">
+                        <span className="text-base">📍</span>
+                        <span>{clientAddress}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="bg-slate-50 rounded-xl p-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-bold text-pink-600">{getSpecialtyEmoji(assignedProvider?.specialty)}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-400">Prestataire</p>
+                    <p className="font-bold text-slate-700 truncate">{getProviderDisplayName(assignedProvider) !== '—' ? getProviderDisplayName(assignedProvider) : m.providerName || 'Non assignée'}</p>
+                    {assignedProvider?.specialty && <p className="text-xs text-slate-400">{assignedProvider.specialty}</p>}
+                  </div>
+                </div>
+
+                {linkedDoc && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-purple-400">Document lié</p>
+                      <p className="font-bold text-purple-700 truncate">{linkedDoc.type === 'Devis' ? 'Devis' : 'Facture'} — {linkedDoc.clientName}</p>
+                      <p className="text-xs text-purple-500">#{String(linkedDoc.id).slice(0, 8)} · {linkedDoc.status}</p>
+                    </div>
+                  </div>
+                )}
+
+                {(m as any).address && (
+                  <div className="bg-slate-50 rounded-xl p-3 flex items-center gap-2">
+                    <span className="text-base">📍</span>
+                    <div>
+                      <p className="text-xs text-slate-400">Adresse</p>
+                      <p className="font-bold text-slate-700 text-sm">{(m as any).address}</p>
+                    </div>
+                  </div>
+                )}
+
+                {((m as any).notes || (m as any).description) && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p className="text-xs text-amber-500 mb-1">Notes</p>
+                    <p className="text-sm text-amber-800">{(m as any).notes || (m as any).description}</p>
+                  </div>
+                )}
+
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="text-xs font-bold text-slate-500 mb-2">Modifier le créneau</p>
+                  {editMissionTime === null ? (
+                    <button
+                      onClick={() => setEditMissionTime({ start: effectiveStart, end: effectiveEnd })}
+                      className="flex items-center gap-2 text-xs px-3 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-100 transition font-bold"
+                    >
+                      <Clock className="w-3.5 h-3.5" /> Modifier l'heure
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={editMissionTime.start}
+                          onChange={e => setEditMissionTime(prev => prev ? { ...prev, start: e.target.value } : null)}
+                          className="flex-1 text-sm border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                        />
+                        <span className="text-slate-400 text-sm">→</span>
+                        <input
+                          type="time"
+                          value={editMissionTime.end}
+                          onChange={e => setEditMissionTime(prev => prev ? { ...prev, end: e.target.value } : null)}
+                          className="flex-1 text-sm border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditMissionTime(null)}
+                          className="flex-1 text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition"
+                        >Annuler</button>
+                        <button
+                          disabled={savingMissionEdit}
+                          onClick={async () => {
+                            if (!editMissionTime) return;
+                            setSavingMissionEdit(true);
+                            const [sh, sm2] = editMissionTime.start.split(':').map(Number);
+                            const [eh, em2] = editMissionTime.end.split(':').map(Number);
+                            const dur = Math.max(0, (eh + em2 / 60) - (sh + sm2 / 60));
+                            if (isProvisional) {
+                              setProvisionalTimeOverrides(prev => ({ ...prev, [m.id || '']: { startTime: editMissionTime.start, endTime: editMissionTime.end } }));
+                              setMissionDetailsModal({ ...m, startTime: editMissionTime.start, endTime: editMissionTime.end, duration: dur });
+                              setToast({ type: 'success', message: '✅ Horaire mis à jour' });
+                            } else if (updateMission && m.id) {
+                              await updateMission(m.id, { startTime: editMissionTime.start, endTime: editMissionTime.end, duration: dur });
+                              setToast({ type: 'success', message: '✅ Créneau mis à jour' });
+                              setMissionDetailsModal(null);
+                            }
+                            setSavingMissionEdit(false);
+                            setEditMissionTime(null);
+                          }}
+                          className="flex-1 text-xs px-3 py-2 bg-blue-500 text-white rounded-lg font-bold hover:bg-blue-600 transition disabled:opacity-50"
+                        >{savingMissionEdit ? '…' : 'Enregistrer'}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2">
+                {(!m.providerId || m.providerId === 'null' || m.providerId === '' || isProvisional) && (() => {
+                  const devisStatus = (m as any).devisStatus;
+                  const canAssignModal = !isProvisional || devisStatus === 'signed';
+                  return canAssignModal ? (
+                    <button
+                      onClick={() => {
+                        setMissionDetailsModal(null);
+                        setEditMissionTime(null);
+                        setCurrentDate(dayjs(m.date));
+                        setShowUnassignedPanel(true);
+                        const ov = provisionalTimeOverrides[m.id || ''];
+                        setQuickAssignMission(ov ? { ...m, startTime: ov.startTime, endTime: ov.endTime } as Mission : m);
+                        setQuickAssignProviderId('');
+                      }}
+                      className="flex-1 text-sm bg-blue-500 text-white px-3 py-2 rounded-lg font-bold hover:bg-blue-600 transition flex items-center justify-center gap-1.5"
+                    ><Users className="w-4 h-4" /> Attribuer un prestataire</button>
+                  ) : (
+                    <div className="flex-1 text-center text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
+                      ⏳ En attente de signature client
+                    </div>
+                  );
+                })()}
+                {!isProvisional && m.status === 'planned' && updateMission && m.id && (
+                  <button
+                    onClick={async () => {
+                      await updateMission(m.id!, { status: 'completed' });
+                      setToast({ type: 'success', message: '✅ Mission marquée terminée' });
+                      setMissionDetailsModal(null);
+                    }}
+                    className="text-sm bg-green-500 text-white px-3 py-2 rounded-lg font-bold hover:bg-green-600 transition"
+                  >✅ Terminée</button>
+                )}
+                {!isProvisional && m.status !== 'cancelled' && updateMission && m.id && (
+                  <button
+                    onClick={async () => {
+                      await updateMission(m.id!, { status: 'cancelled' });
+                      setToast({ type: 'info', message: '❌ Mission annulée' });
+                      setMissionDetailsModal(null);
+                    }}
+                    className="text-sm bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg font-bold hover:bg-red-100 transition"
+                  >Annuler</button>
+                )}
+                <button
+                  onClick={() => { setMissionDetailsModal(null); setEditMissionTime(null); }}
+                  className="text-sm bg-white border border-slate-200 px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-50 transition"
+                >Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {(dayStats.unassignedCount + provisionalMissionsForDay.length) > 0 && !showUnassignedPanel && !showBillingPanel && (
         <button
           onClick={() => setShowUnassignedPanel(true)}
@@ -2374,7 +2768,115 @@ const NewPlanningView: React.FC<NewPlanningViewProps> = ({
                 />
               </div>
             </div>
+            {/* Quick-assign banner: always visible at top when mission is pre-selected */}
+            {quickAssignMission && (() => {
+              const qm = quickAssignMission;
+              const isProvisional = (qm as any).isProvisional || String(qm.id || '').startsWith('provisional-');
+              const devisStatus = (qm as any).devisStatus;
+              const canAssign = !isProvisional || devisStatus === 'signed';
+              const linkedDoc = isProvisional ? documents.find((d: any) => d.id === (qm as any).sourceDocumentId) : null;
+              const { available, busyList } = buildProviderOptionsForMission(qm);
+              return (
+                <div className={`border-b p-4 space-y-3 ${canAssign ? 'border-blue-200 bg-blue-50' : 'border-yellow-200 bg-yellow-50'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className={`text-xs font-bold uppercase ${canAssign ? 'text-blue-500' : 'text-yellow-600'}`}>Mission à attribuer</span>
+                        {isProvisional && <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${canAssign ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{canAssign ? '✅ Devis signé' : '⏳ Devis non signé'}</span>}
+                      </div>
+                      <p className="font-bold text-blue-800 truncate">{qm.clientName || 'Client'}</p>
+                      <p className="text-xs text-blue-600">{dayjs(qm.date).format('ddd D MMM')} · {qm.startTime && qm.endTime ? `${qm.startTime}–${qm.endTime}` : 'Horaire à définir'}</p>
+                      <p className="text-xs text-blue-500">{qm.service || '—'}</p>
+                      {linkedDoc && <p className="text-[10px] text-purple-600 mt-0.5">Devis #{String(linkedDoc.id).slice(0, 8)} · {linkedDoc.status}</p>}
+                    </div>
+                    <button onClick={() => { setQuickAssignMission(null); setQuickAssignProviderId(''); }} className="p-1 hover:bg-blue-100 rounded-lg transition flex-shrink-0">
+                      <X className="w-4 h-4 text-blue-400" />
+                    </button>
+                  </div>
+                  {canAssign ? (<>
+                  <select
+                    value={quickAssignProviderId}
+                    onChange={e => setQuickAssignProviderId(e.target.value)}
+                    className="w-full text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 bg-white"
+                    autoFocus
+                  >
+                    <option value="">— Choisir un prestataire —</option>
+                    {available.length > 0 && (
+                      <optgroup label={`✅ Disponibles (${available.length})`}>
+                        {available.map(p => <option key={p.id} value={p.id}>{getProviderDisplayName(p)}{p.specialty ? ` · ${p.specialty}` : ''}</option>)}
+                      </optgroup>
+                    )}
+                    {busyList.length > 0 && (
+                      <optgroup label={`⚠ Occupés (${busyList.length})`}>
+                        {busyList.map(({ provider: p, reason }) => <option key={p.id} value={p.id} disabled>{getProviderDisplayName(p)} · {reason}</option>)}
+                      </optgroup>
+                    )}
+                    {available.length === 0 && busyList.length === 0 && (
+                      <option disabled>Aucun prestataire disponible ce jour</option>
+                    )}
+                  </select>
+                  <button
+                    onClick={handleQuickAssign}
+                    disabled={!quickAssignProviderId}
+                    className="w-full text-sm bg-blue-600 text-white px-3 py-2.5 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-40 transition flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Confirmer l'attribution
+                  </button>
+                  </>) : (
+                    <div className="bg-yellow-100 border border-yellow-300 rounded-xl p-3 text-center">
+                      <p className="text-sm font-bold text-yellow-700">⏳ Devis en attente de signature</p>
+                      <p className="text-xs text-yellow-600 mt-1">Ce devis doit être signé par le client avant de pouvoir attribuer un prestataire.</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Provisional missions (devis en attente) */}
+              {allFutureProvisional.list.length > 0 && !panelSearch && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-bold text-orange-500 uppercase">📄 Devis en attente</span>
+                    <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-bold">{allFutureProvisional.list.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {allFutureProvisional.list.slice(0, 10).map((m: any) => {
+                      const canAssign = m.devisStatus === 'signed';
+                      return (
+                      <div key={m.id} className={`border rounded-xl p-3 transition-all ${quickAssignMission?.id === m.id ? 'border-orange-400 bg-orange-50 shadow-md' : canAssign ? 'border-orange-200 bg-white hover:border-orange-300' : 'border-yellow-200 bg-yellow-50'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <p className="font-bold text-sm text-slate-800 truncate">{m.clientName}</p>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${canAssign ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                {canAssign ? 'Signé' : 'En attente'}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs text-slate-500">{m.service || '—'}</span>
+                              {m.startTime && m.endTime && (
+                                <span className="text-xs font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">⏰ {m.startTime}–{m.endTime}</span>
+                              )}
+                              <span className="text-xs text-slate-400">{dayjs(m.date).format('ddd D MMM')}</span>
+                            </div>
+                          </div>
+                          {canAssign ? (
+                            <button
+                              onClick={() => { setCurrentDate(dayjs(m.date)); setQuickAssignMission(m as any); setQuickAssignProviderId(''); }}
+                              className="shrink-0 text-xs bg-orange-500 text-white px-2.5 py-1.5 rounded-lg font-bold hover:bg-orange-600 transition active:scale-95"
+                            >Attribuer</button>
+                          ) : (
+                            <span className="shrink-0 text-xs text-yellow-600 bg-yellow-100 px-2 py-1 rounded-lg">⏳ Non signé</span>
+                          )}
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {(() => {
                 const q = panelSearch.toLowerCase();
                 const filteredGrouped = Object.entries(allFutureUnassigned.grouped)
