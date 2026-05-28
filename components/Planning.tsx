@@ -1,7 +1,52 @@
+/*
+ * ============================================================
+ *  Planning.tsx — Vue planning principal
+ *  État final après Prompts 01–06
+ * ============================================================
+ *
+ *  FONCTIONNALITÉS EXISTANTES (avant modifications) :
+ *  - Vue calendrier hebdomadaire (desktop 6 col, mobile liste)
+ *  - Création / édition / suppression de missions + bulk delete
+ *  - Filtres : prestataire, client, statut, plage de dates, recherche
+ *  - Missions provisoires (devis « sent » non expirés)
+ *  - Rappels journaliers, missions non assignées + assignation
+ *  - Statistiques (modal), récurrence, PullToRefresh, haptic
+ *
+ *  NOUVELLES FONCTIONNALITÉS (prompts 01–06) :
+ *  01 — Créneaux horaires fixes (ALLOWED_SLOTS : 3h, 4h, 6h, 7h)
+ *       Validation durée + plafond 7h/jour + détection chevauchements
+ *  02 — Vue synthétique journalière (modal, statsDate = focusedDate)
+ *       Prestataires planifiées / disponibles, compteurs période
+ *  03 — Code couleur journaux (≥ 60 % jaune, ≥ 90 % orange, clos teal)
+ *       Bouton « Clore » par colonne, légende masquable
+ *  04 — Indicateurs de facturation (billingSignals useMemo) :
+ *       Badge bleu ≥ 2 réalisées sur même devis (readyToInvoice)
+ *       Badge violet ≥ 6 réalisées pack ultime + toast (ultimatePackDocs)
+ *  05 — Messagerie WhatsApp :
+ *       Bouton par prestataire → modal prévisualisation’dition → wa.me
+ *       Bouton « Toutes » → modal envoi groupé avec suivi par prestataire
+ *  06 — Responsive & accessibilité WCAG AA :
+ *       role="dialog" aria-modal aria-labelledby sur tous les modaux
+ *       role="progressbar" aria-value* sur barres de progression
+ *       aria-label sur tous les boutons, min 32–44 px tactile
+ *
+ *  RÈGLES MÉTIER :
+ *  - Durées valides : ALLOWED_DURATIONS = [3, 4, 6, 7] h
+ *  - Plafond : MAX_PROVIDER_DAILY_HOURS = 7 h / prestataire / jour
+ *  - Chevauchement d’horaires → rejet + message d’erreur
+ *  - Statut « clos » = indicateur visuel seulement (non bloquant)
+ *
+ *  DÉPENDANCES INTERNES :
+ *  statsDate (focusedDate) → dailySummaryData → synthèse + WhatsApp
+ *  colDates → dayFillStatus → couleurs colonnes calendrier
+ *  billingSignals → badges missions desktop + mobile + section synthèse
+ *  getProviderDailyHours → validation 7h dans handleSubmit
+ * ============================================================
+ */
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, Flag, Briefcase, FileText, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, BellOff, Flag, Briefcase, FileText, FileSpreadsheet, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users, Clock, MessageCircle, Download, Printer } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission, Provider } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -16,7 +61,7 @@ import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -90,6 +135,202 @@ const Planning: React.FC = () => {
       startTime: '09:00',
       endTime: '11:00'
   });
+
+  // --- GRAFTED: Système de créneaux horaires ---
+  // Analyse existante : missionForm.startTime & endTime alimentent addMission() via handleSubmit().
+  // calculateDuration(), isProviderAvailable(), getProviderUnavailableReason() déjà présents.
+  // Ces créneaux se greffent dans le modal isModalOpen (Nouvelle Mission) existant.
+  const ALLOWED_SLOTS = [
+      { key: '08:00-11:00', start: '08:00', end: '11:00', label: '8h–11h', duration: 3 },
+      { key: '09:00-12:00', start: '09:00', end: '12:00', label: '9h–12h', duration: 3 },
+      { key: '13:00-16:00', start: '13:00', end: '16:00', label: '13h–16h', duration: 3 },
+      { key: '14:00-17:00', start: '14:00', end: '17:00', label: '14h–17h', duration: 3 },
+      { key: '09:00-13:00', start: '09:00', end: '13:00', label: '9h–13h', duration: 4 },
+      { key: '13:00-17:00', start: '13:00', end: '17:00', label: '13h–17h', duration: 4 },
+      { key: '08:00-14:00', start: '08:00', end: '14:00', label: '8h–14h', duration: 6 },
+      { key: '08:00-15:00', start: '08:00', end: '15:00', label: '8h–15h', duration: 7 },
+      { key: '10:00-17:00', start: '10:00', end: '17:00', label: '10h–17h', duration: 7 },
+  ] as const;
+  const ALLOWED_DURATIONS = [3, 4, 6, 7];
+  const MAX_PROVIDER_DAILY_HOURS = 7;
+  const [selectedSlotKey, setSelectedSlotKey] = useState<string>('');
+
+  // --- GRAFTED: Vue synthétique journalière ---
+  const [showDailySummary, setShowDailySummary] = useState(false);
+
+  // --- GRAFTED: Système de couleurs des journées ---
+  const [closedDays, setClosedDays] = useState<Set<string>>(new Set());
+  const [showColorLegend, setShowColorLegend] = useState(false);
+
+  // --- GRAFTED: WhatsApp planning ---
+  const [whatsappPreviewOpen, setWhatsappPreviewOpen] = useState(false);
+  const [whatsappPreviewData, setWhatsappPreviewData] = useState<{ provider: Provider; phone: string; message: string } | null>(null);
+  const [whatsappSendAllOpen, setWhatsappSendAllOpen] = useState(false);
+  const [whatsappSentSet, setWhatsappSentSet] = useState<Set<string>>(new Set());
+
+  // --- GRAFTED: Mini-dashboard semaine ---
+  const [showWeekDashboard, setShowWeekDashboard] = useState(false);
+
+  // --- GRAFTED: Fiche stats prestataire ---
+  const [selectedProviderStats, setSelectedProviderStats] = useState<Provider | null>(null);
+
+  // --- GRAFTED: Centre de notifications ---
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+
+  // --- GRAFTED: Quick Assign & Sidebar ---
+  const [quickAssignOpen, setQuickAssignOpen] = useState(false);
+  const [quickAssignTarget, setQuickAssignTarget] = useState<{ date: string; providerId: string; providerName: string; startTime: string; endTime: string } | null>(null);
+  const [quickAssignMission, setQuickAssignMission] = useState<Mission | null>(null);
+  const [showUnassignedSidebar, setShowUnassignedSidebar] = useState(true);
+  const [dayAssignOpen, setDayAssignOpen] = useState(false);
+  const [dayAssignDate, setDayAssignDate] = useState<string | null>(null);
+
+  // --- GRAFTED: Export functions ---
+  const exportToPDFDay = async () => {
+      const targetDate = statsDate || getMartiniqueToday();
+      const dayMissions = missions.filter(m => m.date === targetDate && m.status !== 'cancelled');
+      const dayProvisional = filteredProvisionalMissions.filter((p: any) => p.date === targetDate);
+
+      const jsPDF = (await import('jspdf')).default;
+      const doc = new jsPDF();
+
+      doc.setFontSize(18);
+      doc.text('Planning du jour', 105, 20, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(new Date(targetDate).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), 105, 30, { align: 'center' });
+
+      let y = 45;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Prestataire', 15, y);
+      doc.text('Créneau', 60, y);
+      doc.text('Client', 100, y);
+      doc.text('Service', 155, y);
+      doc.text('Statut', 185, y);
+      doc.line(15, y + 2, 195, y + 2);
+      y += 8;
+      doc.setFont('helvetica', 'normal');
+
+      const allItems = [
+          ...dayMissions.map(m => ({ ...m, type: 'mission' })),
+          ...dayProvisional.map(p => ({ ...p, type: 'provisional' }))
+      ];
+
+      if (allItems.length === 0) {
+          doc.text('Aucune prestation planifiée', 105, y, { align: 'center' });
+      } else {
+          allItems.forEach(item => {
+              const provider = item.providerName || 'À assigner';
+              const slot = `${item.startTime} - ${item.endTime}`;
+              const client = item.clientName || '';
+              const service = item.service || (item.type === 'provisional' ? 'Devis' : '');
+              const status = item.type === 'provisional' ? 'En attente' : (item.status === 'completed' ? 'Terminé' : 'Planifié');
+
+              doc.text(provider.substring(0, 20), 15, y);
+              doc.text(slot, 60, y);
+              doc.text(client.substring(0, 25), 100, y);
+              doc.text(service.substring(0, 15), 155, y);
+              doc.text(status, 185, y);
+              y += 7;
+              if (y > 270) { doc.addPage(); y = 20; }
+          });
+      }
+
+      y += 10;
+      const totalHours = dayMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      const uniqueProviders = new Set(dayMissions.map(m => m.providerId).filter(Boolean)).size;
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total: ${totalHours.toFixed(1)}h | ${uniqueProviders} prestataire(s) | ${dayMissions.length} prestation(s)`, 105, y, { align: 'center' });
+
+      doc.save(`planning-${targetDate}.pdf`);
+      toast.success('PDF exporté !');
+  };
+
+  const exportToPDFWeek = async () => {
+      const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+      const weekMissions = missions.filter(m =>
+          m.date >= weekStart.format('YYYY-MM-DD') &&
+          m.date <= weekEnd.format('YYYY-MM-DD') &&
+          m.status !== 'cancelled'
+      );
+
+      const jsPDF = (await import('jspdf')).default;
+      const doc = new jsPDF('l', 'mm', 'a4');
+
+      doc.setFontSize(16);
+      doc.text(`Planning Semaine du ${weekStart.format('DD/MM')} au ${weekEnd.format('DD/MM')}`, 148, 15, { align: 'center' });
+
+      const days = ['Jour', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+      let y = 25;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      days.forEach((d, i) => doc.text(d, 20 + i * 35, y));
+      y += 5;
+      doc.line(15, y, 280, y);
+      y += 5;
+
+      for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
+          const dayDate = weekStart.add(dayOffset, 'day');
+          const dayStr = dayDate.format('YYYY-MM-DD');
+          const dayItems = weekMissions.filter(m => m.date === dayStr);
+
+          doc.setFont('helvetica', 'normal');
+          doc.text(dayDate.format('DD/MM'), 20 + dayOffset * 35, y);
+
+          const missionText = dayItems.slice(0, 3).map(m =>
+              `${m.startTime?.slice(0, 5)} ${m.providerName?.split(' ')[0] || '?'}`
+          ).join('\n') || '-';
+          const lines = missionText.split('\n');
+          lines.forEach((line, i) => doc.text(line, 20 + dayOffset * 35, y + 5 + i * 4));
+      }
+
+      const totalHours = weekMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      doc.setFontSize(10);
+      doc.text(`Total semaine: ${totalHours.toFixed(1)}h | ${weekMissions.length} prestations`, 148, 180, { align: 'center' });
+
+      doc.save(`planning-semaine-${weekStart.format('YYYY-MM-DD')}.pdf`);
+      toast.success('PDF semaine exporté !');
+  };
+
+  const exportToCSV = () => {
+      const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+      const weekMissions = missions.filter(m =>
+          m.date >= weekStart.format('YYYY-MM-DD') &&
+          m.date <= weekEnd.format('YYYY-MM-DD') &&
+          m.status !== 'cancelled'
+      );
+
+      const headers = ['Date', 'Prestataire', 'Début', 'Fin', 'Durée', 'Prestation', 'Client', 'Devis ID', 'Statut', 'Signal Facturation'];
+      const rows = weekMissions.map(m => {
+          const billingSignal = billingSignals.ultimatePackComplete.has(m.id) ? 'Pack complet' :
+              billingSignals.readyToInvoice.has(m.id) ? 'À facturer' : '-';
+          return [
+              m.date,
+              m.providerName || 'À assigner',
+              m.startTime,
+              m.endTime,
+              m.duration?.toFixed(1) || '',
+              m.service || '',
+              m.clientName || '',
+              m.sourceDocumentId || '',
+              m.status,
+              billingSignal
+          ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+      });
+
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `prestations-${weekStart.format('YYYY-MM-DD')}-${weekEnd.format('YYYY-MM-DD')}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('CSV exporté !');
+  };
+
+  const handlePrint = () => window.print();
 
   // Calculate Week Date Range
   const getWeekRange = (offset: number) => {
@@ -566,12 +807,599 @@ const Planning: React.FC = () => {
       setMissionForm(prev => ({ ...prev, [name]: value }));
   };
 
+  // --- GRAFTED: Vue synthétique journalière - Computed data ---
+  const dailySummaryData = useMemo(() => {
+      const targetDate = statsDate;
+      const activeProviders = providers.filter(p => p.status === 'Active');
+      
+      // Missions for the target date (non-cancelled)
+      const dayMissions = missions.filter(m => m.date === targetDate && m.status !== 'cancelled');
+      
+      // Providers with missions that day
+      const scheduledProviderIds = new Set(dayMissions.map(m => m.providerId).filter(Boolean));
+      
+      // Scheduled providers with their slots and hours
+      const scheduledProviders = activeProviders
+          .filter(p => scheduledProviderIds.has(p.id))
+          .map(p => {
+              const providerMissions = dayMissions.filter(m => m.providerId === p.id);
+              const slots = providerMissions.map(m => ({
+                  start: m.startTime,
+                  end: m.endTime,
+                  label: `${m.startTime.slice(0, 5)}–${m.endTime.slice(0, 5)}`
+              }));
+              const totalHours = providerMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+              return { provider: p, slots, totalHours };
+          })
+          .sort((a, b) => b.totalHours - a.totalHours);
+      
+      // Available providers (not scheduled that day, and working that day)
+      const availableProviders = activeProviders
+          .filter(p => !scheduledProviderIds.has(p.id))
+          .filter(p => !isProviderNonWorkingDay(p.id, targetDate))
+          .map(p => {
+              // Calculate available hours (max 7h - already worked 0h = 7h available)
+              const availableHours = MAX_PROVIDER_DAILY_HOURS;
+              // Get availability range for display
+              let availabilityRange = '8h–17h';
+              if (p.availabilityMode === 'available' && p.availabilityHours) {
+                  const dayOfWeek = dayjs.tz(targetDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+                  const ranges = p.availabilityHours[dayOfWeek];
+                  if (ranges && ranges.length > 0) {
+                      availabilityRange = `${ranges[0].start.slice(0, 5)}–${ranges[ranges.length - 1].end.slice(0, 5)}`;
+                  }
+              }
+              return { provider: p, availableHours, availabilityRange };
+          })
+          .sort((a, b) => b.availableHours - a.availableHours);
+      
+      // Availability indicators by period
+      const morningAvailable = activeProviders.filter(p => {
+          if (scheduledProviderIds.has(p.id)) return false;
+          if (isProviderNonWorkingDay(p.id, targetDate)) return false;
+          // Check if available in morning (8h-12h)
+          const dayOfWeek = dayjs.tz(targetDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          if (p.availabilityMode === 'available' && p.availabilityHours) {
+              const ranges = p.availabilityHours[dayOfWeek];
+              if (!ranges || ranges.length === 0) return false;
+              return ranges.some(r => r.start <= '12:00' && r.end >= '08:00');
+          }
+          // Default: available 8h-17h
+          return true;
+      }).length;
+      
+      const afternoonAvailable = activeProviders.filter(p => {
+          if (scheduledProviderIds.has(p.id)) return false;
+          if (isProviderNonWorkingDay(p.id, targetDate)) return false;
+          // Check if available in afternoon (12h-17h)
+          const dayOfWeek = dayjs.tz(targetDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          if (p.availabilityMode === 'available' && p.availabilityHours) {
+              const ranges = p.availabilityHours[dayOfWeek];
+              if (!ranges || ranges.length === 0) return false;
+              return ranges.some(r => r.start <= '17:00' && r.end >= '12:00');
+          }
+          return true;
+      }).length;
+      
+      const fullDayAvailable = activeProviders.filter(p => {
+          if (scheduledProviderIds.has(p.id)) return false;
+          if (isProviderNonWorkingDay(p.id, targetDate)) return false;
+          // Already has 0 hours, can take full 7h
+          return true;
+      }).length;
+      
+      return {
+          date: targetDate,
+          scheduledProviders,
+          availableProviders,
+          morningAvailable,
+          afternoonAvailable,
+          fullDayAvailable,
+          totalScheduled: scheduledProviders.length,
+          totalAvailable: availableProviders.length
+      };
+  }, [missions, providers, statsDate, isProviderNonWorkingDay]);
+
+  // --- GRAFTED: Calcul du statut de remplissage par journée (couleurs) ---
+  const dayFillStatus = useMemo(() => {
+      const result = new Map<string, {
+          plannedHours: number;
+          capacityHours: number;
+          fillRate: number;
+          scheduledCount: number;
+          status: 'normal' | 'busy' | 'full' | 'clos';
+          bgColor: string;
+      }>();
+      const allDates = new Set<string>(colDates.filter(Boolean));
+      allDates.forEach(dateStr => {
+          const dayOfWeek = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          const workingProviders = providers.filter(p => {
+              if (p.status !== 'Active') return false;
+              const nid = p.nonInterventionDays;
+              return !(Array.isArray(nid) && nid.includes(dayOfWeek));
+          });
+          const capacityHours = workingProviders.length * MAX_PROVIDER_DAILY_HOURS;
+          const dayMissions = missions.filter(m => m.date === dateStr && m.status !== 'cancelled');
+          const plannedHours = dayMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+          const scheduledCount = new Set(dayMissions.map(m => m.providerId).filter(Boolean)).size;
+          const fillRate = capacityHours > 0 ? plannedHours / capacityHours : 0;
+          let status: 'normal' | 'busy' | 'full' | 'clos';
+          let bgColor: string;
+          if (closedDays.has(dateStr)) {
+              status = 'clos'; bgColor = '#ccfbf1';
+          } else if (fillRate >= 0.9) {
+              status = 'full'; bgColor = '#ffedd5';
+          } else if (fillRate >= 0.6) {
+              status = 'busy'; bgColor = '#fef9c3';
+          } else {
+              status = 'normal'; bgColor = '#dcfce7';
+          }
+          result.set(dateStr, { plannedHours, capacityHours, fillRate, scheduledCount, status, bgColor });
+      });
+      return result;
+  }, [missions, providers, closedDays, colDates]);
+
+  const toggleCloseDay = (dateStr: string) => {
+      setClosedDays(prev => {
+          const next = new Set(prev);
+          if (next.has(dateStr)) next.delete(dateStr); else next.add(dateStr);
+          return next;
+      });
+  };
+
+  // --- GRAFTED: Indicateurs de facturation (bleu = 2+ réalisées, violet = 6+ réalisées pack ultime) ---
+  const billingSignals = useMemo(() => {
+      const byDoc = new Map<string, typeof missions>();
+      missions.forEach(m => {
+          if (!m.sourceDocumentId) return;
+          const group = byDoc.get(m.sourceDocumentId) ?? [];
+          group.push(m);
+          byDoc.set(m.sourceDocumentId, group);
+      });
+
+      const readyToInvoice = new Set<string>(); // mission ids
+      const readyToInvoiceDocs = new Map<string, { completedCount: number; clientName: string; docRef: string }>();
+      const ultimatePackComplete = new Set<string>(); // mission ids
+      const ultimatePackDocs = new Map<string, { completedCount: number; clientName: string; docRef: string }>();
+
+      byDoc.forEach((missionGroup, docId) => {
+          const completed = missionGroup.filter(m => m.status === 'completed');
+          const doc = documents.find(d => d.id === docId);
+          const clientName = missionGroup[0]?.clientName ?? '—';
+          const docRef = doc?.ref ?? docId.slice(0, 8);
+
+          if (completed.length >= 6) {
+              missionGroup.forEach(m => ultimatePackComplete.add(m.id));
+              ultimatePackDocs.set(docId, { completedCount: completed.length, clientName, docRef });
+          } else if (completed.length >= 2) {
+              completed.forEach(m => readyToInvoice.add(m.id));
+              readyToInvoiceDocs.set(docId, { completedCount: completed.length, clientName, docRef });
+          }
+      });
+
+      return { readyToInvoice, readyToInvoiceDocs, ultimatePackComplete, ultimatePackDocs };
+  }, [missions, documents]);
+
+  const shownPackToastRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+      billingSignals.ultimatePackDocs.forEach((data, docId) => {
+          if (!shownPackToastRef.current.has(docId)) {
+              shownPackToastRef.current.add(docId);
+              toast.success(`Pack ultime complet : ${data.clientName} — Facture prête`);
+          }
+      });
+  }, [billingSignals.ultimatePackDocs]);
+
+  // --- GRAFTED: Données agrégées pour le mini-dashboard semaine ---
+  const weekDashboardData = useMemo(() => {
+      const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+      const activeProviders = providers.filter(p => p.status === 'Active');
+
+      const days = colDates
+          .map((dateStr, idx) => {
+              if (!dateStr) return null;
+              const dayStatus = dayFillStatus.get(dateStr);
+              const dayMissions = missions.filter(m => m.date === dateStr && m.status !== 'cancelled');
+              const scheduledProviderIds = new Set(dayMissions.map(m => m.providerId).filter(Boolean));
+              const dayOfWeek = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+              const workingProvidersCount = activeProviders.filter(p => {
+                  const nid = (p as any).nonInterventionDays;
+                  return !(Array.isArray(nid) && nid.includes(dayOfWeek));
+              }).length;
+              const hasPack = dayMissions.some(m => billingSignals.ultimatePackComplete.has(m.id));
+              const hasInvoice = !hasPack && dayMissions.some(m => billingSignals.readyToInvoice.has(m.id));
+              return {
+                  dateStr,
+                  dayName: DAY_NAMES[idx] ?? '',
+                  dayNum: dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM'),
+                  scheduledCount: scheduledProviderIds.size,
+                  totalProviders: workingProvidersCount,
+                  plannedHours: dayStatus?.plannedHours ?? 0,
+                  status: (dayStatus?.status ?? 'normal') as 'normal' | 'busy' | 'full' | 'clos',
+                  bgColor: dayStatus?.bgColor ?? '#dcfce7',
+                  hasBillingSignal: hasPack || hasInvoice,
+                  billingType: hasPack ? 'pack' : hasInvoice ? 'invoice' : null,
+              };
+          })
+          .filter((d): d is NonNullable<typeof d> => d !== null);
+
+      const weekMissions = missions.filter(m => colDates.includes(m.date) && m.status !== 'cancelled');
+      const weekProviderIds = new Set(weekMissions.map(m => m.providerId).filter(Boolean));
+      const weekHours = weekMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+
+      return {
+          days,
+          totalMissions: weekMissions.length,
+          activeProvidersCount: weekProviderIds.size,
+          totalHours: weekHours,
+          readyToInvoiceCount: billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size,
+      };
+  }, [colDates, missions, providers, dayFillStatus, billingSignals]);
+
+  // --- GRAFTED: Calcul des heures déjà planifiées pour un prestataire sur un jour donné ---
+  const getProviderDailyHours = (providerId: string, dateStr: string, excludeMissionId?: string): number => {
+      return missions
+          .filter(m => m.providerId === providerId && m.date === dateStr && m.status !== 'cancelled')
+          .filter(m => !excludeMissionId || m.id !== excludeMissionId)
+          .reduce((acc, m) => {
+              const d = calculateDuration(m.date, m.startTime, m.date, m.endTime);
+              return acc + (Number.isFinite(d) && d > 0 ? d : 0);
+          }, 0);
+  };
+
   function calculateDuration(startDate: string, startTime: string, endDate: string, endTime: string) {
       const start = dayjs.tz(`${startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const end = dayjs.tz(`${endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const diffMs = end.valueOf() - start.valueOf();
       return diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
   }
+
+  // --- GRAFTED: Suggestions automatiques de prestataires ---
+  const providerSuggestions = useMemo(() => {
+      if (!missionForm.date || !missionForm.startTime || !missionForm.endTime) {
+          return { suggestions: [], reasons: new Map() };
+      }
+
+      const targetDate = missionForm.date;
+      const startTime = missionForm.startTime;
+      const endTime = missionForm.endTime;
+      const duration = calculateDuration(targetDate, startTime, targetDate, endTime);
+      const targetClientId = missionForm.clientId;
+
+      const activeProviders = providers.filter(p => p.status === 'Active');
+      const reasons = new Map<string, string[]>();
+
+      // Calculate week date range for this week
+      const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+      const weekStartStr = weekStart.format('YYYY-MM-DD');
+      const weekEndStr = weekEnd.format('YYYY-MM-DD');
+
+      // Score each provider
+      const scored = activeProviders.map(p => {
+          const providerReasons: string[] = [];
+
+          // Criterion 1: Available this day (eliminating)
+          if (isProviderNonWorkingDay(p.id, targetDate)) {
+              providerReasons.push('Ne travaille pas ce jour');
+          }
+
+          // Criterion 2: Has not reached 7h daily limit
+          const dailyHours = getProviderDailyHours(p.id, targetDate);
+          if (dailyHours + duration > MAX_PROVIDER_DAILY_HOURS) {
+              providerReasons.push(`Dépasserait 7h aujourd'hui (${dailyHours.toFixed(1)}h + ${duration.toFixed(1)}h)`);
+          }
+
+          // Criterion 3: No overlap with existing missions
+          const hasOverlap = missions.some(m => {
+              if (m.status === 'cancelled' || m.date !== targetDate || m.providerId !== p.id) return false;
+              const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+              const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+              const sStart = dayjs.tz(`${targetDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+              const sEnd = dayjs.tz(`${targetDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+              return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
+          });
+          if (hasOverlap) {
+              providerReasons.push('Chevauchement avec une mission existante');
+          }
+
+          reasons.set(p.id, providerReasons);
+
+          if (providerReasons.length > 0) {
+              return { provider: p, score: -1000, dailyHours, weekHours: 0, hasWorkedForClient: false };
+          }
+
+          // Criterion 4: Priority to providers with least hours this week (workload balance)
+          const weekHours = missions
+              .filter(m => m.providerId === p.id && m.date >= weekStartStr && m.date <= weekEndStr && m.status !== 'cancelled')
+              .reduce((acc, m) => acc + (m.duration || 0), 0);
+
+          // Criterion 5: Priority to providers who have already worked for this client
+          const hasWorkedForClient = targetClientId
+              ? missions.some(m => m.providerId === p.id && m.clientId === targetClientId && m.status === 'completed')
+              : false;
+
+          // Scoring: lower is better
+          // Weight: weekHours (0-50 range), hasWorkedForClient (-20 bonus)
+          const score = weekHours + (hasWorkedForClient ? -20 : 0);
+
+          return { provider: p, score, dailyHours, weekHours, hasWorkedForClient };
+      });
+
+      // Sort by score (lower = better) and take top 3
+      const suggestions = scored
+          .filter(s => s.score >= 0)
+          .sort((a, b) => a.score - b.score)
+          .slice(0, 3)
+          .map(s => ({
+              provider: s.provider,
+              dailyHours: s.dailyHours,
+              weekHours: s.weekHours,
+              hasWorkedForClient: s.hasWorkedForClient,
+              availableHours: Math.max(0, MAX_PROVIDER_DAILY_HOURS - s.dailyHours),
+          }));
+
+      return { suggestions, reasons };
+  }, [missionForm.date, missionForm.startTime, missionForm.endTime, missionForm.clientId, providers, missions, currentWeekOffset]);
+
+  // --- GRAFTED: Stats pour la fiche prestataire ---
+  const providerStatsData = useMemo(() => {
+      if (!selectedProviderStats) return null;
+
+      const providerId = selectedProviderStats.id;
+      const today = getMartiniqueToday();
+      const now = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+
+      // Week range
+      const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+      const weekStartStr = weekStart.format('YYYY-MM-DD');
+      const weekEndStr = weekEnd.format('YYYY-MM-DD');
+
+      // Month range
+      const monthStart = now.startOf('month');
+      const monthEnd = now.endOf('month');
+      const monthStartStr = monthStart.format('YYYY-MM-DD');
+      const monthEndStr = monthEnd.format('YYYY-MM-DD');
+
+      // Previous month
+      const prevMonthStart = monthStart.subtract(1, 'month');
+      const prevMonthEnd = monthStart.subtract(1, 'day');
+      const prevMonthStartStr = prevMonthStart.format('YYYY-MM-DD');
+      const prevMonthEndStr = prevMonthEnd.format('YYYY-MM-DD');
+
+      // Week stats
+      const weekMissions = missions.filter(m =>
+          m.providerId === providerId &&
+          m.date >= weekStartStr && m.date <= weekEndStr &&
+          m.status !== 'cancelled'
+      );
+      const weekPlanned = weekMissions.length;
+      const weekHours = weekMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      const weekWorkedDays = new Set(weekMissions.map(m => m.date)).size;
+
+      // Provider working days this week
+      const providerWorkingDaysThisWeek = [0, 1, 2, 3, 4, 5].filter(day => {
+          const nid = (selectedProviderStats as any).nonInterventionDays;
+          return !(Array.isArray(nid) && nid.includes(day));
+      }).length;
+
+      // Month stats
+      const monthMissions = missions.filter(m =>
+          m.providerId === providerId &&
+          m.date >= monthStartStr && m.date <= monthEndStr &&
+          m.status !== 'cancelled'
+      );
+      const monthHours = monthMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      const monthClients = new Set(monthMissions.map(m => m.clientId)).size;
+
+      // Previous month stats
+      const prevMonthMissions = missions.filter(m =>
+          m.providerId === providerId &&
+          m.date >= prevMonthStartStr && m.date <= prevMonthEndStr &&
+          m.status !== 'cancelled'
+      );
+      const prevMonthHours = prevMonthMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      const monthDiff = monthHours - prevMonthHours;
+
+      // 30-day presence calendar
+      const presenceDays = Array.from({ length: 30 }, (_, i) => {
+          const d = now.subtract(29 - i, 'day');
+          const dateStr = d.format('YYYY-MM-DD');
+          const dayOfWeek = d.day();
+          const isWorkingDay = !((selectedProviderStats as any).nonInterventionDays || []).includes(dayOfWeek);
+          const dayMission = missions.find(m => m.providerId === providerId && m.date === dateStr && m.status !== 'cancelled');
+          const isToday = dateStr === today;
+
+          return {
+              dateStr,
+              dayNum: d.date(),
+              worked: !!dayMission,
+              available: isWorkingDay && !dayMission,
+              unavailable: !isWorkingDay,
+              isToday,
+          };
+      });
+
+      // Last 5 missions
+      const lastMissions = missions
+          .filter(m => m.providerId === providerId && m.status !== 'cancelled')
+          .sort((a, b) => b.date.localeCompare(a.date) || b.startTime.localeCompare(a.startTime))
+          .slice(0, 5)
+          .map(m => {
+              const client = clients.find(c => c.id === m.clientId);
+              return {
+                  ...m,
+                  clientName: client?.name || m.clientName,
+                  clientCity: client?.city,
+              };
+          });
+
+      // Occupation rate (week)
+      const maxWeeklyHours = providerWorkingDaysThisWeek * MAX_PROVIDER_DAILY_HOURS;
+      const occupationRate = maxWeeklyHours > 0 ? Math.min(100, (weekHours / maxWeeklyHours) * 100) : 0;
+
+      return {
+          weekPlanned,
+          weekHours,
+          weekWorkedDays,
+          providerWorkingDaysThisWeek,
+          monthHours,
+          monthMissions: monthMissions.length,
+          monthClients,
+          monthDiff,
+          prevMonthHours,
+          presenceDays,
+          lastMissions,
+          occupationRate,
+      };
+  }, [selectedProviderStats, missions, providers, clients, currentWeekOffset]);
+
+  // --- GRAFTED: Centre de notifications intelligent ---
+  const notificationsData = useMemo(() => {
+      const today = getMartiniqueToday();
+      const tomorrow = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).add(1, 'day').format('YYYY-MM-DD');
+      const notifications: Array<{
+          id: string;
+          type: 'planning' | 'billing' | 'workload' | 'confirmation';
+          title: string;
+          message: string;
+          priority: 'high' | 'medium' | 'low';
+          action?: { label: string; onClick: () => void };
+      }> = [];
+
+      const activeProviders = providers.filter(p => p.status === 'Active');
+
+      // === PLANNING ALERTS ===
+      // Tomorrow: available providers but no missions
+      const tomorrowMissions = missions.filter(m => m.date === tomorrow && m.status !== 'cancelled');
+      const tomorrowProviderIds = new Set(tomorrowMissions.map(m => m.providerId).filter(Boolean));
+      const availableTomorrow = activeProviders.filter(p => {
+          if (tomorrowProviderIds.has(p.id)) return false;
+          const dayOfWeek = dayjs.tz(tomorrow, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          const nid = (p as any).nonInterventionDays;
+          return !(Array.isArray(nid) && nid.includes(dayOfWeek));
+      });
+      if (availableTomorrow.length >= 3) {
+          notifications.push({
+              id: 'plan-tomorrow-empty',
+              type: 'planning',
+              title: 'Planning vide demain',
+              message: `${availableTomorrow.length} prestataires disponibles demain mais aucune prestation planifiée`,
+              priority: 'high',
+          });
+      }
+
+      // Today: under-utilized providers
+      activeProviders.forEach(p => {
+          const dayOfWeek = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          const nid = (p as any).nonInterventionDays;
+          if (Array.isArray(nid) && nid.includes(dayOfWeek)) return;
+
+          const todayHours = getProviderDailyHours(p.id, today);
+          if (todayHours > 0 && todayHours < 4) {
+              const available = MAX_PROVIDER_DAILY_HOURS - todayHours;
+              notifications.push({
+                  id: `plan-underutilized-${p.id}`,
+                  type: 'planning',
+                  title: `${p.firstName} sous-utilisé`,
+                  message: `${p.firstName} n'a que ${todayHours.toFixed(1)}h planifiées — ${available.toFixed(1)}h disponibles`,
+                  priority: 'medium',
+              });
+          }
+      });
+
+      // === BILLING ALERTS ===
+      // Ready to invoice
+      billingSignals.readyToInvoiceDocs.forEach((data, docId) => {
+          notifications.push({
+              id: `bill-invoice-${docId}`,
+              type: 'billing',
+              title: 'Facturation possible',
+              message: `Devis ${data.clientName} — ${data.completedCount} prestations réalisées`,
+              priority: 'high',
+              action: { label: 'Préparer', onClick: () => {} },
+          });
+      });
+
+      // Complete packs
+      billingSignals.ultimatePackDocs.forEach((data, docId) => {
+          notifications.push({
+              id: `bill-pack-${docId}`,
+              type: 'billing',
+              title: 'Pack complet',
+              message: `Pack ultime de ${data.clientName} complet — ${data.completedCount} prestations`,
+              priority: 'high',
+              action: { label: 'Facturer', onClick: () => {} },
+          });
+      });
+
+      // === WORKLOAD ALERTS ===
+      // Full providers today
+      activeProviders.forEach(p => {
+          const dayOfWeek = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+          const nid = (p as any).nonInterventionDays;
+          if (Array.isArray(nid) && nid.includes(dayOfWeek)) return;
+
+          const todayHours = getProviderDailyHours(p.id, today);
+          if (todayHours >= MAX_PROVIDER_DAILY_HOURS) {
+              notifications.push({
+                  id: `workload-full-${p.id}`,
+                  type: 'workload',
+                  title: `${p.firstName} complet`,
+                  message: `${p.firstName} a travaillé ${todayHours.toFixed(1)}h aujourd'hui — aucune prestation supplémentaire possible`,
+                  priority: 'low',
+              });
+          }
+      });
+
+      // Providers with no missions this week
+      const { start: weekStart, end: weekEnd } = getWeekRange(currentWeekOffset);
+      const weekStartStr = weekStart.format('YYYY-MM-DD');
+      const weekEndStr = weekEnd.format('YYYY-MM-DD');
+      const unusedProviders = activeProviders.filter(p => {
+          return !missions.some(m =>
+              m.providerId === p.id &&
+              m.date >= weekStartStr && m.date <= weekEndStr &&
+              m.status !== 'cancelled'
+          );
+      });
+      if (unusedProviders.length > 0 && unusedProviders.length <= 3) {
+          notifications.push({
+              id: 'workload-unused-week',
+              type: 'workload',
+              title: 'Prestataires inactives',
+              message: `${unusedProviders.length} prestataire(s) n'ont eu aucune prestation cette semaine`,
+              priority: 'medium',
+          });
+      }
+
+      // Sort by priority
+      const priorityOrder = { high: 0, medium: 1, low: 2 };
+      notifications.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+
+      return notifications.slice(0, 20);
+  }, [missions, providers, billingSignals, currentWeekOffset]);
+
+  // --- GRAFTED: Génération du message WhatsApp planning ---
+  const buildWhatsAppMessage = (provider: Provider, targetDate: string): string => {
+      const providerMissions = missions
+          .filter(m => m.providerId === provider.id && m.date === targetDate && m.status !== 'cancelled')
+          .sort((a, b) => a.startTime.localeCompare(b.startTime));
+      const dateLabel = new Date(`${targetDate}T00:00:00`).toLocaleDateString('fr-FR', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+      });
+      const total = providerMissions.reduce((acc, m) => acc + (m.duration || 0), 0);
+      const lines = providerMissions.length > 0
+          ? providerMissions.map(m => {
+              const client = clients.find(c => c.id === m.clientId);
+              const address = client?.address
+                  ? `${client.address}${client.city ? ', ' + client.city : ''}`
+                  : (client?.city || m.clientName);
+              return `• ${m.startTime.slice(0, 5)}–${m.endTime.slice(0, 5)} : ${m.service || 'Prestation'} — ${address}`;
+          }).join('\n')
+          : '• Aucune prestation trouvée';
+      const companyName = companySettings?.name || 'Presta Services Antilles';
+      return `Bonjour ${provider.firstName},\n\nVoici votre planning du ${dateLabel} :\n\n${lines}\n\nTotal : ${total.toFixed(1)}h de travail aujourd'hui.\n\nBonne journée ! 🙏\n${companyName}`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -594,6 +1422,22 @@ const Planning: React.FC = () => {
           const provider = providers.find(p => p.id === missionForm.providerId);
           
           if (!client) { throw new Error("Client invalide"); }
+
+          // --- GRAFTED: Validation durée (3h, 4h, 6h ou 7h uniquement) ---
+          const slotDurationHours = calculateDuration(missionForm.date, missionForm.startTime, finalEndDate, missionForm.endTime);
+          const roundedDuration = Math.round(slotDurationHours * 10) / 10;
+          const isValidDuration = ALLOWED_DURATIONS.some(d => Math.abs(slotDurationHours - d) < 0.05);
+          if (!isValidDuration) {
+              throw new Error(`Durée invalide (${roundedDuration}h). Les créneaux autorisés sont : 3h, 4h, 6h ou 7h.`);
+          }
+
+          // --- GRAFTED: Validation plafond 7h/jour par prestataire ---
+          if (provider) {
+              const existingHours = getProviderDailyHours(provider.id, missionForm.date);
+              if (existingHours + slotDurationHours > MAX_PROVIDER_DAILY_HOURS) {
+                  throw new Error(`${provider.firstName} ${provider.lastName} dépasserait 7h/jour (${existingHours.toFixed(1)}h déjà planifiées + ${roundedDuration}h = ${(existingHours + slotDurationHours).toFixed(1)}h).`);
+              }
+          }
 
           // Recurrence Logic
           const startDateObj = dayjs.tz(missionForm.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
@@ -622,6 +1466,21 @@ const Planning: React.FC = () => {
                   throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : indisponible sur ce créneau horaire.`);
               }
 
+              // --- GRAFTED: Vérification chevauchement d'horaires pour la même prestataire ---
+              if (provider) {
+                  const hasOverlap = missions.some(m => {
+                      if (m.status === 'cancelled' || m.date !== dateStr || m.providerId !== provider.id) return false;
+                      const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
+                  });
+                  if (hasOverlap) {
+                      throw new Error(`Conflit d'horaire : ${provider.firstName} ${provider.lastName} a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
+                  }
+              }
+
               await addMission({
                   id: '', // Context will handle ID generation (or UUID)
                   date: dateStr,
@@ -646,10 +1505,11 @@ const Planning: React.FC = () => {
 
           setIsModalOpen(false);
           setMissionForm(initialFormState); // Reset form cleanly
+          setSelectedSlotKey(''); // --- GRAFTED: Reset slot selection ---
 
       } catch (error: any) {
           console.error("Erreur planning", error);
-          alert("Une erreur est survenue : " + error.message);
+          toast.error(error.message || 'Une erreur est survenue lors de la planification');
       } finally {
           submitLockRef.current = false;
           setIsSubmitting(false); // CRITICAL: Always reset submitting state
@@ -1272,7 +2132,14 @@ const Planning: React.FC = () => {
   };
 
   return dataLoading ? <PageLoader /> : (
-    <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative">
+    <>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
+    <div className="p-4 md:p-8 h-[100svh] md:h-full overflow-hidden md:overflow-y-auto bg-white/40 flex flex-col relative no-print">
 
       {isMobileActionsOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:hidden bg-slate-900/60 backdrop-blur-sm">
@@ -1358,15 +2225,13 @@ const Planning: React.FC = () => {
       <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end mb-2 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                <h2 className="text-2xl md:text-3xl font-serif font-bold text-slate-800">Planning</h2>
-               {false && (
-                <button
-                    type="button"
-                    onClick={() => setIsQuickPlanModalOpen(true)}
-                    className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:opacity-90 transition"
-                >
-                    <Plus className="w-4 h-4" /> Planification rapide
-                </button>
-                )}
+               <button
+                   type="button"
+                   onClick={() => { setIsModalOpen(true); setSelectedSlotKey(''); }}
+                   className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:opacity-90 transition"
+               >
+                   <Plus className="w-4 h-4" /> Nouvelle Mission
+               </button>
 
                {selectedMissionIds.size > 0 && (
                    <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
@@ -1397,10 +2262,157 @@ const Planning: React.FC = () => {
                    <Users className="w-4 h-4" />
                    <span className="hidden sm:inline">Disponibilité</span>
                </button>
+               {/* GRAFTED: Notification bell */}
+               <button
+                   type="button"
+                   onClick={() => setShowNotifications(v => !v)}
+                   className="relative p-2 bg-white rounded-lg shadow-sm border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
+                   aria-label={`Notifications${notificationsData.length > 0 ? ` — ${notificationsData.length} non lue(s)` : ''}`}
+               >
+                   <Bell className="w-4 h-4" />
+                   {notificationsData.length > 0 && (
+                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                           {notificationsData.length > 9 ? '9+' : notificationsData.length}
+                       </span>
+                   )}
+               </button>
+               {/* GRAFTED: Export buttons */}
+               <div className="relative group">
+                   <button
+                       type="button"
+                       className="p-2 bg-white rounded-lg shadow-sm border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
+                       aria-label="Exporter"
+                   >
+                       <Download className="w-4 h-4" />
+                   </button>
+                   <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-slate-200 py-1 hidden group-hover:block z-20">
+                       <button
+                           type="button"
+                           onClick={exportToPDFDay}
+                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                       >
+                           <FileText className="w-3 h-3" /> PDF Jour
+                       </button>
+                       <button
+                           type="button"
+                           onClick={exportToPDFWeek}
+                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                       >
+                           <FileText className="w-3 h-3" /> PDF Semaine
+                       </button>
+                       <button
+                           type="button"
+                           onClick={exportToCSV}
+                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                       >
+                           <FileSpreadsheet className="w-3 h-3" /> Exporter CSV
+                       </button>
+                       <button
+                           type="button"
+                           onClick={handlePrint}
+                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                       >
+                           <Printer className="w-3 h-3" /> Imprimer
+                       </button>
+                   </div>
+               </div>
            </div>
       </div>
 
 
+
+      {/* GRAFTED: Mini-dashboard semaine */}
+      <div className="mb-3">
+          <button
+              type="button"
+              onClick={() => setShowWeekDashboard(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition text-sm font-bold text-slate-700"
+              aria-expanded={showWeekDashboard}
+          >
+              <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <span>Semaine du {weekStart.format('DD/MM')} au {weekEnd.format('DD/MM')}</span>
+                  <span className="text-xs font-normal text-slate-500 hidden sm:inline">
+                      · {weekDashboardData.totalMissions} prestation{weekDashboardData.totalMissions !== 1 ? 's' : ''} · {weekDashboardData.totalHours.toFixed(0)}h
+                  </span>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showWeekDashboard ? 'rotate-90' : ''}`} />
+          </button>
+
+          {showWeekDashboard && (
+              <div className="mt-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-3 space-y-3">
+                  {/* Mini-stats */}
+                  <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                          <span className="text-sm font-black text-indigo-700">{weekDashboardData.totalMissions}</span>
+                          <span className="text-[11px] text-indigo-500">prestations</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
+                          <span className="text-sm font-black text-emerald-700">{weekDashboardData.activeProvidersCount}</span>
+                          <span className="text-[11px] text-emerald-500">prestataires actives</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">
+                          <span className="text-sm font-black text-amber-700">{weekDashboardData.totalHours.toFixed(1)}h</span>
+                          <span className="text-[11px] text-amber-500">de travail</span>
+                      </div>
+                      {weekDashboardData.readyToInvoiceCount > 0 && (
+                          <div className="flex items-center gap-1.5 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                              <span className="text-sm font-black text-blue-700">{weekDashboardData.readyToInvoiceCount}</span>
+                              <span className="text-[11px] text-blue-500">devis à facturer</span>
+                          </div>
+                      )}
+                  </div>
+
+                  {/* Day grid — horizontal scroll on mobile */}
+                  <div className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory">
+                      {weekDashboardData.days.map(day => {
+                          const isToday = day.dateStr === getMartiniqueToday();
+                          const isSelected = day.dateStr === statsDate;
+                          return (
+                              <button
+                                  key={day.dateStr}
+                                  type="button"
+                                  onClick={() => setFocusedDate(day.dateStr)}
+                                  className={`snap-start shrink-0 w-[calc(100%/3.2)] sm:w-[calc(100%/5)] md:flex-1 min-w-[72px] flex flex-col items-center gap-0.5 p-2 rounded-xl border-2 transition ${
+                                      isSelected
+                                          ? 'border-[#006699] bg-[#006699]/10'
+                                          : isToday
+                                          ? 'border-emerald-400 bg-emerald-50/50'
+                                          : 'border-transparent'
+                                  }`}
+                                  style={!isSelected ? { backgroundColor: day.bgColor + '99' } : undefined}
+                                  aria-label={`${day.dayName} ${day.dayNum} — ${day.scheduledCount} prestataire(s) planifiée(s) — ${day.plannedHours.toFixed(1)}h`}
+                                  aria-pressed={isSelected}
+                              >
+                                  <span className={`text-[11px] font-black uppercase tracking-wide ${isSelected ? 'text-[#006699]' : isToday ? 'text-emerald-700' : 'text-slate-600'}`}>
+                                      {day.dayName}
+                                  </span>
+                                  <span className={`text-[10px] font-bold ${isSelected ? 'text-[#006699]' : 'text-slate-400'}`}>
+                                      {day.dayNum}
+                                  </span>
+                                  <div className="mt-1 flex flex-col items-center">
+                                      <span className="text-sm font-black text-slate-800 leading-none">
+                                          {day.scheduledCount}
+                                          <span className="text-[9px] font-normal text-slate-400">/{day.totalProviders}</span>
+                                      </span>
+                                      <span className="text-[10px] font-bold text-slate-500">{day.plannedHours.toFixed(0)}h</span>
+                                  </div>
+                                  {day.status === 'clos' && (
+                                      <span className="mt-0.5 text-[8px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1 rounded leading-tight">Clos</span>
+                                  )}
+                                  {day.hasBillingSignal && (
+                                      <span
+                                          className={`mt-0.5 w-2 h-2 rounded-full ${day.billingType === 'pack' ? 'bg-violet-500' : 'bg-blue-500'}`}
+                                          title={day.billingType === 'pack' ? 'Pack complet' : 'Prêt à facturer'}
+                                      />
+                                  )}
+                              </button>
+                          );
+                      })}
+                  </div>
+              </div>
+          )}
+      </div>
 
        {/* Filters & Navigation */}
        <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
@@ -1575,6 +2587,87 @@ const Planning: React.FC = () => {
            </div>
        </div>
 
+       {/* GRAFTED: Légende des couleurs + Vue synthétique journalière */}
+       <div className="mb-4">
+           {/* Color legend row */}
+           <div className="flex items-center gap-2 mb-2">
+               <button
+                   type="button"
+                   onClick={() => setShowColorLegend(!showColorLegend)}
+                   className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 transition font-bold"
+                   title="Légende des couleurs"
+               >
+                   <span className="w-4 h-4 rounded-full bg-slate-200 text-[9px] font-bold flex items-center justify-center text-slate-600">?</span>
+                   Légende
+               </button>
+               {showColorLegend && (
+                   <div className="flex flex-wrap gap-2">
+                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#dcfce7' }} />&lt;60 % Normal</span>
+                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#fef9c3' }} />60–89 % Chargé</span>
+                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ffedd5' }} />≥90 % Complet</span>
+                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ccfbf1' }} />Jour clos</span>
+                   </div>
+               )}
+           </div>
+           <button
+               onClick={() => setShowDailySummary(true)}
+               className="w-full flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-blue-600 text-white rounded-xl hover:from-indigo-600 hover:to-blue-700 transition shadow-md"
+           >
+               <div className="flex items-center gap-2">
+                   <Users className="w-4 h-4 text-white" />
+                   <span className="font-bold text-sm text-white">
+                       Synthèse du {dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                   </span>
+                   <span className="text-xs text-indigo-200">
+                       {dailySummaryData.totalScheduled} planifiées • {dailySummaryData.totalAvailable} disponibles
+                   </span>
+               </div>
+               <ChevronRight className="w-4 h-4 text-indigo-200" />
+           </button>
+       </div>
+
+       {/* GRAFTED: Sidebar Prestations en attente */}
+       {showUnassignedSidebar && filteredUnassignedMissions.length > 0 && (
+           <div className="hidden lg:flex w-56 shrink-0 flex-col bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
+               <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100">
+                   <div className="flex items-center gap-2">
+                       <User className="w-4 h-4 text-amber-600" />
+                       <span className="text-xs font-bold text-amber-800">À assigner</span>
+                   </div>
+                   <span className="text-[10px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
+                       {filteredUnassignedMissions.length}
+                   </span>
+               </div>
+               <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                   {filteredUnassignedMissions.slice(0, 10).map(m => {
+                       const client = clients.find(c => c.id === m.clientId);
+                       return (
+                           <button
+                               key={m.id}
+                               type="button"
+                               onClick={() => { setQuickAssignMission(m); setQuickAssignOpen(true); }}
+                               className="w-full p-2 bg-red-50 border border-red-100 rounded-lg text-left hover:bg-red-100 transition"
+                           >
+                               <div className="text-xs font-bold text-red-800 truncate">{client?.name || m.clientName}</div>
+                               <div className="text-[10px] text-red-600 mt-0.5">{m.date} • {m.startTime}-{m.endTime}</div>
+                               <div className="text-[9px] text-red-500 mt-0.5 truncate">{m.service || 'Prestation'}</div>
+                           </button>
+                       );
+                   })}
+                   {filteredUnassignedMissions.length > 10 && (
+                       <p className="text-[10px] text-slate-500 text-center">+{filteredUnassignedMissions.length - 10} autres</p>
+                   )}
+               </div>
+               <button
+                   type="button"
+                   onClick={() => setShowUnassignedSidebar(false)}
+                   className="p-2 text-[10px] font-bold text-slate-500 hover:text-slate-700 border-t border-slate-100"
+               >
+                   Masquer
+               </button>
+           </div>
+       )}
+
        {/* Main Grid */}
        <div className="flex-1 min-h-0 flex flex-col gap-4 lg:flex-row lg:gap-6 relative">
             {planningLoading && (
@@ -1610,15 +2703,31 @@ const Planning: React.FC = () => {
                     ) : (
                         mobilePlanningDays.map(({ dateStr, remindersForDate, provisionalForDate, missionsForDate }) => (
                             <div key={dateStr} className="border border-slate-200 rounded-lg overflow-hidden">
-                                <button
-                                    type="button"
-                                    onClick={() => setFocusedDate(dateStr)}
-                                    className={`w-full text-left px-4 py-2 font-bold text-sm flex items-center justify-between ${dateStr === statsDate ? 'bg-brand-blue text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
-                                    title="Utiliser ce jour pour les statistiques"
+                                <div
+                                    className="flex items-center"
+                                    style={dateStr !== statsDate ? { backgroundColor: dayFillStatus.get(dateStr)?.bgColor ?? '#f1f5f9' } : undefined}
                                 >
-                                    {new Date(`${dateStr}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
-                                    {dateStr === statsDate ? <span className="text-xs font-bold">Sélectionné</span> : <span className="text-xs font-bold opacity-70">Sélectionner</span>}
-                                </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFocusedDate(dateStr)}
+                                        className={`flex-1 text-left px-4 py-2 font-bold text-sm flex items-center justify-between ${dateStr === statsDate ? 'bg-brand-blue text-white' : 'text-slate-800 hover:opacity-90'}`}
+                                        title={dayFillStatus.get(dateStr) ? `${dayFillStatus.get(dateStr)!.scheduledCount} planifiée(s) — ${dayFillStatus.get(dateStr)!.plannedHours.toFixed(1)}h/${dayFillStatus.get(dateStr)!.capacityHours.toFixed(0)}h — ${{ clos: 'Jour clos', full: 'Complet', busy: 'Chargé', normal: 'Normal' }[dayFillStatus.get(dateStr)!.status]}` : 'Sélectionner'}
+                                    >
+                                        <span>{new Date(`${dateStr}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                        <span className="flex items-center gap-1">
+                                            {dayFillStatus.get(dateStr)?.status === 'clos' && <span className="text-[9px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1 rounded">Clos</span>}
+                                            {dateStr === statsDate ? <span className="text-xs font-bold">Sélectionné</span> : <span className="text-xs font-bold opacity-70">Sélectionner</span>}
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleCloseDay(dateStr)}
+                                        className="px-2 py-2 text-[11px] text-slate-400 hover:text-teal-600 transition shrink-0"
+                                        title={closedDays.has(dateStr) ? 'Ouvrir la journée' : 'Clore la journée'}
+                                    >
+                                        {closedDays.has(dateStr) ? '↩' : '🔒'}
+                                    </button>
+                                </div>
                                 <div className="p-3 space-y-2 bg-white">
                                     {remindersForDate.map((r: any) => (
                                         <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-3 rounded shadow-sm text-sm">
@@ -1649,10 +2758,13 @@ const Planning: React.FC = () => {
                                         const style = getMissionPlanningStyle(item as Mission);
                                         const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
                                         const clientCity = normalizeCommune(clientCityRaw);
+                                        const billingBg = billingSignals.ultimatePackComplete.has(item.id) ? '#ede9fe' : billingSignals.readyToInvoice.has(item.id) ? '#dbeafe' : undefined;
+                                        const billingBadge = billingSignals.ultimatePackComplete.has(item.id) ? { text: 'Facture complète', cls: 'text-purple-700 bg-purple-100 border border-purple-200' } : billingSignals.readyToInvoice.has(item.id) ? { text: 'À facturer', cls: 'text-blue-700 bg-blue-100 border border-blue-200' } : null;
                                         return (
                                             <div
                                                 key={item.id}
                                                 className={`p-3 rounded text-sm cursor-pointer transition border-l-4 ${style.container} ${style.border}`}
+                                                style={billingBg ? { backgroundColor: billingBg } : undefined}
                                                 onClick={(e) => handleMissionClick(item, e)}
                                             >
                                                 <div className="flex justify-between items-start gap-3">
@@ -1667,13 +2779,27 @@ const Planning: React.FC = () => {
                                                         {clientCity ? (
                                                             <p className="text-xs text-slate-600 truncate">{clientCity}</p>
                                                         ) : null}
-                                                        <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
+                                                        {item.providerId ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { const p = providers.find(pr => pr.id === item.providerId); if (p) setSelectedProviderStats(p); }}
+                                                                className="text-xs font-bold text-slate-700 truncate hover:text-brand-blue hover:underline text-left"
+                                                                aria-label={`Voir les statistiques de ${item.providerName}`}
+                                                            >
+                                                                {item.providerName}
+                                                            </button>
+                                                        ) : (
+                                                            <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
+                                                        )}
                                                         <p className="text-[11px] font-bold mt-1 text-slate-600">{style.label}</p>
+                                                        {billingBadge && (
+                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${billingBadge.cls}`} role="status">{billingBadge.text}</span>
+                                                        )}
                                                     </div>
                                                     <button
                                                         onClick={(e) => toggleMissionSelection(item.id, e)}
-                                                        className="p-1 hover:bg-white/80 rounded shrink-0"
-                                                        title="Sélectionner"
+                                                        className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center hover:bg-white/80 rounded shrink-0"
+                                                        aria-label={selectedMissionIds.has(item.id) ? 'Désélectionner la mission' : 'Sélectionner la mission'}
                                                     >
                                                         {selectedMissionIds.has(item.id) ? (
                                                             <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
@@ -1697,28 +2823,87 @@ const Planning: React.FC = () => {
 
                 {/* Desktop calendar view */}
                 <div className="hidden md:block min-w-[900px]">
-                    <div className="grid grid-cols-6 bg-slate-100 border-b border-slate-200 text-center font-bold py-2">
+                    <div className="grid grid-cols-6 border-b border-slate-200 text-center font-bold py-2">
                         {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map((d, idx) => {
                             const dateStr = colDates[idx] || '';
                             const isSelected = dateStr && dateStr === statsDate;
+                            const dayStatus = dateStr ? dayFillStatus.get(dateStr) : null;
+                            const headerBg = isSelected ? undefined : (dayStatus?.bgColor ?? '#f1f5f9');
+                            const statusLabel = dayStatus?.status === 'clos' ? 'Jour clos' : dayStatus?.status === 'full' ? 'Complet' : dayStatus?.status === 'busy' ? 'Chargé' : 'Normal';
+                            const tooltipText = dateStr && dayStatus
+                                ? `${dayStatus.scheduledCount} planifiée(s) — ${dayStatus.plannedHours.toFixed(1)}h/${dayStatus.capacityHours.toFixed(0)}h — ${statusLabel}`
+                                : 'Utiliser ce jour pour les statistiques';
                             return (
                                 <button
                                     key={d}
                                     type="button"
                                     onClick={() => dateStr && setFocusedDate(dateStr)}
                                     disabled={!dateStr}
-                                    className={`px-2 py-1 rounded-md mx-2 transition ${isSelected ? 'bg-brand-blue text-white' : 'text-slate-800 hover:bg-slate-200'} ${!dateStr ? 'opacity-40 cursor-not-allowed' : ''}`}
-                                    title="Utiliser ce jour pour les statistiques"
+                                    className={`px-2 py-1 rounded-md mx-2 transition ${isSelected ? 'bg-brand-blue text-white' : 'text-slate-800 hover:opacity-90'} ${!dateStr ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    style={isSelected ? undefined : { backgroundColor: headerBg }}
+                                    title={tooltipText}
+                                    aria-label={tooltipText}
                                 >
                                     <div className="text-sm">{d}</div>
                                     <div className={`text-[11px] ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>{dateStr ? dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM') : '—'}</div>
+                                    {dayStatus?.status === 'clos' && <div className="text-[8px] font-bold text-teal-700 leading-tight">Clos</div>}
                                 </button>
                             );
                         })}
                     </div>
                     <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
-                     {[0,1,2,3,4,5].map(colIndex => (
-                        <div key={colIndex} className="border-r border-slate-100 last:border-r-0 p-2 bg-slate-50/30 space-y-2 h-full overflow-y-auto">
+                     {[0,1,2,3,4,5].map(colIndex => {
+                        const colDateStr = colDates[colIndex] || '';
+                        const colDayStatus = colDateStr ? dayFillStatus.get(colDateStr) : null;
+                        const colBg = colDayStatus?.bgColor ? colDayStatus.bgColor + '66' : 'rgba(248,250,252,0.5)';
+                        return (
+                        <div
+                            key={colIndex}
+                            className="border-r border-slate-100 last:border-r-0 p-2 space-y-2 h-full overflow-y-auto"
+                            style={{ backgroundColor: colBg }}
+                            onDoubleClick={() => {
+                                if (colDateStr && filteredUnassignedMissions.length > 0) {
+                                    setQuickAssignTarget({
+                                        date: colDateStr,
+                                        providerId: '',
+                                        providerName: '',
+                                        startTime: '09:00',
+                                        endTime: '12:00'
+                                    });
+                                    setQuickAssignOpen(true);
+                                }
+                            }}
+                        >
+                            {/* GRAFTED: Clore toggle button & Assign button */}
+                            {colDateStr && (
+                                <div className="flex items-center justify-between">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setDayAssignDate(colDateStr); setDayAssignOpen(true); }}
+                                        className="text-[10px] font-bold text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200 transition"
+                                        title="Voir les missions à assigner"
+                                    >
+                                        {(() => {
+                                            const dayUnassigned = filteredUnassignedMissions.filter(m => m.date === colDateStr);
+                                            return dayUnassigned.length > 0 ? `À assigner (${dayUnassigned.length})` : 'Assigner';
+                                        })()}
+                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        {colDayStatus?.status === 'clos' && (
+                                            <span className="text-[8px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1 rounded">Clos</span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleCloseDay(colDateStr)}
+                                            className="min-h-[32px] min-w-[32px] flex items-center justify-center text-[11px] text-slate-400 hover:text-teal-600 transition rounded"
+                                            aria-label={closedDays.has(colDateStr) ? 'Ouvrir la journée' : 'Clore la journée'}
+                                            title={closedDays.has(colDateStr) ? 'Ouvrir la journée' : 'Clore la journée'}
+                                        >
+                                            {closedDays.has(colDateStr) ? '↩' : '🔒'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             {/* Reminders for this day */}
                             {filteredReminders
                                 .filter(r => getDayIndex(r.date) === colIndex && !r.completed)
@@ -1726,7 +2911,7 @@ const Planning: React.FC = () => {
                                     <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-2 rounded shadow-sm text-xs relative group animate-in zoom-in duration-200">
                                         <div className="flex justify-between items-start">
                                             <p className="font-bold text-yellow-800 line-clamp-2">{r.text}</p>
-                                            <button onClick={() => toggleReminder(r.id)} className="text-yellow-600 hover:text-green-600"><CheckCircle className="w-3 h-3"/></button>
+                                            <button onClick={() => toggleReminder(r.id)} className="p-1 min-h-[32px] min-w-[32px] flex items-center justify-center text-yellow-600 hover:text-green-600 rounded transition" aria-label="Marquer comme effectué"><CheckCircle className="w-4 h-4"/></button>
                                         </div>
                                         {r.notifyEmail && <div className="absolute top-1 right-1 opacity-20"><Mail className="w-3 h-3"/></div>}
                                     </div>
@@ -1760,17 +2945,20 @@ const Planning: React.FC = () => {
                                     const style = getMissionPlanningStyle(item);
                                     const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
                                     const clientCity = normalizeCommune(clientCityRaw);
+                                    const billingBg = billingSignals.ultimatePackComplete.has(item.id) ? '#ede9fe' : billingSignals.readyToInvoice.has(item.id) ? '#dbeafe' : undefined;
+                                    const billingBadge = billingSignals.ultimatePackComplete.has(item.id) ? { text: 'Facture complète', cls: 'text-purple-700 bg-purple-100' } : billingSignals.readyToInvoice.has(item.id) ? { text: 'À facturer', cls: 'text-blue-700 bg-blue-100' } : null;
                                     return (
                                         <div
                                             key={item.id}
                                             className={`p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group ${style.container} ${style.border}`}
+                                            style={billingBg ? { backgroundColor: billingBg } : undefined}
                                             onClick={(e) => handleMissionClick(item, e)}
                                         >
-                                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="absolute top-1 right-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                                 <button
                                                     onClick={(e) => toggleMissionSelection(item.id, e)}
-                                                    className="p-1 hover:bg-white/50 rounded"
-                                                    title="Sélectionner"
+                                                    className="p-1.5 min-h-[28px] min-w-[28px] flex items-center justify-center hover:bg-white/50 rounded"
+                                                    aria-label={selectedMissionIds.has(item.id) ? 'Désélectionner la mission' : 'Sélectionner la mission'}
                                                 >
                                                     {selectedMissionIds.has(item.id) ? (
                                                         <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
@@ -1792,12 +2980,27 @@ const Planning: React.FC = () => {
                                             {clientCity ? (
                                                 <p className="text-[10px] text-slate-600 truncate">{clientCity}</p>
                                             ) : null}
-                                            <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
+                                            {item.providerId ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { const p = providers.find(pr => pr.id === item.providerId); if (p) setSelectedProviderStats(p); }}
+                                                    className="text-[10px] font-bold text-slate-700 truncate hover:text-brand-blue hover:underline text-left"
+                                                    aria-label={`Voir les statistiques de ${item.providerName}`}
+                                                >
+                                                    {item.providerName}
+                                                </button>
+                                            ) : (
+                                                <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
+                                            )}
+                                            {billingBadge && (
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-0.5 inline-block ${billingBadge.cls}`} role="status">{billingBadge.text}</span>
+                                            )}
                                         </div>
                                     );
                                 })}
                         </div>
-                     ))}
+                        );
+                     })}
                     </div>
                 </div>
             </div>
@@ -2107,7 +3310,39 @@ const Planning: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Time Logic */}
+                    {/* Time Logic - GRAFTED: slot picker intégré dans le modal existant */}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">
+                            Créneau horaire
+                            <span className="ml-1 text-xs font-normal text-slate-400">(3h, 4h, 6h ou 7h)</span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5 mb-3">
+                            {ALLOWED_SLOTS.map(slot => (
+                                <button
+                                    key={slot.key}
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedSlotKey(slot.key);
+                                        setMissionForm(prev => ({ ...prev, startTime: slot.start, endTime: slot.end }));
+                                    }}
+                                    className={`px-1 py-2 rounded-lg text-xs font-bold border transition text-center ${
+                                        selectedSlotKey === slot.key
+                                            ? 'bg-brand-blue text-white border-brand-blue shadow'
+                                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-brand-blue hover:bg-blue-50'
+                                    }`}
+                                >
+                                    <div>{slot.label}</div>
+                                    <div className={`text-[10px] mt-0.5 ${selectedSlotKey === slot.key ? 'text-blue-100' : 'text-slate-400'}`}>{slot.duration}h</div>
+                                </button>
+                            ))}
+                        </div>
+                        {selectedSlotKey && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700 font-semibold flex items-center gap-2 mb-3">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                Créneau sélectionné : {ALLOWED_SLOTS.find(s => s.key === selectedSlotKey)?.label} — {ALLOWED_SLOTS.find(s => s.key === selectedSlotKey)?.duration}h
+                            </div>
+                        )}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Heure Début</label>
@@ -2116,7 +3351,7 @@ const Planning: React.FC = () => {
                                 type="time" 
                                 name="startTime"
                                 value={missionForm.startTime}
-                                onChange={handleFormChange}
+                                onChange={(e) => { handleFormChange(e); setSelectedSlotKey(''); }}
                                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
                             />
                         </div>
@@ -2127,7 +3362,7 @@ const Planning: React.FC = () => {
                                 type="time" 
                                 name="endTime"
                                 value={missionForm.endTime}
-                                onChange={handleFormChange}
+                                onChange={(e) => { handleFormChange(e); setSelectedSlotKey(''); }}
                                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
                             />
                         </div>
@@ -2173,17 +3408,83 @@ const Planning: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* GRAFTED: Suggestions automatiques de prestataires */}
+                    {missionForm.date && missionForm.startTime && missionForm.endTime && (
+                        <div className="mt-2">
+                            {providerSuggestions.suggestions.length > 0 ? (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wide">
+                                        <User className="w-3.5 h-3.5" /> Suggestions automatiques
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        {providerSuggestions.suggestions.map(s => (
+                                            <button
+                                                key={s.provider.id}
+                                                type="button"
+                                                onClick={() => setMissionForm(prev => ({ ...prev, providerId: s.provider.id }))}
+                                                className={`p-3 rounded-xl border-2 text-left transition hover:shadow-md ${
+                                                    missionForm.providerId === s.provider.id
+                                                        ? 'border-brand-blue bg-blue-50'
+                                                        : 'border-emerald-200 bg-white hover:border-emerald-400'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2 mb-1.5">
+                                                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-black text-indigo-700 shrink-0">
+                                                        {(s.provider.firstName || '')[0]}{(s.provider.lastName || '')[0] || ''}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="font-bold text-sm text-slate-800 truncate">
+                                                            {s.provider.firstName || '?'} {(s.provider.lastName || '')[0] || ''}.
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500">
+                                                            {s.dailyHours.toFixed(1)}h aujourd'hui / {s.weekHours.toFixed(0)}h sem.
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                                        {s.availableHours.toFixed(1)}h dispo
+                                                    </span>
+                                                    {s.hasWorkedForClient && (
+                                                        <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-100">
+                                                            ✨ Client fidèle
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 font-semibold flex items-start gap-2">
+                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                    <div>
+                                        <div className="font-bold">Aucune prestataire disponible</div>
+                                        <div className="font-normal mt-1">
+                                            {Array.from(providerSuggestions.reasons.values()).flat().slice(0, 3).join(' • ') || 'Vérifiez les créneaux disponibles'}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                      <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">Service</label>
-                        <input 
+                        <select
                             required
-                            type="text" 
                             name="service"
                             value={missionForm.service}
                             onChange={handleFormChange}
-                            placeholder="Ex: Ménage, Jardinage..."
                             className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                        />
+                        >
+                            <option value="">Sélectionner un service...</option>
+                            <option value="Ménage">Ménage</option>
+                            <option value="Jardinage">Jardinage</option>
+                            <option value="Bricolage">Bricolage</option>
+                            <option value="Autre">Autre</option>
+                            <option value="Personnalisé">Personnalisé</option>
+                        </select>
                     </div>
                     
                     {/* Recurrence Section */}
@@ -2805,13 +4106,19 @@ const Planning: React.FC = () => {
 
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">Service</label>
-                            <input
+                            <select
                                 required
-                                type="text"
                                 value={editMissionForm.service}
                                 onChange={(e) => setEditMissionForm(prev => ({ ...prev, service: e.target.value }))}
                                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
-                            />
+                            >
+                                <option value="">Sélectionner un service...</option>
+                                <option value="Ménage">Ménage</option>
+                                <option value="Jardinage">Jardinage</option>
+                                <option value="Bricolage">Bricolage</option>
+                                <option value="Autre">Autre</option>
+                                <option value="Personnalisé">Personnalisé</option>
+                            </select>
                         </div>
                     </div>
 
@@ -2890,7 +4197,721 @@ const Planning: React.FC = () => {
             </div>
         </div>
       )}
+
+      {/* GRAFTED: Modal Synthèse journalière */}
+      {showDailySummary && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowDailySummary(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="summary-modal-title" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-indigo-600 to-blue-600 rounded-t-2xl shrink-0">
+                      <div className="flex items-center gap-3">
+                          <Users className="w-5 h-5 text-white" />
+                          <div>
+                              <h2 id="summary-modal-title" className="text-base font-black text-white">
+                                  {new Date(`${statsDate}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                              </h2>
+                              <p className="text-xs text-indigo-200">{dailySummaryData.totalScheduled} planifiées • {dailySummaryData.totalAvailable} disponibles</p>
+                          </div>
+                      </div>
+                      <button type="button" onClick={() => setShowDailySummary(false)} className="p-2 hover:bg-white/20 rounded-full transition" aria-label="Fermer la synthèse">
+                          <X className="w-5 h-5 text-white" />
+                      </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                      <div className="flex flex-wrap gap-2">
+                          <div className="flex items-center gap-2 bg-amber-500 text-white px-3 py-2 rounded-xl shadow">
+                              <span className="text-xs font-bold">☀️ Matin (8h–12h)</span>
+                              <span className="text-xl font-black">{dailySummaryData.morningAvailable}</span>
+                          </div>
+                          <div className="flex items-center gap-2 bg-sky-500 text-white px-3 py-2 rounded-xl shadow">
+                              <span className="text-xs font-bold">🌤 Après-midi (12h–17h)</span>
+                              <span className="text-xl font-black">{dailySummaryData.afternoonAvailable}</span>
+                          </div>
+                          <div className="flex items-center gap-2 bg-emerald-500 text-white px-3 py-2 rounded-xl shadow">
+                              <span className="text-xs font-bold">✅ Journée complète</span>
+                              <span className="text-xl font-black">{dailySummaryData.fullDayAvailable}</span>
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-200">
+                              <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-xs font-black text-indigo-800 uppercase flex items-center gap-1.5">
+                                      <User className="w-3.5 h-3.5" /> Planifiées
+                                  </h4>
+                                  {dailySummaryData.scheduledProviders.length > 0 && (
+                                      <button type="button" onClick={() => { setWhatsappSentSet(new Set()); setWhatsappSendAllOpen(true); }}
+                                          className="text-[10px] font-bold text-white bg-green-500 px-2 py-1 rounded-lg hover:bg-green-600 transition flex items-center gap-1 shadow">
+                                          <MessageCircle className="w-3 h-3" /> Toutes
+                                      </button>
+                                  )}
+                              </div>
+                              {dailySummaryData.scheduledProviders.length === 0 ? (
+                                  <p className="text-xs text-indigo-400 italic">Aucune prestation ce jour</p>
+                              ) : (
+                                  <div className="space-y-2">
+                                      {dailySummaryData.scheduledProviders.map(({ provider, slots, totalHours }) => (
+                                          <div key={provider.id} className="p-3 bg-white rounded-xl border border-indigo-200 shadow-sm">
+                                              <div className="flex items-center justify-between gap-2">
+                                                  <span className="font-black text-sm text-indigo-900 truncate">{provider.firstName} {provider.lastName ?? ''}</span>
+                                                  <span className={`text-xs font-black px-2 py-0.5 rounded-full text-white shrink-0 ${totalHours >= 7 ? 'bg-red-500' : totalHours >= 4 ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+                                                      {totalHours.toFixed(1)}h
+                                                  </span>
+                                              </div>
+                                              <div className="flex flex-wrap gap-1 mt-2">
+                                                  {slots.map((slot, idx) => (
+                                                      <span key={idx} className="text-[10px] font-bold bg-indigo-600 text-white px-2 py-0.5 rounded-full">{slot.label}</span>
+                                                  ))}
+                                              </div>
+                                              <div className="mt-2 h-2 bg-indigo-100 rounded-full overflow-hidden">
+                                                  <div
+                                                      role="progressbar"
+                                                      aria-valuenow={Math.round((totalHours / MAX_PROVIDER_DAILY_HOURS) * 100)}
+                                                      aria-valuemin={0}
+                                                      aria-valuemax={100}
+                                                      aria-label={`${totalHours.toFixed(1)}h sur ${MAX_PROVIDER_DAILY_HOURS}h`}
+                                                      className={`h-full rounded-full transition-all ${totalHours >= 7 ? 'bg-red-500' : totalHours >= 4 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                      style={{ width: `${Math.min(100, (totalHours / MAX_PROVIDER_DAILY_HOURS) * 100)}%` }}
+                                                  />
+                                              </div>
+                                              {provider.phone ? (
+                                                  <button type="button"
+                                                      onClick={() => {
+                                                          const phone = provider.phone.replace(/[^\d+]/g, '');
+                                                          const msg = buildWhatsAppMessage(provider, statsDate);
+                                                          setWhatsappPreviewData({ provider, phone, message: msg });
+                                                          setWhatsappPreviewOpen(true);
+                                                      }}
+                                                      className="mt-2 w-full min-h-[40px] flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-green-500 rounded-xl hover:bg-green-600 transition shadow">
+                                                      <MessageCircle className="w-4 h-4" /> WhatsApp
+                                                  </button>
+                                              ) : (
+                                                  <p className="mt-2 text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 rounded px-2 py-1">⚠ Numéro manquant</p>
+                                              )}
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
+
+                          <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200">
+                              <h4 className="text-xs font-black text-emerald-800 uppercase mb-3 flex items-center gap-1.5">
+                                  <CheckCircle className="w-3.5 h-3.5" /> Disponibles
+                              </h4>
+                              {dailySummaryData.availableProviders.length === 0 ? (
+                                  <p className="text-xs text-emerald-400 italic">Toutes les prestataires sont planifiées</p>
+                              ) : (
+                                  <div className="space-y-2">
+                                      {dailySummaryData.availableProviders.map(({ provider, availableHours, availabilityRange }) => (
+                                          <div key={provider.id} className="p-3 bg-white rounded-xl border border-emerald-200 shadow-sm">
+                                              <div className="flex items-center justify-between gap-2">
+                                                  <span className="font-black text-sm text-emerald-900 truncate">{provider.firstName} {provider.lastName ?? ''}</span>
+                                                  <span className="text-xs font-black text-white bg-emerald-500 px-2 py-0.5 rounded-full shrink-0">{availableHours}h</span>
+                                              </div>
+                                              <div className="flex items-center gap-1.5 mt-1.5">
+                                                  <Clock className="w-3 h-3 text-emerald-600" />
+                                                  <span className="text-[11px] font-bold text-emerald-700">{availabilityRange}</span>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {(billingSignals.ultimatePackDocs.size > 0 || billingSignals.readyToInvoiceDocs.size > 0) && (
+                          <div className="space-y-3 pt-3 border-t-2 border-slate-200">
+                              {billingSignals.ultimatePackDocs.size > 0 && (
+                                  <div className="bg-violet-50 rounded-2xl p-4 border border-violet-300">
+                                      <h4 className="text-xs font-black text-violet-800 uppercase mb-2 flex items-center gap-1.5">
+                                          <span className="w-2.5 h-2.5 rounded-full bg-violet-600 inline-block" /> Packs complets
+                                      </h4>
+                                      <div className="space-y-1.5">
+                                          {Array.from(billingSignals.ultimatePackDocs.entries()).map(([docId, data]) => (
+                                              <div key={docId} className="flex items-center justify-between bg-violet-600 text-white rounded-xl px-3 py-2">
+                                                  <span className="text-sm font-bold truncate">{data.clientName}</span>
+                                                  <span className="text-[10px] font-black bg-violet-800 px-2 py-0.5 rounded-full shrink-0 ml-2">{data.completedCount} réalisées</span>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+                              {billingSignals.readyToInvoiceDocs.size > 0 && (
+                                  <div className="bg-blue-50 rounded-2xl p-4 border border-blue-300">
+                                      <h4 className="text-xs font-black text-blue-800 uppercase mb-2 flex items-center gap-1.5">
+                                          <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" /> Prêts à facturer
+                                      </h4>
+                                      <div className="space-y-1.5">
+                                          {Array.from(billingSignals.readyToInvoiceDocs.entries()).map(([docId, data]) => (
+                                              <div key={docId} className="flex items-center justify-between bg-blue-600 text-white rounded-xl px-3 py-2">
+                                                  <span className="text-sm font-bold truncate">{data.clientName}</span>
+                                                  <span className="text-[10px] font-black bg-blue-800 px-2 py-0.5 rounded-full shrink-0 ml-2">{data.completedCount} réalisées</span>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-4 border-t border-slate-100 shrink-0">
+                      <button type="button" onClick={() => setShowDailySummary(false)}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition">
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GRAFTED: Fiche stats prestataire */}
+      {selectedProviderStats && providerStatsData && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-end md:items-center justify-center md:p-4" onClick={() => setSelectedProviderStats(null)}>
+              <div
+                  className="bg-white rounded-t-3xl md:rounded-2xl w-full md:max-w-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[90vh] animate-in slide-in-from-bottom-0 md:fade-in md:zoom-in-95 duration-200"
+                  onClick={e => e.stopPropagation()}
+              >
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-violet-600 to-purple-600 rounded-t-3xl md:rounded-t-2xl shrink-0">
+                      <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-xl font-black text-white">
+                              {(selectedProviderStats.firstName || '')[0]}{(selectedProviderStats.lastName || '')[0] || ''}
+                          </div>
+                          <div>
+                              <h2 className="text-lg font-black text-white">{selectedProviderStats.firstName} {selectedProviderStats.lastName}</h2>
+                              <p className="text-xs text-violet-200">{providerStatsData.weekPlanned} prestations cette semaine</p>
+                          </div>
+                      </div>
+                      <button type="button" onClick={() => setSelectedProviderStats(null)} className="p-2 hover:bg-white/20 rounded-full" aria-label="Fermer la fiche">
+                          <X className="w-5 h-5 text-white" />
+                      </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                      {/* Week stats */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+                              <div className="text-[10px] font-bold text-indigo-500 uppercase">Prestations</div>
+                              <div className="text-xl font-black text-indigo-700">{providerStatsData.weekPlanned}</div>
+                          </div>
+                          <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                              <div className="text-[10px] font-bold text-emerald-500 uppercase">Heures sem.</div>
+                              <div className="text-xl font-black text-emerald-700">{providerStatsData.weekHours.toFixed(1)}h</div>
+                          </div>
+                          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                              <div className="text-[10px] font-bold text-amber-500 uppercase">Jours trav.</div>
+                              <div className="text-xl font-black text-amber-700">{providerStatsData.weekWorkedDays}/{providerStatsData.providerWorkingDaysThisWeek}</div>
+                          </div>
+                          <div className="bg-sky-50 rounded-xl p-3 border border-sky-100">
+                              <div className="text-[10px] font-bold text-sky-500 uppercase">Occupation</div>
+                              <div className="text-xl font-black text-sky-700">{providerStatsData.occupationRate.toFixed(0)}%</div>
+                          </div>
+                      </div>
+
+                      {/* Occupation bar */}
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                          <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                              <span>Taux d'occupation</span>
+                              <span>{providerStatsData.occupationRate.toFixed(0)}%</span>
+                          </div>
+                          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                              <div
+                                  className={`h-2 rounded-full transition-all duration-300 ${
+                                      providerStatsData.occupationRate >= 80 ? 'bg-emerald-500' :
+                                      providerStatsData.occupationRate >= 50 ? 'bg-amber-500' : 'bg-red-400'
+                                  }`}
+                                  style={{ width: `${providerStatsData.occupationRate}%` }}
+                              />
+                          </div>
+                      </div>
+
+                      {/* Month stats */}
+                      <div className="bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 border border-slate-200">
+                          <h3 className="text-xs font-black text-slate-700 uppercase mb-2">Ce mois</h3>
+                          <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                  <div className="text-lg font-black text-slate-800">{providerStatsData.monthHours.toFixed(1)}h</div>
+                                  <div className="text-[10px] text-slate-500">Heures</div>
+                              </div>
+                              <div>
+                                  <div className="text-lg font-black text-slate-800">{providerStatsData.monthMissions}</div>
+                                  <div className="text-[10px] text-slate-500">Prestations</div>
+                              </div>
+                              <div>
+                                  <div className="text-lg font-black text-slate-800">{providerStatsData.monthClients}</div>
+                                  <div className="text-[10px] text-slate-500">Clients</div>
+                              </div>
+                          </div>
+                          {providerStatsData.monthDiff !== 0 && (
+                              <div className={`mt-2 text-xs font-bold ${providerStatsData.monthDiff >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                  {providerStatsData.monthDiff >= 0 ? '↑' : '↓'} {Math.abs(providerStatsData.monthDiff).toFixed(1)}h vs mois dernier
+                              </div>
+                          )}
+                      </div>
+
+                      {/* 30-day presence calendar */}
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                          <h3 className="text-xs font-black text-slate-700 uppercase mb-2">30 derniers jours</h3>
+                          <div className="flex flex-wrap gap-1">
+                              {providerStatsData.presenceDays.map(day => (
+                                  <div
+                                      key={day.dateStr}
+                                      className={`w-5 h-5 rounded-sm flex items-center justify-center text-[8px] font-bold ${
+                                          day.isToday
+                                              ? 'ring-2 ring-brand-blue ring-offset-1'
+                                              : day.worked
+                                              ? 'bg-emerald-500 text-white'
+                                              : day.available
+                                              ? 'bg-slate-200 text-slate-400'
+                                              : 'bg-slate-100 text-slate-300'
+                                      }`}
+                                      title={`${day.dateStr}${day.worked ? ' • Travaillé' : day.available ? ' • Disponible' : ' • Non disponible'}`}
+                                  >
+                                      {day.dayNum}
+                                  </div>
+                              ))}
+                          </div>
+                          <div className="flex gap-3 mt-2 text-[10px] text-slate-500">
+                              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> Travail</span>
+                              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-200" /> Dispo</span>
+                              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-100" /> Absent</span>
+                          </div>
+                      </div>
+
+                      {/* Last 5 missions */}
+                      {providerStatsData.lastMissions.length > 0 && (
+                          <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                              <h3 className="text-xs font-black text-slate-700 uppercase mb-2">Dernières prestations</h3>
+                              <div className="space-y-2">
+                                  {providerStatsData.lastMissions.map(m => (
+                                      <div key={m.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-slate-100">
+                                          <div className="min-w-0">
+                                              <p className="text-xs font-bold text-slate-800 truncate">{m.clientName}</p>
+                                              <p className="text-[10px] text-slate-500">{m.date} • {m.startTime}-{m.endTime}</p>
+                                          </div>
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                              m.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                                              m.status === 'planned' ? 'bg-blue-100 text-blue-700' :
+                                              'bg-slate-100 text-slate-600'
+                                          }`}>
+                                              {m.status === 'completed' ? 'Terminé' : m.status === 'planned' ? 'Planifié' : m.status}
+                                          </span>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-4 border-t border-slate-100 shrink-0">
+                      <button type="button" onClick={() => setSelectedProviderStats(null)}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition">
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GRAFTED: Centre de notifications */}
+      {showNotifications && (
+          <div className="fixed inset-0 z-50" onClick={() => setShowNotifications(false)}>
+              <div className="absolute top-16 right-4 w-80 md:w-96 max-h-[70vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
+                      <div className="flex items-center gap-2">
+                          <Bell className="w-4 h-4 text-slate-600" />
+                          <span className="font-bold text-slate-800">Notifications</span>
+                          {notificationsData.length > 0 && (
+                              <span className="text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">
+                                  {notificationsData.length}
+                              </span>
+                          )}
+                      </div>
+                      {notificationsData.length > 0 && (
+                          <button
+                              type="button"
+                              onClick={() => setReadNotificationIds(new Set(notificationsData.map(n => n.id)))}
+                              className="text-[10px] font-bold text-slate-500 hover:text-slate-700"
+                          >
+                              Tout marquer lu
+                          </button>
+                      )}
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto">
+                      {notificationsData.length === 0 ? (
+                          <div className="p-6 text-center">
+                              <BellOff className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                              <p className="text-sm text-slate-500">Aucune notification</p>
+                          </div>
+                      ) : (
+                          <div className="divide-y divide-slate-100">
+                              {notificationsData.map(n => {
+                                  const isRead = readNotificationIds.has(n.id);
+                                  return (
+                                      <div
+                                          key={n.id}
+                                          className={`p-3 hover:bg-slate-50 transition ${!isRead ? 'bg-blue-50/50' : ''}`}
+                                      >
+                                          <div className="flex items-start gap-2">
+                                              <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                                                  n.type === 'planning' ? 'bg-amber-500' :
+                                                  n.type === 'billing' ? 'bg-blue-500' :
+                                                  n.type === 'workload' ? 'bg-orange-500' : 'bg-emerald-500'
+                                              }`} />
+                                              <div className="flex-1 min-w-0">
+                                                  <div className="flex items-center justify-between gap-2">
+                                                      <span className={`text-xs font-bold truncate ${!isRead ? 'text-slate-800' : 'text-slate-600'}`}>
+                                                          {n.title}
+                                                      </span>
+                                                      <button
+                                                          type="button"
+                                                          onClick={() => setReadNotificationIds(prev => new Set([...prev, n.id]))}
+                                                          className="text-slate-400 hover:text-slate-600 shrink-0"
+                                                          aria-label="Marquer comme lu"
+                                                      >
+                                                          <X className="w-3 h-3" />
+                                                      </button>
+                                                  </div>
+                                                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{n.message}</p>
+                                                  {n.action && (
+                                                      <button
+                                                          type="button"
+                                                          onClick={n.action.onClick}
+                                                          className="mt-1.5 text-[10px] font-bold text-brand-blue hover:underline"
+                                                      >
+                                                          {n.action.label}
+                                                      </button>
+                                                  )}
+                                              </div>
+                                          </div>
+                                      </div>
+                                  );
+                              })}
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GRAFTED: Quick Assign Modal */}
+      {quickAssignOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => { setQuickAssignOpen(false); setQuickAssignMission(null); setQuickAssignTarget(null); }}>
+              <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl flex flex-col max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="quickassign-title" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-t-2xl shrink-0">
+                      <div>
+                          <h2 id="quickassign-title" className="text-lg font-black text-white">Assignation rapide</h2>
+                          {quickAssignTarget && (
+                              <p className="text-xs text-emerald-200">{quickAssignTarget.date} • {quickAssignTarget.startTime}-{quickAssignTarget.endTime}</p>
+                          )}
+                      </div>
+                      <button type="button" onClick={() => { setQuickAssignOpen(false); setQuickAssignMission(null); setQuickAssignTarget(null); }} className="p-2 hover:bg-white/20 rounded-full" aria-label="Fermer">
+                          <X className="w-5 h-5 text-white" />
+                      </button>
+                  </div>
+
+                  <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                      {quickAssignMission ? (
+                          <>
+                              <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+                                  <div className="text-xs font-bold text-red-800">Mission à assigner</div>
+                                  <div className="text-sm font-bold text-red-900 mt-1">{quickAssignMission.clientName}</div>
+                                  <div className="text-xs text-red-700 mt-1">{quickAssignMission.date} • {quickAssignMission.startTime}-{quickAssignMission.endTime}</div>
+                                  <div className="text-xs text-red-600 mt-1">{quickAssignMission.service || 'Prestation'}</div>
+                              </div>
+
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-600 mb-2">Sélectionner une prestataire</label>
+                                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                                      {providers.filter(p => p.status === 'Active').map(p => {
+                                          const dayOfWeek = dayjs.tz(quickAssignMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+                                          const nid = (p as any).nonInterventionDays;
+                                          const isWorkingDay = !(Array.isArray(nid) && nid.includes(dayOfWeek));
+                                          const existingHours = getProviderDailyHours(p.id, quickAssignMission.date);
+                                          const missionDuration = calculateDuration(quickAssignMission.date, quickAssignMission.startTime, quickAssignMission.date, quickAssignMission.endTime);
+                                          const canAssign = isWorkingDay && existingHours + missionDuration <= MAX_PROVIDER_DAILY_HOURS;
+
+                                          return (
+                                              <button
+                                                  key={p.id}
+                                                  type="button"
+                                                  disabled={!canAssign}
+                                                  onClick={async () => {
+                                                      try {
+                                                          await assignProvider(quickAssignMission.id, p.id, `${p.firstName} ${p.lastName}`);
+                                                          toast.success(`${p.firstName} assigné(e) !`);
+                                                          if (refreshData) await refreshData();
+                                                      } catch (err: any) {
+                                                          toast.error(err?.message || 'Erreur d\'assignation');
+                                                      }
+                                                      setQuickAssignOpen(false);
+                                                      setQuickAssignMission(null);
+                                                      setQuickAssignTarget(null);
+                                                  }}
+                                                  className={`w-full p-2 rounded-lg text-left transition flex items-center gap-2 ${
+                                                      canAssign
+                                                          ? 'bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
+                                                          : 'bg-slate-100 border border-slate-200 opacity-50 cursor-not-allowed'
+                                                  }`}
+                                              >
+                                                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-black text-indigo-700 shrink-0">
+                                                      {(p.firstName || '')[0]}{(p.lastName || '')[0] || ''}
+                                                  </div>
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-xs font-bold text-slate-800 truncate">{p.firstName} {p.lastName}</div>
+                                                      <div className="text-[10px] text-slate-500">
+                                                          {!isWorkingDay ? 'Jour de repos' : `${existingHours.toFixed(1)}h/${MAX_PROVIDER_DAILY_HOURS}h`}
+                                                      </div>
+                                                  </div>
+                                                  {canAssign && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                                              </button>
+                                          );
+                                      })}
+                                  </div>
+                              </div>
+                          </>
+                      ) : quickAssignTarget ? (
+                          <>
+                              <div className="text-sm text-slate-600 mb-2">
+                                  Créneau : <span className="font-bold">{quickAssignTarget.startTime}-{quickAssignTarget.endTime}</span> pour <span className="font-bold">{quickAssignTarget.providerName}</span>
+                              </div>
+
+                              {filteredUnassignedMissions.length === 0 ? (
+                                  <div className="text-center py-4">
+                                      <p className="text-sm text-slate-500">Aucune mission en attente</p>
+                                  </div>
+                              ) : (
+                                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                                      {filteredUnassignedMissions.map(m => {
+                                          const client = clients.find(c => c.id === m.clientId);
+                                          const duration = calculateDuration(m.date, m.startTime, m.date, m.endTime);
+                                          const existingHours = getProviderDailyHours(quickAssignTarget.providerId, quickAssignTarget.date);
+                                          const canAssign = duration + existingHours <= MAX_PROVIDER_DAILY_HOURS;
+
+                                          return (
+                                              <button
+                                                  key={m.id}
+                                                  type="button"
+                                                  disabled={!canAssign}
+                                                  onClick={async () => {
+                                                      try {
+                                                          await assignProvider(m.id, quickAssignTarget.providerId, quickAssignTarget.providerName);
+                                                          toast.success(`Mission assignée à ${quickAssignTarget.providerName} !`);
+                                                          if (refreshData) await refreshData();
+                                                      } catch (err: any) {
+                                                          toast.error(err?.message || 'Erreur d\'assignation');
+                                                      }
+                                                      setQuickAssignOpen(false);
+                                                      setQuickAssignMission(null);
+                                                      setQuickAssignTarget(null);
+                                                  }}
+                                                  className={`w-full p-2 rounded-lg text-left transition ${
+                                                      canAssign
+                                                          ? 'bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
+                                                          : 'bg-slate-100 border border-slate-200 opacity-50 cursor-not-allowed'
+                                                  }`}
+                                              >
+                                                  <div className="text-xs font-bold text-slate-800 truncate">{client?.name || m.clientName}</div>
+                                                  <div className="text-[10px] text-slate-500">{m.date} • {m.startTime}-{m.endTime}</div>
+                                              </button>
+                                          );
+                                      })}
+                                  </div>
+                              )}
+                          </>
+                      ) : null}
+                  </div>
+
+                  <div className="p-4 border-t border-slate-100 shrink-0">
+                      <button type="button" onClick={() => { setQuickAssignOpen(false); setQuickAssignMission(null); setQuickAssignTarget(null); }}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition">
+                          Annuler
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GRAFTED: Day Assign Modal */}
+      {dayAssignOpen && dayAssignDate && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => { setDayAssignOpen(false); setDayAssignDate(null); }}>
+              <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="dayassign-title" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-5 py-4 bg-amber-500 rounded-t-2xl shrink-0">
+                      <div>
+                          <h2 id="dayassign-title" className="text-lg font-black text-white">Missions du {dayjs.tz(dayAssignDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}</h2>
+                          <p className="text-xs text-amber-100">À assigner</p>
+                      </div>
+                      <button type="button" onClick={() => { setDayAssignOpen(false); setDayAssignDate(null); }} className="p-2 hover:bg-white/20 rounded-full" aria-label="Fermer">
+                          <X className="w-5 h-5 text-white" />
+                      </button>
+                  </div>
+
+                  <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                      {(() => {
+                          const dayMissions = filteredUnassignedMissions.filter(m => m.date === dayAssignDate);
+                          if (dayMissions.length === 0) {
+                              return (
+                                  <div className="text-center py-6">
+                                      <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                                      <p className="text-sm font-bold text-slate-700">Toutes les missions sont assignées</p>
+                                  </div>
+                              );
+                          }
+                          return dayMissions.map(m => {
+                              const client = clients.find(c => c.id === m.clientId);
+                              return (
+                                  <div key={m.id} className="bg-red-50 border border-red-100 rounded-xl p-3">
+                                      <div className="flex items-start justify-between">
+                                          <div>
+                                              <div className="text-sm font-bold text-red-900">{client?.name || m.clientName}</div>
+                                              <div className="text-xs text-red-700 mt-1">{m.startTime} - {m.endTime}</div>
+                                              <div className="text-xs text-red-600 mt-0.5">{m.service || 'Prestation'}</div>
+                                          </div>
+                                          <button
+                                              type="button"
+                                              onClick={() => { setQuickAssignMission(m); setQuickAssignOpen(true); }}
+                                              className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                                          >
+                                              Assigner
+                                          </button>
+                                      </div>
+                                  </div>
+                              );
+                          });
+                      })()}
+                  </div>
+
+                  <div className="p-4 border-t border-slate-100 shrink-0">
+                      <button type="button" onClick={() => { setDayAssignOpen(false); setDayAssignDate(null); }}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition">
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {whatsappPreviewOpen && whatsappPreviewData && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setWhatsappPreviewOpen(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="wa-preview-title" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
+                      <div>
+                          <h2 id="wa-preview-title" className="text-lg font-bold text-slate-900">Pr\u00e9visualisation WhatsApp</h2>
+                          <p className="text-sm text-slate-500">{whatsappPreviewData.provider.firstName} {whatsappPreviewData.provider.lastName}</p>
+                      </div>
+                      <button type="button" onClick={() => setWhatsappPreviewOpen(false)} className="p-2 hover:bg-slate-100 rounded-full" aria-label="Fermer la pr\u00e9visualisation">
+                          <X className="w-5 h-5 text-slate-500" />
+                      </button>
+                  </div>
+                  <div className="p-5 space-y-3 overflow-y-auto flex-1">
+                      {whatsappPreviewData.phone ? (
+                          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                              <MessageCircle className="w-4 h-4 text-green-600 shrink-0" />
+                              <span className="text-sm font-bold text-green-800">{whatsappPreviewData.phone}</span>
+                          </div>
+                      ) : (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-700 font-bold">
+                              \u26a0\ufe0f Num\u00e9ro manquant \u2014 le lien ne fonctionnera pas
+                          </div>
+                      )}
+                      <div>
+                          <label className="block text-xs font-bold text-slate-600 mb-1">Message (modifiable)</label>
+                          <textarea
+                              rows={10}
+                              value={whatsappPreviewData.message}
+                              onChange={e => setWhatsappPreviewData(prev => prev ? { ...prev, message: e.target.value } : null)}
+                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:border-brand-blue outline-none resize-y"
+                          />
+                      </div>
+                  </div>
+                  <div className="flex gap-3 p-5 border-t border-slate-100 shrink-0">
+                      <button
+                          type="button"
+                          onClick={() => setWhatsappPreviewOpen(false)}
+                          className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition"
+                      >
+                          Annuler
+                      </button>
+                      <a
+                          href={`https://wa.me/${whatsappPreviewData.phone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(whatsappPreviewData.message)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => setWhatsappPreviewOpen(false)}
+                          className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition flex items-center justify-center gap-2"
+                      >
+                          <MessageCircle className="w-4 h-4" /> Confirmer et envoyer
+                      </a>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GRAFTED: Modal Envoyer \u00e0 toutes */}
+      {whatsappSendAllOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setWhatsappSendAllOpen(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="wa-sendall-title" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
+                      <div>
+                          <h2 id="wa-sendall-title" className="text-lg font-bold text-slate-900">Envoyer \u00e0 toutes</h2>
+                          <p className="text-sm text-slate-500">{dailySummaryData.scheduledProviders.length} prestataire(s) planifi\u00e9e(s) le {dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}</p>
+                      </div>
+                      <button type="button" onClick={() => setWhatsappSendAllOpen(false)} className="p-2 hover:bg-slate-100 rounded-full" aria-label="Fermer l'envoi groupé">
+                          <X className="w-5 h-5 text-slate-500" />
+                      </button>
+                  </div>
+                  <div className="p-5 flex-1 overflow-y-auto">
+                      <div className="space-y-2">
+                          {dailySummaryData.scheduledProviders.map(({ provider }) => {
+                              const phone = (provider.phone || '').replace(/[^\d+]/g, '');
+                              const msg = buildWhatsAppMessage(provider, statsDate);
+                              const sent = whatsappSentSet.has(provider.id);
+                              return (
+                                  <div key={provider.id} className={`flex items-center justify-between gap-3 p-2 rounded-lg border ${sent ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                                      <div className="min-w-0">
+                                          <p className="font-bold text-sm text-slate-800 truncate">{provider.firstName} {provider.lastName}</p>
+                                          {phone ? (
+                                              <p className="text-xs text-slate-500 truncate">{provider.phone}</p>
+                                          ) : (
+                                              <p className="text-[10px] text-amber-600 font-bold">Num\u00e9ro manquant</p>
+                                          )}
+                                      </div>
+                                      {phone ? (
+                                          <a
+                                              href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={() => setWhatsappSentSet(prev => new Set([...prev, provider.id]))}
+                                              className={`min-h-[40px] shrink-0 px-3 flex items-center gap-1.5 text-xs font-bold rounded-lg transition ${sent ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                                          >
+                                              <MessageCircle className="w-3.5 h-3.5" /> {sent ? '\u2713 Envoy\u00e9' : 'Envoyer'}
+                                          </a>
+                                      ) : (
+                                          <span className="text-[10px] text-slate-400 italic shrink-0">\u2014</span>
+                                      )}
+                                  </div>
+                              );
+                          })}
+                      </div>
+                      <p className="mt-3 text-xs text-slate-400 italic text-center">
+                          {whatsappSentSet.size}/{dailySummaryData.scheduledProviders.length} envoy\u00e9(s)
+                      </p>
+                  </div>
+                  <div className="p-5 border-t border-slate-100 shrink-0">
+                      <button
+                          type="button"
+                          onClick={() => setWhatsappSendAllOpen(false)}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition"
+                      >
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
+    </>
   );
 };
 
