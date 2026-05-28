@@ -63,11 +63,7 @@ import { PullToRefresh } from '../components/mobile/PullToRefresh';
 import NewPlanningView from './NewPlanningView';
 
 const Planning: React.FC = () => {
-<<<<<<< HEAD
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, companySettings } = useData();
-=======
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, updateMessageConfig } = useData();
->>>>>>> 697f03373119760ec2cd6424969f502a567caf96
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, updateMessageConfig, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -819,7 +815,7 @@ const Planning: React.FC = () => {
   // --- GRAFTED: Vue synthétique journalière - Computed data ---
   const dailySummaryData = useMemo(() => {
       const targetDate = statsDate;
-      const activeProviders = providers.filter(p => p.status === 'Active');
+      const activeProviders = providers.filter(p => p?.status === 'Active');
       
       // Missions for the target date (non-cancelled)
       const dayMissions = missions.filter(m => m.date === targetDate && m.status !== 'cancelled');
@@ -923,7 +919,7 @@ const Planning: React.FC = () => {
       allDates.forEach(dateStr => {
           const dayOfWeek = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
           const workingProviders = providers.filter(p => {
-              if (p.status !== 'Active') return false;
+              if (p?.status !== 'Active') return false;
               const nid = p.nonInterventionDays;
               return !(Array.isArray(nid) && nid.includes(dayOfWeek));
           });
@@ -1002,7 +998,7 @@ const Planning: React.FC = () => {
   // --- GRAFTED: Données agrégées pour le mini-dashboard semaine ---
   const weekDashboardData = useMemo(() => {
       const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-      const activeProviders = providers.filter(p => p.status === 'Active');
+      const activeProviders = providers.filter(p => p?.status === 'Active');
 
       const days = colDates
           .map((dateStr, idx) => {
@@ -1075,7 +1071,7 @@ const Planning: React.FC = () => {
       const duration = calculateDuration(targetDate, startTime, targetDate, endTime);
       const targetClientId = missionForm.clientId;
 
-      const activeProviders = providers.filter(p => p.status === 'Active');
+      const activeProviders = providers.filter(p => p?.status === 'Active');
       const reasons = new Map<string, string[]>();
 
       // Calculate week date range for this week
@@ -1275,7 +1271,7 @@ const Planning: React.FC = () => {
           action?: { label: string; onClick: () => void };
       }> = [];
 
-      const activeProviders = providers.filter(p => p.status === 'Active');
+      const activeProviders = providers.filter(p => p?.status === 'Active');
 
       // === PLANNING ALERTS ===
       // Tomorrow: available providers but no missions
@@ -1659,10 +1655,10 @@ const Planning: React.FC = () => {
 
   // Find providers whose specialty matches the service type
   const findProvidersByServiceType = (serviceType: string): Provider[] => {
-      if (!serviceType) return providers.filter(p => p.status === 'Active');
+      if (!serviceType) return providers.filter(p => p?.status === 'Active');
       const normalizedService = serviceType.toLowerCase();
       return providers.filter(p => {
-          if (p.status !== 'Active') return false;
+          if (p?.status !== 'Active') return false;
           if (!p.specialty) return true; // If no specialty defined, consider compatible
           const normalizedSpecialty = p.specialty.toLowerCase();
           // Check if service type is contained in specialty or vice versa
@@ -2525,7 +2521,7 @@ const Planning: React.FC = () => {
                         <SearchableSelect
                             options={[
                                 { value: 'all', label: 'Tous les prestataires' },
-                                ...providers.filter(p => p.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
+                                ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
                             ]}
                             value={selectedProvider}
                             onChange={(value) => setSelectedProvider(value)}
@@ -4661,7 +4657,7 @@ const Planning: React.FC = () => {
                               <div>
                                   <label className="block text-xs font-bold text-slate-600 mb-2">Sélectionner une prestataire</label>
                                   <div className="space-y-1 max-h-48 overflow-y-auto">
-                                      {providers.filter(p => p.status === 'Active').map(p => {
+                                      {providers.filter(p => p?.status === 'Active').map(p => {
                                           const dayOfWeek = dayjs.tz(quickAssignMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
                                           const nid = (p as any).nonInterventionDays;
                                           const isWorkingDay = !(Array.isArray(nid) && nid.includes(dayOfWeek));
