@@ -61,7 +61,7 @@ import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, updateMessageConfig, companySettings } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
