@@ -239,27 +239,33 @@ const Clients: React.FC = () => {
   }, [documents]);
 
   const clientsInactiveIds = useMemo(() => {
-    const todayMs = Date.now();
-    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-    const clientLastMs: Record<string, number> = {};
-    (missions || []).forEach((m: any) => {
-      if (!m?.clientId || String(m?.status) === 'cancelled' || !m?.date) return;
-      const ms = new Date(String(m.date)).getTime();
-      if (!clientLastMs[m.clientId] || ms > clientLastMs[m.clientId]) clientLastMs[m.clientId] = ms;
+    const clientsWithSignedDevis = new Set<string>();
+    (documents || []).forEach((d: any) => {
+      if (d?.clientId && String(d?.type) === 'Devis' && String(d?.status) === 'signed') {
+        clientsWithSignedDevis.add(String(d.clientId));
+      }
     });
     const ids = new Set<string>();
     clients.forEach(c => {
-      const last = clientLastMs[c.id];
-      if (!last || (todayMs - last) > ninetyDaysMs) ids.add(c.id);
+      if (!clientsWithSignedDevis.has(c.id)) ids.add(c.id);
     });
     return ids;
-  }, [missions, clients]);
+  }, [documents, clients]);
 
   const clientsWithLoyaltyIds = useMemo(() => {
+    const signedDevisCount: Record<string, number> = {};
+    (documents || []).forEach((d: any) => {
+      if (d?.clientId && String(d?.type) === 'Devis' && String(d?.status) === 'signed') {
+        const id = String(d.clientId);
+        signedDevisCount[id] = (signedDevisCount[id] || 0) + 1;
+      }
+    });
     const ids = new Set<string>();
-    clients.forEach(c => { if (Number((c as any)?.loyaltyHoursAvailable || 0) > 0) ids.add(c.id); });
+    Object.entries(signedDevisCount).forEach(([id, count]) => {
+      if (count >= 2) ids.add(id);
+    });
     return ids;
-  }, [clients]);
+  }, [documents]);
 
   const clientActivityStats = useMemo(() => ({
     withOrder: clientsWithOrderIds.size,
@@ -869,14 +875,14 @@ Lien de connexion : https://presta-antilles.app/login`);
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'inactive_3m' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'}`}
         >
           <Moon className="w-3.5 h-3.5" />
-          <span>{clientActivityStats.inactive} dormants</span>
+          <span>{clientActivityStats.inactive} sans commande</span>
         </button>
         <button
           onClick={() => setActivityFilter(activityFilter === 'has_loyalty' ? 'all' : 'has_loyalty')}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'has_loyalty' ? 'bg-yellow-500 text-white border-yellow-500 shadow-sm' : 'bg-white text-yellow-700 border-yellow-200 hover:bg-yellow-50'}`}
         >
           <Gift className="w-3.5 h-3.5" />
-          <span>{clientActivityStats.withLoyalty} avec fidélité</span>
+          <span>{clientActivityStats.withLoyalty} fidélisés</span>
         </button>
       </div>
 
@@ -934,8 +940,8 @@ Lien de connexion : https://presta-antilles.app/login`);
                 <option value="all">Toute activité</option>
                 <option value="has_order">A passé une commande</option>
                 <option value="pending_quote">Devis en attente de signature</option>
-                <option value="inactive_3m">Clients dormants (+90 jours)</option>
-                <option value="has_loyalty">Avec heures fidélité</option>
+                <option value="inactive_3m">Sans commande (aucun devis signé)</option>
+                <option value="has_loyalty">Fidélisés (2+ devis signés)</option>
               </select>
             </div>
             {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc' || activityFilter !== 'all') && (
