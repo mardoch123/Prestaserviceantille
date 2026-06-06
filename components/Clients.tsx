@@ -30,7 +30,10 @@ import {
   AlertTriangle,
   Loader2,
   Edit,
-  Copy
+  Copy,
+  ShoppingBag,
+  FileText,
+  Moon
 } from 'lucide-react';
 
 // Mobile features integration
@@ -173,6 +176,7 @@ const Clients: React.FC = () => {
   const [cityFilter, setCityFilter] = useState('');
 
   const [sortOption, setSortOption] = useState<'since_desc' | 'alpha_asc' | 'alpha_desc' | 'last_intervention_desc' | 'next_intervention_asc'>('since_desc');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'has_order' | 'pending_quote' | 'inactive_3m' | 'has_loyalty'>('all');
 
   // Responsive filter state
   const [showFilters, setShowFilters] = useState(false);
@@ -216,10 +220,62 @@ const Clients: React.FC = () => {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [openLeadMenuId]);
 
+  const clientsWithOrderIds = useMemo(() => {
+    const ids = new Set<string>();
+    (missions || []).forEach((m: any) => {
+      if (m?.clientId && String(m?.status) !== 'cancelled') ids.add(String(m.clientId));
+    });
+    return ids;
+  }, [missions]);
+
+  const clientsWithPendingQuoteIds = useMemo(() => {
+    const ids = new Set<string>();
+    (documents || []).forEach((d: any) => {
+      if (d?.clientId && String(d?.type) === 'Devis' && ['sent', 'pending'].includes(String(d?.status || ''))) {
+        ids.add(String(d.clientId));
+      }
+    });
+    return ids;
+  }, [documents]);
+
+  const clientsInactiveIds = useMemo(() => {
+    const todayMs = Date.now();
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+    const clientLastMs: Record<string, number> = {};
+    (missions || []).forEach((m: any) => {
+      if (!m?.clientId || String(m?.status) === 'cancelled' || !m?.date) return;
+      const ms = new Date(String(m.date)).getTime();
+      if (!clientLastMs[m.clientId] || ms > clientLastMs[m.clientId]) clientLastMs[m.clientId] = ms;
+    });
+    const ids = new Set<string>();
+    clients.forEach(c => {
+      const last = clientLastMs[c.id];
+      if (!last || (todayMs - last) > ninetyDaysMs) ids.add(c.id);
+    });
+    return ids;
+  }, [missions, clients]);
+
+  const clientsWithLoyaltyIds = useMemo(() => {
+    const ids = new Set<string>();
+    clients.forEach(c => { if (Number((c as any)?.loyaltyHoursAvailable || 0) > 0) ids.add(c.id); });
+    return ids;
+  }, [clients]);
+
+  const clientActivityStats = useMemo(() => ({
+    withOrder: clientsWithOrderIds.size,
+    pendingQuote: clientsWithPendingQuoteIds.size,
+    inactive: clientsInactiveIds.size,
+    withLoyalty: clientsWithLoyaltyIds.size,
+  }), [clientsWithOrderIds, clientsWithPendingQuoteIds, clientsInactiveIds, clientsWithLoyaltyIds]);
+
   const filteredClients = useMemo(() => {
     let result = clients;
     if (filterStatus !== 'all') result = result.filter(c => c.status === filterStatus);
     if (cityFilter !== '') result = result.filter(c => c.city === cityFilter);
+    if (activityFilter === 'has_order') result = result.filter(c => clientsWithOrderIds.has(c.id));
+    if (activityFilter === 'pending_quote') result = result.filter(c => clientsWithPendingQuoteIds.has(c.id));
+    if (activityFilter === 'inactive_3m') result = result.filter(c => clientsInactiveIds.has(c.id));
+    if (activityFilter === 'has_loyalty') result = result.filter(c => clientsWithLoyaltyIds.has(c.id));
     if (searchQuery) {
         const query = normalizeForSearch(searchQuery);
         result = result.filter(c =>
@@ -229,7 +285,7 @@ const Clients: React.FC = () => {
         );
     }
     return result;
-  }, [clients, filterStatus, cityFilter, searchQuery]);
+  }, [clients, filterStatus, cityFilter, activityFilter, clientsWithOrderIds, clientsWithPendingQuoteIds, clientsInactiveIds, clientsWithLoyaltyIds, searchQuery]);
 
   // Filtres par colonne (tableau)
   const [columnFilters, setColumnFilters] = useState({
@@ -326,7 +382,7 @@ const Clients: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filterStatus, cityFilter, sortOption, columnFilters]);
+  }, [searchQuery, filterStatus, cityFilter, sortOption, columnFilters, activityFilter]);
 
   const pagedClients = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -770,7 +826,7 @@ Lien de connexion : https://presta-antilles.app/login`);
           >
             <Filter className="w-4 h-4" />
             Filtres
-            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc') && (
+            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc' || activityFilter !== 'all') && (
               <span className="w-2 h-2 bg-brand-orange rounded-full"></span>
             )}
           </button>
@@ -783,6 +839,45 @@ Lien de connexion : https://presta-antilles.app/login`);
            )}
            <button onClick={openCreateModal} className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"><UserPlus className="w-4 h-4" /> <span className="hidden sm:inline">Nouveau</span></button>
         </div>
+      </div>
+
+      {/* Stats rapides cliquables */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => { setActivityFilter('all'); setFilterStatus('all'); }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'all' && filterStatus === 'all' ? 'bg-slate-700 text-white border-slate-700 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>{clients.length} client{clients.length > 1 ? 's' : ''}</span>
+        </button>
+        <button
+          onClick={() => setActivityFilter(activityFilter === 'has_order' ? 'all' : 'has_order')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'has_order' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}
+        >
+          <ShoppingBag className="w-3.5 h-3.5" />
+          <span>{clientActivityStats.withOrder} avec commandes</span>
+        </button>
+        <button
+          onClick={() => setActivityFilter(activityFilter === 'pending_quote' ? 'all' : 'pending_quote')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'pending_quote' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'}`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          <span>{clientActivityStats.pendingQuote} devis en attente</span>
+        </button>
+        <button
+          onClick={() => setActivityFilter(activityFilter === 'inactive_3m' ? 'all' : 'inactive_3m')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'inactive_3m' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'}`}
+        >
+          <Moon className="w-3.5 h-3.5" />
+          <span>{clientActivityStats.inactive} dormants</span>
+        </button>
+        <button
+          onClick={() => setActivityFilter(activityFilter === 'has_loyalty' ? 'all' : 'has_loyalty')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all ${activityFilter === 'has_loyalty' ? 'bg-yellow-500 text-white border-yellow-500 shadow-sm' : 'bg-white text-yellow-700 border-yellow-200 hover:bg-yellow-50'}`}
+        >
+          <Gift className="w-3.5 h-3.5" />
+          <span>{clientActivityStats.withLoyalty} avec fidélité</span>
+        </button>
       </div>
 
       {/* Filtres - Responsive collapsible */}
@@ -829,9 +924,23 @@ Lien de connexion : https://presta-antilles.app/login`);
                 <option value="next_intervention_asc">Prochaine intervention</option>
               </select>
             </div>
-            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc') && (
+            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[210px]">
+              <ShoppingBag className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+              <select
+                value={activityFilter}
+                onChange={(e) => setActivityFilter(e.target.value as any)}
+                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
+              >
+                <option value="all">Toute activité</option>
+                <option value="has_order">A passé une commande</option>
+                <option value="pending_quote">Devis en attente de signature</option>
+                <option value="inactive_3m">Clients dormants (+90 jours)</option>
+                <option value="has_loyalty">Avec heures fidélité</option>
+              </select>
+            </div>
+            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc' || activityFilter !== 'all') && (
               <button 
-                onClick={() => { setFilterStatus('all'); setCityFilter(''); setSortOption('since_desc'); }}
+                onClick={() => { setFilterStatus('all'); setCityFilter(''); setSortOption('since_desc'); setActivityFilter('all'); }}
                 className="flex items-center gap-1 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition"
               >
                 <X className="w-4 h-4" /> Réinitialiser
@@ -924,6 +1033,18 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     >
                                         {client.name}
                                     </button>
+                                    <div className="flex items-center gap-1 ml-1">
+                                        {clientsWithPendingQuoteIds.has(client.id) && (
+                                            <span title="Devis en attente de signature" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 gap-0.5">
+                                                <FileText className="w-2.5 h-2.5" /> Devis
+                                            </span>
+                                        )}
+                                        {clientsWithOrderIds.has(client.id) && (
+                                            <span title="A passé une commande" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                                <ShoppingBag className="w-2.5 h-2.5" />
+                                            </span>
+                                        )}
+                                    </div>
                                 </td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-3 h-3 text-slate-400" />{client.phone}</div></td>
                                 <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-slate-400" />{client.city}</div></td>
@@ -992,6 +1113,20 @@ Lien de connexion : https://presta-antilles.app/login`);
                                         <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                                             <Phone className="w-3 h-3" /> {client.phone}
                                         </div>
+                                        {(clientsWithPendingQuoteIds.has(client.id) || clientsWithOrderIds.has(client.id)) && (
+                                            <div className="flex items-center gap-1 mt-1">
+                                                {clientsWithPendingQuoteIds.has(client.id) && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 gap-0.5">
+                                                        <FileText className="w-2.5 h-2.5" /> Devis
+                                                    </span>
+                                                )}
+                                                {clientsWithOrderIds.has(client.id) && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 gap-0.5">
+                                                        <ShoppingBag className="w-2.5 h-2.5" /> Commande
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-end gap-2">
