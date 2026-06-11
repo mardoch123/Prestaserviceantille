@@ -12,6 +12,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import { getServiceTypeOptions, type ServiceTypeFilter } from '../utils/serviceTypes';
+import { setApiConfig } from '../src/config/apiConfig';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
@@ -149,6 +150,7 @@ async function getCurrentOnlineStatus(): Promise<boolean> {
 interface DataContextType {
     companySettings: CompanySettings;
     updateCompanySettings: (settings: CompanySettings) => Promise<void>;
+    updateMessageConfig: (config: { messageProvider?: 'smsmode' | 'wa_me' | 'custom'; messageApiKey?: string; messageBaseUrl?: string }) => Promise<void>;
 
     isSoberMode: boolean;
     setIsSoberMode: (value: boolean) => void;
@@ -211,7 +213,7 @@ interface DataContextType {
         taxCreditEnabled?: boolean;
         slotsData?: any[];
     }) => Promise<Document | null>;
-    updateDocumentStatus: (id: string, status: string) => Promise<void>;
+    updateDocumentStatus: (id: string, status: string) => Promise<{ success: boolean; status: string }>;
     deleteDocument: (id: string) => Promise<void>;
     deleteDocuments: (ids: string[]) => Promise<void>;
     duplicateDocument: (id: string) => Promise<Document | null>;
@@ -2449,7 +2451,17 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         tvaRateDefault: settingsData.tva_rate_default,
                         emailNotifications: settingsData.email_notifications,
                         loyaltyRewardHours: settingsData.loyalty_reward_hours,
-                        logoUrl: settingsData.logo_url
+                        logoUrl: settingsData.logo_url,
+                        messageProvider: settingsData.message_provider,
+                        messageApiKey: settingsData.message_api_key,
+                        messageBaseUrl: settingsData.message_base_url
+                    });
+                    
+                    const loadedProvider = settingsData.message_provider || 'smsmode';
+                    setApiConfig({
+                        provider: loadedProvider,
+                        apiKey: settingsData.message_api_key,
+                        baseUrl: settingsData.message_base_url
                     });
                 }
 
@@ -3665,8 +3677,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (byEmail) reasons.push(`Email déjà utilisé par un ${formatTarget(byEmail)}.`);
         }
         if (phoneDigits) {
-            const byPhone = conflicts.find(c => normalizePhoneDigits(c.phone) === phoneDigits) || conflicts[0];
-            reasons.push(`Téléphone déjà utilisé par un ${formatTarget(byPhone)}.`);
+            const byPhone = conflicts.find(c => normalizePhoneDigits(c.phone) === phoneDigits);
+            if (byPhone) reasons.push(`Téléphone déjà utilisé par un ${formatTarget(byPhone)}.`);
         }
 
         const message = `${input.actionLabel} impossible : doublon détecté. ${reasons.join(' ')}`.trim();
@@ -4716,7 +4728,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 tva_rate_default: settings.tvaRateDefault,
                 email_notifications: settings.emailNotifications,
                 loyalty_reward_hours: settings.loyaltyRewardHours,
-                logo_url: settings.logoUrl
+                logo_url: settings.logoUrl,
+                message_provider: settings.messageProvider,
+                message_api_key: settings.messageApiKey,
+                message_base_url: settings.messageBaseUrl
             };
             const { data: existing } = await supabase.from('company_settings').select('id').maybeSingle();
             let error;
@@ -4731,6 +4746,50 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setCompanySettings(settings);
         } catch (err) {
             console.error("Erreur sauvegarde settings:", err);
+            throw err;
+        }
+    };
+
+    const updateMessageConfig = async (config: { messageProvider?: 'smsmode' | 'wa_me' | 'custom'; messageApiKey?: string; messageBaseUrl?: string }) => {
+        if (isDemoMode) {
+            demoBlocked();
+            throw new Error('Vous êtes en mode démo');
+        }
+        try {
+            const { data: existing } = await supabase.from('company_settings').select('id').maybeSingle();
+            if (existing) {
+                const dbData = {
+                    message_provider: config.messageProvider,
+                    message_api_key: config.messageApiKey,
+                    message_base_url: config.messageBaseUrl
+                };
+                const { error } = await supabase.from('company_settings').update(dbData).eq('id', existing.id);
+                if (error) throw error;
+            } else {
+                const dbData = {
+                    name: companySettings.name || 'Mon Entreprise',
+                    address: companySettings.address || '',
+                    siret: companySettings.siret || '',
+                    email: companySettings.email || '',
+                    phone: companySettings.phone || '',
+                    tva_rate_default: companySettings.tvaRateDefault || 20,
+                    email_notifications: companySettings.emailNotifications ?? true,
+                    loyalty_reward_hours: companySettings.loyaltyRewardHours || 0,
+                    message_provider: config.messageProvider || 'smsmode',
+                    message_api_key: config.messageApiKey,
+                    message_base_url: config.messageBaseUrl
+                };
+                const { error } = await supabase.from('company_settings').insert(dbData);
+                if (error) throw error;
+            }
+            setCompanySettings(prev => ({ ...prev, ...config }));
+            setApiConfig({
+                provider: config.messageProvider || 'smsmode',
+                apiKey: config.messageApiKey,
+                baseUrl: config.messageBaseUrl
+            });
+        } catch (err) {
+            console.error("Erreur sauvegarde message config:", err);
             throw err;
         }
     };
@@ -4958,14 +5017,24 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 `mission:${missionId}`
             );
 
-            await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
+            // N'envoyer notification + email au prestataire que si la mission est dans les 20h
+            const missionDateStr = existingMission?.date && existingMission?.startTime
+                ? `${existingMission.date}T${existingMission.startTime}`
+                : null;
+            const hoursUntilMission = missionDateStr
+                ? (new Date(missionDateStr).getTime() - Date.now()) / (1000 * 60 * 60)
+                : Infinity;
 
-            const provider = providers.find(p => p.id === providerId);
-            if (provider) {
-                await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
-                    missionId,
-                    clientName: missions.find(m => m.id === missionId)?.clientName
-                });
+            if (hoursUntilMission <= 20) {
+                await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
+
+                const provider = providers.find(p => p.id === providerId);
+                if (provider) {
+                    await sendEmail(provider.email, 'Nouvelle Mission Assignée', 'provider_mission_assigned', {
+                        missionId,
+                        clientName: missions.find(m => m.id === missionId)?.clientName
+                    });
+                }
             }
 
             if (existingMission && existingMission.providerId && existingMission.providerId !== providerId) {
@@ -5562,6 +5631,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     status: status
                 });
             }
+            return { success: true, status: nextStatus };
+        } else {
+            throw new Error(error?.message || 'Erreur lors de la mise à jour');
         }
     };
 
@@ -7669,7 +7741,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
      return (
          <DataContext.Provider value={{
              exitDemoMode,
-             companySettings, updateCompanySettings,
+             companySettings, updateCompanySettings, updateMessageConfig,
 
              isSoberMode, setIsSoberMode, toggleSoberMode,
 

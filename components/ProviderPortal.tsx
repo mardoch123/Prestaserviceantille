@@ -301,11 +301,21 @@ const ProviderPortal: React.FC = () => {
   // Memoized provider missions with optimized filtering
   const providerMissions = useMemo(() => {
     if (!provider) return cachedMissions; // Use cache immediately
-    
+
     const filtered = (missions || cachedMissions || [])
       .filter(m => matchesServiceTypeFilterFromText((m as any)?.service, serviceTypeFilter))
-      .filter(m => String((m as any)?.providerId || '') === String(provider.id));
-    
+      .filter(m => String((m as any)?.providerId || '') === String(provider.id))
+      .filter(m => {
+        // Masquer les missions planifiées à plus de 20h de la date du jour
+        if ((m as any)?.status !== 'planned') return true;
+        const dateStr = (m as any)?.date && (m as any)?.startTime
+          ? `${(m as any).date}T${(m as any).startTime}`
+          : null;
+        if (!dateStr) return true;
+        const hoursUntil = (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60);
+        return hoursUntil <= 20;
+      });
+
     return filtered;
   }, [missions, provider, serviceTypeFilter, cachedMissions]);
 
@@ -1292,10 +1302,19 @@ const ProviderPortal: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Recent Missions Cards - Only in overview mode */}
-                      {dashboardViewMode === 'overview' && providerMissions.slice(0, 4).length > 0 && (
-                        <div className="grid grid-cols-4 gap-4">
-                          {providerMissions.slice(0, 4).map((m, idx) => {
+                      {/* Recent Missions Cards - Only in overview mode, only today+tomorrow */}
+                      {dashboardViewMode === 'overview' && (() => {
+                        const todayStr = dayjs().format('YYYY-MM-DD');
+                        const tomorrowStr = dayjs().add(1, 'day').format('YYYY-MM-DD');
+                        const nearMissions = providerMissions
+                          .filter(m => (m.date === todayStr || m.date === tomorrowStr) && m.status !== 'cancelled' && m.status !== 'completed')
+                          .slice(0, 4);
+                        if (nearMissions.length === 0) return null;
+                        return (
+                        <div>
+                          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Missions prochaines (aujourd'hui &amp; demain)</p>
+                          <div className="grid grid-cols-4 gap-4">
+                          {nearMissions.map((m, idx) => {
                             const clientById = clients.find(c => String(c.id) === String(m.clientId || ''));
                             const normalizedMissionClientName = String(m.clientName || '').trim().toLowerCase();
                             const clientByName = !clientById && normalizedMissionClientName
@@ -1343,8 +1362,10 @@ const ProviderPortal: React.FC = () => {
                               </div>
                             );
                           })}
+                          </div>
                         </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Missions Table - Only in overview mode */}
                       {dashboardViewMode === 'overview' && (
