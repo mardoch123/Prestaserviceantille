@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { 
@@ -18,7 +18,10 @@ import {
   History,
   CheckCircle,
   XCircle,
-  Clock3
+  Clock3,
+  Search,
+  Filter,
+  X
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -33,6 +36,19 @@ const ClientDetailPage: React.FC = () => {
   const [clientDocuments, setClientDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'info' | 'missions' | 'documents' | 'history'>('info');
+
+  // Mission filters
+  const [missionSearch, setMissionSearch] = useState('');
+  const [missionStatusFilter, setMissionStatusFilter] = useState<string>('all');
+  const [missionDateFrom, setMissionDateFrom] = useState('');
+  const [missionDateTo, setMissionDateTo] = useState('');
+
+  // Document filters
+  const [docSearch, setDocSearch] = useState('');
+  const [docStatusFilter, setDocStatusFilter] = useState<string>('all');
+  const [docTypeFilter, setDocTypeFilter] = useState<string>('all');
+  const [docDateFrom, setDocDateFrom] = useState('');
+  const [docDateTo, setDocDateTo] = useState('');
 
   useEffect(() => {
     // Check for client ID in URL params (from search navigation)
@@ -55,6 +71,59 @@ const ClientDetailPage: React.FC = () => {
     }
     setLoading(false);
   }, [id, clients, missions, documents, searchParams]);
+
+  // Filtered missions
+  const filteredMissions = useMemo(() => {
+    return clientMissions.filter((m: any) => {
+      // Search filter
+      if (missionSearch) {
+        const s = missionSearch.toLowerCase();
+        const matchService = (m.service || '').toLowerCase().includes(s);
+        const matchProvider = (m.providerName || m.provider || '').toLowerCase().includes(s);
+        if (!matchService && !matchProvider) return false;
+      }
+      // Status filter
+      if (missionStatusFilter !== 'all' && m.status !== missionStatusFilter) return false;
+      // Date range filter
+      if (missionDateFrom && m.date) {
+        if (dayjs(m.date).isBefore(dayjs(missionDateFrom), 'day')) return false;
+      }
+      if (missionDateTo && m.date) {
+        if (dayjs(m.date).isAfter(dayjs(missionDateTo), 'day')) return false;
+      }
+      return true;
+    });
+  }, [clientMissions, missionSearch, missionStatusFilter, missionDateFrom, missionDateTo]);
+
+  // Filtered documents
+  const filteredDocuments = useMemo(() => {
+    return clientDocuments.filter((d: any) => {
+      // Search filter
+      if (docSearch) {
+        const s = docSearch.toLowerCase();
+        const matchType = (d.type || '').toLowerCase().includes(s);
+        const matchRef = (d.ref || d.reference || '').toLowerCase().includes(s);
+        if (!matchType && !matchRef) return false;
+      }
+      // Status filter
+      if (docStatusFilter !== 'all' && d.status !== docStatusFilter) return false;
+      // Type filter
+      if (docTypeFilter !== 'all') {
+        const dType = (d.type || '').toLowerCase();
+        if (docTypeFilter === 'devis' && !dType.includes('devis')) return false;
+        if (docTypeFilter === 'facture' && !dType.includes('facture')) return false;
+        if (docTypeFilter === 'avoir' && !dType.includes('avoir')) return false;
+      }
+      // Date range filter
+      if (docDateFrom && d.createdAt) {
+        if (dayjs(d.createdAt).isBefore(dayjs(docDateFrom), 'day')) return false;
+      }
+      if (docDateTo && d.createdAt) {
+        if (dayjs(d.createdAt).isAfter(dayjs(docDateTo), 'day')) return false;
+      }
+      return true;
+    });
+  }, [clientDocuments, docSearch, docStatusFilter, docTypeFilter, docDateFrom, docDateTo]);
 
   const handleDelete = async () => {
     if (client && confirm('Êtes-vous sûr de vouloir supprimer ce client ?')) {
@@ -337,7 +406,67 @@ const ClientDetailPage: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-200">
               <h2 className="text-lg font-semibold text-slate-800">Missions du client</h2>
             </div>
-            {clientMissions.length === 0 ? (
+            {/* Mission Filters */}
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Search */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher un service, prestataire..."
+                    value={missionSearch}
+                    onChange={(e) => setMissionSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none"
+                  />
+                  {missionSearch && (
+                    <button onClick={() => setMissionSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <X className="w-4 h-4 text-slate-400 hover:text-slate-600" />
+                    </button>
+                  )}
+                </div>
+                {/* Status */}
+                <select
+                  value={missionStatusFilter}
+                  onChange={(e) => setMissionStatusFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="planned">Planifiée</option>
+                  <option value="in_progress">En cours</option>
+                  <option value="completed">Terminée</option>
+                  <option value="cancelled">Annulée</option>
+                </select>
+                {/* Date from */}
+                <input
+                  type="date"
+                  value={missionDateFrom}
+                  onChange={(e) => setMissionDateFrom(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                  title="Date de début"
+                />
+                {/* Date to */}
+                <input
+                  type="date"
+                  value={missionDateTo}
+                  onChange={(e) => setMissionDateTo(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                  title="Date de fin"
+                />
+                {/* Reset */}
+                {(missionSearch || missionStatusFilter !== 'all' || missionDateFrom || missionDateTo) && (
+                  <button
+                    onClick={() => { setMissionSearch(''); setMissionStatusFilter('all'); setMissionDateFrom(''); setMissionDateTo(''); }}
+                    className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1"
+                  >
+                    <X className="w-4 h-4" />
+                    Réinitialiser
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">{filteredMissions.length} mission(s) sur {clientMissions.length}</p>
+            </div>
+            {filteredMissions.length === 0 ? (
               <div className="p-8 text-center">
                 <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-500">Aucune mission pour ce client</p>
@@ -350,7 +479,7 @@ const ClientDetailPage: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-slate-200">
-                {clientMissions.map(mission => (
+                {filteredMissions.map((mission: any) => (
                   <div 
                     key={mission.id} 
                     className="p-4 hover:bg-slate-50 cursor-pointer"
@@ -387,7 +516,79 @@ const ClientDetailPage: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-200">
               <h2 className="text-lg font-semibold text-slate-800">Documents du client</h2>
             </div>
-            {clientDocuments.length === 0 ? (
+            {/* Document Filters */}
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Search */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher un type, référence..."
+                    value={docSearch}
+                    onChange={(e) => setDocSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none"
+                  />
+                  {docSearch && (
+                    <button onClick={() => setDocSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <X className="w-4 h-4 text-slate-400 hover:text-slate-600" />
+                    </button>
+                  )}
+                </div>
+                {/* Type */}
+                <select
+                  value={docTypeFilter}
+                  onChange={(e) => setDocTypeFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                >
+                  <option value="all">Tous les types</option>
+                  <option value="devis">Devis</option>
+                  <option value="facture">Facture</option>
+                  <option value="avoir">Avoir</option>
+                </select>
+                {/* Status */}
+                <select
+                  value={docStatusFilter}
+                  onChange={(e) => setDocStatusFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="draft">Brouillon</option>
+                  <option value="sent">Envoyé</option>
+                  <option value="signed">Signé</option>
+                  <option value="paid">Payé</option>
+                  <option value="rejected">Rejeté</option>
+                </select>
+                {/* Date from */}
+                <input
+                  type="date"
+                  value={docDateFrom}
+                  onChange={(e) => setDocDateFrom(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                  title="Date de début"
+                />
+                {/* Date to */}
+                <input
+                  type="date"
+                  value={docDateTo}
+                  onChange={(e) => setDocDateTo(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue outline-none bg-white"
+                  title="Date de fin"
+                />
+                {/* Reset */}
+                {(docSearch || docStatusFilter !== 'all' || docTypeFilter !== 'all' || docDateFrom || docDateTo) && (
+                  <button
+                    onClick={() => { setDocSearch(''); setDocStatusFilter('all'); setDocTypeFilter('all'); setDocDateFrom(''); setDocDateTo(''); }}
+                    className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1"
+                  >
+                    <X className="w-4 h-4" />
+                    Réinitialiser
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">{filteredDocuments.length} document(s) sur {clientDocuments.length}</p>
+            </div>
+            {filteredDocuments.length === 0 ? (
               <div className="p-8 text-center">
                 <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-500">Aucun document pour ce client</p>
@@ -400,7 +601,7 @@ const ClientDetailPage: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-slate-200">
-                {clientDocuments.map(doc => (
+                {filteredDocuments.map((doc: any) => (
                   <div 
                     key={doc.id} 
                     className="p-4 hover:bg-slate-50 cursor-pointer"
