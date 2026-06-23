@@ -157,6 +157,9 @@ const Planning: React.FC = () => {
 
   // --- GRAFTED: Vue synthétique journalière ---
   const [showDailySummary, setShowDailySummary] = useState(false);
+  const [billingSelectedDocs, setBillingSelectedDocs] = useState<Set<string>>(new Set());
+  const [billingFilter, setBillingFilter] = useState('');
+  const [billingValidating, setBillingValidating] = useState(false);
 
   // --- GRAFTED: Système de couleurs des journées ---
   const [closedDays, setClosedDays] = useState<Set<string>>(new Set());
@@ -895,7 +898,7 @@ const Planning: React.FC = () => {
           morningAvailable,
           afternoonAvailable,
           fullDayAvailable,
-          totalScheduled: scheduledProviders.length,
+          totalScheduled: dayMissions.length,
           totalAvailable: availableProviders.length
       };
   }, [missions, providers, statsDate, isProviderNonWorkingDay]);
@@ -974,6 +977,10 @@ const Planning: React.FC = () => {
           } else if (completed.length >= 2) {
               completed.forEach(m => readyToInvoice.add(m.id));
               readyToInvoiceDocs.set(docId, { completedCount: completed.length, clientName, docRef });
+          } else if (completed.length === 1 && missionGroup.length === 1 && (missionGroup[0].duration || 0) >= 6) {
+              // Pack Ultime 6 : une seule mission de 6h complétée = prêt à facturer
+              completed.forEach(m => readyToInvoice.add(m.id));
+              readyToInvoiceDocs.set(docId, { completedCount: 1, clientName, docRef });
           }
       });
 
@@ -989,6 +996,50 @@ const Planning: React.FC = () => {
           }
       });
   }, [billingSignals.ultimatePackDocs]);
+
+  // --- GRAFTED: Handler validation facturation ---
+  const handleValidateBilling = async () => {
+      if (billingSelectedDocs.size === 0) return;
+      setBillingValidating(true);
+      const docIds = Array.from(billingSelectedDocs);
+      let successCount = 0;
+      let errorCount = 0;
+      for (const docId of docIds) {
+          try {
+              await convertQuoteToInvoice(docId);
+              successCount++;
+          } catch (e) {
+              console.error('[Planning] Erreur conversion facture pour', docId, e);
+              errorCount++;
+          }
+      }
+      setBillingValidating(false);
+      setBillingSelectedDocs(new Set());
+      if (successCount > 0) toast.success(`${successCount} facture(s) générée(s) avec succès`);
+      if (errorCount > 0) toast.error(`${errorCount} erreur(s) lors de la conversion`);
+  };
+
+  const toggleBillingDoc = (docId: string) => {
+      setBillingSelectedDocs(prev => {
+          const next = new Set(prev);
+          if (next.has(docId)) next.delete(docId); else next.add(docId);
+          return next;
+      });
+  };
+
+  // Reset billing state when modal closes
+  useEffect(() => {
+      if (!showDailySummary) {
+          setBillingSelectedDocs(new Set());
+          setBillingFilter('');
+      }
+  }, [showDailySummary]);
+
+  // --- GRAFTED: Vérifier si une date est passée ---
+  const isDatePast = (dateStr: string): boolean => {
+      const today = getMartiniqueToday();
+      return dateStr < today;
+  };
 
   // --- GRAFTED: Données agrégées pour le mini-dashboard semaine ---
   const weekDashboardData = useMemo(() => {
@@ -2619,7 +2670,8 @@ const Planning: React.FC = () => {
                        Synthèse du {dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
                    </span>
                    <span className="text-xs text-indigo-200">
-                       {dailySummaryData.totalScheduled} planifiées • {dailySummaryData.totalAvailable} disponibles
+                       {dailySummaryData.totalScheduled} planifiées{!isDatePast(statsDate) && ` • ${dailySummaryData.totalAvailable} disponibles`}
+                       {isDatePast(statsDate) && ' • jour passé'}
                    </span>
                </div>
                <ChevronRight className="w-4 h-4 text-indigo-200" />
@@ -4209,7 +4261,10 @@ const Planning: React.FC = () => {
                               <h2 id="summary-modal-title" className="text-base font-black text-white">
                                   {new Date(`${statsDate}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
                               </h2>
-                              <p className="text-xs text-indigo-200">{dailySummaryData.totalScheduled} planifiées • {dailySummaryData.totalAvailable} disponibles</p>
+                              <p className="text-xs text-indigo-200">
+                                  {dailySummaryData.totalScheduled} planifiées{!isDatePast(statsDate) && ` • ${dailySummaryData.totalAvailable} disponibles`}
+                                  {isDatePast(statsDate) && <span className="ml-1 text-indigo-300 italic">(jour passé)</span>}
+                              </p>
                           </div>
                       </div>
                       <button type="button" onClick={() => setShowDailySummary(false)} className="p-2 hover:bg-white/20 rounded-full transition" aria-label="Fermer la synthèse">
@@ -4219,21 +4274,30 @@ const Planning: React.FC = () => {
 
                   <div className="flex-1 overflow-y-auto p-5 space-y-5">
                       <div className="flex flex-wrap gap-2">
-                          <div className="flex items-center gap-2 bg-amber-500 text-white px-3 py-2 rounded-xl shadow">
-                              <span className="text-xs font-bold">☀️ Matin (8h–12h)</span>
-                              <span className="text-xl font-black">{dailySummaryData.morningAvailable}</span>
+                          <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-xl shadow">
+                              <span className="text-xs font-bold">📋 Prestations</span>
+                              <span className="text-xl font-black">{dailySummaryData.totalScheduled}</span>
+                              <span className="text-xs text-indigo-200">({dailySummaryData.scheduledProviders.reduce((acc, sp) => acc + sp.totalHours, 0).toFixed(1)}h)</span>
                           </div>
-                          <div className="flex items-center gap-2 bg-sky-500 text-white px-3 py-2 rounded-xl shadow">
-                              <span className="text-xs font-bold">🌤 Après-midi (12h–17h)</span>
-                              <span className="text-xl font-black">{dailySummaryData.afternoonAvailable}</span>
-                          </div>
-                          <div className="flex items-center gap-2 bg-emerald-500 text-white px-3 py-2 rounded-xl shadow">
-                              <span className="text-xs font-bold">✅ Journée complète</span>
-                              <span className="text-xl font-black">{dailySummaryData.fullDayAvailable}</span>
-                          </div>
+                          {!isDatePast(statsDate) && (
+                              <>
+                                  <div className="flex items-center gap-2 bg-amber-500 text-white px-3 py-2 rounded-xl shadow">
+                                      <span className="text-xs font-bold">☀️ Matin (8h–12h)</span>
+                                      <span className="text-xl font-black">{dailySummaryData.morningAvailable}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-sky-500 text-white px-3 py-2 rounded-xl shadow">
+                                      <span className="text-xs font-bold">🌤 Après-midi (12h–17h)</span>
+                                      <span className="text-xl font-black">{dailySummaryData.afternoonAvailable}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-emerald-500 text-white px-3 py-2 rounded-xl shadow">
+                                      <span className="text-xs font-bold">✅ Journée complète</span>
+                                      <span className="text-xl font-black">{dailySummaryData.fullDayAvailable}</span>
+                                  </div>
+                              </>
+                          )}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className={`grid grid-cols-1 ${!isDatePast(statsDate) ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-4`}>
                           <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-200">
                               <div className="flex items-center justify-between mb-3">
                                   <h4 className="text-xs font-black text-indigo-800 uppercase flex items-center gap-1.5">
@@ -4294,6 +4358,7 @@ const Planning: React.FC = () => {
                               )}
                           </div>
 
+                          {!isDatePast(statsDate) && (
                           <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200">
                               <h4 className="text-xs font-black text-emerald-800 uppercase mb-3 flex items-center gap-1.5">
                                   <CheckCircle className="w-3.5 h-3.5" /> Disponibles
@@ -4317,39 +4382,103 @@ const Planning: React.FC = () => {
                                   </div>
                               )}
                           </div>
+                          )}
                       </div>
 
                       {(billingSignals.ultimatePackDocs.size > 0 || billingSignals.readyToInvoiceDocs.size > 0) && (
                           <div className="space-y-3 pt-3 border-t-2 border-slate-200">
-                              {billingSignals.ultimatePackDocs.size > 0 && (
-                                  <div className="bg-violet-50 rounded-2xl p-4 border border-violet-300">
-                                      <h4 className="text-xs font-black text-violet-800 uppercase mb-2 flex items-center gap-1.5">
-                                          <span className="w-2.5 h-2.5 rounded-full bg-violet-600 inline-block" /> Packs complets
-                                      </h4>
-                                      <div className="space-y-1.5">
-                                          {Array.from(billingSignals.ultimatePackDocs.entries()).map(([docId, data]) => (
-                                              <div key={docId} className="flex items-center justify-between bg-violet-600 text-white rounded-xl px-3 py-2">
-                                                  <span className="text-sm font-bold truncate">{data.clientName}</span>
-                                                  <span className="text-[10px] font-black bg-violet-800 px-2 py-0.5 rounded-full shrink-0 ml-2">{data.completedCount} réalisées</span>
-                                              </div>
-                                          ))}
-                                      </div>
+                              {/* Filtre facturation */}
+                              <div className="flex items-center gap-2">
+                                  <div className="flex-1 relative">
+                                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                      <input
+                                          type="text"
+                                          value={billingFilter}
+                                          onChange={(e) => setBillingFilter(e.target.value)}
+                                          placeholder="Filtrer par nom de client..."
+                                          className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-brand-blue focus:outline-none"
+                                      />
                                   </div>
-                              )}
-                              {billingSignals.readyToInvoiceDocs.size > 0 && (
-                                  <div className="bg-blue-50 rounded-2xl p-4 border border-blue-300">
-                                      <h4 className="text-xs font-black text-blue-800 uppercase mb-2 flex items-center gap-1.5">
-                                          <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" /> Prêts à facturer
-                                      </h4>
-                                      <div className="space-y-1.5">
-                                          {Array.from(billingSignals.readyToInvoiceDocs.entries()).map(([docId, data]) => (
-                                              <div key={docId} className="flex items-center justify-between bg-blue-600 text-white rounded-xl px-3 py-2">
-                                                  <span className="text-sm font-bold truncate">{data.clientName}</span>
-                                                  <span className="text-[10px] font-black bg-blue-800 px-2 py-0.5 rounded-full shrink-0 ml-2">{data.completedCount} réalisées</span>
-                                              </div>
-                                          ))}
+                                  {billingFilter && (
+                                      <button type="button" onClick={() => setBillingFilter('')} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+                                          <X className="w-3.5 h-3.5" />
+                                      </button>
+                                  )}
+                              </div>
+
+                              {billingSignals.ultimatePackDocs.size > 0 && (() => {
+                                  const filtered = Array.from(billingSignals.ultimatePackDocs.entries()).filter(([, data]) =>
+                                      !billingFilter || data.clientName.toLowerCase().includes(billingFilter.toLowerCase())
+                                  );
+                                  if (filtered.length === 0) return null;
+                                  return (
+                                      <div className="bg-violet-50 rounded-2xl p-4 border border-violet-300">
+                                          <h4 className="text-xs font-black text-violet-800 uppercase mb-2 flex items-center gap-1.5">
+                                              <span className="w-2.5 h-2.5 rounded-full bg-violet-600 inline-block" /> Packs complets
+                                          </h4>
+                                          <div className="space-y-1.5">
+                                              {filtered.map(([docId, data]) => (
+                                                  <div key={docId} className="flex items-center gap-2 bg-violet-600 text-white rounded-xl px-3 py-2">
+                                                      <button type="button" onClick={() => toggleBillingDoc(docId)} className="shrink-0">
+                                                          {billingSelectedDocs.has(docId)
+                                                              ? <CheckSquare className="w-4 h-4 text-white" />
+                                                              : <Square className="w-4 h-4 text-violet-300" />}
+                                                      </button>
+                                                      <span className="text-sm font-bold truncate flex-1">{data.clientName}</span>
+                                                      <span className="text-[10px] font-black bg-violet-800 px-2 py-0.5 rounded-full shrink-0">{data.completedCount} réalisées</span>
+                                                  </div>
+                                              ))}
+                                          </div>
                                       </div>
-                                  </div>
+                                  );
+                              })()}
+                              {billingSignals.readyToInvoiceDocs.size > 0 && (() => {
+                                  const filtered = Array.from(billingSignals.readyToInvoiceDocs.entries()).filter(([, data]) =>
+                                      !billingFilter || data.clientName.toLowerCase().includes(billingFilter.toLowerCase())
+                                  );
+                                  if (filtered.length === 0) return null;
+                                  return (
+                                      <div className="bg-blue-50 rounded-2xl p-4 border border-blue-300">
+                                          <h4 className="text-xs font-black text-blue-800 uppercase mb-2 flex items-center gap-1.5">
+                                              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" /> Prêts à facturer
+                                          </h4>
+                                          <div className="space-y-1.5">
+                                              {filtered.map(([docId, data]) => (
+                                                  <div key={docId} className="flex items-center gap-2 bg-blue-600 text-white rounded-xl px-3 py-2">
+                                                      <button type="button" onClick={() => toggleBillingDoc(docId)} className="shrink-0">
+                                                          {billingSelectedDocs.has(docId)
+                                                              ? <CheckSquare className="w-4 h-4 text-white" />
+                                                              : <Square className="w-4 h-4 text-blue-300" />}
+                                                      </button>
+                                                      <span className="text-sm font-bold truncate flex-1">{data.clientName}</span>
+                                                      <span className="text-[10px] font-black bg-blue-800 px-2 py-0.5 rounded-full shrink-0">{data.completedCount} réalisées</span>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  );
+                              })()}
+
+                              {/* Bouton Valider la facturation */}
+                              {billingSelectedDocs.size > 0 && (
+                                  <button
+                                      type="button"
+                                      onClick={handleValidateBilling}
+                                      disabled={billingValidating}
+                                      className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-black text-sm hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 transition shadow-lg"
+                                  >
+                                      {billingValidating ? (
+                                          <>
+                                              <Loader2 className="w-4 h-4 animate-spin" />
+                                              Conversion en cours...
+                                          </>
+                                      ) : (
+                                          <>
+                                              <FileText className="w-4 h-4" />
+                                              Valider la facturation ({billingSelectedDocs.size} client{billingSelectedDocs.size > 1 ? 's' : ''})
+                                          </>
+                                      )}
+                                  </button>
                               )}
                           </div>
                       )}
