@@ -731,14 +731,13 @@ const ProviderPortal: React.FC = () => {
       if (!selectedMissionId) return;
       if (isSubmittingExecution) return;
 
-      // Validation: 5 photos OU 1 vidéo obligatoire (XOR - un des deux mais pas les deux)
-      if (executionStep === 'start' || executionStep === 'end') {
+      // Validation: 5 photos OU 1 vidéo obligatoire UNIQUEMENT pour la fin de mission
+      if (executionStep === 'end') {
         const hasMinPhotos = photos.length >= 5;
         const hasVideo = !!video;
         
-        // XOR: exactement un des deux doit être vrai
         if (!hasMinPhotos && !hasVideo) {
-          alert('Vous devez fournir soit 5 photos minimum, soit 1 vidéo. L\'un ou l\'autre est obligatoire.');
+          alert('Vous devez fournir soit 5 photos minimum, soit 1 vidéo pour clôturer la mission.');
           return;
         }
         if (hasMinPhotos && hasVideo) {
@@ -746,6 +745,7 @@ const ProviderPortal: React.FC = () => {
           return;
         }
       }
+      // Pour 'start' : aucune obligation de média — démarrage fluide
       
       if (executionStep === 'cancel') {
           if (!cancelReason.trim()) {
@@ -2467,7 +2467,108 @@ const ProviderPortal: React.FC = () => {
             </div>
             
             <div className="flex-1 p-6 overflow-y-auto space-y-6">
-              {executionStep !== 'cancel' ? (
+              {executionStep === 'start' ? (
+                /* ============ QUICK START UI — Démarrage fluide ============ */
+                <>
+                  {/* Confirmation visuelle */}
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-2xl border border-emerald-200 text-center">
+                    <div className="w-20 h-20 mx-auto bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                      <Camera className="w-10 h-10 text-emerald-600" />
+                    </div>
+                    <h4 className="font-bold text-xl text-emerald-900 mb-1">Démarrer la mission</h4>
+                    <p className="text-sm text-emerald-700">Appuyez sur le bouton ci-dessous pour confirmer le début du chantier.</p>
+                    <p className="text-xs text-emerald-600 mt-2 italic">Les photos et vidéos sont optionnelles — vous pourrez les ajouter en fin de mission.</p>
+                  </div>
+
+                  {/* Remarque (Facultatif) */}
+                  <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                    <label className="font-bold text-gray-700 flex items-center gap-2 mb-3 text-base">
+                      <MessageSquare className="w-5 h-5 text-gray-400" /> Remarque (Facultatif)
+                    </label>
+                    <textarea 
+                      className="w-full border border-gray-200 rounded-xl p-4 h-24 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition bg-gray-50 resize-none text-sm"
+                      placeholder="Observation, matériel particulier, accès difficile..."
+                      value={remark}
+                      onChange={(e) => setRemark(e.target.value)}
+                    ></textarea>
+                  </div>
+
+                  {/* Média optionnel (collapsed) */}
+                  <details className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                    <summary className="font-bold text-gray-600 flex items-center gap-2 cursor-pointer text-sm">
+                      <UploadCloud className="w-4 h-4 text-gray-400" />
+                      Ajouter des photos/vidéo maintenant (optionnel)
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                      {/* Mini photo grid */}
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs font-bold text-gray-500">Photos ({photos.length}/10)</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2">
+                          {photos.map((url, i) => (
+                            <div key={i} className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative border border-gray-200 group">
+                              <img src={url} alt={`Preuve ${i}`} className="w-full h-full object-cover" />
+                              <button 
+                                onClick={() => removePhoto(i)}
+                                className="absolute top-0.5 right-0.5 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ))}
+                          <button 
+                            onClick={handlePhotoClick}
+                            className="aspect-square bg-gray-50 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300 text-gray-400 hover:bg-emerald-50 hover:border-emerald-400 gap-0.5"
+                          >
+                            <UploadCloud className="w-5 h-5" />
+                            <span className="text-[10px] font-bold">Ajouter</span>
+                          </button>
+                        </div>
+                      </div>
+                      {/* Mini video */}
+                      <div>
+                        {video ? (
+                          <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 flex items-center justify-between">
+                            <span className="text-sm font-bold text-emerald-700 flex items-center gap-2">
+                              <CheckCircle className="w-4 h-4" /> Vidéo ajoutée
+                            </span>
+                            <button onClick={removeVideo} className="text-red-500 p-1">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button onClick={handleVideoClick} className="flex-1 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 text-xs font-bold flex flex-col items-center gap-1 hover:bg-emerald-50 hover:border-emerald-400 bg-gray-50">
+                              <FileVideo className="w-5 h-5" />
+                              <span>Uploader vidéo</span>
+                            </button>
+                            {!showVideoLinkInput ? (
+                              <button onClick={() => setShowVideoLinkInput(true)} className="flex-1 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 text-xs font-bold flex flex-col items-center gap-1 hover:bg-amber-50 hover:border-amber-400 bg-gray-50">
+                                <LinkIcon className="w-5 h-5" />
+                                <span>Lien vidéo</span>
+                              </button>
+                            ) : (
+                              <div className="flex-1 flex gap-1">
+                                <input 
+                                  type="text" 
+                                  className="flex-1 p-2 border border-gray-200 rounded-lg bg-white text-xs"
+                                  placeholder="https://..."
+                                  value={videoLinkInput}
+                                  onChange={e => setVideoLinkInput(e.target.value)}
+                                />
+                                <button onClick={handleAddVideoLink} className="px-3 bg-amber-500 text-white rounded-lg text-xs font-bold">OK</button>
+                                <button onClick={() => setShowVideoLinkInput(false)} className="px-2 text-gray-400 text-xs">✕</button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                </>
+              ) : executionStep === 'end' ? (
+                /* ============ END MISSION UI — Photos/Vidéo obligatoires ============ */
                 <>
                   {/* PHOTOS SECTION */}
                   <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">

@@ -3690,10 +3690,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
-        if (!photos || photos.length < 5) {
-            alert("Il faut obligatoirement 5 photos minimum avant chantier.");
-            return;
-        }
+        // Photos/vidéo optionnelles au démarrage — plus de blocage
 
         let finalPhotos = photos;
         try {

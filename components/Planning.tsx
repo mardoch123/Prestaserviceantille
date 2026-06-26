@@ -78,6 +78,7 @@ const Planning: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [focusedDate, setFocusedDate] = useState(getMartiniqueToday());
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showMobileToolbar, setShowMobileToolbar] = useState(false);
   const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   const [planningLoading, setPlanningLoading] = useState(false);
   const [planningProgress, setPlanningProgress] = useState(0);
@@ -2133,26 +2134,26 @@ const Planning: React.FC = () => {
       navigate('/statistics', { state: { filter, time } });
   };
 
-  const getMissionPlanningStyle = (mission: Mission): { container: string; border: string; label: string } => {
+  const getMissionPlanningStyle = (mission: Mission): { container: string; border: string; label: string; borderColor: string; statusCls: string } => {
       const isUnassigned = (!mission.providerId || mission.providerId === 'null') && mission.status !== 'cancelled';
       const isSignedFromQuote = mission.source === 'devis' && mission.status !== 'cancelled';
 
       if (mission.status === 'completed') {
-          return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: 'Terminée' };
+          return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: 'Terminée', borderColor: '#22c55e', statusCls: 'bg-green-100 text-green-700' };
       }
       if (mission.status === 'cancelled') {
-          return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée' };
+          return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée', borderColor: '#cbd5e1', statusCls: 'bg-slate-100 text-slate-500' };
       }
       if (mission.status === 'in_progress') {
-          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours' };
+          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours', borderColor: '#2563eb', statusCls: 'bg-blue-100 text-blue-700' };
       }
       if (isUnassigned) {
-          return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée' };
+          return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée', borderColor: '#ef4444', statusCls: 'bg-red-100 text-red-700' };
       }
       if (isSignedFromQuote) {
-          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé' };
+          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé', borderColor: '#a855f7', statusCls: 'bg-purple-100 text-purple-700' };
       }
-      return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée' };
+      return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée', borderColor: '#006699', statusCls: 'bg-blue-50 text-blue-700' };
   };
 
   const normalizeCommune = (value: string): string => {
@@ -2273,6 +2274,126 @@ const Planning: React.FC = () => {
         </div>
       )}
 
+      {/* ===== MOBILE COMPACT TOOLBAR ===== */}
+      <div className="md:hidden flex items-center justify-between gap-2 mb-2 bg-white/90 backdrop-blur-sm sticky top-0 z-20 py-2 px-1 -mx-1 border-b border-slate-100">
+          <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-lg font-serif font-bold text-slate-800 shrink-0">Planning</h2>
+              <span className="text-[11px] font-bold text-slate-500 truncate">{dateRangeString}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                  type="button"
+                  onClick={() => { setIsModalOpen(true); setSelectedSlotKey(''); }}
+                  className="w-9 h-9 rounded-full bg-brand-blue text-white flex items-center justify-center shadow-sm active:scale-95 transition"
+                  aria-label="Nouvelle mission"
+              >
+                  <Plus className="w-4 h-4" />
+              </button>
+              <button
+                  type="button"
+                  onClick={() => setShowMobileToolbar(true)}
+                  className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center active:scale-95 transition"
+                  aria-label="Outils et filtres"
+              >
+                  <SlidersHorizontal className="w-4 h-4" />
+              </button>
+          </div>
+      </div>
+
+      {/* ===== MOBILE TOOLBAR POPUP ===== */}
+      {showMobileToolbar && (
+          <div className="md:hidden fixed inset-0 z-50 flex items-end bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowMobileToolbar(false)}>
+              <div className="bg-white w-full rounded-t-2xl shadow-2xl max-h-[88svh] flex flex-col animate-in slide-in-from-bottom duration-200" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0">
+                      <h3 className="font-bold text-lg text-slate-800">Outils Planning</h3>
+                      <button onClick={() => setShowMobileToolbar(false)} className="p-2 rounded-full hover:bg-slate-100 transition">
+                          <X className="w-5 h-5 text-slate-500" />
+                      </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                      {/* Navigation */}
+                      <div>
+                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Navigation</p>
+                          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+                              <button onClick={handlePrevWeek} className="flex-1 bg-[#006699] text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-1 active:scale-95 transition">
+                                  <ChevronLeft className="w-4 h-4" /> Préc.
+                              </button>
+                              <button onClick={handleCurrentWeek} className="flex-1 bg-[#66BB44] text-white py-2.5 rounded-lg text-sm font-bold active:scale-95 transition">
+                                  Aujourd'hui
+                              </button>
+                              <button onClick={handleNextWeek} className="flex-1 bg-[#006699] text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-1 active:scale-95 transition">
+                                  Suiv. <ChevronRight className="w-4 h-4" />
+                              </button>
+                          </div>
+                          <p className="text-center text-xs text-slate-500 mt-2 font-bold">{dateRangeString}</p>
+                      </div>
+
+                      {/* Actions rapides */}
+                      <div>
+                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Actions</p>
+                          <div className="grid grid-cols-2 gap-2">
+                              <button onClick={() => { setIsStatsModalOpen(true); setShowMobileToolbar(false); }} className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 active:bg-slate-100">
+                                  <FileText className="w-4 h-4 text-slate-500" /> Statistiques
+                              </button>
+                              <button onClick={() => { navigate('/provider-availability'); setShowMobileToolbar(false); }} className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 active:bg-slate-100">
+                                  <Users className="w-4 h-4 text-slate-500" /> Disponibilité
+                              </button>
+                              <button onClick={() => { setShowNotifications(v => !v); setShowMobileToolbar(false); }} className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 active:bg-slate-100 relative">
+                                  <Bell className="w-4 h-4 text-slate-500" /> Notifications
+                                  {notificationsData.length > 0 && (
+                                      <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                                          {notificationsData.length > 9 ? '9+' : notificationsData.length}
+                                      </span>
+                                  )}
+                              </button>
+                              <button onClick={() => { handlePrint(); setShowMobileToolbar(false); }} className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 active:bg-slate-100">
+                                  <Printer className="w-4 h-4 text-slate-500" /> Imprimer
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Filtres */}
+                      <div>
+                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Filtres</p>
+                          <div className="space-y-2">
+                              <div className="relative">
+                                  <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand-blue" />
+                                  <Search className="w-3 h-3 text-slate-400 absolute right-3 top-3.5" />
+                              </div>
+                              <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
+                              <SearchableSelect options={[{ value: 'all', label: 'Tous les clients' }, ...clients.map(c => ({ value: c.name, label: c.name }))]} value={selectedClient} onChange={(value) => setSelectedClient(value)} className="w-full" />
+                              <SearchableSelect options={[{ value: 'all', label: 'Tous' }, { value: 'planned', label: 'Prévues' }, { value: 'in_progress', label: 'En cours' }, { value: 'completed', label: 'Terminées' }, { value: 'cancelled', label: 'Annulées' }]} value={selectedStatus} onChange={(value) => setSelectedStatus(value)} className="w-full" />
+                              <button onClick={() => { setCustomDateRange(!customDateRange); if (!customDateRange) { setStartDate(''); setEndDate(''); } }} className={`w-full px-3 py-2.5 rounded-lg text-sm font-bold transition ${customDateRange ? 'bg-brand-blue text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                  <Calendar className="w-3 h-3 inline mr-1" /> Plage personnalisée
+                              </button>
+                              {customDateRange && (
+                                  <div className="flex items-center gap-2">
+                                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 text-sm border border-slate-300 rounded-lg px-2 py-2" />
+                                      <span className="text-xs text-slate-500">au</span>
+                                      <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 text-sm border border-slate-300 rounded-lg px-2 py-2" />
+                                  </div>
+                              )}
+                              <button onClick={() => { setSelectedProvider('all'); setSelectedClient('all'); setSelectedStatus('all'); setSearchQuery(''); setCustomDateRange(false); setStartDate(''); setEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold active:bg-slate-200">
+                                  <RotateCcw className="w-3 h-3 inline mr-1" /> Réinitialiser
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Synthèse */}
+                      <button onClick={() => { setShowDailySummary(true); setShowMobileToolbar(false); }} className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-500 to-blue-600 text-white rounded-xl active:opacity-90 shadow-md">
+                          <div className="flex items-center gap-2">
+                              <Users className="w-4 h-4 text-white" />
+                              <span className="font-bold text-sm">Synthèse du {dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}</span>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-indigo-200" />
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ===== DESKTOP TOOLBAR (hidden on mobile) ===== */}
+      <div className="hidden md:block">
       <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end mb-2 md:mb-6">
            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                <h2 className="text-2xl md:text-3xl font-serif font-bold text-slate-800">Planning</h2>
@@ -2677,6 +2798,8 @@ const Planning: React.FC = () => {
                <ChevronRight className="w-4 h-4 text-indigo-200" />
            </button>
        </div>
+      </div>
+      {/* End Desktop Toolbar wrapper */}
 
        {/* GRAFTED: Sidebar Prestations en attente */}
        {showUnassignedSidebar && filteredUnassignedMissions.length > 0 && (
@@ -2746,131 +2869,223 @@ const Planning: React.FC = () => {
             )}
 
             <div className="flex-1 min-h-0 bg-white shadow-sm border border-slate-200 flex flex-col overflow-x-hidden md:overflow-x-auto">
-                {/* Mobile list view */}
-                <div className="md:hidden p-3 space-y-4 flex-1 overflow-y-auto">
-                    {mobilePlanningDays.length === 0 ? (
-                        <div className="text-center text-sm text-slate-400 py-10">
-                            Aucun élément sur la période sélectionnée.
-                        </div>
-                    ) : (
-                        mobilePlanningDays.map(({ dateStr, remindersForDate, provisionalForDate, missionsForDate }) => (
-                            <div key={dateStr} className="border border-slate-200 rounded-lg overflow-hidden">
-                                <div
-                                    className="flex items-center"
-                                    style={dateStr !== statsDate ? { backgroundColor: dayFillStatus.get(dateStr)?.bgColor ?? '#f1f5f9' } : undefined}
-                                >
+                {/* Mobile list view — Compact day-focused layout */}
+                <div className="md:hidden flex-1 flex flex-col overflow-hidden">
+                    {/* Day strip — horizontal scrollable week */}
+                    <div className="shrink-0 bg-white border-b border-slate-200 px-2 py-2">
+                        <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+                            {mobilePlanningDays.map(({ dateStr, missionsForDate }) => {
+                                const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                                const isSelected = dateStr === statsDate;
+                                const isToday = dateStr === getMartiniqueToday();
+                                const dayStatus = dayFillStatus.get(dateStr);
+                                const count = missionsForDate.length;
+                                return (
                                     <button
+                                        key={dateStr}
                                         type="button"
                                         onClick={() => setFocusedDate(dateStr)}
-                                        className={`flex-1 text-left px-4 py-2 font-bold text-sm flex items-center justify-between ${dateStr === statsDate ? 'bg-brand-blue text-white' : 'text-slate-800 hover:opacity-90'}`}
-                                        title={dayFillStatus.get(dateStr) ? `${dayFillStatus.get(dateStr)!.scheduledCount} planifiée(s) — ${dayFillStatus.get(dateStr)!.plannedHours.toFixed(1)}h/${dayFillStatus.get(dateStr)!.capacityHours.toFixed(0)}h — ${{ clos: 'Jour clos', full: 'Complet', busy: 'Chargé', normal: 'Normal' }[dayFillStatus.get(dateStr)!.status]}` : 'Sélectionner'}
+                                        className={`shrink-0 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl min-w-[44px] transition-all ${
+                                            isSelected
+                                                ? 'bg-[#006699] text-white shadow-md scale-105'
+                                                : isToday
+                                                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                                    : 'text-slate-700 hover:bg-slate-50'
+                                        }`}
+                                        aria-label={`${d.format('dddd DD/MM')} — ${count} mission${count !== 1 ? 's' : ''}`}
                                     >
-                                        <span>{new Date(`${dateStr}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                        <span className="flex items-center gap-1">
-                                            {dayFillStatus.get(dateStr)?.status === 'clos' && <span className="text-[9px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1 rounded">Clos</span>}
-                                            {dateStr === statsDate ? <span className="text-xs font-bold">Sélectionné</span> : <span className="text-xs font-bold opacity-70">Sélectionner</span>}
+                                        <span className={`text-[10px] font-bold uppercase leading-none ${isSelected ? 'text-white/80' : 'text-slate-400'}`}>
+                                            {d.format('dd').charAt(0)}
                                         </span>
+                                        <span className="text-sm font-bold leading-none">{d.format('D')}</span>
+                                        {count > 0 ? (
+                                            <span className={`text-[9px] font-black leading-none px-1 rounded-full ${
+                                                isSelected ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                                            }`}>{count}</span>
+                                        ) : (
+                                            <span className="w-3 h-1" />
+                                        )}
+                                        {dayStatus && (
+                                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dayStatus.status === 'clos' ? '#14b8a6' : dayStatus.status === 'full' ? '#f97316' : dayStatus.status === 'busy' ? '#eab308' : '#22c55e' }} />
+                                        )}
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => toggleCloseDay(dateStr)}
-                                        className="px-2 py-2 text-[11px] text-slate-400 hover:text-teal-600 transition shrink-0"
-                                        title={closedDays.has(dateStr) ? 'Ouvrir la journée' : 'Clore la journée'}
-                                    >
-                                        {closedDays.has(dateStr) ? '↩' : '🔒'}
-                                    </button>
-                                </div>
-                                <div className="p-3 space-y-2 bg-white">
-                                    {remindersForDate.map((r: any) => (
-                                        <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-3 rounded shadow-sm text-sm">
-                                            <div className="flex justify-between items-start gap-3">
-                                                <p className="font-bold text-yellow-900">{r.text}</p>
-                                                <button onClick={() => toggleReminder(r.id)} className="text-yellow-700 hover:text-green-700 shrink-0">
+                                );
+                            })}
+                        </div>
+                        {/* Quick today button */}
+                        {statsDate !== getMartiniqueToday() && (
+                            <button
+                                type="button"
+                                onClick={() => { setCurrentWeekOffset(0); setFocusedDate(getMartiniqueToday()); }}
+                                className="mt-1 w-full text-[10px] font-bold text-blue-600 bg-blue-50 py-1 rounded-lg hover:bg-blue-100 transition"
+                            >
+                                ← Revenir à aujourd'hui
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Selected day detail */}
+                    <div className="flex-1 overflow-y-auto bg-slate-50">
+                        {(() => {
+                            const selectedDay = mobilePlanningDays.find(d => d.dateStr === statsDate);
+                            if (!selectedDay) {
+                                return (
+                                    <div className="text-center text-sm text-slate-400 py-16">
+                                        <Calendar className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                                        <p>Sélectionnez un jour ci-dessus</p>
+                                    </div>
+                                );
+                            }
+                            const { dateStr, remindersForDate, provisionalForDate, missionsForDate } = selectedDay;
+                            const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                            const dayStatus = dayFillStatus.get(dateStr);
+                            const allItems = [...missionsForDate].sort((a: any, b: any) => (a.startTime || '').localeCompare(b.startTime || ''));
+                            const totalHours = allItems.reduce((acc: number, m: any) => acc + (m.duration || 0), 0);
+
+                            return (
+                                <div className="pb-4">
+                                    {/* Day header */}
+                                    <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+                                        <div>
+                                            <h3 className="font-bold text-base text-slate-800">
+                                                {d.format('dddd D MMMM')}
+                                            </h3>
+                                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                                {allItems.length} prestation{allItems.length !== 1 ? 's' : ''} · {totalHours.toFixed(1)}h
+                                                {dayStatus && ` · ${dayStatus.plannedHours.toFixed(1)}/${dayStatus.capacityHours.toFixed(0)}h`}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            {dayStatus && dayStatus.status !== 'normal' && (
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                    dayStatus.status === 'clos' ? 'bg-teal-100 text-teal-700' :
+                                                    dayStatus.status === 'full' ? 'bg-orange-100 text-orange-700' :
+                                                    'bg-yellow-100 text-yellow-700'
+                                                }`}>
+                                                    {dayStatus.status === 'clos' ? 'Clos' : dayStatus.status === 'full' ? 'Complet' : 'Chargé'}
+                                                </span>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleCloseDay(dateStr)}
+                                                className="text-[10px] text-slate-400 hover:text-teal-600 px-1.5 py-0.5 rounded border border-slate-200 hover:border-teal-300 transition"
+                                            >
+                                                {closedDays.has(dateStr) ? '↩ Ouvrir' : '🔒 Clore'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="px-3 pt-2 space-y-2">
+                                        {/* Reminders */}
+                                        {remindersForDate.map((r: any) => (
+                                            <div key={r.id} className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg flex items-center gap-2">
+                                                <Bell className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                                <p className="flex-1 text-xs font-bold text-amber-800 truncate">{r.text}</p>
+                                                <button onClick={() => toggleReminder(r.id)} className="text-amber-600 hover:text-green-600 shrink-0">
                                                     <CheckCircle className="w-4 h-4" />
                                                 </button>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
 
-                                    {provisionalForDate.map((item: any) => (
-                                        <div
-                                            key={item.id}
-                                            className="bg-orange-100 p-3 rounded text-sm cursor-pointer hover:bg-orange-200 transition border-l-4 border-orange-500"
-                                            onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                        >
-                                            <p className="font-bold text-orange-900 truncate">{item.clientName}</p>
-                                            <p className="text-xs text-orange-800 mt-1">{item.startTime} - {item.endTime}</p>
-                                            <p className="text-xs font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
-                                            <p className="text-xs text-orange-800 truncate">{item.service || 'Devis'}</p>
-                                            <p className="text-xs italic text-orange-700 truncate">En attente</p>
-                                        </div>
-                                    ))}
-
-                                    {missionsForDate.map((item: any) => {
-                                        const style = getMissionPlanningStyle(item as Mission);
-                                        const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
-                                        const clientCity = normalizeCommune(clientCityRaw);
-                                        const billingBg = billingSignals.ultimatePackComplete.has(item.id) ? '#ede9fe' : billingSignals.readyToInvoice.has(item.id) ? '#dbeafe' : undefined;
-                                        const billingBadge = billingSignals.ultimatePackComplete.has(item.id) ? { text: 'Facture complète', cls: 'text-purple-700 bg-purple-100 border border-purple-200' } : billingSignals.readyToInvoice.has(item.id) ? { text: 'À facturer', cls: 'text-blue-700 bg-blue-100 border border-blue-200' } : null;
-                                        return (
+                                        {/* Provisional missions */}
+                                        {provisionalForDate.map((item: any) => (
                                             <div
                                                 key={item.id}
-                                                className={`p-3 rounded text-sm cursor-pointer transition border-l-4 ${style.container} ${style.border}`}
-                                                style={billingBg ? { backgroundColor: billingBg } : undefined}
-                                                onClick={(e) => handleMissionClick(item, e)}
+                                                className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
+                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
                                             >
-                                                <div className="flex justify-between items-start gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <p className="font-bold text-slate-800 truncate">{item.clientName}</p>
-                                                            <span className="text-xs font-bold text-slate-700 shrink-0">
-                                                                {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-xs text-slate-600 mt-1">{item.startTime} - {item.endTime}</p>
-                                                        {clientCity ? (
-                                                            <p className="text-xs text-slate-600 truncate">{clientCity}</p>
-                                                        ) : null}
-                                                        {item.providerId ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { const p = providers.find(pr => pr.id === item.providerId); if (p) setSelectedProviderStats(p); }}
-                                                                className="text-xs font-bold text-slate-700 truncate hover:text-brand-blue hover:underline text-left"
-                                                                aria-label={`Voir les statistiques de ${item.providerName}`}
-                                                            >
-                                                                {item.providerName}
-                                                            </button>
-                                                        ) : (
-                                                            <p className="text-xs font-bold text-slate-700 truncate">{item.providerName}</p>
-                                                        )}
-                                                        <p className="text-[11px] font-bold mt-1 text-slate-600">{style.label}</p>
-                                                        {billingBadge && (
-                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${billingBadge.cls}`} role="status">{billingBadge.text}</span>
+                                                <div className="shrink-0 w-12 text-center">
+                                                    <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0,5)}</div>
+                                                    <div className="text-[10px] text-orange-500">{item.endTime?.slice(0,5)}</div>
+                                                </div>
+                                                <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
+                                                    <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
+                                                    <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
+                                                </div>
+                                                <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
+                                            </div>
+                                        ))}
+
+                                        {/* Confirmed missions — compact timeline */}
+                                        {allItems.map((item: any) => {
+                                            const style = getMissionPlanningStyle(item as Mission);
+                                            const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
+                                            const clientCity = normalizeCommune(clientCityRaw);
+                                            const billingBg = billingSignals.ultimatePackComplete.has(item.id) ? '#ede9fe' : billingSignals.readyToInvoice.has(item.id) ? '#dbeafe' : undefined;
+                                            const billingBadge = billingSignals.ultimatePackComplete.has(item.id) ? { text: 'Facture complète', cls: 'text-purple-700 bg-purple-100 border border-purple-200' } : billingSignals.readyToInvoice.has(item.id) ? { text: 'À facturer', cls: 'text-blue-700 bg-blue-100 border border-blue-200' } : null;
+                                            return (
+                                                <div
+                                                    key={item.id}
+                                                    className={`rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border ${style.border}`}
+                                                    style={{ backgroundColor: billingBg || undefined }}
+                                                    onClick={(e) => handleMissionClick(item, e)}
+                                                >
+                                                    {/* Time column */}
+                                                    <div className="shrink-0 w-12 text-center pt-0.5">
+                                                        <div className="text-xs font-bold text-slate-800">{item.startTime?.slice(0,5)}</div>
+                                                        <div className="text-[10px] text-slate-500">{item.endTime?.slice(0,5)}</div>
+                                                        {item.duration && (
+                                                            <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
                                                         )}
                                                     </div>
+
+                                                    {/* Content */}
+                                                    <div className="flex-1 min-w-0 border-l-2 pl-2.5" style={{ borderColor: style.borderColor || '#e2e8f0' }}>
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <p className="font-bold text-sm text-slate-800 truncate">{item.clientName}</p>
+                                                            {clientCity && <span className="text-[10px] text-slate-500 shrink-0 truncate max-w-[80px]">{clientCity}</span>}
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                                            {item.providerId ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.stopPropagation(); const p = providers.find(pr => pr.id === item.providerId); if (p) setSelectedProviderStats(p); }}
+                                                                    className="text-[11px] font-bold text-slate-600 truncate hover:text-brand-blue hover:underline text-left"
+                                                                >
+                                                                    {item.providerName}
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-[11px] font-bold text-slate-500 truncate">{item.providerName || 'Non assigné'}</span>
+                                                            )}
+                                                            <span className="text-[10px] text-slate-400">·</span>
+                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${style.statusCls || 'bg-slate-100 text-slate-600'}`}>{style.label}</span>
+                                                        </div>
+                                                        {item.service && (
+                                                            <p className="text-[10px] text-slate-500 mt-0.5 truncate">{item.service}</p>
+                                                        )}
+                                                        {billingBadge && (
+                                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${billingBadge.cls}`}>{billingBadge.text}</span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Selection checkbox */}
                                                     <button
                                                         onClick={(e) => toggleMissionSelection(item.id, e)}
-                                                        className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center hover:bg-white/80 rounded shrink-0"
-                                                        aria-label={selectedMissionIds.has(item.id) ? 'Désélectionner la mission' : 'Sélectionner la mission'}
+                                                        className="p-1 shrink-0 hover:bg-white/80 rounded"
+                                                        aria-label={selectedMissionIds.has(item.id) ? 'Désélectionner' : 'Sélectionner'}
                                                     >
                                                         {selectedMissionIds.has(item.id) ? (
-                                                            <CheckSquare className="w-5 h-5 text-brand-blue fill-white" />
+                                                            <CheckSquare className="w-4 h-4 text-brand-blue fill-white" />
                                                         ) : (
-                                                            <Square className="w-5 h-5 text-slate-400" />
+                                                            <Square className="w-4 h-4 text-slate-300" />
                                                         )}
                                                     </button>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
 
-                                    {remindersForDate.length === 0 && provisionalForDate.length === 0 && missionsForDate.length === 0 ? (
-                                        <div className="text-xs text-slate-400 italic">Aucun élément.</div>
-                                    ) : null}
+                                        {/* Empty state */}
+                                        {remindersForDate.length === 0 && provisionalForDate.length === 0 && allItems.length === 0 && (
+                                            <div className="text-center py-10">
+                                                <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                                                <p className="text-xs text-slate-400">Aucune prestation ce jour</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))
-                    )}
+                            );
+                        })()}
+                    </div>
                 </div>
 
                 {/* Desktop calendar view */}
