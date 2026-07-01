@@ -29,6 +29,7 @@ import ScanPage from './components/ScanPage';
 import ScanSuccess from './components/ScanSuccess';
 import ContactPage from './components/ContactPage';
 import ContactFormsAdmin from './components/ContactFormsAdmin';
+import PublicAvailabilityPage from './components/PublicAvailabilityPage';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
@@ -637,6 +638,7 @@ const AppLayout: React.FC = () => {
     const isContactRoute = location.pathname === '/contact' || (window.location.hash || '').startsWith('#/contact');
     const isFlyersRoute = location.pathname === '/flyers' || location.pathname.startsWith('/flyers/');
     const isReferralRoute = location.pathname.startsWith('/parrainage');
+    const isAvailabilityRoute = location.pathname === '/disponibilites';
 
     const isAdminLike = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
@@ -681,6 +683,10 @@ const AppLayout: React.FC = () => {
 
     if (isReferralRoute) {
         return <ReferralPublicRoutes />;
+    }
+
+    if (isAvailabilityRoute) {
+        return <PublicAvailabilityPage />;
     }
 
     if (!isOnline) {

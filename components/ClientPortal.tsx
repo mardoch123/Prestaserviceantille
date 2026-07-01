@@ -65,7 +65,10 @@ import {
     Home,
     Filter,
     Share,
-    Share2
+    Share2,
+    ChevronLeft,
+    ChevronRight,
+    Copy
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -210,7 +213,7 @@ const ClientPortal: React.FC = () => {
         });
     }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
 
-    const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans'>('planning');
+    const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites'>('planning');
     const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar'>('overview');
     const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [messageInput, setMessageInput] = useState('');
@@ -1450,6 +1453,7 @@ const ClientPortal: React.FC = () => {
                 <nav className="flex items-center gap-1">
                   {[
                     { id: 'planning', label: 'Planning', icon: Calendar },
+                    { id: 'disponibilites', label: 'Disponibilités', icon: Clock },
                     { id: 'docs', label: 'Documents', icon: FileText },
                     { id: 'messages', label: 'Messages', icon: MessageSquare },
                     { id: 'qr-scans', label: 'QR Code', icon: QrCode },
@@ -1519,6 +1523,7 @@ const ClientPortal: React.FC = () => {
                     <nav className="p-4 space-y-2">
                       {[
                         { id: 'planning', label: 'Mon Planning', icon: Calendar },
+                        { id: 'disponibilites', label: 'Disponibilités', icon: Clock },
                         { id: 'docs', label: 'Devis & Factures', icon: FileText },
                         { id: 'messages', label: 'Messages', icon: MessageSquare },
                         { id: 'qr-scans', label: 'QR Code', icon: QrCode },
@@ -1959,6 +1964,10 @@ const ClientPortal: React.FC = () => {
                                 {clientMissions.length === 0 && <p className="text-center text-slate-400 py-10">Aucun rendez-vous à venir.</p>}
                             </div>
                         </div>
+                    )}
+
+                    {activeTab === 'disponibilites' && (
+                        <ClientAvailabilityTab missions={missions} />
                     )}
 
                     {activeTab === 'docs' && (
@@ -2538,8 +2547,8 @@ const ClientPortal: React.FC = () => {
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-white/50 flex justify-around items-center p-3 pb-safe z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
                 {[
                     { id: 'planning', icon: Home, label: 'Accueil' },
+                    { id: 'disponibilites', icon: Clock, label: 'Dispo' },
                     { id: 'docs', icon: FileText, label: 'Docs' },
-                    { id: 'live', icon: Video, label: 'Live', isLive: true },
                     { id: 'messages', icon: MessageSquare, label: 'Messages' },
                     { id: 'profile', icon: User, label: 'Profil' },
                 ].map((item) => (
@@ -2553,10 +2562,7 @@ const ClientPortal: React.FC = () => {
                         }`}
                     >
                         <div className="relative">
-                            <item.icon className={`w-5 h-5 ${item.isLive && isLive ? 'animate-pulse text-red-500' : ''}`} />
-                            {item.isLive && isLive && (
-                                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full"></span>
-                            )}
+                            <item.icon className="w-5 h-5" />
                         </div>
                         <span className="text-[10px] font-medium">{item.label}</span>
                     </button>
@@ -3352,6 +3358,242 @@ const ClientPortal: React.FC = () => {
         )}
         </div>
     );
+};
+
+// ─── Client Availability Tab (Disponibilités) ─────────────────────────────────
+
+const OPEN_HOUR = 8;
+const CLOSE_HOUR = 18;
+
+function computeClientFreeSlots(occupied: { startTime: string; endTime: string }[]): { startTime: string; endTime: string }[] {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const toStr = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const openMin = OPEN_HOUR * 60;
+  const closeMin = CLOSE_HOUR * 60;
+  const sorted = [...occupied]
+    .map(s => ({ start: toMin(s.startTime), end: toMin(s.endTime) }))
+    .filter(s => s.end > openMin && s.start < closeMin)
+    .sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const s of sorted) {
+    if (merged.length > 0 && s.start <= merged[merged.length - 1].end) {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, s.end);
+    } else merged.push({ ...s });
+  }
+  const free: { startTime: string; endTime: string }[] = [];
+  let cursor = openMin;
+  for (const s of merged) {
+    const gapStart = Math.max(cursor, openMin);
+    const gapEnd = Math.min(s.start, closeMin);
+    if (gapEnd - gapStart >= 30) free.push({ startTime: toStr(gapStart), endTime: toStr(gapEnd) });
+    cursor = Math.max(cursor, s.end);
+  }
+  if (closeMin - cursor >= 30) free.push({ startTime: toStr(cursor), endTime: toStr(closeMin) });
+  return free;
+}
+
+const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  const today = useMemo(() => {
+    const now = new Date();
+    const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
+    return new Date(utc.getFullYear(), utc.getMonth(), utc.getDate() - 4 * 0); // simplified
+  }, []);
+
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const weekDays = useMemo(() => {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + mondayOffset + weekOffset * 7);
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const dayOfWeekIdx = d.getDay();
+      const isSunday = dayOfWeekIdx === 0;
+      const isPast = dateStr < todayStr;
+      const occupied = missions
+        .filter((m: any) => m.date === dateStr && m.status !== 'cancelled')
+        .map((m: any) => ({ startTime: m.start_time || m.startTime, endTime: m.end_time || m.endTime }));
+      const freeSlots = isPast || isSunday ? [] : computeClientFreeSlots(occupied);
+      return {
+        date: dateStr,
+        dayOfWeek: dayOfWeekIdx,
+        dayOfMonth: d.getDate(),
+        month: d.getMonth(),
+        isToday: dateStr === todayStr,
+        isPast,
+        isSunday,
+        freeSlots,
+        busyCount: occupied.length,
+      };
+    });
+  }, [weekOffset, missions, todayStr]);
+
+  const WEEKDAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  const MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+
+  const totalFree = weekDays.reduce((s, d) => s + d.freeSlots.length, 0);
+
+  const shareLink = typeof window !== 'undefined' ? `${window.location.origin}/disponibilites` : '';
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Disponibilités</h1>
+          <p className="text-sm text-gray-500 mt-1">Consultez les créneaux horaires libres pour planifier une intervention.</p>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold shadow-lg shadow-emerald-200 hover:shadow-xl transition-all"
+        >
+          {copied ? <CheckCircle className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+          {copied ? 'Lien copié !' : 'Partager le lien public'}
+        </button>
+      </div>
+
+      {/* Week navigation */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={() => setWeekOffset(w => w - 1)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-600 transition">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="text-center">
+            <span className="font-bold text-gray-800">
+              {weekDays[0]?.dayOfMonth} {MONTHS_SHORT[weekDays[0]?.month || 0]} — {weekDays[6]?.dayOfMonth} {MONTHS_SHORT[weekDays[6]?.month || 0]}
+            </span>
+            {weekOffset !== 0 && (
+              <button onClick={() => setWeekOffset(0)} className="ml-3 text-xs text-emerald-600 font-bold hover:underline">Aujourd'hui</button>
+            )}
+          </div>
+          <button onClick={() => setWeekOffset(w => w + 1)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-600 transition">
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="flex items-center justify-center gap-6 mb-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-emerald-600">{totalFree}</div>
+            <div className="text-xs text-gray-400">créneaux libres</div>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-700">{OPEN_HOUR}h–{CLOSE_HOUR}h</div>
+            <div className="text-xs text-gray-400">heures d'ouverture</div>
+          </div>
+        </div>
+
+        {/* Days grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+          {weekDays.map((day) => {
+            const hasSlots = day.freeSlots.length > 0;
+            return (
+              <div
+                key={day.date}
+                className={`rounded-xl overflow-hidden border transition-all ${
+                  day.isToday
+                    ? 'border-emerald-300 ring-2 ring-emerald-100'
+                    : day.isPast || day.isSunday
+                    ? 'border-gray-100 bg-gray-50'
+                    : hasSlots
+                    ? 'border-green-200 bg-white'
+                    : 'border-orange-200 bg-white'
+                }`}
+              >
+                <div className={`px-3 py-2 text-center ${
+                  day.isToday ? 'bg-emerald-500 text-white' :
+                  day.isPast || day.isSunday ? 'bg-gray-100 text-gray-400' :
+                  hasSlots ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800'
+                }`}>
+                  <div className="text-[11px] font-bold uppercase">{WEEKDAYS[day.dayOfWeek]}</div>
+                  <div className="text-lg font-bold">{day.dayOfMonth}</div>
+                </div>
+                <div className="p-2 space-y-1">
+                  {day.isPast ? (
+                    <p className="text-xs text-gray-400 text-center py-2">Passé</p>
+                  ) : day.isSunday ? (
+                    <p className="text-xs text-gray-400 text-center py-2 flex items-center justify-center gap-1">
+                      <CalendarX className="w-3 h-3" /> Fermé
+                    </p>
+                  ) : hasSlots ? (
+                    day.freeSlots.map((sl, i) => (
+                      <div key={i} className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-lg px-2 py-1">
+                        <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                        <span className="text-[11px] font-bold text-green-700">{sl.startTime} – {sl.endTime}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-2">
+                      <p className="text-xs text-orange-500 font-bold">Complet</p>
+                      <p className="text-[10px] text-orange-400">Aucun créneau</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Share info */}
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200 p-5">
+        <div className="flex items-start gap-3">
+          <Share2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-bold text-gray-800 mb-1">Partagez les disponibilités</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Envoyez ce lien à n'importe qui pour qu'il puisse consulter les créneaux libres en temps réel, sans avoir besoin de compte.
+            </p>
+            <div className="flex items-center gap-2 bg-white rounded-xl border border-emerald-200 p-2">
+              <code className="flex-1 text-xs text-gray-600 truncate px-2">{shareLink}</code>
+              <button
+                onClick={handleCopy}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  copied ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                }`}
+              >
+                {copied ? <><CheckCircle className="w-3 h-3" /> Copié</> : <><Copy className="w-3 h-3" /> Copier</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-gray-500">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+          <span>Disponible</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-orange-400" />
+          <span>Complet</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+          <span>Passé / Fermé</span>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default ClientPortal;

@@ -1270,7 +1270,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         });
 
                         if (userNotifications.length > 0) {
-                            setNotifications(prev => [...userNotifications, ...prev]);
+                            // Dedup: only add notifications not already in the list
+                            setNotifications(prev => {
+                                const existingIds = new Set(prev.map((n: any) => String(n.id)));
+                                const newOnes = userNotifications.filter((n: any) => !existingIds.has(String(n.id)));
+                                if (newOnes.length === 0) return prev;
+                                return [...newOnes, ...prev];
+                            });
                             setLastNotificationCheck(Date.now());
 
                             userNotifications.forEach((n: any) => {
@@ -1311,7 +1317,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 } catch (error) {
                     console.warn('[NotificationPolling] Error:', error);
                 }
-            }, 5000); // 5 secondes
+            }, 15000); // 15 secondes - réduit la charge réseau (était 5s)
 
             setNotificationPollingInterval(interval);
 
@@ -1726,6 +1732,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const cachedMissions = dataCache.get<any[]>('missions', undefined, 24 * 60 * 60 * 1000);
                     const cachedDocuments = dataCache.get<any[]>('documents', undefined, 24 * 60 * 60 * 1000);
                     const cachedNotifications = dataCache.get<any[]>('notifications', undefined, 24 * 60 * 60 * 1000);
+                    const cachedPacks = dataCache.get<any[]>('packs', undefined, 24 * 60 * 60 * 1000);
+                    const cachedContracts = dataCache.get<any[]>('contracts', undefined, 24 * 60 * 60 * 1000);
+                    const cachedReminders = dataCache.get<any[]>('reminders', undefined, 24 * 60 * 60 * 1000);
+                    const cachedMessages = dataCache.get<any[]>('messages', undefined, 24 * 60 * 60 * 1000);
+                    const cachedContactForms = dataCache.get<any[]>('contactForms', undefined, 24 * 60 * 60 * 1000);
 
                     if (cachedClients) setClients(cachedClients);
                     if (cachedProviders) setProviders(cachedProviders);
@@ -1735,6 +1746,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
                     if (cachedDocuments) setDocuments(cachedDocuments);
                     if (cachedNotifications) setNotifications(cachedNotifications);
+                    if (cachedPacks) setPacks(cachedPacks);
+                    if (cachedContracts) setContracts(cachedContracts);
+                    if (cachedReminders) setReminders(cachedReminders);
+                    if (cachedMessages) setMessages(cachedMessages);
+                    if (cachedContactForms) setContactForms(cachedContactForms);
 
                     return !!(cachedClients || cachedProviders || cachedMissions);
                 };
@@ -2067,27 +2083,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId,
                     }));
                     setMissions(mappedMissions);
+                    dataCache.set('missions', mappedMissions);
 
                     const clientIds = Array.from(new Set(mappedMissions.map((m: any) => String(m?.clientId || '')).filter(Boolean)));
                     if (clientIds.length > 0) {
                         const chunkSize = 200;
                         const chunks: string[][] = [];
                         for (let i = 0; i < clientIds.length; i += chunkSize) chunks.push(clientIds.slice(i, i + chunkSize));
-                        const clientRows: any[] = [];
-                        for (const chunk of chunks) {
-                            const res = await fetchWithTimeout(
+                        // Fetch all chunks in parallel for faster loading
+                        const chunkResults = await Promise.all(
+                            chunks.map(chunk => fetchWithTimeout(
                                 supabase.from('clients').select('*').in('id', chunk),
                                 20000
-                            );
+                            ))
+                        );
+                        const clientRows: any[] = [];
+                        chunkResults.forEach(res => {
                             if (res?.error) console.warn('[RefreshData] clients(provider):', res.error.message);
                             (res?.data || []).forEach((row: any) => clientRows.push(row));
-                        }
-                        setClients(mapClients(clientRows, null, null));
+                        });
+                        const mappedClients = mapClients(clientRows, null, null);
+                        setClients(mappedClients);
+                        dataCache.set('clients', mappedClients);
                     } else {
                         setClients([]);
                     }
 
-                    setProviders(mapProviders(Array.isArray(providerRows) ? providerRows : [], Array.isArray(leavesRows) ? leavesRows : []));
+                    const mappedProviders = mapProviders(Array.isArray(providerRows) ? providerRows : [], Array.isArray(leavesRows) ? leavesRows : []);
+                    setProviders(mappedProviders);
+                    dataCache.set('providers', mappedProviders);
 
                     const mappedNotifications = (notifRows || []).map((n: any) => ({
                         ...n,
@@ -2100,6 +2124,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         date: formatMartiniqueDateTime(n.date || n.created_at),
                     }));
                     setNotifications(mappedNotifications as any);
+                    dataCache.set('notifications', mappedNotifications);
 
                     setVisitScans((visitScanRows || []).map((s: any) => ({
                         ...s,
@@ -2222,14 +2247,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         fetchTable('contracts'),
                                                 Promise.resolve([]), // expenses temporairement désactivé - base en timeout,
                     ]);
-                    await new Promise(r => setTimeout(r, 300));
                     const [msgData, notifData, cfData, settingsRaw] = await Promise.all([
                         fetchTable('messages'),
                         fetchTable('notifications'),
                         fetchTable('contact_forms'),
                         fetchTable('company_settings', '*', 15000),
                     ]);
-                    await new Promise(r => setTimeout(r, 300));
                     const [vsData, vrData, leavesData, gcData, mcrData] = await Promise.all([
                         fetchTable('visit_scans'),
                         fetchTable('video_recordings'),
@@ -2239,13 +2262,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     ]);
                     const settingsData = settingsRaw?.[0] || null;
 
-                    let cData2 = cData;
-                    if (!cData2) cData2 = await fetchTable('clients', clientSelect, 20000);
-                    if (cData2) setClients(mapClients(cData2, packData || null, ctData || null));
+                    // Re-map clients with pack/contract data; retry if initial fetch failed
+                    if (!cData) {
+                        const retryClients = await fetchTable('clients', clientSelect, 20000);
+                        if (retryClients) setClients(mapClients(retryClients, packData || null, ctData || null));
+                    } else if (packData || ctData) {
+                        setClients(mapClients(cData, packData || null, ctData || null));
+                    }
 
-                    let pData2 = pData;
-                    if (!pData2) pData2 = await fetchTable('providers', providerSelect, 20000);
-                    if (pData2) setProviders(mapProviders(pData2, leavesData || null));
+                    // Re-map providers with leaves data; retry if initial fetch failed
+                    if (!pData) {
+                        const retryProviders = await fetchTable('providers', providerSelect, 20000);
+                        if (retryProviders) setProviders(mapProviders(retryProviders, leavesData || null));
+                    } else if (leavesData) {
+                        setProviders(mapProviders(pData, leavesData));
+                    }
 
                     if (!mData) {
                         const mData2 = await fetchMissionsWindow(25000, missionSelect);
@@ -2305,6 +2336,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                                 frequency: freq
                             };
                         }));
+                        dataCache.set('packs', packData);
                     }
                 if (ctData) {
                     setContracts(ctData.map((c: any) => ({
@@ -2317,6 +2349,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientSignatureUrl: c.client_signature_url,
                         signedAt: c.signed_at
                     })));
+                    dataCache.set('contracts', ctData);
                 }
                 if (gcData) {
                     setGenericContracts(gcData.map((gc: any) => ({
@@ -2329,6 +2362,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         ...r,
                         notifyEmail: r.notify_email || r.notifyEmail
                     })));
+                    dataCache.set('reminders', rData);
                 }
                 if (eData) {
                     setExpenses(eData.map((e: any) => ({
@@ -2348,6 +2382,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientId: m.client_id,
                         read: m.is_read
                     })));
+                    dataCache.set('messages', msgData);
                 }
                 if (notifData) {
                     const sorted = notifData.sort((a: any, b: any) =>
@@ -2378,6 +2413,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         createdAt: f.created_at || f.createdAt || getMartiniqueNowISO(),
                         isRead: !!(f.is_read ?? f.isRead)
                     })));
+                    dataCache.set('contactForms', cfData);
                 }
 
                 if (mcrData) {
@@ -4421,17 +4457,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         console.warn("Error creating auth user via function:", fnError);
                         // Continue anyway, the client record is created
                     }
+                } catch (e) {
+                    console.warn("Auth edge function failed/unavailable or restricted.", e);
+                }
 
-                    // Send Email only if auth created successfully or generic welcome
+                // Send welcome email — in its own try/catch to guarantee it runs
+                // regardless of edge function outcome (same pattern as addProvider)
+                try {
                     await sendEmail(clientData.email, 'Bienvenue - Accès Espace Client', 'welcome_client_panel', {
                         name: clientData.name,
                         login: clientData.email,
                         password: password,
                         link: 'https://www.prestaservicesantilles.com/'
                     });
-
-                } catch (e) {
-                    console.warn("Auth edge function failed/unavailable or restricted.", e);
+                    console.log("Email de bienvenue envoyé au client:", clientData.email);
+                } catch (emailErr) {
+                    console.warn("Erreur lors de l'envoi de l'email de bienvenue:", emailErr);
                 }
 
                 setClients(prev => [...prev, {

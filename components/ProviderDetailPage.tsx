@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { 
@@ -16,7 +16,10 @@ import {
   Edit3,
   Trash2,
   History,
-  Award
+  Award,
+  Search,
+  Filter,
+  ChevronDown
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -30,6 +33,12 @@ const ProviderDetailPage: React.FC = () => {
   const [providerMissions, setProviderMissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'info' | 'missions' | 'stats'>('info');
+
+  // Mission filters
+  const [missionSearch, setMissionSearch] = useState('');
+  const [missionStatusFilter, setMissionStatusFilter] = useState('all');
+  const [missionDateFilter, setMissionDateFilter] = useState<'all' | 'upcoming' | 'past'>('all');
+  const [showMissionFilters, setShowMissionFilters] = useState(false);
 
   useEffect(() => {
     // Check for provider ID in URL params (from search navigation)
@@ -85,6 +94,46 @@ const ProviderDetailPage: React.FC = () => {
     .filter(m => m.status === 'completed')
     .reduce((sum, m) => sum + (m.providerAmount || m.amount || 0), 0);
   const rating = provider?.rating || 0;
+
+  // Filtered and sorted missions (most recent first)
+  const filteredMissions = useMemo(() => {
+    const today = dayjs().format('YYYY-MM-DD');
+    let result = [...providerMissions];
+
+    // Status filter
+    if (missionStatusFilter !== 'all') {
+      result = result.filter(m => m.status === missionStatusFilter);
+    }
+
+    // Date filter
+    if (missionDateFilter === 'upcoming') {
+      result = result.filter(m => m.date >= today);
+    } else if (missionDateFilter === 'past') {
+      result = result.filter(m => m.date < today);
+    }
+
+    // Search filter
+    if (missionSearch.trim()) {
+      const q = missionSearch.toLowerCase().trim();
+      result = result.filter(m =>
+        (m.clientName || '').toLowerCase().includes(q) ||
+        (m.service || '').toLowerCase().includes(q) ||
+        (m.date || '').includes(q) ||
+        (m.startTime || '').includes(q) ||
+        (m.endTime || '').includes(q) ||
+        (getStatusLabel(m.status) || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by date descending (most recent first), then by start time
+    result.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return (b.startTime || '').localeCompare(a.startTime || '');
+    });
+
+    return result;
+  }, [providerMissions, missionStatusFilter, missionDateFilter, missionSearch]);
 
   if (loading) {
     return (
@@ -312,22 +361,95 @@ const ProviderDetailPage: React.FC = () => {
         {activeTab === 'missions' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200">
             <div className="px-6 py-4 border-b border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-800">Missions assignées</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">Missions assignées</h2>
+                <button
+                  onClick={() => setShowMissionFilters(!showMissionFilters)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    showMissionFilters ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Filter className="w-4 h-4" />
+                  Filtres
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showMissionFilters ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+
+              {/* Search & Filters */}
+              {showMissionFilters && (
+                <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-top-2">
+                  {/* Search bar */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher par nom de client, service, date..."
+                      value={missionSearch}
+                      onChange={(e) => setMissionSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+                    />
+                  </div>
+                  {/* Filter row */}
+                  <div className="flex flex-wrap gap-2">
+                    {/* Status filter */}
+                    <select
+                      value={missionStatusFilter}
+                      onChange={(e) => setMissionStatusFilter(e.target.value)}
+                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+                    >
+                      <option value="all">Tous les statuts</option>
+                      <option value="planned">Planifiées</option>
+                      <option value="in_progress">En cours</option>
+                      <option value="completed">Terminées</option>
+                      <option value="cancelled">Annulées</option>
+                    </select>
+                    {/* Date filter */}
+                    <select
+                      value={missionDateFilter}
+                      onChange={(e) => setMissionDateFilter(e.target.value as any)}
+                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+                    >
+                      <option value="all">Toutes les dates</option>
+                      <option value="upcoming">À venir</option>
+                      <option value="past">Passées</option>
+                    </select>
+                    {/* Reset */}
+                    {(missionSearch || missionStatusFilter !== 'all' || missionDateFilter !== 'all') && (
+                      <button
+                        onClick={() => { setMissionSearch(''); setMissionStatusFilter('all'); setMissionDateFilter('all'); }}
+                        className="px-3 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                      >
+                        Réinitialiser
+                      </button>
+                    )}
+                  </div>
+                  {/* Result count */}
+                  <p className="text-xs text-slate-400">
+                    {filteredMissions.length} mission{filteredMissions.length > 1 ? 's' : ''} trouvée{filteredMissions.length > 1 ? 's' : ''}
+                  </p>
+                </div>
+              )}
             </div>
-            {providerMissions.length === 0 ? (
+            {filteredMissions.length === 0 ? (
               <div className="p-8 text-center">
                 <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-500">Aucune mission pour ce prestataire</p>
-                <button
-                  onClick={() => navigate('/planning', { state: { selectedProviderId: provider.id } })}
-                  className="mt-4 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-dark"
-                >
-                  Créer une mission
-                </button>
+                <p className="text-slate-500">
+                  {providerMissions.length === 0
+                    ? 'Aucune mission pour ce prestataire'
+                    : 'Aucune mission ne correspond aux filtres'}
+                </p>
+                {providerMissions.length === 0 && (
+                  <button
+                    onClick={() => navigate('/planning', { state: { selectedProviderId: provider.id } })}
+                    className="mt-4 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-dark"
+                  >
+                    Créer une mission
+                  </button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-slate-200">
-                {providerMissions.map(mission => (
+                {filteredMissions.map(mission => (
                   <div 
                     key={mission.id} 
                     className="p-4 hover:bg-slate-50 cursor-pointer"
