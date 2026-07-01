@@ -483,9 +483,9 @@ function calculateAvailableSlots(
 ): { startTime: string; endTime: string }[] {
   if (status === 'leave' || status === 'unavailable') return [];
 
-  // Standard working hours: 08:00 - 18:00
-  const workStart = 8 * 60; // 8:00 in minutes
-  const workEnd = 18 * 60; // 18:00 in minutes
+  // Standard working hours: 09:00 - 16:00 (Lundi au Dimanche)
+  const workStart = 9 * 60; // 9:00 in minutes
+  const workEnd = 16 * 60; // 16:00 in minutes
 
   // Convert assigned slots to minute ranges
   const busyRanges = assignedSlots.map((slot) => ({
