@@ -22,6 +22,7 @@ type ServiceAvailability = {
   serviceType: string;
   freeSlots: TimeSlot[];
   totalProviders: number;
+  freeProviderCount: number;
 };
 
 type DayAvailability = {
@@ -253,21 +254,39 @@ const PublicAvailabilityPage: React.FC = () => {
           const domainProviders = providersByDomain[svcType] || [];
           if (domainProviders.length === 0) continue;
 
-          const allFreeHours = new Set<number>();
+          // Count how many providers are free at each hour
+          const hourFreeCount: Record<number, number> = {};
+          for (const hour of Array.from({ length: 7 }, (_, i) => i + OPEN_HOUR)) {
+            hourFreeCount[hour] = 0;
+          }
+
           for (const provider of domainProviders) {
             const providerMissions = missions.filter(
               m => m.provider_id === provider.id && m.date === dateStr
             );
             const freeHours = getHourSlots(provider, dayOfWeek, providerMissions);
-            freeHours.forEach(h => allFreeHours.add(h));
+            for (const h of freeHours) {
+              hourFreeCount[h] = (hourFreeCount[h] || 0) + 1;
+            }
           }
 
-          const freeSlots = mergeHoursToSlots(Array.from(allFreeHours));
+          // Only keep hours where at least 1 provider is genuinely free
+          const availableHours = Object.keys(hourFreeCount)
+            .map(Number)
+            .filter(h => hourFreeCount[h] > 0)
+            .sort((a, b) => a - b);
+
+          const freeSlots = mergeHoursToSlots(availableHours);
+          const freeProviderCount = availableHours.length > 0
+            ? Math.max(...availableHours.map(h => hourFreeCount[h]))
+            : 0;
+
           if (freeSlots.length > 0) {
             dayData.availableServices.push({
               serviceType: svcType,
               freeSlots,
               totalProviders: domainProviders.length,
+              freeProviderCount,
             });
           }
         }
@@ -482,7 +501,7 @@ const PublicAvailabilityPage: React.FC = () => {
                       </div>
                     ) : (
                       <div className="text-[10px] text-orange-500 flex items-center gap-0.5">
-                        <XCircle className="w-3 h-3" /> Complet
+                        <XCircle className="w-3 h-3" /> Saturé
                       </div>
                     )}
                   </div>
@@ -506,6 +525,10 @@ const PublicAvailabilityPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" />
             <span>Passé</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-orange-400 inline-block" />
+            <span>Saturé</span>
           </div>
         </div>
 
@@ -582,7 +605,7 @@ const DayCard: React.FC<{ day: DayAvailability }> = ({ day }) => {
                 <div className={`text-[11px] font-bold ${c.text} flex items-center gap-1.5 mb-1`}>
                   <span className={`w-2 h-2 rounded-full ${c.dot} inline-block`} />
                   {svc.serviceType}
-                  <span className="text-[9px] text-slate-400 font-normal ml-auto">{svc.totalProviders} prest.</span>
+                  <span className="text-[9px] text-slate-400 font-normal ml-auto">{svc.freeProviderCount}/{svc.totalProviders} prest. libre{svc.freeProviderCount > 1 ? 's' : ''}</span>
                 </div>
                 <div className="space-y-0.5">
                   {svc.freeSlots.map((slot, i) => (
@@ -600,8 +623,8 @@ const DayCard: React.FC<{ day: DayAvailability }> = ({ day }) => {
         ) : (
           <div className="text-xs text-orange-500 text-center py-3 flex flex-col items-center gap-1">
             <XCircle className="w-4 h-4" />
-            <span className="font-bold">Complet</span>
-            <span className="text-orange-400 text-[10px]">Aucun créneau libre</span>
+            <span className="font-bold">Saturé</span>
+            <span className="text-orange-400 text-[10px]">Tous les prestataires sont occupés</span>
           </div>
         )}
       </div>
