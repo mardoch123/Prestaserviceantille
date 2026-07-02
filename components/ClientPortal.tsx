@@ -2407,6 +2407,7 @@ const ClientPortal: React.FC = () => {
                     {activeTab === 'disponibilites' && (
                         <ClientAvailabilityTab
                             missions={missions}
+                            documents={documents}
                             packs={packs}
                             client={client}
                             addDocument={addDocument}
@@ -3807,8 +3808,8 @@ const ClientPortal: React.FC = () => {
 
 // ─── Client Availability Tab (Disponibilités + Réservation) ─────────────────────
 
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 18;
+const OPEN_HOUR = 9;
+const CLOSE_HOUR = 16;
 
 function computeClientFreeSlots(occupied: { startTime: string; endTime: string }[]): { startTime: string; endTime: string }[] {
   const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -3839,6 +3840,7 @@ function computeClientFreeSlots(occupied: { startTime: string; endTime: string }
 
 interface ClientAvailabilityTabProps {
   missions: any[];
+  documents: Document[];
   packs: Pack[];
   client: Client | undefined;
   addDocument: (doc: Document) => Promise<void>;
@@ -3846,7 +3848,7 @@ interface ClientAvailabilityTabProps {
   addNotification: (...args: any[]) => Promise<void>;
 }
 
-const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, packs, client, addDocument, signQuoteWithData, addNotification }) => {
+const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, client, addDocument, signQuoteWithData, addNotification }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -3854,6 +3856,26 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const [bookingSlot, setBookingSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
   const [selectedPackId, setSelectedPackId] = useState<string>('');
   const [isBooking, setIsBooking] = useState(false);
+
+  // Custom time selection within available slot
+  const [customStartTime, setCustomStartTime] = useState<string>('');
+  const [customEndTime, setCustomEndTime] = useState<string>('');
+
+  // Generate time options (9h-16h by 30min steps)
+  const timeOptions = useMemo(() => {
+    const options: string[] = [];
+    for (let h = OPEN_HOUR; h <= CLOSE_HOUR; h++) {
+      options.push(`${String(h).padStart(2, '0')}:00`);
+      if (h < CLOSE_HOUR) options.push(`${String(h).padStart(2, '0')}:30`);
+    }
+    return options;
+  }, []);
+
+  // Get available time ranges for a specific date
+  const getAvailableRangesForDate = (date: string): Array<{ startTime: string; endTime: string }> => {
+    const day = weekDays.find(d => d.date === date);
+    return day ? day.freeSlots : [];
+  };
 
   // Multi-slot states for packs requiring multiple sessions
   const [multiSlots, setMultiSlots] = useState<Array<{ date: string; startTime: string; endTime: string }>>([]);
@@ -3911,11 +3933,23 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       d.setDate(monday.getDate() + i);
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const dayOfWeekIdx = d.getDay();
-      const isSunday = dayOfWeekIdx === 0;
+      const isSunday = false; // 7j/7 — pas de jour fermé
       const isPast = dateStr < todayStr;
-      const occupied = missions
+      // Occupied from missions
+      const missionOccupied = missions
         .filter((m: any) => m.date === dateStr && m.status !== 'cancelled')
         .map((m: any) => ({ startTime: m.start_time || m.startTime, endTime: m.end_time || m.endTime }));
+      
+      // Also block slots from pending documents (status 'sent' — waiting for signature)
+      const docOccupied = (documents || [])
+        .filter((d: Document) => d.status === 'sent' && Array.isArray(d.slotsData))
+        .flatMap((d: Document) => 
+          (d.slotsData || [])
+            .filter((s: any) => s.date === dateStr)
+            .map((s: any) => ({ startTime: s.startTime, endTime: s.endTime }))
+        );
+      
+      const occupied = [...missionOccupied, ...docOccupied];
       const freeSlots = isPast || isSunday ? [] : computeClientFreeSlots(occupied);
       return {
         date: dateStr,
@@ -4034,9 +4068,11 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const tvaRate = (selectedPack as any).isSap ? 2.1 : 8.5;
       const totalHT = selectedPack.priceTTC / (1 + tvaRate / 100);
 
-      // Build slotsData: first slot + additional multi-slots
+      // Build slotsData: first slot (with custom times if set) + additional multi-slots
+      const finalStartTime = customStartTime || bookingSlot.startTime;
+      const finalEndTime = customEndTime || bookingSlot.endTime;
       const allSlots = [
-        { date: bookingSlot.date, startTime: bookingSlot.startTime, endTime: bookingSlot.endTime },
+        { date: bookingSlot.date, startTime: finalStartTime, endTime: finalEndTime },
         ...multiSlots
       ];
 
@@ -4068,6 +4104,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       setSelectedPackId('');
       setMultiSlots([]);
       setShowMultiSlotStep(false);
+      setCustomStartTime('');
+      setCustomEndTime('');
       setShowSignatureStep(true);
     } catch (err: any) {
       console.error('[Booking] Error creating quote:', err);
@@ -4311,13 +4349,81 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 <div>
                   <h3 className="text-lg font-bold">Réserver un créneau</h3>
                   <p className="text-white/80 text-sm mt-1">
-                    {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
+                    {formatDate(bookingSlot.date)}
                   </p>
                 </div>
                 <button onClick={() => setBookingSlot(null)} className="p-2 hover:bg-white/20 rounded-full transition">
                   <X className="w-5 h-5" />
                 </button>
               </div>
+            </div>
+
+            {/* Time Picker - Choose hours */}
+            <div className="p-5 bg-slate-50 border-b border-slate-200">
+              <label className="block text-sm font-bold text-gray-700 mb-3">
+                <Clock className="w-4 h-4 inline mr-1" />
+                Choisissez vos horaires ({OPEN_HOUR}h – {CLOSE_HOUR}h)
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Heure de début</label>
+                  <select
+                    value={customStartTime || bookingSlot.startTime}
+                    onChange={(e) => {
+                      const start = e.target.value;
+                      setCustomStartTime(start);
+                      // Auto-set end time to start + 2h if not set or invalid
+                      const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
+                      const endMin = startMin + 120; // default 2h
+                      if (endMin <= CLOSE_HOUR * 60) {
+                        const endH = Math.floor(endMin / 60);
+                        const endM = endMin % 60;
+                        setCustomEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  >
+                    {timeOptions.filter(t => parseInt(t) < CLOSE_HOUR).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-gray-400 font-bold mt-4">→</div>
+                <div className="flex-1">
+                  <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Heure de fin</label>
+                  <select
+                    value={customEndTime || bookingSlot.endTime}
+                    onChange={(e) => setCustomEndTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  >
+                    {timeOptions.filter(t => {
+                      const start = customStartTime || bookingSlot.startTime;
+                      return t > start && parseInt(t) <= CLOSE_HOUR;
+                    }).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {/* Available ranges hint */}
+              {(() => {
+                const ranges = getAvailableRangesForDate(bookingSlot.date);
+                if (ranges.length === 0) return null;
+                return (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <span className="text-[10px] text-gray-400">Plages libres :</span>
+                    {ranges.map((r, i) => (
+                      <button
+                        key={i}
+                        onClick={() => { setCustomStartTime(r.startTime); setCustomEndTime(r.endTime); }}
+                        className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold hover:bg-emerald-200 transition"
+                      >
+                        {r.startTime}–{r.endTime}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Body */}
