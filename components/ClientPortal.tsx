@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '../context/DataContext';
 import { Document, Contract, Pack, Client } from '../types';
 import QRCodeManager from './ScanPage';
@@ -72,7 +72,8 @@ import {
     Copy,
     Gift,
     TrendingUp,
-    Sparkles
+    Sparkles,
+    Users
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -2409,6 +2410,7 @@ const ClientPortal: React.FC = () => {
                             missions={missions}
                             documents={documents}
                             packs={packs}
+                            providers={providers}
                             client={client}
                             addDocument={addDocument}
                             signQuoteWithData={signQuoteWithData}
@@ -3842,13 +3844,14 @@ interface ClientAvailabilityTabProps {
   missions: any[];
   documents: Document[];
   packs: Pack[];
+  providers: any[];
   client: Client | undefined;
   addDocument: (doc: Document) => Promise<void>;
   signQuoteWithData: (id: string, signatureData: string, signedBy?: 'client' | 'admin') => Promise<void>;
   addNotification: (...args: any[]) => Promise<void>;
 }
 
-const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, client, addDocument, signQuoteWithData, addNotification }) => {
+const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, providers, client, addDocument, signQuoteWithData, addNotification }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -3879,7 +3882,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
 
   // Multi-slot states for packs requiring multiple sessions
   const [multiSlots, setMultiSlots] = useState<Array<{ date: string; startTime: string; endTime: string }>>([]);
-  const [showMultiSlotStep, setShowMultiSlotStep] = useState(false);
+
+  // Booking step wizard: 'pack' → 'time' → 'slots' (auto-gen) → 'confirm'
+  const [bookingStep, setBookingStep] = useState<'pack' | 'time' | 'slots'>('pack');
 
   // Helper: get number of sessions required by a pack
   const getPackSessionCount = (pack: Pack): number => {
@@ -3910,6 +3915,62 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     if (name.includes('Tranquility')) return freq.includes('4j') ? 3 : 4;
     return pack.hours || 2;
   };
+
+  // Count available providers for a given date + time range
+  const getAvailableProvidersCount = useCallback((date: string, startTime: string, endTime: string): number => {
+    if (!providers || providers.length === 0) return 0;
+    const startMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
+    const endMin = parseInt(endTime.split(':')[0]) * 60 + parseInt(endTime.split(':')[1]);
+
+    return (providers || []).filter((p: any) => {
+      // Get provider missions on this date
+      const providerMissions = (missions || []).filter(
+        (m: any) => m.provider_id === p.id && m.date === date && m.status !== 'cancelled'
+      );
+      // Check if any mission overlaps
+      const hasConflict = providerMissions.some((m: any) => {
+        const mStart = parseInt((m.start_time || '').split(':')[0]) * 60 + parseInt((m.start_time || '').split(':')[1] || '0');
+        const mEnd = parseInt((m.end_time || '').split(':')[0]) * 60 + parseInt((m.end_time || '').split(':')[1] || '0');
+        return startMin < mEnd && endMin > mStart;
+      });
+      return !hasConflict;
+    }).length;
+  }, [providers, missions]);
+
+  // Auto-generate slots for multi-session packs based on availability
+  const autoGenerateSlots = useCallback((pack: Pack, firstDate: string, startTime: string, endTime: string) => {
+    const sessionCount = getPackSessionCount(pack);
+    const hoursPerSession = getPackHoursPerSession(pack);
+    if (sessionCount <= 1) return [];
+
+    const generated: Array<{ date: string; startTime: string; endTime: string }> = [];
+    const startMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
+    const endMin = startMin + hoursPerSession * 60;
+
+    // Try next 14 days to find available slots
+    const baseDate = new Date(firstDate);
+    for (let d = 1; d <= 14 && generated.length < sessionCount - 1; d++) {
+      const tryDate = new Date(baseDate);
+      tryDate.setDate(baseDate.getDate() + d);
+      const dateStr = tryDate.toISOString().split('T')[0];
+
+      // Skip past dates
+      if (dateStr < new Date().toISOString().split('T')[0]) continue;
+
+      // Check if first time slot is available
+      const availCount = getAvailableProvidersCount(dateStr, startTime, endTime);
+      if (availCount > 0) {
+        const genEndH = Math.floor(endMin / 60);
+        const genEndM = endMin % 60;
+        generated.push({
+          date: dateStr,
+          startTime,
+          endTime: `${String(genEndH).padStart(2, '0')}:${String(genEndM).padStart(2, '0')}`,
+        });
+      }
+    }
+    return generated;
+  }, [getAvailableProvidersCount]);
 
   // Signature states
   const [showSignatureStep, setShowSignatureStep] = useState(false);
@@ -4054,11 +4115,11 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const handleConfirmBooking = async () => {
     if (!bookingSlot || !selectedPack || !client) return;
 
-    // Check if multi-session pack requires all slots
+    // Multi-session packs: warn if not all auto-generated slots found (remaining planned by admin)
     const sessionCount = getPackSessionCount(selectedPack);
-    if (sessionCount > 1 && multiSlots.length < sessionCount - 1) {
-      toast.warning(`Veuillez sélectionner tous les créneaux (${sessionCount - 1} créneaux supplémentaires requis).`);
-      return;
+    if (sessionCount > 1 && multiSlots.length === 0) {
+      // No auto-generated slots at all — warn user
+      toast.info('Les séances supplémentaires seront planifiées par notre équipe.');
     }
 
     setIsBooking(true);
@@ -4103,7 +4164,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       setBookingSlot(null);
       setSelectedPackId('');
       setMultiSlots([]);
-      setShowMultiSlotStep(false);
+      setBookingStep('pack');
       setCustomStartTime('');
       setCustomEndTime('');
       setShowSignatureStep(true);
@@ -4247,7 +4308,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     day.freeSlots.map((sl, i) => (
                       <button
                         key={i}
-                        onClick={() => { setBookingSlot({ date: day.date, startTime: sl.startTime, endTime: sl.endTime }); setSelectedPackId(''); }}
+                        onClick={() => { setBookingSlot({ date: day.date, startTime: sl.startTime, endTime: sl.endTime }); setSelectedPackId(''); setBookingStep('pack'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); }}
                         className="w-full flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-lg px-2 py-1.5 hover:bg-green-100 hover:border-green-300 transition-all cursor-pointer group"
                       >
                         <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
@@ -4339,300 +4400,386 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         </div>
       </div>
 
-      {/* ─── Booking Modal (Pack Selection) ─── */}
+      {/* ─── Booking Modal (Step-by-step Wizard) ─── */}
       {bookingSlot && !showSignatureStep && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setBookingSlot(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold">Réserver un créneau</h3>
-                  <p className="text-white/80 text-sm mt-1">
-                    {formatDate(bookingSlot.date)}
-                  </p>
-                </div>
-                <button onClick={() => setBookingSlot(null)} className="p-2 hover:bg-white/20 rounded-full transition">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setBookingSlot(null); setBookingStep('pack'); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+
+            {/* ── Step indicator ── */}
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 pt-5 pb-4 text-white">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-bold">Réserver un créneau</h3>
+                <button onClick={() => { setBookingSlot(null); setBookingStep('pack'); }} className="p-2 hover:bg-white/20 rounded-full transition">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-            </div>
-
-            {/* Time Picker - Choose hours */}
-            <div className="p-5 bg-slate-50 border-b border-slate-200">
-              <label className="block text-sm font-bold text-gray-700 mb-3">
-                <Clock className="w-4 h-4 inline mr-1" />
-                Choisissez vos horaires ({OPEN_HOUR}h – {CLOSE_HOUR}h)
-              </label>
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Heure de début</label>
-                  <select
-                    value={customStartTime || bookingSlot.startTime}
-                    onChange={(e) => {
-                      const start = e.target.value;
-                      setCustomStartTime(start);
-                      // Auto-set end time to start + 2h if not set or invalid
-                      const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
-                      const endMin = startMin + 120; // default 2h
-                      if (endMin <= CLOSE_HOUR * 60) {
-                        const endH = Math.floor(endMin / 60);
-                        const endM = endMin % 60;
-                        setCustomEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  >
-                    {timeOptions.filter(t => parseInt(t) < CLOSE_HOUR).map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="text-gray-400 font-bold mt-4">→</div>
-                <div className="flex-1">
-                  <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Heure de fin</label>
-                  <select
-                    value={customEndTime || bookingSlot.endTime}
-                    onChange={(e) => setCustomEndTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  >
-                    {timeOptions.filter(t => {
-                      const start = customStartTime || bookingSlot.startTime;
-                      return t > start && parseInt(t) <= CLOSE_HOUR;
-                    }).map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
+              <p className="text-white/80 text-sm">{formatDate(bookingSlot.date)}</p>
+              {/* Step progress bar */}
+              <div className="flex items-center gap-2 mt-3">
+                {['pack', 'time', ...(selectedPack && getPackSessionCount(selectedPack) > 1 ? ['slots'] : [])].map((step, i, arr) => (
+                  <React.Fragment key={step}>
+                    <div className={`flex items-center gap-1.5 ${bookingStep === step ? 'opacity-100' : arr.indexOf(bookingStep) > i ? 'opacity-70' : 'opacity-40'}`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${arr.indexOf(bookingStep) > i ? 'bg-white/40' : bookingStep === step ? 'bg-white text-emerald-700' : 'bg-white/20'}`}>
+                        {arr.indexOf(bookingStep) > i ? '✓' : i + 1}
+                      </div>
+                      <span className="text-[10px] font-bold uppercase">
+                        {step === 'pack' ? 'Pack' : step === 'time' ? 'Horaires' : 'Séances'}
+                      </span>
+                    </div>
+                    {i < arr.length - 1 && <div className={`flex-1 h-0.5 rounded ${arr.indexOf(bookingStep) > i ? 'bg-white/40' : 'bg-white/20'}`} />}
+                  </React.Fragment>
+                ))}
               </div>
-              {/* Available ranges hint */}
-              {(() => {
-                const ranges = getAvailableRangesForDate(bookingSlot.date);
-                if (ranges.length === 0) return null;
-                return (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <span className="text-[10px] text-gray-400">Plages libres :</span>
-                    {ranges.map((r, i) => (
-                      <button
-                        key={i}
-                        onClick={() => { setCustomStartTime(r.startTime); setCustomEndTime(r.endTime); }}
-                        className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold hover:bg-emerald-200 transition"
-                      >
-                        {r.startTime}–{r.endTime}
-                      </button>
-                    ))}
-                  </div>
-                );
-              })()}
             </div>
 
-            {/* Body */}
-            <div className="p-5 space-y-4">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Choisissez votre pack</label>
-                    {availablePacks.length === 0 ? (
-                      <p className="text-sm text-gray-500 italic">Aucun pack disponible pour le moment. Contactez-nous.</p>
-                    ) : (
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {availablePacks.map(pack => {
-                          const sessions = getPackSessionCount(pack);
-                          const hoursPerSession = getPackHoursPerSession(pack);
-                          return (
-                            <button
-                              key={pack.id}
-                              onClick={() => {
-                                setSelectedPackId(pack.id);
-                                setMultiSlots([]);
-                                setShowMultiSlotStep(false);
-                              }}
-                              className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                                selectedPackId === pack.id
-                                  ? 'border-emerald-500 bg-emerald-50'
-                                  : 'border-gray-200 hover:border-gray-300 bg-white'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-bold text-gray-800 text-sm">{pack.name}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {pack.mainService} • {pack.frequency}
-                                    {sessions > 1 ? (
-                                      <span className="ml-1 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold text-[10px]">
-                                        {sessions} séances × {hoursPerSession}h
-                                      </span>
-                                    ) : (
-                                      <span className="ml-1">{hoursPerSession}h</span>
-                                    )}
-                                  </div>
+            {/* ── STEP 1: Select Pack ── */}
+            {bookingStep === 'pack' && (
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Choisissez votre prestation
+                  </label>
+                  {availablePacks.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">Aucun pack disponible. Contactez-nous.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {availablePacks.map(pack => {
+                        const sessions = getPackSessionCount(pack);
+                        const hoursPerSession = getPackHoursPerSession(pack);
+                        const totalHours = sessions * hoursPerSession;
+                        return (
+                          <button
+                            key={pack.id}
+                            onClick={() => { setSelectedPackId(pack.id); setMultiSlots([]); }}
+                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                              selectedPackId === pack.id
+                                ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-bold text-gray-800">{pack.name}</div>
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  {pack.mainService} • {pack.frequency}
                                 </div>
-                                <div className="text-right">
-                                  <div className="font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
-                                  {(pack as any).isSap && (
-                                    <div className="text-[10px] text-teal-500 font-bold">SAP (crédit d'impôt)</div>
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  {sessions > 1 ? (
+                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold text-[11px]">
+                                      {sessions} séances × {hoursPerSession}h = {totalHours}h
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-bold text-[11px]">
+                                      {hoursPerSession}h de prestation
+                                    </span>
                                   )}
                                 </div>
                               </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                )}
-              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
+                                {(pack as any).isSap && (
+                                  <div className="text-[10px] text-teal-500 font-bold mt-0.5">SAP (crédit d'impôt)</div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
-              {/* Selected pack summary */}
-              {selectedPack && (
+                {/* Next button */}
+                <button
+                  onClick={() => setBookingStep('time')}
+                  disabled={!selectedPackId}
+                  className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                >
+                  Continuer vers les horaires
+                  <span className="text-lg">→</span>
+                </button>
+              </div>
+            )}
+
+            {/* ── STEP 2: Choose Hours ── */}
+            {bookingStep === 'time' && selectedPack && (
+              <div className="p-5 space-y-4">
+                {/* Pack summary */}
+                <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-emerald-800">{selectedPack.name}</div>
+                    <div className="text-xs text-emerald-600">
+                      {getPackSessionCount(selectedPack)} séance{getPackSessionCount(selectedPack) > 1 ? 's' : ''} • {getPackHoursPerSession(selectedPack)}h/séance • {selectedPack.priceTTC.toFixed(2)} €
+                    </div>
+                  </div>
+                  <button onClick={() => setBookingStep('pack')} className="text-xs text-emerald-600 hover:underline font-bold">
+                    Modifier
+                  </button>
+                </div>
+
+                {/* Time picker */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    <Clock className="w-4 h-4 inline mr-1" />
+                    Choisissez vos horaires
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Nos équipes interviennent de {OPEN_HOUR}h à {CLOSE_HOUR}h, 7j/7
+                  </p>
+
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Début</label>
+                        <select
+                          value={customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`}
+                          onChange={(e) => {
+                            const start = e.target.value;
+                            setCustomStartTime(start);
+                            // Auto-set end time to start + hoursPerSession
+                            const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
+                            const endMin = startMin + getPackHoursPerSession(selectedPack) * 60;
+                            if (endMin <= CLOSE_HOUR * 60) {
+                              const endH = Math.floor(endMin / 60);
+                              const endM = endMin % 60;
+                              setCustomEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
+                            }
+                          }}
+                          className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        >
+                          {timeOptions.filter(t => parseInt(t) < CLOSE_HOUR).map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="text-gray-300 font-bold text-2xl mt-4">→</div>
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Fin</label>
+                        <select
+                          value={customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`}
+                          onChange={(e) => setCustomEndTime(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        >
+                          {timeOptions.filter(t => {
+                            const start = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                            return t > start && parseInt(t) <= CLOSE_HOUR;
+                          }).map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Duration display */}
+                    <div className="mt-3 text-center">
+                      <span className="text-xs font-bold text-gray-500">Durée : </span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        {(() => {
+                          const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                          const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
+                          const sMin = parseInt(s.split(':')[0]) * 60 + parseInt(s.split(':')[1]);
+                          const eMin = parseInt(e.split(':')[0]) * 60 + parseInt(e.split(':')[1]);
+                          const diff = eMin - sMin;
+                          return diff > 0 ? `${Math.floor(diff / 60)}h${diff % 60 ? `30` : ''}` : '0h';
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Provider availability count */}
+                  <div className="mt-3 flex items-center gap-2">
+                    {(() => {
+                      const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                      const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
+                      const count = getAvailableProvidersCount(bookingSlot.date, s, e);
+                      return (
+                        <div className={`flex-1 p-3 rounded-lg border ${count > 0 ? 'bg-emerald-50 border-emerald-200' : count === 0 && providers.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                          <div className="flex items-center gap-2">
+                            {count > 0 ? (
+                              <>
+                                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                                  <Users className="w-4 h-4 text-emerald-600" />
+                                </div>
+                                <div>
+                                  <div className="text-sm font-bold text-emerald-700">{count} prestataire{count > 1 ? 's' : ''} disponible{count > 1 ? 's' : ''}</div>
+                                  <div className="text-[10px] text-emerald-500">sur ce créneau horaire</div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                                  <AlertCircle className="w-4 h-4 text-red-500" />
+                                </div>
+                                <div>
+                                  <div className="text-sm font-bold text-red-700">Aucun prestataire disponible</div>
+                                  <div className="text-[10px] text-red-500">Essayez un autre horaire</div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Quick select: available ranges */}
+                  {(() => {
+                    const ranges = getAvailableRangesForDate(bookingSlot.date);
+                    if (ranges.length === 0) return null;
+                    return (
+                      <div className="mt-3">
+                        <p className="text-[10px] text-gray-400 font-bold mb-1">Plages libres :</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {ranges.map((r, i) => (
+                            <button
+                              key={i}
+                              onClick={() => { setCustomStartTime(r.startTime); setCustomEndTime(r.endTime); }}
+                              className="text-[11px] px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold hover:bg-emerald-200 transition"
+                            >
+                              {r.startTime}–{r.endTime}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Navigation buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setBookingStep('pack')}
+                    className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
+                  >
+                    ← Retour
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedPack && getPackSessionCount(selectedPack) > 1) {
+                        // Auto-generate additional slots
+                        const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                        const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
+                        const generated = autoGenerateSlots(selectedPack, bookingSlot.date, s, e);
+                        setMultiSlots(generated);
+                        setBookingStep('slots');
+                      } else {
+                        // Single session: confirm directly
+                        handleConfirmBooking();
+                      }
+                    }}
+                    disabled={(() => {
+                      const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                      const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
+                      return (getAvailableProvidersCount(bookingSlot.date, s, e) === 0 && providers.length > 0) || isBooking;
+                    })()}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                    {isBooking ? 'Réservation...' :
+                      selectedPack && getPackSessionCount(selectedPack) > 1
+                        ? 'Voir les séances supplémentaires →'
+                        : 'Réserver et signer'
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 3: Auto-generated slots for multi-session packs ── */}
+            {bookingStep === 'slots' && selectedPack && (
+              <div className="p-5 space-y-4">
+                {/* Pack reminder */}
+                <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200">
+                  <div className="text-sm font-bold text-emerald-800">{selectedPack.name}</div>
+                  <div className="text-xs text-emerald-600">
+                    {getPackSessionCount(selectedPack)} séances de {getPackHoursPerSession(selectedPack)}h • {selectedPack.priceTTC.toFixed(2)} €
+                  </div>
+                </div>
+
+                {/* First slot (chosen) */}
+                <div>
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Vos séances planifiées</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border-2 border-emerald-300 shadow-sm">
+                      <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-gray-800">{formatDate(bookingSlot.date)}</div>
+                        <div className="text-xs text-gray-500">{customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`} – {customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`}</div>
+                      </div>
+                      <CheckCircle className="w-5 h-5 text-emerald-500" />
+                    </div>
+
+                    {/* Auto-generated slots */}
+                    {multiSlots.map((slot, idx) => (
+                      <div key={idx} className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">{idx + 2}</div>
+                        <div className="flex-1">
+                          <div className="text-sm font-bold text-gray-800">{formatDate(slot.date)}</div>
+                          <div className="text-xs text-gray-500">{slot.startTime} – {slot.endTime}</div>
+                        </div>
+                        {(() => {
+                          const count = getAvailableProvidersCount(slot.date, slot.startTime, slot.endTime);
+                          return count > 0 ? (
+                            <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold">{count} dispo</span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full font-bold">En attente</span>
+                          );
+                        })()}
+                      </div>
+                    ))}
+
+                    {/* Missing slots indicator */}
+                    {multiSlots.length < getPackSessionCount(selectedPack) - 1 && (
+                      <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 text-center">
+                        <p className="text-xs text-orange-700 font-bold">
+                          {getPackSessionCount(selectedPack) - 1 - multiSlots.length} séance{getPackSessionCount(selectedPack) - 1 - multiSlots.length > 1 ? 's' : ''} non trouvée{getPackSessionCount(selectedPack) - 1 - multiSlots.length > 1 ? 's' : ''} dans les 14 prochains jours
+                        </p>
+                        <p className="text-[10px] text-orange-500 mt-1">
+                          Elles seront planifiées par notre équipe après validation.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Summary */}
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs text-gray-500 font-bold">TOTAL TTC</div>
                       <div className="text-xl font-bold text-gray-800">{selectedPack.priceTTC.toFixed(2)} €</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-gray-500">Pack sélectionné</div>
-                      <div className="text-sm font-bold text-emerald-600">{selectedPack.name}</div>
+                      <div className="text-xs text-gray-500">Séances confirmées</div>
+                      <div className="text-sm font-bold text-emerald-600">{1 + multiSlots.length} / {getPackSessionCount(selectedPack)}</div>
                     </div>
                   </div>
-                  {getPackSessionCount(selectedPack) > 1 && (
-                    <div className="pt-3 border-t border-gray-200">
-                      <p className="text-xs text-blue-700 font-bold flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        Ce pack comprend {getPackSessionCount(selectedPack)} séances de {getPackHoursPerSession(selectedPack)}h
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        1er créneau : {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
-                      </p>
+                  {(selectedPack as any).isSap && (
+                    <div className="mt-2 pt-2 border-t border-gray-200">
+                      <p className="text-xs text-teal-600 font-bold">💰 Crédit d'impôt SAP : vous économisez {(selectedPack.priceTTC * 0.5).toFixed(2)} €</p>
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* Multi-slot step: show when pack has multiple sessions */}
-              {selectedPack && getPackSessionCount(selectedPack) > 1 && !showMultiSlotStep && (
-                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                  <p className="text-sm font-bold text-blue-800 mb-2">
-                    {getPackSessionCount(selectedPack) - 1} créneau{getPackSessionCount(selectedPack) - 1 > 1 ? 'x' : ''} supplémentaire{getPackSessionCount(selectedPack) - 1 > 1 ? 's' : ''} à choisir
-                  </p>
-                  <p className="text-xs text-blue-600 mb-3">
-                    Sélectionnez les dates et horaires pour vos prochaines séances.
-                  </p>
+                {/* Navigation buttons */}
+                <div className="flex gap-3">
                   <button
-                    onClick={() => setShowMultiSlotStep(true)}
-                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                    onClick={() => setBookingStep('time')}
+                    className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
                   >
-                    <Calendar className="w-4 h-4" />
-                    Choisir mes créneaux
+                    ← Retour
+                  </button>
+                  <button
+                    onClick={handleConfirmBooking}
+                    disabled={!selectedPackId || isBooking || !client}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                    {isBooking ? 'Réservation en cours...' : 'Confirmer et signer'}
                   </button>
                 </div>
-              )}
-
-              {/* Multi-slot selection UI */}
-              {showMultiSlotStep && selectedPack && (
-                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-blue-800">
-                      Créneaux supplémentaires ({multiSlots.length}/{getPackSessionCount(selectedPack) - 1})
-                    </p>
-                    <button
-                      onClick={() => setShowMultiSlotStep(false)}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      ← Retour
-                    </button>
-                  </div>
-
-                  {/* Already selected slots */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      <span className="text-xs font-medium text-gray-700">
-                        Séance 1: {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
-                      </span>
-                    </div>
-                    {multiSlots.map((slot, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200">
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />
-                        <span className="text-xs font-medium text-gray-700 flex-1">
-                          Séance {idx + 2}: {formatDate(slot.date)} • {slot.startTime} – {slot.endTime}
-                        </span>
-                        <button
-                          onClick={() => setMultiSlots(multiSlots.filter((_, i) => i !== idx))}
-                          className="p-1 hover:bg-red-50 rounded text-red-500"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Add slot button */}
-                  {multiSlots.length < getPackSessionCount(selectedPack) - 1 && (
-                    <div className="grid grid-cols-2 gap-2">
-                      {weekDays.filter(d => !d.isPast && !d.isSunday && d.freeSlots.length > 0).slice(0, 6).map(day => (
-                        <div key={day.date} className="bg-white rounded-lg border border-blue-100 p-2">
-                          <p className="text-[10px] font-bold text-gray-500 text-center mb-1">{WEEKDAYS[day.dayOfWeek]} {day.dayOfMonth}</p>
-                          <div className="space-y-1">
-                            {day.freeSlots.slice(0, 3).map((sl, i) => {
-                              const isSelected = multiSlots.some(s => s.date === day.date && s.startTime === sl.startTime);
-                              return (
-                                <button
-                                  key={i}
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      setMultiSlots(multiSlots.filter(s => !(s.date === day.date && s.startTime === sl.startTime)));
-                                    } else {
-                                      setMultiSlots([...multiSlots, { date: day.date, startTime: sl.startTime, endTime: sl.endTime }]);
-                                    }
-                                  }}
-                                  disabled={!isSelected && multiSlots.length >= getPackSessionCount(selectedPack) - 1}
-                                  className={`w-full text-[10px] font-bold py-1 rounded transition ${
-                                    isSelected
-                                      ? 'bg-emerald-500 text-white'
-                                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-30'
-                                  }`}
-                                >
-                                  {sl.startTime}–{sl.endTime}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {multiSlots.length === getPackSessionCount(selectedPack) - 1 && (
-                    <p className="text-xs text-emerald-600 font-bold text-center">
-                      Tous vos créneaux sont sélectionnés !
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="p-5 border-t bg-gray-50 flex gap-3">
-              <button
-                onClick={() => setBookingSlot(null)}
-                className="flex-1 px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleConfirmBooking}
-                disabled={
-                  !selectedPackId || isBooking || !client ||
-                  (selectedPack ? (getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1) : false)
-                }
-                className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
-              >
-                {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
-                {isBooking ? 'Réservation...' : 
-                  selectedPack && getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1
-                    ? `Choisir les créneaux (${multiSlots.length}/${getPackSessionCount(selectedPack) - 1})`
-                    : 'Réserver et signer'
-                }
-              </button>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}
