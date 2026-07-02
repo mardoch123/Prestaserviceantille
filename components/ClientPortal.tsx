@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData } from '../context/DataContext';
-import { Document, Contract } from '../types';
+import { Document, Contract, Pack, Client } from '../types';
 import QRCodeManager from './ScanPage';
 import ClientQRCode from './ClientQRCode';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
@@ -79,6 +79,8 @@ const ClientPortal: React.FC = () => {
         simulatedClientId,
         simulatedProviderId,
         signQuoteWithData,
+        addDocument,
+        addNotification,
         alertPopup, setAlertPopup,
         refuseQuote,
         requestInvoice,
@@ -1967,7 +1969,14 @@ const ClientPortal: React.FC = () => {
                     )}
 
                     {activeTab === 'disponibilites' && (
-                        <ClientAvailabilityTab missions={missions} />
+                        <ClientAvailabilityTab
+                            missions={missions}
+                            packs={packs}
+                            client={client}
+                            addDocument={addDocument}
+                            signQuoteWithData={signQuoteWithData}
+                            addNotification={addNotification}
+                        />
                     )}
 
                     {activeTab === 'docs' && (
@@ -3360,7 +3369,7 @@ const ClientPortal: React.FC = () => {
     );
 };
 
-// ─── Client Availability Tab (Disponibilités) ─────────────────────────────────
+// ─── Client Availability Tab (Disponibilités + Réservation) ─────────────────────
 
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 18;
@@ -3392,20 +3401,33 @@ function computeClientFreeSlots(occupied: { startTime: string; endTime: string }
   return free;
 }
 
-const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
+interface ClientAvailabilityTabProps {
+  missions: any[];
+  packs: Pack[];
+  client: Client | undefined;
+  addDocument: (doc: Document) => Promise<void>;
+  signQuoteWithData: (id: string, signatureData: string, signedBy?: 'client' | 'admin') => Promise<void>;
+  addNotification: (...args: any[]) => Promise<void>;
+}
+
+const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, packs, client, addDocument, signQuoteWithData, addNotification }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  const today = useMemo(() => {
-    const now = new Date();
-    const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-    return new Date(utc.getFullYear(), utc.getMonth(), utc.getDate() - 4 * 0); // simplified
-  }, []);
+  // Booking states
+  const [bookingSlot, setBookingSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
+  const [selectedPackId, setSelectedPackId] = useState<string>('');
+  const [isBooking, setIsBooking] = useState(false);
 
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }, []);
+  // Signature states
+  const [showSignatureStep, setShowSignatureStep] = useState(false);
+  const [createdDocId, setCreatedDocId] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [isSubmittingSignature, setIsSubmittingSignature] = useState(false);
+
+  const todayStr = useMemo(() => getMartiniqueToday(), []);
 
   const weekDays = useMemo(() => {
     const now = new Date();
@@ -3452,13 +3474,161 @@ const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
     });
   };
 
+  // Available packs
+  const availablePacks = useMemo(() => {
+    return packs.filter(p => p.priceTTC > 0);
+  }, [packs]);
+
+  const selectedPack = useMemo(() => {
+    return availablePacks.find(p => p.id === selectedPackId) || null;
+  }, [availablePacks, selectedPackId]);
+
+  // ─── Signature canvas helpers ───
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  };
+
+  useEffect(() => {
+    if (showSignatureStep && canvasRef.current) {
+      const canvas = canvasRef.current;
+      canvas.width = canvas.offsetWidth * 2;
+      canvas.height = canvas.offsetHeight * 2;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.scale(2, 2);
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+  }, [showSignatureStep]);
+
+  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
+    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    return { x, y };
+  };
+
+  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    setIsDrawing(true);
+    setHasSignature(true);
+    const { x, y } = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => setIsDrawing(false);
+
+  // ─── Booking flow ───
+  const handleConfirmBooking = async () => {
+    if (!bookingSlot || !selectedPack || !client) return;
+
+    setIsBooking(true);
+    try {
+      const docId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const durationHours = selectedPack.hours || 2;
+      const tvaRate = (selectedPack as any).isSap ? 2.1 : 8.5;
+      const totalHT = selectedPack.priceTTC / (1 + tvaRate / 100);
+
+      const doc: Document = {
+        id: docId,
+        ref: '',
+        clientId: client.id,
+        clientName: client.name,
+        date: getMartiniqueToday(),
+        type: 'Devis',
+        category: 'pack',
+        serviceType: (selectedPack.mainService as any) || 'Ménage',
+        description: `Pack: ${selectedPack.name} | Durée: ${durationHours}h | Réservation en ligne`,
+        unitPrice: totalHT,
+        quantity: 1,
+        tvaRate: tvaRate as any,
+        totalHT: Math.round(totalHT * 100) / 100,
+        totalTTC: selectedPack.priceTTC,
+        taxCreditEnabled: !!(selectedPack as any).isSap,
+        status: 'sent',
+        slotsData: [{ date: bookingSlot.date, startTime: bookingSlot.startTime, endTime: bookingSlot.endTime }],
+        packId: selectedPack.id,
+        frequency: selectedPack.frequency || 'Ponctuelle',
+      };
+
+      await addDocument(doc);
+      setCreatedDocId(docId);
+      setBookingSlot(null);
+      setSelectedPackId('');
+      setShowSignatureStep(true);
+    } catch (err: any) {
+      console.error('[Booking] Error creating quote:', err);
+      toast.error('Erreur lors de la réservation. Veuillez réessayer.');
+    } finally {
+      setIsBooking(false);
+    }
+  };
+
+  const handleSignAndFinalize = async () => {
+    if (!createdDocId || !canvasRef.current) return;
+    setIsSubmittingSignature(true);
+    try {
+      const dataUrl = canvasRef.current.toDataURL();
+      await signQuoteWithData(createdDocId, dataUrl, 'client');
+      setShowSignatureStep(false);
+      setCreatedDocId(null);
+      clearCanvas();
+      toast.success('Réservation confirmée ! Votre créneau est réservé.');
+    } catch (err: any) {
+      console.error('[Booking] Signature error:', err);
+      const msg = String(err?.message || '');
+      if (msg.includes('SATURATION_ERROR')) {
+        toast.warning('Ce créneau n\'est plus disponible. Veuillez en choisir un autre.');
+        setShowSignatureStep(false);
+        setCreatedDocId(null);
+      } else if (!msg.includes('expiré')) {
+        toast.error('Erreur lors de la signature : ' + msg);
+      }
+    } finally {
+      setIsSubmittingSignature(false);
+    }
+  };
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Disponibilités</h1>
-          <p className="text-sm text-gray-500 mt-1">Consultez les créneaux horaires libres pour planifier une intervention.</p>
+          <p className="text-sm text-gray-500 mt-1">Cliquez sur un créneau libre pour réserver directement.</p>
         </div>
         <button
           onClick={handleCopy}
@@ -3535,10 +3705,15 @@ const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
                     </p>
                   ) : hasSlots ? (
                     day.freeSlots.map((sl, i) => (
-                      <div key={i} className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-lg px-2 py-1">
+                      <button
+                        key={i}
+                        onClick={() => { setBookingSlot({ date: day.date, startTime: sl.startTime, endTime: sl.endTime }); setSelectedPackId(''); }}
+                        className="w-full flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-lg px-2 py-1.5 hover:bg-green-100 hover:border-green-300 transition-all cursor-pointer group"
+                      >
                         <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
                         <span className="text-[11px] font-bold text-green-700">{sl.startTime} – {sl.endTime}</span>
-                      </div>
+                        <ArrowRight className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition ml-auto" />
+                      </button>
                     ))
                   ) : (
                     <div className="text-center py-2">
@@ -3581,7 +3756,7 @@ const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
       <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-gray-500">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
-          <span>Disponible</span>
+          <span>Disponible — cliquez pour réserver</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-orange-400" />
@@ -3592,6 +3767,161 @@ const ClientAvailabilityTab: React.FC<{ missions: any[] }> = ({ missions }) => {
           <span>Passé / Fermé</span>
         </div>
       </div>
+
+      {/* ─── Booking Modal (Pack Selection) ─── */}
+      {bookingSlot && !showSignatureStep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setBookingSlot(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold">Réserver un créneau</h3>
+                  <p className="text-white/80 text-sm mt-1">
+                    {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
+                  </p>
+                </div>
+                <button onClick={() => setBookingSlot(null)} className="p-2 hover:bg-white/20 rounded-full transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Choisissez votre pack</label>
+                {availablePacks.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">Aucun pack disponible pour le moment. Contactez-nous.</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {availablePacks.map(pack => (
+                      <button
+                        key={pack.id}
+                        onClick={() => setSelectedPackId(pack.id)}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                          selectedPackId === pack.id
+                            ? 'border-emerald-500 bg-emerald-50'
+                            : 'border-gray-200 hover:border-gray-300 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-gray-800 text-sm">{pack.name}</div>
+                            <div className="text-xs text-gray-500">{pack.mainService} • {pack.hours}h • {pack.frequency}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
+                            {(pack as any).isSap && (
+                              <div className="text-[10px] text-teal-500 font-bold">SAP (crédit d'impôt)</div>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected pack summary */}
+              {selectedPack && (
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-gray-500 font-bold">TOTAL TTC</div>
+                      <div className="text-xl font-bold text-gray-800">{selectedPack.priceTTC.toFixed(2)} €</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Pack sélectionné</div>
+                      <div className="text-sm font-bold text-emerald-600">{selectedPack.name}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t bg-gray-50 flex gap-3">
+              <button
+                onClick={() => setBookingSlot(null)}
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleConfirmBooking}
+                disabled={!selectedPackId || isBooking || !client}
+                className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
+              >
+                {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                {isBooking ? 'Réservation...' : 'Réserver et signer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Signature Modal ─── */}
+      {showSignatureStep && createdDocId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <PenTool className="w-5 h-5" />
+                Signez votre devis
+              </h3>
+              <p className="text-white/80 text-sm mt-1">Dessinez votre signature ci-dessous pour confirmer la réservation.</p>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Canvas */}
+              <div className="border-2 border-dashed border-gray-300 rounded-xl overflow-hidden bg-white relative">
+                <canvas
+                  ref={canvasRef}
+                  className="w-full touch-none cursor-crosshair"
+                  style={{ height: 180 }}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                />
+                {!hasSignature && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-gray-300 text-sm font-bold">Signez ici</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <button onClick={clearCanvas} className="text-xs text-gray-500 hover:text-gray-700 font-bold flex items-center gap-1">
+                  <RotateCcw className="w-3 h-3" /> Effacer
+                </button>
+                <p className="text-[11px] text-gray-400">En signant, vous acceptez les conditions du devis.</p>
+              </div>
+            </div>
+
+            <div className="p-5 border-t bg-gray-50 flex gap-3">
+              <button
+                onClick={() => { setShowSignatureStep(false); setCreatedDocId(null); clearCanvas(); }}
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSignAndFinalize}
+                disabled={!hasSignature || isSubmittingSignature}
+                className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
+              >
+                {isSubmittingSignature ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                {isSubmittingSignature ? 'Validation...' : 'Confirmer la réservation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
