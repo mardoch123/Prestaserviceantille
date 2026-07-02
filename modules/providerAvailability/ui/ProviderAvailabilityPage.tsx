@@ -258,6 +258,16 @@ export const ProviderAvailabilityPage: React.FC = () => {
   // Service types for the "Créneaux Libres" section
   const serviceTypes = ['Ménage', 'Jardinage', 'Bricolage', 'Autre'] as const;
 
+  // Get status for provider on specific date (must be before useMemo that uses it)
+  const getProviderStatus = (provider: ProviderWithAvailability, date: string): ProviderAvailabilityStatus => {
+    return provider.availability.get(date) || 'available';
+  };
+
+  // Get available time slots for provider on specific date
+  const getProviderAvailableSlots = (provider: ProviderWithAvailability, date: string): { startTime: string; endTime: string }[] => {
+    return provider.availableSlots?.get(date) || [];
+  };
+
   // Compute available slots grouped by service type for the selected date
   const slotsByServiceType = useMemo(() => {
     const todayStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
@@ -357,16 +367,6 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
     return days;
   }, [dateRange]);
-
-  // Get status for provider on specific date
-  const getProviderStatus = (provider: ProviderWithAvailability, date: string): ProviderAvailabilityStatus => {
-    return provider.availability.get(date) || 'available';
-  };
-
-  // Get available time slots for provider on specific date
-  const getProviderAvailableSlots = (provider: ProviderWithAvailability, date: string): { startTime: string; endTime: string }[] => {
-    return provider.availableSlots?.get(date) || [];
-  };
 
   // Format date display
   const formatDateRange = () => {
