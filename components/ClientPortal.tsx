@@ -69,7 +69,10 @@ import {
     Share2,
     ChevronLeft,
     ChevronRight,
-    Copy
+    Copy,
+    Gift,
+    TrendingUp,
+    Sparkles
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
@@ -216,7 +219,7 @@ const ClientPortal: React.FC = () => {
         });
     }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
 
-    const [activeTab, setActiveTab] = useState<'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites'>('planning');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites'>('dashboard');
     const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar'>('overview');
     const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [messageInput, setMessageInput] = useState('');
@@ -341,6 +344,62 @@ const ClientPortal: React.FC = () => {
         }
     }, [currentUser?.id]);
 
+    // Proactive Notifications - Send contextual notifications when client loads portal
+    useEffect(() => {
+        if (!client || !clientMissions.length) return;
+
+        const today = getMartiniqueToday();
+        const twoDaysLater = new Date();
+        twoDaysLater.setDate(twoDaysLater.getDate() + 2);
+        const twoDaysStr = twoDaysLater.toISOString().split('T')[0];
+
+        // Check for upcoming missions (J-2 reminder)
+        const upcomingMissions = clientMissions.filter(m => 
+            m.status === 'planned' && 
+            m.date >= today && 
+            m.date <= twoDaysStr
+        );
+
+        // Send reminder for each upcoming mission (only once per mission per day)
+        upcomingMissions.forEach(async (mission) => {
+            const notifKey = `mission_reminder_${mission.id}_${today}`;
+            const alreadySent = localStorage.getItem(notifKey);
+            if (alreadySent) return;
+
+            const daysUntil = Math.ceil((new Date(mission.date).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24));
+            const dayLabel = daysUntil === 0 ? "aujourd'hui" : daysUntil === 1 ? 'demain' : `dans ${daysUntil} jours`;
+            
+            await addNotification(
+                'client',
+                'info',
+                `⏰ Rappel : ${mission.service} ${dayLabel}`,
+                `Votre prestation de ${mission.service.toLowerCase()} est prévue ${dayLabel} à ${mission.startTime}. Pensez à préparer votre espace !`,
+                client.id,
+                `mission:${mission.id}`
+            );
+            localStorage.setItem(notifKey, '1');
+        });
+
+        // Check if client has no upcoming missions - suggest booking
+        const hasUpcoming = clientMissions.some(m => m.status === 'planned' && m.date >= today);
+        if (!hasUpcoming) {
+            const bookingNotifKey = `booking_suggestion_${today}`;
+            const alreadySent = localStorage.getItem(bookingNotifKey);
+            if (!alreadySent) {
+                addNotification(
+                    'client',
+                    'info',
+                    '🎁 Offre spéciale pour vous',
+                    'Aucune mission programmée ? Réservez maintenant et profitez de nos services à domicile. Des créneaux sont disponibles cette semaine !',
+                    client.id,
+                    'tab:disponibilites'
+                ).then(() => {
+                    localStorage.setItem(bookingNotifKey, '1');
+                });
+            }
+        }
+    }, [client, clientMissions]);
+
     const referralLink = useMemo(() => {
         const code = String(referralCode || '').trim();
         if (!code) return '';
@@ -431,6 +490,18 @@ const ClientPortal: React.FC = () => {
             }
         }
 
+        // New: Handle booking/availability notifications
+        if (link === 'tab:booking' || link === 'tab:disponibilites' || link.startsWith('promo:')) {
+            setActiveTab('disponibilites');
+            return;
+        }
+
+        // New: Handle dashboard navigation
+        if (link === 'tab:dashboard' || link === 'dashboard') {
+            setActiveTab('dashboard');
+            return;
+        }
+
         const isDocNotif =
             link === 'documents' ||
             link === 'tab:docs' ||
@@ -447,8 +518,21 @@ const ClientPortal: React.FC = () => {
             /\bmessage\b/i.test(title) ||
             /\bmessage\b/i.test(message);
 
+        // New: Detect availability/booking related notifications
+        const isBookingNotif =
+            /\bcréneau\b/i.test(title) ||
+            /\bcréneau\b/i.test(message) ||
+            /\bdisponible\b/i.test(title) ||
+            /\bdisponible\b/i.test(message) ||
+            /\bréserver\b/i.test(title) ||
+            /\bréserver\b/i.test(message) ||
+            /\boffre\b/i.test(title) ||
+            /\bpromo\b/i.test(title);
+
         if (link && link.startsWith('mission:')) {
             setActiveTab('planning');
+        } else if (isBookingNotif) {
+            setActiveTab('disponibilites');
         } else if (isDocNotif) {
             setActiveTab('docs');
         } else if (isMessageNotif) {
@@ -1455,6 +1539,7 @@ const ClientPortal: React.FC = () => {
                 
                 <nav className="flex items-center gap-1">
                   {[
+                    { id: 'dashboard', label: 'Accueil', icon: Home },
                     { id: 'planning', label: 'Planning', icon: Calendar },
                     { id: 'disponibilites', label: 'Disponibilités', icon: Clock },
                     { id: 'docs', label: 'Documents', icon: FileText },
@@ -1525,6 +1610,7 @@ const ClientPortal: React.FC = () => {
                     </div>
                     <nav className="p-4 space-y-2">
                       {[
+                        { id: 'dashboard', label: 'Accueil', icon: Home },
                         { id: 'planning', label: 'Mon Planning', icon: Calendar },
                         { id: 'disponibilites', label: 'Disponibilités', icon: Clock },
                         { id: 'docs', label: 'Devis & Factures', icon: FileText },
@@ -1647,6 +1733,355 @@ const ClientPortal: React.FC = () => {
                                         </p>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Gamification - Loyalty Progress */}
+                            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 p-6 rounded-xl border border-amber-200">
+                                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <Award className="w-5 h-5 text-amber-600" />
+                                    Votre parcours fidélité
+                                </h3>
+                                {(() => {
+                                    const completedMissions = clientMissions.filter(m => ['completed', 'validated'].includes(m.status)).length;
+                                    const totalSpent = clientDocs.filter(d => d.status === 'paid').reduce((sum, d) => sum + (d.totalTTC || 0), 0);
+                                    const sapSaved = Math.round(totalSpent * 0.5);
+                                    const currentTier = completedMissions >= 10 ? 'Or' : completedMissions >= 5 ? 'Argent' : 'Bronze';
+                                    const nextTier = currentTier === 'Bronze' ? { name: 'Argent', missions: 5 } : currentTier === 'Argent' ? { name: 'Or', missions: 10 } : null;
+                                    const progress = nextTier ? (completedMissions / nextTier.missions) * 100 : 100;
+                                    
+                                    return (
+                                        <div className="space-y-4">
+                                            {/* Current Tier */}
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg ${
+                                                    currentTier === 'Or' ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white' :
+                                                    currentTier === 'Argent' ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
+                                                    'bg-gradient-to-br from-amber-600 to-amber-700 text-white'
+                                                }`}>
+                                                    {currentTier === 'Or' ? '🏆' : currentTier === 'Argent' ? '🥈' : '🥉'}
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-slate-800 text-lg">Niveau {currentTier}</p>
+                                                    <p className="text-sm text-slate-500">{completedMissions} missions réalisées</p>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Progress Bar */}
+                                            {nextTier && (
+                                                <div>
+                                                    <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                                        <span>Progression</span>
+                                                        <span>{completedMissions}/{nextTier.missions} pour niveau {nextTier.name}</span>
+                                                    </div>
+                                                    <div className="w-full h-3 bg-white rounded-full overflow-hidden border border-amber-200">
+                                                        <div 
+                                                            className="h-full bg-gradient-to-r from-amber-400 to-amber-600 rounded-full transition-all"
+                                                            style={{ width: `${Math.min(progress, 100)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Stats */}
+                                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                                <div className="bg-white rounded-lg p-3 text-center">
+                                                    <p className="text-2xl font-bold text-emerald-600">{sapSaved}€</p>
+                                                    <p className="text-xs text-slate-500">Économisé grâce au SAP</p>
+                                                </div>
+                                                <div className="bg-white rounded-lg p-3 text-center">
+                                                    <p className="text-2xl font-bold text-amber-600">{client.loyaltyHoursAvailable || 0}h</p>
+                                                    <p className="text-xs text-slate-500">Heures fidélité</p>
+                                                </div>
+                                            </div>
+
+                                            {/* Referral CTA */}
+                                            <div className="bg-white rounded-lg p-4 border border-amber-100 flex items-center gap-3">
+                                                <Gift className="w-8 h-8 text-purple-500" />
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-slate-800 text-sm">Parrainez un ami</p>
+                                                    <p className="text-xs text-slate-500">Recevez chacun 20€ de réduction !</p>
+                                                </div>
+                                                <button 
+                                                    onClick={() => setShowShareModal(true)}
+                                                    className="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition"
+                                                >
+                                                    Inviter
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Dashboard Tab - Engaging Home Page */}
+                    {activeTab === 'dashboard' && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                            {/* Hero Banner - Personalized Welcome */}
+                            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 p-6 md:p-8 text-white shadow-xl">
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                                <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+                                <div className="relative z-10">
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                                            <Sparkles className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h1 className="text-2xl md:text-3xl font-bold">Bonjour {client?.name?.split(' ')[0] || 'Client'} !</h1>
+                                            <p className="text-white/80 text-sm">Prêt pour votre prochain service à domicile ?</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-3 mt-6">
+                                        <button 
+                                            onClick={() => setActiveTab('disponibilites')}
+                                            className="flex items-center gap-2 bg-white text-emerald-700 px-5 py-3 rounded-xl font-bold hover:bg-white/90 transition shadow-lg"
+                                        >
+                                            <Calendar className="w-5 h-5" />
+                                            Réserver maintenant
+                                        </button>
+                                        <button 
+                                            onClick={() => setActiveTab('planning')}
+                                            className="flex items-center gap-2 bg-white/20 backdrop-blur-sm text-white px-5 py-3 rounded-xl font-bold hover:bg-white/30 transition"
+                                        >
+                                            <Clock className="w-5 h-5" />
+                                            Voir mes missions
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Stats Cards */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                            <CheckCircle className="w-5 h-5 text-emerald-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-slate-800">{clientMissions.filter(m => ['completed', 'validated'].includes(m.status)).length}</p>
+                                            <p className="text-xs text-slate-500">Missions réalisées</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                            <TrendingUp className="w-5 h-5 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-slate-800">
+                                                {Math.round(clientDocs.filter(d => d.status === 'paid').reduce((sum, d) => sum + (d.totalTTC || 0), 0) * 0.5)}€
+                                            </p>
+                                            <p className="text-xs text-slate-500">Économisé grâce au SAP</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                                            <Star className="w-5 h-5 text-amber-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-slate-800">
+                                                {clientMissions.filter(m => ['completed', 'validated'].includes(m.status)).length >= 10 ? 'Or' : 
+                                                 clientMissions.filter(m => ['completed', 'validated'].includes(m.status)).length >= 5 ? 'Argent' : 'Bronze'}
+                                            </p>
+                                            <p className="text-xs text-slate-500">Niveau fidélité</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                                            <Calendar className="w-5 h-5 text-purple-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-slate-800">{clientMissions.filter(m => m.status === 'planned' || m.status === 'in_progress').length}</p>
+                                            <p className="text-xs text-slate-500">Missions à venir</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Next Mission Card OR Booking CTA */}
+                            {(() => {
+                                const nextMission = clientMissions
+                                    .filter(m => m.status === 'planned' && m.date >= getMartiniqueToday())
+                                    .sort((a, b) => a.date.localeCompare(b.date))[0];
+                                
+                                if (nextMission) {
+                                    const daysUntil = Math.ceil((new Date(nextMission.date).getTime() - new Date(getMartiniqueToday()).getTime()) / (1000 * 60 * 60 * 24));
+                                    return (
+                                        <div className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                                    <Clock className="w-5 h-5 text-emerald-600" />
+                                                    Prochaine intervention
+                                                </h3>
+                                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                    daysUntil <= 2 ? 'bg-red-100 text-red-700' : 
+                                                    daysUntil <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                                                }`}>
+                                                    {daysUntil === 0 ? "Aujourd'hui" : daysUntil === 1 ? 'Demain' : `Dans ${daysUntil} jours`}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
+                                                <div className="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                                    <Briefcase className="w-6 h-6 text-emerald-600" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-slate-800">{nextMission.service}</p>
+                                                    <p className="text-sm text-slate-500">
+                                                        {formatMartiniqueDate(new Date(nextMission.date))} • {nextMission.startTime} - {nextMission.endTime}
+                                                    </p>
+                                                    {nextMission.providerName && (
+                                                        <p className="text-xs text-slate-400 mt-1">Prestataire: {nextMission.providerName}</p>
+                                                    )}
+                                                </div>
+                                                <button 
+                                                    onClick={() => setActiveTab('planning')}
+                                                    className="p-2 hover:bg-white rounded-lg transition"
+                                                >
+                                                    <ChevronRight className="w-5 h-5 text-slate-400" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                } else {
+                                    return (
+                                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-5 border border-amber-100">
+                                            <div className="flex items-start gap-4">
+                                                <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                                                    <Sparkles className="w-6 h-6 text-amber-600" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <h3 className="font-bold text-slate-800 mb-1">Aucune mission programmée</h3>
+                                                    <p className="text-sm text-slate-600 mb-4">
+                                                        Réservez dès maintenant et bénéficiez de <span className="font-bold text-amber-700">-10%</span> sur votre prochaine réservation !
+                                                    </p>
+                                                    <button 
+                                                        onClick={() => setActiveTab('disponibilites')}
+                                                        className="flex items-center gap-2 bg-amber-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-amber-700 transition"
+                                                    >
+                                                        <Calendar className="w-4 h-4" />
+                                                        Voir les créneaux disponibles
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                            })()}
+
+                            {/* Promo Banner */}
+                            <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-5 text-white relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                                <div className="relative z-10 flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                                        <Gift className="w-6 h-6" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-lg">Offre Parrainage</h3>
+                                        <p className="text-white/80 text-sm">Invitez un ami et recevez chacun <span className="font-bold">20€ de réduction</span> !</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowShareModal(true)}
+                                        className="bg-white text-purple-700 px-4 py-2 rounded-lg font-bold hover:bg-white/90 transition whitespace-nowrap"
+                                    >
+                                        Partager
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Recent Documents */}
+                            {clientDocs.length > 0 && (
+                                <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                                    <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                            <FileText className="w-5 h-5 text-slate-500" />
+                                            Derniers documents
+                                        </h3>
+                                        <button 
+                                            onClick={() => setActiveTab('docs')}
+                                            className="text-sm text-emerald-600 font-medium hover:text-emerald-700"
+                                        >
+                                            Voir tout →
+                                        </button>
+                                    </div>
+                                    <div className="divide-y divide-slate-100">
+                                        {clientDocs.slice(0, 3).map(doc => (
+                                            <div 
+                                                key={doc.id} 
+                                                onClick={() => openQuoteModal(doc.id)}
+                                                className="flex items-center gap-4 p-4 hover:bg-slate-50 cursor-pointer transition"
+                                            >
+                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                                    doc.type === 'Devis' ? 'bg-blue-100' : 'bg-green-100'
+                                                }`}>
+                                                    <FileText className={`w-5 h-5 ${doc.type === 'Devis' ? 'text-blue-600' : 'text-green-600'}`} />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-medium text-slate-800 truncate">{doc.ref}</p>
+                                                    <p className="text-xs text-slate-500">{doc.type} • {formatMartiniqueDate(new Date(doc.date))}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-slate-800">{doc.totalTTC?.toFixed(2)}€</p>
+                                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                                        doc.status === 'paid' ? 'bg-green-100 text-green-700' :
+                                                        doc.status === 'signed' ? 'bg-blue-100 text-blue-700' :
+                                                        doc.status === 'sent' ? 'bg-amber-100 text-amber-700' :
+                                                        'bg-slate-100 text-slate-600'
+                                                    }`}>
+                                                        {doc.status === 'paid' ? 'Payé' :
+                                                         doc.status === 'signed' ? 'Signé' :
+                                                         doc.status === 'sent' ? 'À signer' : doc.status}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Quick Actions */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <button 
+                                    onClick={() => setActiveTab('disponibilites')}
+                                    className="flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50 transition"
+                                >
+                                    <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                        <Calendar className="w-5 h-5 text-emerald-600" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-700">Réserver</span>
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('messages')}
+                                    className="flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50 transition"
+                                >
+                                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                        <MessageSquare className="w-5 h-5 text-blue-600" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-700">Contacter</span>
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('docs')}
+                                    className="flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-slate-100 hover:border-purple-200 hover:bg-purple-50 transition"
+                                >
+                                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                                        <FileText className="w-5 h-5 text-purple-600" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-700">Documents</span>
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('profile')}
+                                    className="flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50 transition"
+                                >
+                                    <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                                        <User className="w-5 h-5 text-amber-600" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-700">Mon profil</span>
+                                </button>
                             </div>
                         </div>
                     )}
@@ -3659,6 +4094,18 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
           </button>
         </div>
 
+        {/* Promo Banner - Urgency */}
+        <div className="mb-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <Sparkles className="w-4 h-4 text-amber-600" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-amber-800">Offre spéciale cette semaine</p>
+            <p className="text-xs text-amber-600">Réservez maintenant et bénéficiez de -10% sur votre premier pack !</p>
+          </div>
+          <span className="px-2 py-1 bg-amber-600 text-white text-[10px] font-bold rounded-full">LIMITÉ</span>
+        </div>
+
         {/* Stats */}
         <div className="flex items-center justify-center gap-6 mb-4">
           <div className="text-center">
@@ -3689,13 +4136,18 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     : 'border-orange-200 bg-white'
                 }`}
               >
-                <div className={`px-3 py-2 text-center ${
+                <div className={`px-3 py-2 text-center relative ${
                   day.isToday ? 'bg-emerald-500 text-white' :
                   day.isPast || day.isSunday ? 'bg-gray-100 text-gray-400' :
                   hasSlots ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800'
                 }`}>
                   <div className="text-[11px] font-bold uppercase">{WEEKDAYS[day.dayOfWeek]}</div>
                   <div className="text-lg font-bold">{day.dayOfMonth}</div>
+                  {hasSlots && day.freeSlots.length <= 2 && !day.isPast && !day.isSunday && (
+                    <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-500 text-white text-[8px] font-bold rounded-full animate-pulse">
+                      {day.freeSlots.length} restant{day.freeSlots.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
                 <div className="p-2 space-y-1">
                   {day.isPast ? (
@@ -3749,6 +4201,37 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 {copied ? <><CheckCircle className="w-3 h-3" /> Copié</> : <><Copy className="w-3 h-3" /> Copier</>}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Testimonials - Social Proof */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <h4 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+          <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+          Ils nous font confiance
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="flex items-center gap-1 mb-1">
+              {[1,2,3,4,5].map(i => <Star key={i} className="w-3 h-3 text-amber-400 fill-amber-400" />)}
+            </div>
+            <p className="text-xs text-gray-600 italic">"Service impeccable, ponctuel et professionnel. Je recommande !"</p>
+            <p className="text-[10px] text-gray-400 mt-1">— Marie L., Le Lamentin</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="flex items-center gap-1 mb-1">
+              {[1,2,3,4,5].map(i => <Star key={i} className="w-3 h-3 text-amber-400 fill-amber-400" />)}
+            </div>
+            <p className="text-xs text-gray-600 italic">"Réservation en ligne超 simple, et le travail est toujours au top."</p>
+            <p className="text-[10px] text-gray-400 mt-1">— Jean-Pierre M., Fort-de-France</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="flex items-center gap-1 mb-1">
+              {[1,2,3,4,5].map(i => <Star key={i} className="w-3 h-3 text-amber-400 fill-amber-400" />)}
+            </div>
+            <p className="text-xs text-gray-600 italic">"Client fidèle depuis 2 ans, jamais déçu. Équipe sérieuse."</p>
+            <p className="text-[10px] text-gray-400 mt-1">— Sophie D., Schoelcher</p>
           </div>
         </div>
       </div>
