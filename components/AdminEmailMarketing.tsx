@@ -675,7 +675,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
                     <option value="">-- Sélectionner un pack --</option>
                     {packs.map(pack => (
                       <option key={pack.id} value={pack.id}>
-                        {pack.name} - {pack.priceTTC.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                        {pack.name} - {(pack.priceTTC ?? 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </option>
                     ))}
                   </select>
@@ -689,7 +689,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
                           <div className="space-y-1">
                             <p className="text-sm font-semibold text-emerald-800">{selectedPack.name}</p>
                             <p className="text-xs text-emerald-600">
-                              {selectedPack.hours}h • {selectedPack.frequency} • {selectedPack.priceTTC.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                              {selectedPack.hours}h • {selectedPack.frequency} • {(selectedPack.priceTTC ?? 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                             </p>
                             <p className="text-xs text-emerald-700 mt-2">
                               Cliquez sur le template "Nouveau pack" pour générer l'email avec ces données
@@ -1114,7 +1114,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
                           <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
                             <span className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
-                              {new Date(campaign.created_at).toLocaleDateString('fr-FR')}
+                              {campaign.created_at ? new Date(campaign.created_at).toLocaleDateString('fr-FR') : '—'}
                             </span>
                             <span className="flex items-center gap-1">
                               <Mail className="w-3 h-3" />
@@ -1175,7 +1175,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
                           </div>
                           <p className="text-sm text-slate-600 mt-1">{log.subject}</p>
                           <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
-                            <span>{new Date(log.created_at).toLocaleString('fr-FR')}</span>
+                            <span>{log.created_at ? new Date(log.created_at).toLocaleString('fr-FR') : '—'}</span>
                             {log.sent_at && (
                               <span className="text-emerald-600">
                                 Envoyé le {new Date(log.sent_at).toLocaleString('fr-FR')}
