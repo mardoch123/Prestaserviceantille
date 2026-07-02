@@ -7,6 +7,7 @@ import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from '../context/DataContext';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { SafeImage, LogoImage } from './SafeImage';
+import { getServiceTypeFromText } from '../utils/serviceTypes';
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
@@ -3565,7 +3566,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         date: getMartiniqueToday(),
         type: 'Devis',
         category: 'pack',
-        serviceType: (selectedPack.mainService as any) || 'Ménage',
+        serviceType: getServiceTypeFromText(selectedPack.mainService || ''),
         description: `Pack: ${selectedPack.name} | Durée: ${durationHours}h | Réservation en ligne`,
         unitPrice: totalHT,
         quantity: 1,
