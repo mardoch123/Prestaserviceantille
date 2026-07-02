@@ -3855,6 +3855,40 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const [selectedPackId, setSelectedPackId] = useState<string>('');
   const [isBooking, setIsBooking] = useState(false);
 
+  // Multi-slot states for packs requiring multiple sessions
+  const [multiSlots, setMultiSlots] = useState<Array<{ date: string; startTime: string; endTime: string }>>([]);
+  const [showMultiSlotStep, setShowMultiSlotStep] = useState(false);
+
+  // Helper: get number of sessions required by a pack
+  const getPackSessionCount = (pack: Pack): number => {
+    const name = pack.name || '';
+    const freq = pack.frequency || '';
+    if (name.includes('Ultime 6') || name.includes('ultime6') || name.includes('Ultime6')) return 1;
+    if (name.includes('Tranquility')) return freq.includes('4j') ? 4 : 3;
+    if (name.includes('personnalisé')) return 1;
+
+    // Check description for (X jours)
+    if (pack.description) {
+      const match = pack.description.match(/\((\d+)\s*jours?\)/i);
+      if (match) return parseInt(match[1]);
+    }
+
+    // By frequency
+    if (freq === 'Hebdomadaire') return 1;
+    if (freq === 'Bimensuelle') return 2;
+    if (freq === 'Mensuelle') return 4;
+    return 1; // Ponctuelle or default
+  };
+
+  // Get hours per session for a pack
+  const getPackHoursPerSession = (pack: Pack): number => {
+    const name = pack.name || '';
+    const freq = pack.frequency || '';
+    if (name.includes('Ultime 6') || name.includes('ultime6')) return 6;
+    if (name.includes('Tranquility')) return freq.includes('4j') ? 3 : 4;
+    return pack.hours || 2;
+  };
+
   // Signature states
   const [showSignatureStep, setShowSignatureStep] = useState(false);
   const [createdDocId, setCreatedDocId] = useState<string | null>(null);
@@ -3986,12 +4020,25 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const handleConfirmBooking = async () => {
     if (!bookingSlot || !selectedPack || !client) return;
 
+    // Check if multi-session pack requires all slots
+    const sessionCount = getPackSessionCount(selectedPack);
+    if (sessionCount > 1 && multiSlots.length < sessionCount - 1) {
+      toast.warning(`Veuillez sélectionner tous les créneaux (${sessionCount - 1} créneaux supplémentaires requis).`);
+      return;
+    }
+
     setIsBooking(true);
     try {
       const docId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const durationHours = selectedPack.hours || 2;
       const tvaRate = (selectedPack as any).isSap ? 2.1 : 8.5;
       const totalHT = selectedPack.priceTTC / (1 + tvaRate / 100);
+
+      // Build slotsData: first slot + additional multi-slots
+      const allSlots = [
+        { date: bookingSlot.date, startTime: bookingSlot.startTime, endTime: bookingSlot.endTime },
+        ...multiSlots
+      ];
 
       const doc: Document = {
         id: docId,
@@ -4002,7 +4049,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         type: 'Devis',
         category: 'pack',
         serviceType: getServiceTypeFromText(selectedPack.mainService || ''),
-        description: `Pack: ${selectedPack.name} | Durée: ${durationHours}h | Réservation en ligne`,
+        description: `Pack: ${selectedPack.name} | ${allSlots.length} séance${allSlots.length > 1 ? 's' : ''} | Réservation en ligne`,
         unitPrice: totalHT,
         quantity: 1,
         tvaRate: tvaRate as any,
@@ -4010,7 +4057,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         totalTTC: selectedPack.priceTTC,
         taxCreditEnabled: !!(selectedPack as any).isSap,
         status: 'sent',
-        slotsData: [{ date: bookingSlot.date, startTime: bookingSlot.startTime, endTime: bookingSlot.endTime }],
+        slotsData: allSlots,
         packId: selectedPack.id,
         frequency: selectedPack.frequency || 'Ponctuelle',
       };
@@ -4019,6 +4066,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       setCreatedDocId(docId);
       setBookingSlot(null);
       setSelectedPackId('');
+      setMultiSlots([]);
+      setShowMultiSlotStep(false);
       setShowSignatureStep(true);
     } catch (err: any) {
       console.error('[Booking] Error creating quote:', err);
@@ -4273,44 +4322,61 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
 
             {/* Body */}
             <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Choisissez votre pack</label>
-                {availablePacks.length === 0 ? (
-                  <p className="text-sm text-gray-500 italic">Aucun pack disponible pour le moment. Contactez-nous.</p>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {availablePacks.map(pack => (
-                      <button
-                        key={pack.id}
-                        onClick={() => setSelectedPackId(pack.id)}
-                        className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                          selectedPackId === pack.id
-                            ? 'border-emerald-500 bg-emerald-50'
-                            : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-gray-800 text-sm">{pack.name}</div>
-                            <div className="text-xs text-gray-500">{pack.mainService} • {pack.hours}h • {pack.frequency}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
-                            {(pack as any).isSap && (
-                              <div className="text-[10px] text-teal-500 font-bold">SAP (crédit d'impôt)</div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Choisissez votre pack</label>
+                    {availablePacks.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">Aucun pack disponible pour le moment. Contactez-nous.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {availablePacks.map(pack => {
+                          const sessions = getPackSessionCount(pack);
+                          const hoursPerSession = getPackHoursPerSession(pack);
+                          return (
+                            <button
+                              key={pack.id}
+                              onClick={() => {
+                                setSelectedPackId(pack.id);
+                                setMultiSlots([]);
+                                setShowMultiSlotStep(false);
+                              }}
+                              className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                                selectedPackId === pack.id
+                                  ? 'border-emerald-500 bg-emerald-50'
+                                  : 'border-gray-200 hover:border-gray-300 bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-bold text-gray-800 text-sm">{pack.name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {pack.mainService} • {pack.frequency}
+                                    {sessions > 1 ? (
+                                      <span className="ml-1 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold text-[10px]">
+                                        {sessions} séances × {hoursPerSession}h
+                                      </span>
+                                    ) : (
+                                      <span className="ml-1">{hoursPerSession}h</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
+                                  {(pack as any).isSap && (
+                                    <div className="text-[10px] text-teal-500 font-bold">SAP (crédit d'impôt)</div>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                 )}
               </div>
 
               {/* Selected pack summary */}
               {selectedPack && (
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-3">
                     <div>
                       <div className="text-xs text-gray-500 font-bold">TOTAL TTC</div>
                       <div className="text-xl font-bold text-gray-800">{selectedPack.priceTTC.toFixed(2)} €</div>
@@ -4320,6 +4386,119 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                       <div className="text-sm font-bold text-emerald-600">{selectedPack.name}</div>
                     </div>
                   </div>
+                  {getPackSessionCount(selectedPack) > 1 && (
+                    <div className="pt-3 border-t border-gray-200">
+                      <p className="text-xs text-blue-700 font-bold flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Ce pack comprend {getPackSessionCount(selectedPack)} séances de {getPackHoursPerSession(selectedPack)}h
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        1er créneau : {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Multi-slot step: show when pack has multiple sessions */}
+              {selectedPack && getPackSessionCount(selectedPack) > 1 && !showMultiSlotStep && (
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                  <p className="text-sm font-bold text-blue-800 mb-2">
+                    {getPackSessionCount(selectedPack) - 1} créneau{getPackSessionCount(selectedPack) - 1 > 1 ? 'x' : ''} supplémentaire{getPackSessionCount(selectedPack) - 1 > 1 ? 's' : ''} à choisir
+                  </p>
+                  <p className="text-xs text-blue-600 mb-3">
+                    Sélectionnez les dates et horaires pour vos prochaines séances.
+                  </p>
+                  <button
+                    onClick={() => setShowMultiSlotStep(true)}
+                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Choisir mes créneaux
+                  </button>
+                </div>
+              )}
+
+              {/* Multi-slot selection UI */}
+              {showMultiSlotStep && selectedPack && (
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-blue-800">
+                      Créneaux supplémentaires ({multiSlots.length}/{getPackSessionCount(selectedPack) - 1})
+                    </p>
+                    <button
+                      onClick={() => setShowMultiSlotStep(false)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      ← Retour
+                    </button>
+                  </div>
+
+                  {/* Already selected slots */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200">
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      <span className="text-xs font-medium text-gray-700">
+                        Séance 1: {formatDate(bookingSlot.date)} • {bookingSlot.startTime} – {bookingSlot.endTime}
+                      </span>
+                    </div>
+                    {multiSlots.map((slot, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200">
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        <span className="text-xs font-medium text-gray-700 flex-1">
+                          Séance {idx + 2}: {formatDate(slot.date)} • {slot.startTime} – {slot.endTime}
+                        </span>
+                        <button
+                          onClick={() => setMultiSlots(multiSlots.filter((_, i) => i !== idx))}
+                          className="p-1 hover:bg-red-50 rounded text-red-500"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add slot button */}
+                  {multiSlots.length < getPackSessionCount(selectedPack) - 1 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {weekDays.filter(d => !d.isPast && !d.isSunday && d.freeSlots.length > 0).slice(0, 6).map(day => (
+                        <div key={day.date} className="bg-white rounded-lg border border-blue-100 p-2">
+                          <p className="text-[10px] font-bold text-gray-500 text-center mb-1">{WEEKDAYS[day.dayOfWeek]} {day.dayOfMonth}</p>
+                          <div className="space-y-1">
+                            {day.freeSlots.slice(0, 3).map((sl, i) => {
+                              const isSelected = multiSlots.some(s => s.date === day.date && s.startTime === sl.startTime);
+                              return (
+                                <button
+                                  key={i}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setMultiSlots(multiSlots.filter(s => !(s.date === day.date && s.startTime === sl.startTime)));
+                                    } else {
+                                      setMultiSlots([...multiSlots, { date: day.date, startTime: sl.startTime, endTime: sl.endTime }]);
+                                    }
+                                  }}
+                                  disabled={!isSelected && multiSlots.length >= getPackSessionCount(selectedPack) - 1}
+                                  className={`w-full text-[10px] font-bold py-1 rounded transition ${
+                                    isSelected
+                                      ? 'bg-emerald-500 text-white'
+                                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-30'
+                                  }`}
+                                >
+                                  {sl.startTime}–{sl.endTime}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {multiSlots.length === getPackSessionCount(selectedPack) - 1 && (
+                    <p className="text-xs text-emerald-600 font-bold text-center">
+                      Tous vos créneaux sont sélectionnés !
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -4334,11 +4513,18 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
               </button>
               <button
                 onClick={handleConfirmBooking}
-                disabled={!selectedPackId || isBooking || !client}
+                disabled={
+                  !selectedPackId || isBooking || !client ||
+                  (selectedPack ? (getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1) : false)
+                }
                 className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
               >
                 {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
-                {isBooking ? 'Réservation...' : 'Réserver et signer'}
+                {isBooking ? 'Réservation...' : 
+                  selectedPack && getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1
+                    ? `Choisir les créneaux (${multiSlots.length}/${getPackSessionCount(selectedPack) - 1})`
+                    : 'Réserver et signer'
+                }
               </button>
             </div>
           </div>
