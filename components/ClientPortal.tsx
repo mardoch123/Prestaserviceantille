@@ -4403,11 +4403,11 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       {/* ─── Booking Modal (Step-by-step Wizard) ─── */}
       {bookingSlot && !showSignatureStep && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setBookingSlot(null); setBookingStep('pack'); }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
 
-            {/* ── Step indicator ── */}
-            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 pt-5 pb-4 text-white">
-              <div className="flex items-center justify-between mb-3">
+            {/* ── Step indicator (fixed header) ── */}
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 pt-4 pb-3 text-white flex-shrink-0">
+              <div className="flex items-center justify-between mb-2">
                 <h3 className="text-lg font-bold">Réserver un créneau</h3>
                 <button onClick={() => { setBookingSlot(null); setBookingStep('pack'); }} className="p-2 hover:bg-white/20 rounded-full transition">
                   <X className="w-5 h-5" />
@@ -4415,7 +4415,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
               </div>
               <p className="text-white/80 text-sm">{formatDate(bookingSlot.date)}</p>
               {/* Step progress bar */}
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center gap-2 mt-2">
                 {['pack', 'time', ...(selectedPack && getPackSessionCount(selectedPack) > 1 ? ['slots'] : [])].map((step, i, arr) => (
                   <React.Fragment key={step}>
                     <div className={`flex items-center gap-1.5 ${bookingStep === step ? 'opacity-100' : arr.indexOf(bookingStep) > i ? 'opacity-70' : 'opacity-40'}`}>
@@ -4431,6 +4431,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 ))}
               </div>
             </div>
+
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto">
 
             {/* ── STEP 1: Select Pack ── */}
             {bookingStep === 'pack' && (
@@ -4780,6 +4783,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
