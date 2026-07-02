@@ -3840,6 +3840,78 @@ function computeClientFreeSlots(occupied: { startTime: string; endTime: string }
   return free;
 }
 
+/**
+ * Compute free slots based on provider availability (same logic as public page).
+ * A slot is "free" if at least 1 provider is available during that time.
+ */
+function computeProviderBasedFreeSlots(
+  dateStr: string,
+  missions: any[],
+  providers: any[]
+): { startTime: string; endTime: string }[] {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const toStr = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const openMin = OPEN_HOUR * 60;
+  const closeMin = CLOSE_HOUR * 60;
+
+  if (!providers || providers.length === 0) {
+    // Fallback: treat as fully available if no provider data
+    return [{ startTime: toStr(openMin), endTime: toStr(closeMin) }];
+  }
+
+  // Build a set of 30-min blocks and check each one for provider availability
+  const BLOCK_SIZE = 30;
+  const freeBlocks: boolean[] = [];
+  const totalBlocks = Math.floor((closeMin - openMin) / BLOCK_SIZE);
+
+  for (let b = 0; b < totalBlocks; b++) {
+    const blockStart = openMin + b * BLOCK_SIZE;
+    const blockEnd = blockStart + BLOCK_SIZE;
+
+    // Check if at least 1 provider is free during this block
+    const hasAvailableProvider = providers.some((p: any) => {
+      const providerMissions = missions.filter(
+        (m: any) => m.provider_id === p.id && m.date === dateStr && m.status !== 'cancelled'
+      );
+      const hasConflict = providerMissions.some((m: any) => {
+        const mStart = toMin(m.start_time || m.startTime || '00:00');
+        const mEnd = toMin(m.end_time || m.endTime || '00:00');
+        return blockStart < mEnd && blockEnd > mStart;
+      });
+      return !hasConflict;
+    });
+
+    freeBlocks.push(hasAvailableProvider);
+  }
+
+  // Merge consecutive free blocks into time ranges
+  const freeSlots: { startTime: string; endTime: string }[] = [];
+  let startBlock = -1;
+
+  for (let b = 0; b < totalBlocks; b++) {
+    if (freeBlocks[b]) {
+      if (startBlock === -1) startBlock = b;
+    } else {
+      if (startBlock !== -1) {
+        freeSlots.push({
+          startTime: toStr(openMin + startBlock * BLOCK_SIZE),
+          endTime: toStr(openMin + b * BLOCK_SIZE),
+        });
+        startBlock = -1;
+      }
+    }
+  }
+  // Close last free block
+  if (startBlock !== -1) {
+    freeSlots.push({
+      startTime: toStr(openMin + startBlock * BLOCK_SIZE),
+      endTime: toStr(closeMin),
+    });
+  }
+
+  return freeSlots;
+}
+
 interface ClientAvailabilityTabProps {
   missions: any[];
   documents: Document[];
@@ -3996,22 +4068,10 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const dayOfWeekIdx = d.getDay();
       const isSunday = false; // 7j/7 — pas de jour fermé
       const isPast = dateStr < todayStr;
-      // Occupied from missions
-      const missionOccupied = missions
-        .filter((m: any) => m.date === dateStr && m.status !== 'cancelled')
-        .map((m: any) => ({ startTime: m.start_time || m.startTime, endTime: m.end_time || m.endTime }));
-      
-      // Also block slots from pending documents (status 'sent' — waiting for signature)
-      const docOccupied = (documents || [])
-        .filter((d: Document) => d.status === 'sent' && Array.isArray(d.slotsData))
-        .flatMap((d: Document) => 
-          (d.slotsData || [])
-            .filter((s: any) => s.date === dateStr)
-            .map((s: any) => ({ startTime: s.startTime, endTime: s.endTime }))
-        );
-      
-      const occupied = [...missionOccupied, ...docOccupied];
-      const freeSlots = isPast || isSunday ? [] : computeClientFreeSlots(occupied);
+
+      // Use provider-based availability (same logic as public page)
+      const freeSlots = isPast || isSunday ? [] : computeProviderBasedFreeSlots(dateStr, missions, providers);
+
       return {
         date: dateStr,
         dayOfWeek: dayOfWeekIdx,
@@ -4021,10 +4081,10 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         isPast,
         isSunday,
         freeSlots,
-        busyCount: occupied.length,
+        busyCount: missions.filter((m: any) => m.date === dateStr && m.status !== 'cancelled').length,
       };
     });
-  }, [weekOffset, missions, todayStr]);
+  }, [weekOffset, missions, providers, todayStr]);
 
   const WEEKDAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
   const MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
