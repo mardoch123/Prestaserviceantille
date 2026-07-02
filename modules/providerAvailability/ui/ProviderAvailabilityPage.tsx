@@ -136,7 +136,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
     const availabilityHours = provider.availabilityHours || {};
     const nonInterventionHours = provider.nonInterventionHours || {};
 
-    const workingHours = Array.from({ length: 7 }, (_, i) => i + 9); // 09:00 to 15:00 (ferme à 16:00)
+    const workingHours = Array.from({ length: 8 }, (_, i) => i + 8); // 08:00 to 15:00 (blocs matin 8h-12h, après-midi 12h-16h)
 
     if (availabilityMode === 'available') {
       // Mode "available": Provider is ONLY available during availabilityHours
@@ -272,7 +272,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
   const slotsByServiceType = useMemo(() => {
     const todayStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
     const dayOfWeek = selectedDate.getDay();
-    const workingHours = Array.from({ length: 7 }, (_, i) => i + 9); // 9h to 15h (ferme à 16h)
+    const workingHours = Array.from({ length: 8 }, (_, i) => i + 8); // 8h to 15h (blocs matin 8h-12h, après-midi 12h-16h)
 
     const result: Record<string, { hours: number[]; providerCount: number }> = {};
 

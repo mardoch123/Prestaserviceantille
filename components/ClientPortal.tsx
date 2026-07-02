@@ -3841,44 +3841,126 @@ function computeClientFreeSlots(occupied: { startTime: string; endTime: string }
 }
 
 /**
- * Compute free slots based on provider availability (same logic as public page).
- * A slot is "free" if at least 1 provider is available during that time.
+ * Compute free slots based on REAL provider availability.
+ * Considers: working hours (availabilityMode/availabilityHours/nonInterventionHours),
+ * leaves, and assigned missions per provider.
+ * For services >= 3h: returns fixed blocks (matin 8h-12h / après-midi 12h-16h).
+ * For services < 3h: returns flexible 30-min based slots.
  */
 function computeProviderBasedFreeSlots(
   dateStr: string,
   missions: any[],
-  providers: any[]
+  providers: any[],
+  serviceHours?: number
 ): { startTime: string; endTime: string }[] {
   const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
   const toStr = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-  const openMin = OPEN_HOUR * 60;
-  const closeMin = CLOSE_HOUR * 60;
+  const openMin = OPEN_HOUR * 60;   // 9h = 540
+  const closeMin = CLOSE_HOUR * 60; // 16h = 960
 
   if (!providers || providers.length === 0) {
-    // Fallback: treat as fully available if no provider data
     return [{ startTime: toStr(openMin), endTime: toStr(closeMin) }];
   }
 
-  // Build a set of 30-min blocks and check each one for provider availability
+  const d = new Date(dateStr + 'T12:00:00');
+  const dayOfWeek = d.getDay();
+
+  // Helper: get working hours for a provider on a specific day of week
+  const getProviderWorkingHours = (p: any): number[] => {
+    const mode = p.availabilityMode || 'unavailable';
+    const workingHours = [8, 9, 10, 11, 12, 13, 14, 15]; // 8h to 15h (blocs matin 8h-12h, après-midi 12h-16h)
+
+    if (mode === 'available') {
+      // Provider only available during availabilityHours
+      const ranges = (p.availabilityHours || {})[dayOfWeek] || [];
+      if (ranges.length === 0) return [];
+      return workingHours.filter(hour => ranges.some((r: any) => {
+        const rStart = parseInt((r.start || r.startTime || '00:00').split(':')[0]);
+        const rEnd = parseInt((r.end || r.endTime || '00:00').split(':')[0]);
+        return hour >= rStart && hour < rEnd;
+      }));
+    } else {
+      // Default: available except during nonInterventionHours and nonInterventionDays
+      const nonDays = p.nonInterventionDays || [];
+      if (nonDays.includes(dayOfWeek)) return [];
+      const ranges = (p.nonInterventionHours || {})[dayOfWeek] || [];
+      if (ranges.length === 0) return workingHours;
+      return workingHours.filter(hour => !ranges.some((r: any) => {
+        const rStart = parseInt((r.start || r.startTime || '00:00').split(':')[0]);
+        const rEnd = parseInt((r.end || r.endTime || '00:00').split(':')[0]);
+        return hour >= rStart && hour < rEnd;
+      }));
+    }
+  };
+
+  // Check if provider is on leave for this date
+  const isProviderOnLeave = (p: any): boolean => {
+    const leaves = p.leaves || [];
+    return leaves.some((l: any) =>
+      dateStr >= l.startDate && dateStr <= l.endDate && l.status === 'approved'
+    );
+  };
+
+  // Get provider missions for this date (use providerId camelCase from DataContext)
+  const getProviderMissions = (p: any) => {
+    return (missions || []).filter(
+      (m: any) => (m.providerId === p.id || m.provider_id === p.id) && m.date === dateStr && m.status !== 'cancelled'
+    );
+  };
+
+  // Check if provider is free during a time block
+  const isProviderFreeDuring = (p: any, blockStart: number, blockEnd: number): boolean => {
+    const providerMissions = getProviderMissions(p);
+    return !providerMissions.some((m: any) => {
+      const mStart = toMin(m.start_time || m.startTime || '00:00');
+      const mEnd = toMin(m.end_time || m.endTime || '00:00');
+      return blockStart < mEnd && blockEnd > mStart;
+    });
+  };
+
+  // FIXED BLOCKS MODE: For services >= 3h, show matin/après-midi
+  if (serviceHours && serviceHours >= 3) {
+    const blocks = [
+      { label: 'Matin', startTime: '08:00', endTime: '12:00', startMin: 8 * 60, endMin: 12 * 60 },
+      { label: 'Après-midi', startTime: '12:00', endTime: '16:00', startMin: 12 * 60, endMin: 16 * 60 },
+    ];
+    const freeSlots: { startTime: string; endTime: string }[] = [];
+    for (const block of blocks) {
+      const hasAvailableProvider = providers.some((p: any) => {
+        if (isProviderOnLeave(p)) return false;
+        const workingHours = getProviderWorkingHours(p);
+        // Check if provider works during this block (at least 1 hour overlap)
+        const blockStartH = Math.floor(block.startMin / 60);
+        const blockEndH = Math.ceil(block.endMin / 60);
+        const worksDuringBlock = workingHours.some(h => h >= blockStartH && h < blockEndH);
+        if (!worksDuringBlock) return false;
+        return isProviderFreeDuring(p, block.startMin, block.endMin);
+      });
+      if (hasAvailableProvider) {
+        freeSlots.push({ startTime: block.startTime, endTime: block.endTime });
+      }
+    }
+    return freeSlots;
+  }
+
+  // FLEXIBLE MODE: 30-min blocks for services < 3h
   const BLOCK_SIZE = 30;
-  const freeBlocks: boolean[] = [];
   const totalBlocks = Math.floor((closeMin - openMin) / BLOCK_SIZE);
+  const freeBlocks: boolean[] = [];
 
   for (let b = 0; b < totalBlocks; b++) {
     const blockStart = openMin + b * BLOCK_SIZE;
     const blockEnd = blockStart + BLOCK_SIZE;
+    const blockHour = Math.floor(blockStart / 60);
 
-    // Check if at least 1 provider is free during this block
     const hasAvailableProvider = providers.some((p: any) => {
-      const providerMissions = missions.filter(
-        (m: any) => m.provider_id === p.id && m.date === dateStr && m.status !== 'cancelled'
-      );
-      const hasConflict = providerMissions.some((m: any) => {
-        const mStart = toMin(m.start_time || m.startTime || '00:00');
-        const mEnd = toMin(m.end_time || m.endTime || '00:00');
-        return blockStart < mEnd && blockEnd > mStart;
-      });
-      return !hasConflict;
+      // Check leave
+      if (isProviderOnLeave(p)) return false;
+      // Check working hours
+      const workingHours = getProviderWorkingHours(p);
+      if (!workingHours.includes(blockHour)) return false;
+      // Check missions
+      return isProviderFreeDuring(p, blockStart, blockEnd);
     });
 
     freeBlocks.push(hasAvailableProvider);
@@ -3901,7 +3983,6 @@ function computeProviderBasedFreeSlots(
       }
     }
   }
-  // Close last free block
   if (startBlock !== -1) {
     freeSlots.push({
       startTime: toStr(openMin + startBlock * BLOCK_SIZE),
@@ -3989,20 +4070,63 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   };
 
   // Count available providers for a given date + time range
-  const getAvailableProvidersCount = useCallback((date: string, startTime: string, endTime: string): number => {
+  const getAvailableProvidersCount = useCallback((date: string, startTime: string, endTime: string, serviceType?: string): number => {
     if (!providers || providers.length === 0) return 0;
     const startMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
     const endMin = parseInt(endTime.split(':')[0]) * 60 + parseInt(endTime.split(':')[1]);
+    const d = new Date(date + 'T12:00:00');
+    const dayOfWeek = d.getDay();
 
     return (providers || []).filter((p: any) => {
-      // Get provider missions on this date
+      // Filter by service type if specified
+      if (serviceType) {
+        const normalizedType = getServiceTypeFromText(serviceType);
+        const providerType = getServiceTypeFromText(p.specialty || '');
+        if (normalizedType !== 'Autre' && normalizedType !== 'Personnalisé' && providerType !== normalizedType) return false;
+      }
+
+      // Check leave
+      const leaves = p.leaves || [];
+      const isOnLeave = leaves.some((l: any) => date >= l.startDate && date <= l.endDate && l.status === 'approved');
+      if (isOnLeave) return false;
+
+      // Check working hours for this day
+      const mode = p.availabilityMode || 'unavailable';
+      const workingHours = [8, 9, 10, 11, 12, 13, 14, 15]; // 8h to 15h (blocs matin 8h-12h, après-midi 12h-16h)
+      let availableHours: number[];
+      if (mode === 'available') {
+        const ranges = (p.availabilityHours || {})[dayOfWeek] || [];
+        if (ranges.length === 0) return false;
+        availableHours = workingHours.filter(hour => ranges.some((r: any) => {
+          const rStart = parseInt((r.start || r.startTime || '00:00').split(':')[0]);
+          const rEnd = parseInt((r.end || r.endTime || '00:00').split(':')[0]);
+          return hour >= rStart && hour < rEnd;
+        }));
+      } else {
+        const nonDays = p.nonInterventionDays || [];
+        if (nonDays.includes(dayOfWeek)) return false;
+        const ranges = (p.nonInterventionHours || {})[dayOfWeek] || [];
+        if (ranges.length === 0) { availableHours = workingHours; }
+        else {
+          availableHours = workingHours.filter(hour => !ranges.some((r: any) => {
+            const rStart = parseInt((r.start || r.startTime || '00:00').split(':')[0]);
+            const rEnd = parseInt((r.end || r.endTime || '00:00').split(':')[0]);
+            return hour >= rStart && hour < rEnd;
+          }));
+        }
+      }
+      // Provider must work during at least part of the requested time range
+      const reqStartH = Math.floor(startMin / 60);
+      const reqEndH = Math.ceil(endMin / 60);
+      if (!availableHours.some(h => h >= reqStartH && h < reqEndH)) return false;
+
+      // Check missions (use providerId from DataContext)
       const providerMissions = (missions || []).filter(
-        (m: any) => m.provider_id === p.id && m.date === date && m.status !== 'cancelled'
+        (m: any) => (m.providerId === p.id || m.provider_id === p.id) && m.date === date && m.status !== 'cancelled'
       );
-      // Check if any mission overlaps
       const hasConflict = providerMissions.some((m: any) => {
-        const mStart = parseInt((m.start_time || '').split(':')[0]) * 60 + parseInt((m.start_time || '').split(':')[1] || '0');
-        const mEnd = parseInt((m.end_time || '').split(':')[0]) * 60 + parseInt((m.end_time || '').split(':')[1] || '0');
+        const mStart = parseInt((m.start_time || m.startTime || '00:00').split(':')[0]) * 60 + parseInt((m.start_time || m.startTime || '00:00').split(':')[1] || '0');
+        const mEnd = parseInt((m.end_time || m.endTime || '00:00').split(':')[0]) * 60 + parseInt((m.end_time || m.endTime || '00:00').split(':')[1] || '0');
         return startMin < mEnd && endMin > mStart;
       });
       return !hasConflict;
@@ -4029,8 +4153,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       // Skip past dates
       if (dateStr < new Date().toISOString().split('T')[0]) continue;
 
-      // Check if first time slot is available
-      const availCount = getAvailableProvidersCount(dateStr, startTime, endTime);
+      // Check if first time slot is available (pass serviceType for accurate filtering)
+      const availCount = getAvailableProvidersCount(dateStr, startTime, endTime, pack.mainService);
       if (availCount > 0) {
         const genEndH = Math.floor(endMin / 60);
         const genEndM = endMin % 60;
@@ -4119,9 +4243,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const providerType = getServiceTypeFromText(p.specialty || '');
       // Match service type (Autre/Personnalisé match any provider)
       if (normalizedType !== 'Autre' && normalizedType !== 'Personnalisé' && providerType !== normalizedType) return false;
-      // Provider has some free time on this date
+      // Provider has some free time on this date (use providerId camelCase from DataContext)
       const providerMissions = (missions || []).filter(
-        (m: any) => m.provider_id === p.id && m.date === date && m.status !== 'cancelled'
+        (m: any) => (m.providerId === p.id || m.provider_id === p.id) && m.date === date && m.status !== 'cancelled'
       );
       const totalBusyMinutes = providerMissions.reduce((sum: number, m: any) => {
         const mStart = parseInt((m.start_time || '00:00').split(':')[0]) * 60 + parseInt((m.start_time || '00:00').split(':')[1] || '0');
@@ -4643,74 +4767,145 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     Choisissez vos horaires
                   </label>
                   <p className="text-xs text-gray-500 mb-3">
-                    Nos équipes interviennent de {OPEN_HOUR}h à {CLOSE_HOUR}h, 7j/7
+                    {getPackHoursPerSession(selectedPack) >= 3
+                      ? 'Pour les prestations de 3h ou plus, choisissez un créneau fixe : Matin ou Après-midi'
+                      : `Nos équipes interviennent de ${OPEN_HOUR}h à ${CLOSE_HOUR}h, 7j/7`
+                    }
                   </p>
 
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1">
-                        <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Début</label>
-                        <select
-                          value={customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`}
-                          onChange={(e) => {
-                            const start = e.target.value;
-                            setCustomStartTime(start);
-                            // Auto-set end time to start + hoursPerSession
-                            const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
-                            const endMin = startMin + getPackHoursPerSession(selectedPack) * 60;
-                            if (endMin <= CLOSE_HOUR * 60) {
-                              const endH = Math.floor(endMin / 60);
-                              const endM = endMin % 60;
-                              setCustomEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
-                            }
-                          }}
-                          className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        >
-                          {timeOptions.filter(t => parseInt(t) < CLOSE_HOUR).map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="text-gray-300 font-bold text-2xl mt-4">→</div>
-                      <div className="flex-1">
-                        <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Fin</label>
-                        <select
-                          value={customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`}
-                          onChange={(e) => setCustomEndTime(e.target.value)}
-                          className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        >
-                          {timeOptions.filter(t => {
-                            const start = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
-                            return t > start && parseInt(t) <= CLOSE_HOUR;
-                          }).map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
-                      </div>
+                  {getPackHoursPerSession(selectedPack) >= 3 ? (
+                    /* ── FIXED BLOCKS: Matin (8h-12h) / Après-midi (12h-16h) ── */
+                    <div className="space-y-2">
+                      {[
+                        { label: 'Matin', sub: '08:00 – 12:00', start: '08:00', end: '12:00', icon: '☀️' },
+                        { label: 'Après-midi', sub: '12:00 – 16:00', start: '12:00', end: '16:00', icon: '🌤️' },
+                      ].map((block) => {
+                        const blockCount = getAvailableProvidersCount(bookingSlot.date, block.start, block.end, selectedPack?.mainService);
+                        const isSelected = customStartTime === block.start && customEndTime === block.end;
+                        return (
+                          <button
+                            key={block.label}
+                            onClick={() => { setCustomStartTime(block.start); setCustomEndTime(block.end); }}
+                            disabled={blockCount === 0 && providers.length > 0}
+                            className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                                : blockCount === 0 && providers.length > 0
+                                ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                                : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'
+                            }`}
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${isSelected ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                              {block.icon}
+                            </div>
+                            <div className="flex-1 text-left">
+                              <div className="font-bold text-gray-800">{block.label}</div>
+                              <div className="text-xs text-gray-500">{block.sub} • {getPackHoursPerSession(selectedPack)}h de prestation</div>
+                            </div>
+                            <div className="text-right">
+                              {blockCount > 0 ? (
+                                <span className="text-[11px] px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold">
+                                  {blockCount} dispo
+                                </span>
+                              ) : (
+                                <span className="text-[11px] px-2 py-1 bg-red-100 text-red-600 rounded-full font-bold">
+                                  Complet
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
+                  ) : (
+                    /* ── FLEXIBLE: Dropdown selectors for services < 3h ── */
+                    <>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1">
+                            <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Début</label>
+                            <select
+                              value={customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`}
+                              onChange={(e) => {
+                                const start = e.target.value;
+                                setCustomStartTime(start);
+                                const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
+                                const endMin = startMin + getPackHoursPerSession(selectedPack) * 60;
+                                if (endMin <= CLOSE_HOUR * 60) {
+                                  const endH = Math.floor(endMin / 60);
+                                  const endM = endMin % 60;
+                                  setCustomEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
+                                }
+                              }}
+                              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            >
+                              {timeOptions.filter(t => parseInt(t) < CLOSE_HOUR).map(t => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="text-gray-300 font-bold text-2xl mt-4">→</div>
+                          <div className="flex-1">
+                            <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1">Fin</label>
+                            <select
+                              value={customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`}
+                              onChange={(e) => setCustomEndTime(e.target.value)}
+                              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            >
+                              {timeOptions.filter(t => {
+                                const start = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                                return t > start && parseInt(t) <= CLOSE_HOUR;
+                              }).map(t => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="mt-3 text-center">
+                          <span className="text-xs font-bold text-gray-500">Durée : </span>
+                          <span className="text-sm font-bold text-emerald-600">
+                            {(() => {
+                              const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
+                              const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
+                              const sMin = parseInt(s.split(':')[0]) * 60 + parseInt(s.split(':')[1]);
+                              const eMin = parseInt(e.split(':')[0]) * 60 + parseInt(e.split(':')[1]);
+                              const diff = eMin - sMin;
+                              return diff > 0 ? `${Math.floor(diff / 60)}h${diff % 60 ? `30` : ''}` : '0h';
+                            })()}
+                          </span>
+                        </div>
+                      </div>
 
-                    {/* Duration display */}
-                    <div className="mt-3 text-center">
-                      <span className="text-xs font-bold text-gray-500">Durée : </span>
-                      <span className="text-sm font-bold text-emerald-600">
-                        {(() => {
-                          const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
-                          const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                          const sMin = parseInt(s.split(':')[0]) * 60 + parseInt(s.split(':')[1]);
-                          const eMin = parseInt(e.split(':')[0]) * 60 + parseInt(e.split(':')[1]);
-                          const diff = eMin - sMin;
-                          return diff > 0 ? `${Math.floor(diff / 60)}h${diff % 60 ? `30` : ''}` : '0h';
-                        })()}
-                      </span>
-                    </div>
-                  </div>
+                      {/* Quick select: available ranges */}
+                      {(() => {
+                        const ranges = getAvailableRangesForDate(bookingSlot.date);
+                        if (ranges.length === 0) return null;
+                        return (
+                          <div className="mt-3">
+                            <p className="text-[10px] text-gray-400 font-bold mb-1">Plages libres :</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {ranges.map((r, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => { setCustomStartTime(r.startTime); setCustomEndTime(r.endTime); }}
+                                  className="text-[11px] px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold hover:bg-emerald-200 transition"
+                                >
+                                  {r.startTime}–{r.endTime}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
 
                   {/* Provider availability count */}
                   <div className="mt-3 flex items-center gap-2">
                     {(() => {
                       const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
                       const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                      const count = getAvailableProvidersCount(bookingSlot.date, s, e);
+                      const count = getAvailableProvidersCount(bookingSlot.date, s, e, selectedPack?.mainService);
                       return (
                         <div className={`flex-1 p-3 rounded-lg border ${count > 0 ? 'bg-emerald-50 border-emerald-200' : count === 0 && providers.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex items-center gap-2">
@@ -4740,28 +4935,6 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                       );
                     })()}
                   </div>
-
-                  {/* Quick select: available ranges */}
-                  {(() => {
-                    const ranges = getAvailableRangesForDate(bookingSlot.date);
-                    if (ranges.length === 0) return null;
-                    return (
-                      <div className="mt-3">
-                        <p className="text-[10px] text-gray-400 font-bold mb-1">Plages libres :</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {ranges.map((r, i) => (
-                            <button
-                              key={i}
-                              onClick={() => { setCustomStartTime(r.startTime); setCustomEndTime(r.endTime); }}
-                              className="text-[11px] px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold hover:bg-emerald-200 transition"
-                            >
-                              {r.startTime}–{r.endTime}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </div>
 
                 {/* Navigation buttons */}
@@ -4789,7 +4962,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     disabled={(() => {
                       const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
                       const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                      return (getAvailableProvidersCount(bookingSlot.date, s, e) === 0 && providers.length > 0) || isBooking;
+                      return (getAvailableProvidersCount(bookingSlot.date, s, e, selectedPack?.mainService) === 0 && providers.length > 0) || isBooking;
                     })()}
                     className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
                   >
@@ -4837,7 +5010,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                           <div className="text-xs text-gray-500">{slot.startTime} – {slot.endTime}</div>
                         </div>
                         {(() => {
-                          const count = getAvailableProvidersCount(slot.date, slot.startTime, slot.endTime);
+                          const count = getAvailableProvidersCount(slot.date, slot.startTime, slot.endTime, selectedPack?.mainService);
                           return count > 0 ? (
                             <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold">{count} dispo</span>
                           ) : (
