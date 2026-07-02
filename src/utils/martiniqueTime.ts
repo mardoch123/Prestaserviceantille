@@ -24,9 +24,11 @@ export const toMartiniqueTime = (date: Date = new Date()): Date => {
  * @returns Chaîne de caractères formatée
  */
 export const formatMartiniqueDateTime = (
-  date: Date | string, 
+  date: Date | string | undefined | null, 
   options?: Intl.DateTimeFormatOptions
 ): string => {
+  if (!date) return '';
+  
   const dateObj = (() => {
     if (typeof date !== 'string') return date;
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -34,6 +36,8 @@ export const formatMartiniqueDateTime = (
     }
     return new Date(date);
   })();
+  
+  if (!dateObj || isNaN(dateObj.getTime())) return '';
   
   const baseOptions: Intl.DateTimeFormatOptions = {
     timeZone: MARTINIQUE_TIMEZONE,
