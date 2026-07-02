@@ -4099,6 +4099,40 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     });
   };
 
+  // Service type badge helper
+  const getServiceTypeBadge = (serviceType: string) => {
+    const type = getServiceTypeFromText(serviceType);
+    switch (type) {
+      case 'Ménage': return { bg: 'bg-blue-100', text: 'text-blue-700', icon: '🧹' };
+      case 'Jardinage': return { bg: 'bg-green-100', text: 'text-green-700', icon: '🌿' };
+      case 'Bricolage': return { bg: 'bg-orange-100', text: 'text-orange-700', icon: '🔧' };
+      case 'Personnalisé': return { bg: 'bg-purple-100', text: 'text-purple-700', icon: '✨' };
+      default: return { bg: 'bg-gray-100', text: 'text-gray-700', icon: '📋' };
+    }
+  };
+
+  // Count providers available for a service type on a date
+  const getAvailableProvidersByServiceType = useCallback((date: string, serviceType: string): number => {
+    if (!providers || providers.length === 0) return 0;
+    const normalizedType = getServiceTypeFromText(serviceType);
+    return (providers || []).filter((p: any) => {
+      const providerType = getServiceTypeFromText(p.specialty || '');
+      // Match service type (Autre/Personnalisé match any provider)
+      if (normalizedType !== 'Autre' && normalizedType !== 'Personnalisé' && providerType !== normalizedType) return false;
+      // Provider has some free time on this date
+      const providerMissions = (missions || []).filter(
+        (m: any) => m.provider_id === p.id && m.date === date && m.status !== 'cancelled'
+      );
+      const totalBusyMinutes = providerMissions.reduce((sum: number, m: any) => {
+        const mStart = parseInt((m.start_time || '00:00').split(':')[0]) * 60 + parseInt((m.start_time || '00:00').split(':')[1] || '0');
+        const mEnd = parseInt((m.end_time || '00:00').split(':')[0]) * 60 + parseInt((m.end_time || '00:00').split(':')[1] || '0');
+        return sum + Math.max(0, mEnd - mStart);
+      }, 0);
+      const workDayMinutes = (CLOSE_HOUR - OPEN_HOUR) * 60;
+      return totalBusyMinutes < workDayMinutes;
+    }).length;
+  }, [providers, missions]);
+
   // Available packs
   const availablePacks = useMemo(() => {
     return packs.filter(p => p.priceTTC > 0);
@@ -4505,11 +4539,14 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   {availablePacks.length === 0 ? (
                     <p className="text-sm text-gray-500 italic">Aucun pack disponible. Contactez-nous.</p>
                   ) : (
-                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                       {availablePacks.map(pack => {
                         const sessions = getPackSessionCount(pack);
                         const hoursPerSession = getPackHoursPerSession(pack);
                         const totalHours = sessions * hoursPerSession;
+                        const badge = getServiceTypeBadge(pack.mainService || '');
+                        const serviceTypeName = getServiceTypeFromText(pack.mainService || '');
+                        const availCount = getAvailableProvidersByServiceType(bookingSlot.date, pack.mainService || '');
                         return (
                           <button
                             key={pack.id}
@@ -4521,10 +4558,24 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`${badge.bg} ${badge.text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
+                                    {badge.icon} {serviceTypeName}
+                                  </span>
+                                  {availCount > 0 ? (
+                                    <span className="text-[10px] text-emerald-600 font-bold">
+                                      {availCount} prest. dispo
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-orange-500 font-bold">
+                                      Demander devis
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="font-bold text-gray-800">{pack.name}</div>
                                 <div className="text-xs text-gray-500 mt-0.5">
-                                  {pack.mainService} • {pack.frequency}
+                                  {pack.frequency}
                                 </div>
                                 <div className="flex items-center gap-2 mt-1.5">
                                   {sessions > 1 ? (
@@ -4538,7 +4589,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                                   )}
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="text-right ml-3">
                                 <div className="text-lg font-bold text-emerald-600">{pack.priceTTC.toFixed(2)} €</div>
                                 {(pack as any).isSap && (
                                   <div className="text-[10px] text-teal-500 font-bold mt-0.5">SAP (crédit d'impôt)</div>
@@ -4570,6 +4621,11 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 {/* Pack summary */}
                 <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 flex items-center justify-between">
                   <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`${getServiceTypeBadge(selectedPack.mainService || '').bg} ${getServiceTypeBadge(selectedPack.mainService || '').text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
+                        {getServiceTypeBadge(selectedPack.mainService || '').icon} {getServiceTypeFromText(selectedPack.mainService || '')}
+                      </span>
+                    </div>
                     <div className="text-sm font-bold text-emerald-800">{selectedPack.name}</div>
                     <div className="text-xs text-emerald-600">
                       {getPackSessionCount(selectedPack)} séance{getPackSessionCount(selectedPack) > 1 ? 's' : ''} • {getPackHoursPerSession(selectedPack)}h/séance • {selectedPack.priceTTC.toFixed(2)} €
