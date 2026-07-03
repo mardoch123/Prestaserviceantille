@@ -174,6 +174,7 @@ const Planning: React.FC = () => {
 
   // --- GRAFTED: Mini-dashboard semaine ---
   const [showWeekDashboard, setShowWeekDashboard] = useState(false);
+  const [showPlanningControls, setShowPlanningControls] = useState(true);
 
   // --- GRAFTED: Fiche stats prestataire ---
   const [selectedProviderStats, setSelectedProviderStats] = useState<Provider | null>(null);
@@ -2493,6 +2494,23 @@ const Planning: React.FC = () => {
 
 
 
+      {/* GRAFTED: Bouton dépliable pour masquer/afficher les contrôles (PC uniquement) */}
+      <button
+          type="button"
+          onClick={() => setShowPlanningControls(v => !v)}
+          className="hidden lg:flex w-full items-center justify-center gap-2 px-4 py-3 mb-3 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900 text-white rounded-xl transition shadow-lg"
+          aria-expanded={showPlanningControls}
+      >
+          <SlidersHorizontal className="w-4 h-4" />
+          <span className="font-bold text-sm">
+              {showPlanningControls ? 'Masquer' : 'Afficher'} les options & filtres
+          </span>
+          <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${showPlanningControls ? 'rotate-90' : ''}`} />
+      </button>
+
+      {/* Contrôles planning: toujours visible sur mobile, dépliable sur PC */}
+      <div className={`${showPlanningControls ? 'block' : 'hidden lg:hidden'}`}>
+
       {/* GRAFTED: Mini-dashboard semaine */}
       <div className="mb-3">
           <button
@@ -2800,6 +2818,8 @@ const Planning: React.FC = () => {
        </div>
       </div>
       {/* End Desktop Toolbar wrapper */}
+      </div>
+      {/* End Contrôles planning wrapper */}
 
        {/* GRAFTED: Sidebar Prestations en attente */}
        {showUnassignedSidebar && filteredUnassignedMissions.length > 0 && (

@@ -207,14 +207,19 @@ export function isProviderFreeDuring(
 }
 
 /**
- * Calcule les créneaux libres pour une date et un ensemble de prestataires.
- * Utilise TOUJOURS les blocs fixes Matin (08:00–12:00) / Après-midi (12:00–16:00).
- * Un bloc n'est retourné QUE si au moins un prestataire est libre pendant toute sa durée.
+ * Créneaux de durée valides (en heures) pour la réservation.
+ */
+export const VALID_DURATIONS_H = [3, 4, 6] as const;
+
+/**
+ * Calcule les créneaux libres de 3h, 4h ou 6h consécutifs pour une date donnée.
+ * Pour chaque heure de début possible (par tranches d'1h), vérifie si au moins un
+ * prestataire est disponible pour la durée complète.
  *
  * @param dateStr       Date au format YYYY-MM-DD
  * @param providers     Liste de prestataires
  * @param missions      Liste de missions (toutes dates)
- * @param serviceDuration  Durée du service en heures (optionnel, conservé pour compatibilité)
+ * @param serviceDuration  Durée souhaitée en heures (optionnel, par défaut essaie toutes les durées valides)
  * @returns             Créneaux libres { startTime, endTime }
  */
 export function computeFreeSlots(
@@ -228,28 +233,50 @@ export function computeFreeSlots(
   }
 
   const dayOfWeek = getDayOfWeek(dateStr);
+  const openHour = AVAILABILITY_OPEN_HOUR;  // 8
+  const closeHour = AVAILABILITY_CLOSE_HOUR; // 16
 
-  // ── BLOCS FIXES : Matin (08:00–12:00) / Après-midi (12:00–16:00) ──
-  // Un bloc est "libre" si au moins un prestataire est disponible pour la totalité du bloc
-  return FIXED_BLOCKS
-    .filter(block => {
-      const bStart = timeToMinutes(block.startTime);
-      const bEnd = timeToMinutes(block.endTime);
-      // Au moins un prestataire dispo pour ce bloc complet
-      return providers.some(p => {
+  // Durées à tester : si serviceDuration spécifié et valide, n'utiliser que celle-là
+  const durations = serviceDuration && VALID_DURATIONS_H.includes(serviceDuration as any)
+    ? [serviceDuration]
+    : [...VALID_DURATIONS_H];
+
+  const slots: TimeSlot[] = [];
+  const seen = new Set<string>(); // éviter les doublons
+
+  // Pour chaque durée (6h, 4h, 3h - du plus long au plus court)
+  for (const duration of durations.sort((a, b) => b - a)) {
+    // Pour chaque heure de début possible
+    for (let startH = openHour; startH + duration <= closeHour; startH++) {
+      const endH = startH + duration;
+      const startMin = startH * 60;
+      const endMin = endH * 60;
+      const key = `${startMin}-${endMin}`;
+
+      // Vérifier si au moins un prestataire est libre pour cette durée complète
+      const hasProvider = providers.some(p => {
         if (isProviderOnLeave(p, dateStr)) return false;
         const workingHours = getProviderWorkingHours(p, dayOfWeek);
-        const blockStartH = Math.floor(bStart / 60);
-        const blockEndH = Math.ceil(bEnd / 60);
-        // Le prestataire doit travailler pendant la totalité du bloc
-        for (let h = blockStartH; h < blockEndH; h++) {
+        // Le prestataire doit travailler pendant TOUTES les heures du créneau
+        for (let h = startH; h < endH; h++) {
           if (!workingHours.includes(h)) return false;
         }
-        // Et ne pas avoir de mission qui chevauche ce bloc
-        return isProviderFreeDuring(p, dateStr, bStart, bEnd, missions);
+        // Et ne pas avoir de mission qui chevauche ce créneau
+        return isProviderFreeDuring(p, dateStr, startMin, endMin, missions);
       });
-    })
-    .map(block => ({ startTime: block.startTime, endTime: block.endTime }));
+
+      if (hasProvider && !seen.has(key)) {
+        seen.add(key);
+        slots.push({
+          startTime: minutesToTime(startMin),
+          endTime: minutesToTime(endMin),
+        });
+      }
+    }
+  }
+
+  // Trier par heure de début
+  return slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
 }
 
 /**

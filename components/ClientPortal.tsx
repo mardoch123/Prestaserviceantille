@@ -4399,8 +4399,13 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   ) : hasSlots ? (
                     day.freeSlots.map((sl, i) => {
                       const slotInfo = getSlotProviderDetails(day.date, sl.startTime, sl.endTime);
-                      const isMatin = sl.startTime < '12:00';
-                      const label = isMatin ? '☀️ Matin' : '🌤️ Après-midi';
+                      // Calculer la durée du créneau
+                      const [sh, sm] = sl.startTime.split(':').map(Number);
+                      const [eh, em] = sl.endTime.split(':').map(Number);
+                      const durationH = (eh * 60 + em - sh * 60 - sm) / 60;
+                      const durationLabel = `${durationH}h`;
+                      // Icône selon l'heure de début
+                      const icon = sh < 12 ? '☀️' : sh < 15 ? '🌤️' : '🌅';
                       return (
                         <button
                           key={i}
@@ -4409,8 +4414,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                         >
                           <div className="flex items-center gap-1.5 w-full">
                             <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                            <span className="text-[11px] font-bold text-green-800">{label}</span>
-                            <span className="text-[10px] text-green-600">{sl.startTime}–{sl.endTime}</span>
+                            <span className="text-[11px] font-bold text-green-800">{icon} {sl.startTime}–{sl.endTime}</span>
+                            <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{durationLabel}</span>
                             <ArrowRight className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition ml-auto" />
                           </div>
                           {slotInfo.count > 0 && (
