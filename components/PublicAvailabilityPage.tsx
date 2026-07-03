@@ -13,6 +13,14 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
+import {
+  computeFreeSlotsForServiceType,
+  getAvailableProvidersCount as getAvailableProvidersCountUtil,
+  slotDurationMinutes,
+  mapSpecialtyToDomain,
+  AVAILABILITY_OPEN_HOUR,
+  AVAILABILITY_CLOSE_HOUR,
+} from '../utils/availabilityCalculator';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -46,8 +54,8 @@ const MONTHS = [
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ];
 
-const OPEN_HOUR = 9;
-const CLOSE_HOUR = 16;
+const OPEN_HOUR = AVAILABILITY_OPEN_HOUR;
+const CLOSE_HOUR = AVAILABILITY_CLOSE_HOUR;
 const SERVICE_TYPES = ['Ménage', 'Jardinage', 'Bricolage', 'Autre'] as const;
 
 const SERVICE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -86,80 +94,7 @@ const getToday = (): Date => {
   return new Date(mtq.getFullYear(), mtq.getMonth(), mtq.getDate());
 };
 
-function mapSpecialtyToDomain(specialty: string): string {
-  const s = (specialty || '').toLowerCase();
-  if (s.includes('ménage') || s.includes('menage') || s.includes('nettoyage')) return 'Ménage';
-  if (s.includes('jardin')) return 'Jardinage';
-  if (s.includes('bricol')) return 'Bricolage';
-  return 'Autre';
-}
-
-function getHourSlots(
-  provider: any,
-  dayOfWeek: number,
-  busyMissions: { start_time: string; end_time: string }[]
-): number[] {
-  const hours = Array.from({ length: 7 }, (_, i) => i + OPEN_HOUR);
-  const availabilityMode = provider.availability_mode || provider.availabilityMode || 'unavailable';
-  const availabilityHours = provider.availability_hours || provider.availabilityHours || {};
-  const nonInterventionHours = provider.non_intervention_hours || provider.nonInterventionHours || {};
-  const nonInterventionDays = provider.non_intervention_days || provider.nonInterventionDays || [];
-
-  // Check if this day is a non-intervention day (rest day)
-  if (Array.isArray(nonInterventionDays) && nonInterventionDays.includes(dayOfWeek)) return [];
-
-  const isInRange = (hour: number, ranges: Array<{ start: string; end: string }>): boolean => {
-    if (!ranges || ranges.length === 0) return false;
-    return ranges.some(r => {
-      const sh = parseInt(r.start?.split(':')[0] || '0');
-      const eh = parseInt(r.end?.split(':')[0] || '0');
-      return hour >= sh && hour < eh;
-    });
-  };
-
-  let allowedHours: number[];
-  if (availabilityMode === 'available') {
-    const ranges = availabilityHours[dayOfWeek] || [];
-    if (ranges.length === 0) return [];
-    allowedHours = hours.filter(h => isInRange(h, ranges));
-  } else {
-    const ranges = nonInterventionHours[dayOfWeek] || [];
-    allowedHours = ranges.length === 0 ? hours : hours.filter(h => !isInRange(h, ranges));
-  }
-
-  return allowedHours.filter(hour => {
-    return !busyMissions.some(m => {
-      const sh = parseInt(m.start_time?.split(':')[0] || '0');
-      const eh = parseInt(m.end_time?.split(':')[0] || '0');
-      return hour >= sh && hour < eh;
-    });
-  });
-}
-
-function mergeHoursToSlots(hours: number[]): TimeSlot[] {
-  if (hours.length === 0) return [];
-  const sorted = [...hours].sort((a, b) => a - b);
-  const slots: TimeSlot[] = [];
-  let start = sorted[0];
-  let end = sorted[0] + 1;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === end) {
-      end = sorted[i] + 1;
-    } else {
-      slots.push({ startTime: `${pad(start)}:00`, endTime: `${pad(end)}:00` });
-      start = sorted[i];
-      end = sorted[i] + 1;
-    }
-  }
-  slots.push({ startTime: `${pad(start)}:00`, endTime: `${pad(end)}:00` });
-  return slots;
-}
-
-function slotDuration(slot: TimeSlot): number {
-  const [sh, sm] = slot.startTime.split(':').map(Number);
-  const [eh, em] = slot.endTime.split(':').map(Number);
-  return (eh * 60 + em) - (sh * 60 + sm);
-}
+// ─── (helpers locaux supprimés, logique centralisée dans availabilityCalculator.ts) ───
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -177,19 +112,27 @@ const PublicAvailabilityPage: React.FC = () => {
       const [missionsRes, providersRes] = await Promise.all([
         supabase
           .from('missions')
-          .select('date, start_time, end_time, provider_id')
+          .select('date, start_time, end_time, provider_id, status')
           .gte('date', startDate)
           .lte('date', endDate)
           .neq('status', 'cancelled'),
         supabase
           .from('providers')
-          .select('id, specialty, status, availability_mode, availability_hours, non_intervention_hours, non_intervention_days')
-          .in('status', ['Active', 'Passive']),
+          .select('id, specialty, status, availability_mode, availability_hours, non_intervention_hours, non_intervention_days'),
       ]);
       if (missionsRes.error) throw missionsRes.error;
       if (providersRes.error) throw providersRes.error;
-      setMissions((missionsRes.data || []) as any[]);
-      setProviders((providersRes.data || []) as any[]);
+      const m = (missionsRes.data || []) as any[];
+      // Filtrer côté client les providers actifs (compatible FR + EN)
+      const allProviders = (providersRes.data || []) as any[];
+      const p = allProviders.filter((prov: any) => {
+        const s = String(prov.status || '').toLowerCase().trim();
+        return s === 'active' || s === 'actif' || s === 'passive' || s === 'passif';
+      });
+      console.log('[PublicAvailability] Fetched:', allProviders.length, 'total providers,', p.length, 'active,', m.length, 'missions');
+      p.forEach((prov: any) => console.log(`  Provider: ${prov.id} | status=${prov.status} | specialty=${prov.specialty} | domain=${mapSpecialtyToDomain(prov.specialty)}`));
+      setMissions(m);
+      setProviders(p);
     } catch (e) {
       console.error('[PublicAvailability] fetch error:', e);
     } finally {
@@ -226,7 +169,7 @@ const PublicAvailabilityPage: React.FC = () => {
     return map;
   }, [providers]);
 
-  // Build day availability map — segmented by service type
+  // Build day availability map — segmented by service type (granularité 30 min)
   const dayMap = useMemo(() => {
     const map = new Map<string, DayAvailability>();
     const today = getToday();
@@ -254,32 +197,27 @@ const PublicAvailabilityPage: React.FC = () => {
           const domainProviders = providersByDomain[svcType] || [];
           if (domainProviders.length === 0) continue;
 
-          // Count how many providers are free at each hour
-          const hourFreeCount: Record<number, number> = {};
-          for (const hour of Array.from({ length: 7 }, (_, i) => i + OPEN_HOUR)) {
-            hourFreeCount[hour] = 0;
-          }
+          // Calcul centralisé : créneaux libres pour ce type de service
+          const freeSlots = computeFreeSlotsForServiceType(
+            dateStr,
+            domainProviders,
+            missions,
+            svcType,
+            null
+          );
 
-          for (const provider of domainProviders) {
-            const providerMissions = missions.filter(
-              m => m.provider_id === provider.id && m.date === dateStr
+          // Compter le nombre max de prestataires libres sur ces créneaux
+          let freeProviderCount = 0;
+          for (const slot of freeSlots) {
+            const count = getAvailableProvidersCountUtil(
+              dateStr,
+              slot.startTime,
+              slot.endTime,
+              domainProviders,
+              missions
             );
-            const freeHours = getHourSlots(provider, dayOfWeek, providerMissions);
-            for (const h of freeHours) {
-              hourFreeCount[h] = (hourFreeCount[h] || 0) + 1;
-            }
+            if (count > freeProviderCount) freeProviderCount = count;
           }
-
-          // Only keep hours where at least 1 provider is genuinely free
-          const availableHours = Object.keys(hourFreeCount)
-            .map(Number)
-            .filter(h => hourFreeCount[h] > 0)
-            .sort((a, b) => a - b);
-
-          const freeSlots = mergeHoursToSlots(availableHours);
-          const freeProviderCount = availableHours.length > 0
-            ? Math.max(...availableHours.map(h => hourFreeCount[h]))
-            : 0;
 
           if (freeSlots.length > 0) {
             dayData.availableServices.push({
@@ -353,7 +291,7 @@ const PublicAvailabilityPage: React.FC = () => {
   );
   const totalFreeHoursWeek = weekDays.reduce(
     (s, d) => s + d.availableServices.reduce(
-      (h, svc) => h + svc.freeSlots.reduce((t, sl) => t + slotDuration(sl), 0), 0
+      (h, svc) => h + svc.freeSlots.reduce((t, sl) => t + slotDurationMinutes(sl), 0), 0
     ), 0
   );
 

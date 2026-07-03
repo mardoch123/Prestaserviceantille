@@ -165,7 +165,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
     }
 
     const providers = allProviders.filter(p => {
-      const isActive = p.status === 'Active' || p.status === 'Passive';
+      const isActive = ['active', 'actif', 'passive', 'passif'].includes(String(p.status || '').toLowerCase());
       console.log(`Provider ${p.firstName} ${p.lastName}: status=${p.status}, isActive=${isActive}`);
       return isActive;
     });
@@ -536,7 +536,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
                 Filtre: {domainFilter}, Recherche: "{searchQuery}"
               </p>
               <p className="text-xs text-slate-400">
-                Total prestataires: {allProviders.length}, Actifs: {allProviders.filter(p => p.status === 'Active' || p.status === 'Passive').length}
+                Total prestataires: {allProviders.length}, Actifs: {allProviders.filter(p => ['active', 'actif', 'passive', 'passif'].includes(String(p.status || '').toLowerCase())).length}
               </p>
             </div>
           ) : (

@@ -12,6 +12,15 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
 import { getServiceTypeOptions, type ServiceTypeFilter } from '../utils/serviceTypes';
+import {
+  computeFreeSlots,
+  getProviderWorkingHours,
+  isProviderOnLeave,
+  isProviderFreeDuring,
+  isProviderActive,
+  AVAILABILITY_OPEN_HOUR,
+  AVAILABILITY_CLOSE_HOUR,
+} from '../utils/availabilityCalculator';
 import { setApiConfig } from '../src/config/apiConfig';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -4694,7 +4703,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 .maybeSingle();
 
             if (providerData) {
-                if (providerData.status !== 'Active') return false;
+                if (!isProviderActive(providerData)) return false;
 
                 const storedPwd = String(providerData.initial_password || '');
                 if (!storedPwd) {
@@ -5981,7 +5990,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // On vérifie s'il en reste au moins 1 (pour prendre CETTE mission)
                 
                 const qualifiedProviders = providers.filter(p => {
-                    if (p.status !== 'Active') return false;
+                    if (!isProviderActive(p)) return false;
                     // Filter by service type if possible (assuming providers have 'services' array or similar)
                     // If no service info on provider, assume they can do it or rely on manual assignment later.
                     // For now, let's assume all active providers are candidates unless we have service data.
@@ -7365,46 +7374,66 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const getAvailableSlots = (date: string) => {
-        const potentialTimes = [
+        // Logique centralisée : calcule les vrais créneaux libres (granularité 30 min)
+        // puis génère des fenêtres de 2h pour l'affichage dans Reservations.tsx
+        const activeProviders = providers.filter(p => isProviderActive(p));
+        const normalizedMissions = missions.map((m: any) => ({
+            providerId: m.providerId ?? m.provider_id,
+            provider_id: m.provider_id ?? m.providerId,
+            date: m.date,
+            start_time: m.start_time ?? m.startTime,
+            startTime: m.startTime ?? m.start_time,
+            end_time: m.end_time ?? m.endTime,
+            endTime: m.endTime ?? m.end_time,
+            status: m.status,
+        }));
+
+        // Génère les créneaux candidats de 2h dans la plage 08h–16h
+        const candidateSlots = [
             { start: '08:00', end: '10:00' },
             { start: '10:00', end: '12:00' },
-            { start: '13:00', end: '15:00' },
-            { start: '15:00', end: '17:00' }
+            { start: '12:00', end: '14:00' },
+            { start: '14:00', end: '16:00' },
         ];
+
         const available: { time: string, provider: string, score: number, reason: string }[] = [];
 
-        providers.filter(p => p.status === 'Active').forEach(provider => {
-            const leavesOnDate = provider.leaves.filter(l => {
-                return date >= l.startDate && date <= l.endDate;
-            });
+        activeProviders.forEach(provider => {
+            // Vérifie congé
+            if (isProviderOnLeave(provider, date)) return;
 
-            const providerMissions = missions.filter(m => m.providerId === provider.id && m.date === date && m.status !== 'cancelled');
+            candidateSlots.forEach(slot => {
+                const startMin = parseInt(slot.start.split(':')[0]) * 60;
+                const endMin = parseInt(slot.end.split(':')[0]) * 60;
 
-            potentialTimes.forEach(slot => {
-                const isLeave = leavesOnDate.some(l => {
-                    const lStart = l.startTime || '00:00';
-                    const lEnd = l.endTime || '23:59';
-                    return (slot.start < lEnd && slot.end > lStart);
-                });
-
-                const isTaken = providerMissions.some(m => {
-                    return (slot.start < m.endTime && slot.end > m.startTime);
-                });
-
-                if (!isTaken && !isLeave) {
-                    let score = 70;
-                    if (provider.rating >= 4.5) score += 20;
-                    if (provider.hoursWorked < 100) score += 10;
-                    available.push({
-                        time: `${slot.start} - ${slot.end}`,
-                        provider: `${provider.firstName} ${provider.lastName}`,
-                        score: Math.min(score, 100),
-                        reason: 'Disponible'
-                    });
+                // Le prestataire doit travailler pendant tout le créneau
+                const d = new Date(date + 'T12:00:00');
+                const dayOfWeek = d.getDay();
+                const workingHours = getProviderWorkingHours(provider, dayOfWeek);
+                const startH = Math.floor(startMin / 60);
+                const endH = Math.ceil(endMin / 60);
+                let worksFullSlot = true;
+                for (let h = startH; h < endH; h++) {
+                    if (!workingHours.includes(h)) { worksFullSlot = false; break; }
                 }
+                if (!worksFullSlot) return;
+
+                // Vérifie conflits de mission (précis en minutes)
+                const isFree = isProviderFreeDuring(provider, date, startMin, endMin, normalizedMissions);
+                if (!isFree) return;
+
+                let score = 70;
+                if (provider.rating >= 4.5) score += 20;
+                if (provider.hoursWorked < 100) score += 10;
+                available.push({
+                    time: `${slot.start} - ${slot.end}`,
+                    provider: `${provider.firstName} ${provider.lastName}`,
+                    score: Math.min(score, 100),
+                    reason: 'Disponible'
+                });
             });
         });
-        return available.sort((a, b) => b.score - a.score).slice(0, 5);
+        return available.sort((a, b) => b.score - a.score).slice(0, 8);
     };
 
     // Fonctions pour les contrats génériques

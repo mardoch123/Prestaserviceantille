@@ -17,11 +17,10 @@ export async function getProvidersWithAvailability(
   startDate: string,
   endDate: string
 ): Promise<ProviderWithAvailability[]> {
-  // Get all active providers (limit 100)
+  // Get all providers, filter active/passive client-side (compatible FR + EN)
   const { data: providersData, error: providersError } = await supabase
     .from('providers')
     .select('id, first_name, last_name, email, phone, specialty, status, rating')
-    .in('status', ['Active', 'Passive'])
     .order('first_name', { ascending: true })
     .limit(100);
 
@@ -33,6 +32,12 @@ export async function getProvidersWithAvailability(
   if (!providersData || providersData.length === 0) {
     return [];
   }
+
+  // Filtrer côté client: Active/Actif ou Passive/Passif
+  const activeProviders = providersData.filter((p: any) => {
+    const s = String(p.status || '').toLowerCase().trim();
+    return s === 'active' || s === 'actif' || s === 'passive' || s === 'passif';
+  });
 
   // Get provider availability slots for the date range (limit 100)
   const { data: availabilityData, error: availabilityError } = await supabase
@@ -65,7 +70,7 @@ export async function getProvidersWithAvailability(
   const availabilityMap = new Map<string, Map<string, ProviderAvailabilitySlot>>();
   const availableSlotsMap = new Map<string, Map<string, { startTime: string; endTime: string }[]>>();
 
-  providersData.forEach((provider: any) => {
+  activeProviders.forEach((provider: any) => {
     availabilityMap.set(provider.id, new Map());
     availableSlotsMap.set(provider.id, new Map());
   });
@@ -95,7 +100,7 @@ export async function getProvidersWithAvailability(
   });
 
   // Map providers with their availability
-  return providersData.map((provider: any) => {
+  return activeProviders.map((provider: any) => {
     const domain = mapSpecialtyToDomain(provider.specialty);
     const providerAvailability = availabilityMap.get(provider.id) || new Map();
     const providerAvailableSlots = availableSlotsMap.get(provider.id) || new Map();
