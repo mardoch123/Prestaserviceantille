@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Clock,
   CheckCircle2,
   XCircle,
@@ -14,23 +15,23 @@ import {
 } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
 import {
-  computeFreeSlotsForServiceType,
-  getAvailableProvidersCount as getAvailableProvidersCountUtil,
-  slotDurationMinutes,
+  computeAvailabilitySlots,
+  groupSlotsByTime,
+  getProvisionalMissionsFromDocuments,
   mapSpecialtyToDomain,
   AVAILABILITY_OPEN_HOUR,
   AVAILABILITY_CLOSE_HOUR,
+  MissionLike,
+  GroupedSlot,
 } from '../utils/availabilityCalculator';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type TimeSlot = { startTime: string; endTime: string };
-
 type ServiceAvailability = {
   serviceType: string;
-  freeSlots: TimeSlot[];
+  groupedSlots: GroupedSlot[];
   totalProviders: number;
-  freeProviderCount: number;
+  maxFreeProviderCount: number;
 };
 
 type DayAvailability = {
@@ -96,6 +97,19 @@ const getToday = (): Date => {
 
 // ─── (helpers locaux supprimés, logique centralisée dans availabilityCalculator.ts) ───
 
+// Helper pour récupérer les noms des prestataires à partir de leurs IDs (sans doublons)
+const getProviderNamesFromIds = (ids: string[], providersList: any[]): string[] => {
+  const uniqueIds = [...new Set(ids.map(String))]; // Dédupliquer les IDs
+  return uniqueIds
+    .map(id => {
+      const p = providersList.find(pr => String(pr.id) === String(id));
+      if (!p) return null;
+      const name = `${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`.trim();
+      return name || 'Prestataire';
+    })
+    .filter((n): n is string => n !== null);
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const PublicAvailabilityPage: React.FC = () => {
@@ -109,7 +123,7 @@ const PublicAvailabilityPage: React.FC = () => {
   const fetchData = useCallback(async (startDate: string, endDate: string) => {
     setLoading(true);
     try {
-      const [missionsRes, providersRes] = await Promise.all([
+      const [missionsRes, providersRes, documentsRes, leavesRes] = await Promise.all([
         supabase
           .from('missions')
           .select('date, start_time, end_time, provider_id, status')
@@ -118,20 +132,90 @@ const PublicAvailabilityPage: React.FC = () => {
           .neq('status', 'cancelled'),
         supabase
           .from('providers')
-          .select('id, specialty, status, availability_mode, availability_hours, non_intervention_hours, non_intervention_days'),
+          .select('id, first_name, last_name, specialty, status, availability_mode, availability_hours, non_intervention_hours, non_intervention_days'),
+        supabase
+          .from('documents')
+          .select('id, type, status, slots_data, created_at, client_id, client_name')
+          .eq('type', 'Devis')
+          .eq('status', 'sent'),
+        supabase
+          .from('leaves')
+          .select('id, provider_id, start_date, end_date, start_time, end_time, status')
+          .eq('status', 'approved'),
       ]);
       if (missionsRes.error) throw missionsRes.error;
       if (providersRes.error) throw providersRes.error;
+      if (documentsRes.error) throw documentsRes.error;
+      // leavesRes.error est ignoré car la table peut ne pas exister
       const m = (missionsRes.data || []) as any[];
       // Filtrer côté client les providers actifs (compatible FR + EN)
-      const allProviders = (providersRes.data || []) as any[];
-      const p = allProviders.filter((prov: any) => {
-        const s = String(prov.status || '').toLowerCase().trim();
-        return s === 'active' || s === 'actif' || s === 'passive' || s === 'passif';
+      const allProvidersRaw = (providersRes.data || []) as any[];
+      const leavesData = (leavesRes.data || []) as any[];
+
+      // Dédupliquer les providers par ID (au cas où la table aurait des doublons)
+      const allProviders = allProvidersRaw.filter((prov, index, self) => 
+        index === self.findIndex((p) => String(p.id) === String(prov.id))
+      );
+
+      console.log('[PublicAvailability] Providers:', allProvidersRaw.length, 'total,', allProviders.length, 'après déduplication');
+
+      // Attacher les leaves aux providers correspondants
+      const p = allProviders
+        .filter((prov: any) => {
+          const s = String(prov.status || '').toLowerCase().trim();
+          return s === 'active' || s === 'actif' || s === 'passive' || s === 'passif';
+        })
+        .map((prov: any) => ({
+          ...prov,
+          // Mapper les noms snake_case vers camelCase
+          firstName: prov.first_name || prov.firstName,
+          lastName: prov.last_name || prov.lastName,
+          availabilityMode: prov.availability_mode || 'unavailable',
+          availabilityHours: prov.availability_hours || {},
+          nonInterventionHours: prov.non_intervention_hours || {},
+          nonInterventionDays: prov.non_intervention_days || [],
+          leaves: leavesData
+            .filter((l: any) => l.provider_id === prov.id)
+            .map((l: any) => ({
+              startDate: l.start_date,
+              endDate: l.end_date,
+              startTime: l.start_time,
+              endTime: l.end_time,
+              status: l.status,
+            })),
+        }));
+
+      // Construire les missions provisoires depuis les devis envoyés (non expirés)
+      // pour bloquer les créneaux déjà réservés par des devis en attente de signature
+      const docs = (documentsRes.data || []).map((d: any) => {
+        // Calculer la date d'expiration à partir de created_at + 48h
+        let expirationDate = null;
+        if (d.created_at) {
+          const createdAtMs = new Date(d.created_at).getTime();
+          if (Number.isFinite(createdAtMs)) {
+            expirationDate = new Date(createdAtMs + 48 * 60 * 60 * 1000).toISOString();
+          }
+        }
+        return {
+          ...d,
+          slotsData: d.slots_data,
+          expirationDate,
+          clientId: d.client_id,
+          clientName: d.client_name,
+        };
       });
-      console.log('[PublicAvailability] Fetched:', allProviders.length, 'total providers,', p.length, 'active,', m.length, 'missions');
-      p.forEach((prov: any) => console.log(`  Provider: ${prov.id} | status=${prov.status} | specialty=${prov.specialty} | domain=${mapSpecialtyToDomain(prov.specialty)}`));
-      setMissions(m);
+      const provisionalMissions = getProvisionalMissionsFromDocuments(docs);
+
+      // Combiner missions réelles + missions provisoires pour le calcul
+      const allMissions: MissionLike[] = [
+        ...m,
+        ...provisionalMissions,
+      ];
+
+      console.log('[PublicAvailability] Fetched:', allProviders.length, 'total providers (après dédup),', p.length, 'active,', m.length, 'missions,', provisionalMissions.length, 'provisional from devis,', leavesData.length, 'approved leaves');
+      console.log('[PublicAvailability] Provider IDs:', p.map((pr: any) => pr.id).join(', '));
+      p.forEach((prov: any) => console.log(`  Provider: ${prov.id} | ${prov.firstName} ${prov.lastName} | status=${prov.status} | specialty=${prov.specialty} | domain=${mapSpecialtyToDomain(prov.specialty)} | leaves=${prov.leaves?.length || 0} | nonInterventionDays=${JSON.stringify(prov.nonInterventionDays)}`));
+      setMissions(allMissions);
       setProviders(p);
     } catch (e) {
       console.error('[PublicAvailability] fetch error:', e);
@@ -197,34 +281,21 @@ const PublicAvailabilityPage: React.FC = () => {
           const domainProviders = providersByDomain[svcType] || [];
           if (domainProviders.length === 0) continue;
 
-          // Calcul centralisé : créneaux libres pour ce type de service
-          const freeSlots = computeFreeSlotsForServiceType(
-            dateStr,
-            domainProviders,
-            missions,
-            svcType,
-            null
-          );
+          // Calcul centralisé : créneaux cumulatifs avec nombre de prestataires
+          const enrichedSlots = computeAvailabilitySlots(dateStr, domainProviders, missions, svcType);
+          const groupedSlots = groupSlotsByTime(enrichedSlots);
 
-          // Compter le nombre max de prestataires libres sur ces créneaux
-          let freeProviderCount = 0;
-          for (const slot of freeSlots) {
-            const count = getAvailableProvidersCountUtil(
-              dateStr,
-              slot.startTime,
-              slot.endTime,
-              domainProviders,
-              missions
-            );
-            if (count > freeProviderCount) freeProviderCount = count;
-          }
+          // Compter les prestataires RÉELLEMENT libres ce jour-là (dédupliqués par ID)
+          const freeProviderIds = new Set(enrichedSlots.flatMap(s => s.providerIds));
+          const actualFreeCount = freeProviderIds.size;
 
-          if (freeSlots.length > 0) {
+          if (groupedSlots.length > 0) {
+            const maxFreeProviderCount = Math.max(...groupedSlots.map(g => g.maxProviderCount));
             dayData.availableServices.push({
               serviceType: svcType,
-              freeSlots,
-              totalProviders: domainProviders.length,
-              freeProviderCount,
+              groupedSlots,
+              totalProviders: actualFreeCount,
+              maxFreeProviderCount,
             });
           }
         }
@@ -285,15 +356,39 @@ const PublicAvailabilityPage: React.FC = () => {
     return days;
   }, [anchorDate, dayMap]);
 
-  // Stats for hero banner
+  // Stats for hero banner — dédupliquées par prestataire (ID unique) et par type de service
+  const heroStats = useMemo(() => {
+    const byService: Record<string, { providerIds: Set<string>; daysCount: number }> = {};
+    for (const svc of SERVICE_TYPES) {
+      byService[svc] = { providerIds: new Set(), daysCount: 0 };
+    }
+    for (const d of weekDays) {
+      for (const svc of d.availableServices) {
+        // Collecter les IDs uniques de prestataires libres via les créneaux
+        for (const slot of svc.groupedSlots) {
+          // Récupérer les IDs pour la durée max
+          const maxDur = [...slot.durations].sort((a, b) => b - a)[0];
+          if (maxDur) {
+            const ids = slot.providersByDuration[maxDur]?.ids || [];
+            ids.forEach(id => byService[svc.serviceType]?.providerIds.add(String(id)));
+          }
+        }
+        byService[svc.serviceType].daysCount++;
+      }
+    }
+    return byService;
+  }, [weekDays]);
+
   const totalAvailableServicesWeek = weekDays.reduce(
     (s, d) => s + d.availableServices.length, 0
   );
-  const totalFreeHoursWeek = weekDays.reduce(
-    (s, d) => s + d.availableServices.reduce(
-      (h, svc) => h + svc.freeSlots.reduce((t, sl) => t + slotDurationMinutes(sl), 0), 0
-    ), 0
-  );
+  const totalUniqueProvidersWeek = (() => {
+    const allIds = new Set<string>();
+    for (const svc of SERVICE_TYPES) {
+      heroStats[svc]?.providerIds.forEach(id => allIds.add(id));
+    }
+    return allIds.size;
+  })();
 
   return (
     <div className="min-h-screen bg-cream-50 font-sans">
@@ -339,9 +434,24 @@ const PublicAvailabilityPage: React.FC = () => {
                 <div className="text-xs text-white/70">services dispo.</div>
               </div>
               <div className="bg-white/15 rounded-xl px-4 py-3 backdrop-blur-sm">
-                <div className="text-2xl font-bold">{Math.round(totalFreeHoursWeek / 60 * 10) / 10}h</div>
-                <div className="text-xs text-white/70">heures libres</div>
+                <div className="text-2xl font-bold">{totalUniqueProvidersWeek}</div>
+                <div className="text-xs text-white/70">prestataires libres</div>
               </div>
+            </div>
+            {/* Compteurs par type de service */}
+            <div className="flex flex-wrap gap-3 mt-3">
+              {SERVICE_TYPES.map(svcType => {
+                const stats = heroStats[svcType];
+                const count = stats?.providerIds.size || 0;
+                if (count === 0) return null;
+                const c = SERVICE_COLORS[svcType] || SERVICE_COLORS['Autre'];
+                return (
+                  <div key={svcType} className={`${c.bg} ${c.text} rounded-lg px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 border ${c.border}`}>
+                    <span className={`w-2 h-2 rounded-full ${c.dot} inline-block`} />
+                    {svcType} : {count} prestataire{count > 1 ? 's' : ''}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -387,7 +497,7 @@ const PublicAvailabilityPage: React.FC = () => {
         {!loading && viewMode === 'week' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
             {weekDays.map((day) => (
-              <DayCard key={day.date} day={day} />
+              <DayCard key={day.date} day={day} providers={providers} />
             ))}
           </div>
         )}
@@ -486,6 +596,8 @@ const PublicAvailabilityPage: React.FC = () => {
           </div>
         </div>
 
+
+
         {/* ── Footer ── */}
         <footer className="mt-8 text-center text-xs text-slate-400 pb-6">
           <p>© {new Date().getFullYear()} Presta Services Antilles — Tous droits réservés</p>
@@ -498,87 +610,169 @@ const PublicAvailabilityPage: React.FC = () => {
 
 // ── Day Card sub-component ──
 
-const DayCard: React.FC<{ day: DayAvailability }> = ({ day }) => {
+const DayCard: React.FC<{ day: DayAvailability; providers?: any[] }> = ({ day, providers = [] }) => {
+  const [showModal, setShowModal] = useState(false);
   const hasServices = day.availableServices.length > 0 && !day.isPast;
+  const totalSlots = day.availableServices.reduce((s, svc) => s + svc.groupedSlots.length, 0);
+  const totalProviders = day.availableServices.reduce((s, svc) => s + svc.totalProviders, 0);
 
   return (
-    <div
-      className={`rounded-2xl overflow-hidden shadow-sm border transition-all ${
-        day.isToday
-          ? 'border-brand-blue/40 ring-2 ring-brand-blue/20 bg-white'
-          : day.isPast
-          ? 'border-slate-100 bg-slate-50'
-          : hasServices
-          ? 'border-green-200 bg-white hover:shadow-md'
-          : 'border-orange-200 bg-white'
-      }`}
-    >
-      {/* Day header */}
+    <>
       <div
-        className={`px-3 py-2.5 text-center ${
+        className={`rounded-2xl overflow-hidden shadow-sm border transition-all ${
           day.isToday
-            ? 'bg-brand-blue text-white'
+            ? 'border-brand-blue/40 ring-2 ring-brand-blue/20 bg-white'
             : day.isPast
-            ? 'bg-slate-100 text-slate-400'
+            ? 'border-slate-100 bg-slate-50'
             : hasServices
-            ? 'bg-green-50 text-green-800'
-            : 'bg-orange-50 text-orange-800'
+            ? 'border-green-200 bg-white hover:shadow-md cursor-pointer'
+            : 'border-orange-200 bg-white'
         }`}
+        onClick={() => hasServices && setShowModal(true)}
       >
-        <div className="text-[11px] font-bold uppercase tracking-wide">
-          {WEEKDAYS_SHORT[day.dayOfWeek]}
+        {/* Day header */}
+        <div
+          className={`px-3 py-2.5 text-center ${
+            day.isToday
+              ? 'bg-brand-blue text-white'
+              : day.isPast
+              ? 'bg-slate-100 text-slate-400'
+              : hasServices
+              ? 'bg-green-50 text-green-800'
+              : 'bg-orange-50 text-orange-800'
+          }`}
+        >
+          <div className="text-[11px] font-bold uppercase tracking-wide">
+            {WEEKDAYS_SHORT[day.dayOfWeek]}
+          </div>
+          <div className="text-xl font-bold">{day.dayOfMonth}</div>
         </div>
-        <div className="text-xl font-bold">{day.dayOfMonth}</div>
+
+        {/* Body */}
+        <div className="px-3 py-3">
+          {day.isPast ? (
+            <div className="text-xs text-slate-400 text-center py-2">Passé</div>
+          ) : hasServices ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="text-2xl font-bold text-green-600">{totalSlots}</div>
+              <div className="text-[10px] text-slate-500 text-center">
+                créneau{totalSlots > 1 ? 'x' : ''} disponible{totalSlots > 1 ? 's' : ''}
+              </div>
+              {/* Compteur par type de service */}
+              <div className="flex flex-col gap-0.5 w-full">
+                {day.availableServices.map((svc) => {
+                  const c = SERVICE_COLORS[svc.serviceType] || SERVICE_COLORS['Autre'];
+                  return (
+                    <div key={svc.serviceType} className={`text-[9px] ${c.bg} ${c.text} rounded px-1.5 py-0.5 font-semibold text-center`}>
+                      {svc.serviceType} : {svc.totalProviders} libre{svc.totalProviders > 1 ? 's' : ''}
+                    </div>
+                  );
+                })}
+              </div>
+              <button className="mt-1 flex items-center gap-1 text-[11px] font-bold text-green-600 hover:text-green-800 transition">
+                Voir les horaires
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="text-xs text-orange-500 text-center py-2 flex flex-col items-center gap-1">
+              <XCircle className="w-4 h-4" />
+              <span className="font-bold">Saturé</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Body */}
-      <div className="p-3 space-y-2">
-        {day.isPast ? (
-          <div className="text-xs text-slate-400 text-center py-3">Passé</div>
-        ) : hasServices ? (
-          day.availableServices.map((svc) => {
-            const c = SERVICE_COLORS[svc.serviceType] || SERVICE_COLORS['Autre'];
-            return (
-              <div key={svc.serviceType} className={`rounded-lg border ${c.border} ${c.bg} px-2.5 py-2`}>
-                <div className={`text-[11px] font-bold ${c.text} flex items-center gap-1.5 mb-1`}>
-                  <span className={`w-2 h-2 rounded-full ${c.dot} inline-block`} />
-                  {svc.serviceType}
-                  <span className="text-[9px] text-slate-400 font-normal ml-auto">{svc.freeProviderCount}/{svc.totalProviders} prest. libre{svc.freeProviderCount > 1 ? 's' : ''}</span>
-                </div>
-                <div className="space-y-0.5">
-                  {svc.freeSlots.map((slot, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <CheckCircle2 className={`w-3 h-3 ${c.text} flex-shrink-0`} />
-                      <span className={`text-[11px] font-bold ${c.text}`}>
-                        {slot.startTime} — {slot.endTime}
+      {/* Modal with detailed slots */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-brand-blue to-teal-700 px-6 py-4 text-white flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold">{WEEKDAYS_SHORT[day.dayOfWeek]} {day.dayOfMonth}</h3>
+                <p className="text-sm text-white/80">{totalSlots} créneau{totalSlots > 1 ? 'x' : ''} • {day.availableServices.length} service{day.availableServices.length > 1 ? 's' : ''}</p>
+              </div>
+              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white/20 rounded-lg transition">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto max-h-[60vh]">
+              {day.availableServices.map((svc) => {
+                const c = SERVICE_COLORS[svc.serviceType] || SERVICE_COLORS['Autre'];
+                return (
+                  <div key={svc.serviceType} className={`rounded-lg border ${c.border} ${c.bg} px-3 py-2.5`}>
+                    <div className={`text-sm font-bold ${c.text} flex items-center gap-1.5 mb-2`}>
+                      <span className={`w-2.5 h-2.5 rounded-full ${c.dot} inline-block`} />
+                      {svc.serviceType}
+                      <span className="text-[10px] text-slate-400 font-normal ml-auto">
+                        {svc.totalProviders} prestataire{svc.totalProviders > 1 ? 's' : ''}
                       </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="text-xs text-orange-500 text-center py-3 flex flex-col items-center gap-1">
-            <XCircle className="w-4 h-4" />
-            <span className="font-bold">Saturé</span>
-            <span className="text-orange-400 text-[10px]">Tous les prestataires sont occupés</span>
+                    <div className="space-y-2">
+                      {svc.groupedSlots.map((slot, i) => {
+                        const durationHours = [...slot.durations].sort((a, b) => b - a);
+                        const bestCount = slot.maxProviderCount;
+                        return (
+                          <div key={i} className="bg-white/80 rounded-lg p-2.5 border border-slate-100">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1.5">
+                                <Clock className={`w-4 h-4 ${c.text}`} />
+                                <span className={`text-sm font-bold ${c.text}`}>
+                                  {slot.startTime} — {slot.endTime}
+                                </span>
+                              </div>
+                              <span className={`text-xs font-bold ${bestCount >= 2 ? 'text-green-600' : 'text-blue-600'}`}>
+                                {bestCount} libre{bestCount > 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {durationHours.map(dur => {
+                                const info = slot.providersByDuration[dur];
+                                const count = info?.count || 0;
+                                const providerNames = count > 0 && info?.ids ? getProviderNamesFromIds(info.ids, providers) : [];
+                                return (
+                                  <span
+                                    key={dur}
+                                    className={`px-2.5 py-1 rounded text-xs font-bold ${
+                                      count > 0
+                                        ? `${c.bg} ${c.text} border ${c.border}`
+                                        : 'bg-slate-100 text-slate-300 border border-slate-100'
+                                    }`}
+                                    title={count > 0 ? `${count} prestataire${count > 1 ? 's' : ''} libre${count > 1 ? 's' : ''} pour ${dur}h` : 'Aucun prestataire libre'}
+                                  >
+                                    Pack {dur}h {count > 0 && <span className="text-[10px] opacity-70">({count})</span>}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            {/* Afficher les noms des prestataires pour la durée max */}
+                            {(() => {
+                              const maxDur = durationHours.find(d => (slot.providersByDuration[d]?.count || 0) > 0);
+                              if (maxDur) {
+                                const info = slot.providersByDuration[maxDur];
+                                const names = info?.ids ? getProviderNamesFromIds(info.ids, providers) : [];
+                                if (names.length > 0) {
+                                  return (
+                                    <div className="mt-1.5 text-[10px] text-gray-600 border-t border-slate-100 pt-1.5">
+                                      <span className="font-bold text-gray-700">{names.length} libre{names.length > 1 ? 's' : ''} :</span> {names.join(', ')}
+                                    </div>
+                                  );
+                                }
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Footer stats */}
-      {!day.isPast && (
-        <div className="px-3 py-2 border-t border-slate-50 text-center">
-          <span className={`text-[10px] font-bold ${hasServices ? 'text-green-600' : 'text-orange-500'}`}>
-            {hasServices
-              ? `${day.availableServices.length} service${day.availableServices.length > 1 ? 's' : ''} disponible${day.availableServices.length > 1 ? 's' : ''}`
-              : 'Aucun service disponible'
-            }
-          </span>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

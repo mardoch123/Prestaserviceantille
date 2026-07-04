@@ -13,6 +13,20 @@ export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter,
 
     if (!t.trim()) return 'Autre';
 
+    // Ménage en premier (ordre cohérent avec mapSpecialtyToDomain dans availabilityCalculator.ts)
+    if (
+        t.includes('menage') ||
+        t.includes('nettoyage') ||
+        t.includes('vitre') ||
+        t.includes('repass') ||
+        t.includes('aspirat') ||
+        t.includes('entretien') ||
+        t.includes('maison') ||
+        t.includes('domicile')
+    ) {
+        return 'Ménage';
+    }
+
     if (
         t.includes('jardin') ||
         t.includes('tonte') ||
@@ -40,19 +54,6 @@ export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter,
         t.includes('perc')
     ) {
         return 'Bricolage';
-    }
-
-    if (
-        t.includes('menage') ||
-        t.includes('nettoyage') ||
-        t.includes('vitre') ||
-        t.includes('repass') ||
-        t.includes('aspirat') ||
-        t.includes('entretien') ||
-        t.includes('maison') ||
-        t.includes('domicile')
-    ) {
-        return 'Ménage';
     }
 
     return 'Autre';

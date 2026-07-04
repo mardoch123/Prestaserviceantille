@@ -10,8 +10,14 @@ import { SafeImage, LogoImage } from './SafeImage';
 import { getServiceTypeFromText } from '../utils/serviceTypes';
 import {
   computeFreeSlots as computeFreeSlotsUtil,
+  getProvisionalMissionsFromDocuments,
   getAvailableProvidersCount as getAvailableProvidersCountUtil,
   isProviderActive,
+  isProviderFreeDuring,
+  getProviderWorkingHours,
+  computeAvailabilitySlots,
+  groupSlotsByTime,
+  mapSpecialtyToDomain,
   AVAILABILITY_OPEN_HOUR,
   AVAILABILITY_CLOSE_HOUR,
 } from '../utils/availabilityCalculator';
@@ -55,6 +61,7 @@ import {
     Send,
     PenTool,
     X,
+    XCircle,
     Menu,
     Wifi,
     Lock,
@@ -3851,18 +3858,28 @@ function computeClientFreeSlots(occupied: { startTime: string; endTime: string }
  * Compute free slots based on REAL provider availability.
  * Delegue la logique centralisée dans utils/availabilityCalculator.ts.
  * Gère la conversion camelCase (DataContext) ↔ snake_case (Supabase).
+ * INCLUT les missions provisoires (devis envoyés) pour éviter le surbooking.
  */
 function computeProviderBasedFreeSlots(
   dateStr: string,
   missions: any[],
   providers: any[],
+  documents?: any[],
   serviceHours?: number
 ): { startTime: string; endTime: string }[] {
+  // Dédupliquer les providers par ID (au cas où)
+  const uniqueProviders = (providers || []).filter((p, index, self) => 
+    index === self.findIndex((pr) => String(pr.id) === String(p.id))
+  );
   // Filtrer uniquement les prestataires actifs/passifs (FR: Actif/Passif, EN: Active/Passive)
-  const activeProviders = (providers || []).filter((p: any) => isProviderActive(p));
+  const activeProviders = uniqueProviders.filter((p: any) => isProviderActive(p));
+
+  // Combiner missions réelles + missions provisoires (devis envoyés)
+  const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+  const allMissions = [...(missions || []), ...provisionalMissions];
 
   // Normaliser les missions (camelCase DataContext ou snake_case Supabase)
-  const normalizedMissions = (missions || []).map(m => ({
+  const normalizedMissions = allMissions.map(m => ({
     providerId: m.providerId ?? m.provider_id,
     provider_id: m.provider_id ?? m.providerId,
     date: m.date,
@@ -3890,6 +3907,7 @@ interface ClientAvailabilityTabProps {
 const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, providers, client, addDocument, signQuoteWithData, addNotification }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
   // Booking states
   const [bookingSlot, setBookingSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
@@ -3910,10 +3928,23 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     return options;
   }, []);
 
-  // Get available time ranges for a specific date
+  // Get available time ranges for a specific date (from availableServices)
   const getAvailableRangesForDate = (date: string): Array<{ startTime: string; endTime: string }> => {
     const day = weekDays.find(d => d.date === date);
-    return day ? day.freeSlots : [];
+    if (!day) return [];
+    // Aplatir tous les groupedSlots de tous les services en une liste de créneaux uniques
+    const seen = new Set<string>();
+    const slots: Array<{ startTime: string; endTime: string }> = [];
+    for (const svc of day.availableServices) {
+      for (const slot of svc.groupedSlots) {
+        const key = `${slot.startTime}-${slot.endTime}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          slots.push({ startTime: slot.startTime, endTime: slot.endTime });
+        }
+      }
+    }
+    return slots;
   };
 
   // Multi-slot states for packs requiring multiple sessions
@@ -3953,14 +3984,23 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   };
 
   // Count available providers for a given date + time range (logique centralisée)
+  // INCLUT les missions provisoires (devis envoyés) pour éviter le surbooking
   const getAvailableProvidersCount = useCallback((date: string, startTime: string, endTime: string, serviceType?: string): number => {
     if (!providers || providers.length === 0) return 0;
 
+    // Dédupliquer les providers par ID (au cas où)
+    const uniqueProviders = (providers || []).filter((p, index, self) =>
+      index === self.findIndex((pr) => String(pr.id) === String(p.id))
+    );
     // Filtrer uniquement les prestataires actifs/passifs (FR: Actif/Passif, EN: Active/Passive)
-    const activeProviders = providers.filter((p: any) => isProviderActive(p));
+    const activeProviders = uniqueProviders.filter((p: any) => isProviderActive(p));
+
+    // Combiner missions réelles + missions provisoires (devis)
+    const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+    const allMissions = [...(missions || []), ...provisionalMissions];
 
     // Normaliser les missions pour compatibilité camelCase / snake_case
-    const normalizedMissions = (missions || []).map((m: any) => ({
+    const normalizedMissions = allMissions.map((m: any) => ({
       providerId: m.providerId ?? m.provider_id,
       provider_id: m.provider_id ?? m.providerId,
       date: m.date,
@@ -3975,7 +4015,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     const normalizedServiceType = serviceType ? getServiceTypeFromText(serviceType) : undefined;
 
     return getAvailableProvidersCountUtil(date, startTime, endTime, activeProviders, normalizedMissions, normalizedServiceType);
-  }, [providers, missions]);
+  }, [providers, missions, documents]);
 
   // Auto-generate slots for multi-session packs based on availability
   const autoGenerateSlots = useCallback((pack: Pack, firstDate: string, startTime: string, endTime: string) => {
@@ -4022,6 +4062,26 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
 
   const todayStr = useMemo(() => getMartiniqueToday(), []);
 
+  // Missions combinées (réelles + provisoires) — identique à la page publique
+  const allMissions = useMemo(() => {
+    const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+    return [...(missions || []), ...provisionalMissions];
+  }, [missions, documents]);
+
+  // Prestataires groupés par domaine de service — identique à la page publique
+  const SERVICE_TYPES_ARR = ['Ménage', 'Jardinage', 'Bricolage', 'Autre', 'Personnalisé'];
+  const providersByDomain = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const svc of SERVICE_TYPES_ARR) map[svc] = [];
+    for (const p of (providers || [])) {
+      // Filtrer uniquement les prestataires actifs/passifs — IDENTIQUE à la page publique
+      if (!isProviderActive(p)) continue;
+      const domain = mapSpecialtyToDomain(p.specialty);
+      if (map[domain]) map[domain].push(p);
+    }
+    return map;
+  }, [providers]);
+
   const weekDays = useMemo(() => {
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -4037,8 +4097,25 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const isSunday = false; // 7j/7 — pas de jour fermé
       const isPast = dateStr < todayStr;
 
-      // Use provider-based availability (same logic as public page)
-      const freeSlots = isPast || isSunday ? [] : computeProviderBasedFreeSlots(dateStr, missions, providers);
+      // Utiliser EXACTEMENT la même logique que la page publique : computeAvailabilitySlots
+      const availableServices: any[] = [];
+      if (!isPast && !isSunday) {
+        for (const svcType of SERVICE_TYPES_ARR) {
+          const domainProviders = providersByDomain[svcType] || [];
+          if (domainProviders.length === 0) continue;
+          const enrichedSlots = computeAvailabilitySlots(dateStr, domainProviders, allMissions, svcType);
+          const groupedSlots = groupSlotsByTime(enrichedSlots);
+          if (groupedSlots.length > 0) {
+            const freeProviderIds = new Set(enrichedSlots.flatMap(s => s.providerIds));
+            availableServices.push({
+              serviceType: svcType,
+              groupedSlots,
+              totalProviders: freeProviderIds.size,
+              maxFreeProviderCount: Math.max(...groupedSlots.map(g => g.maxProviderCount)),
+            });
+          }
+        }
+      }
 
       return {
         date: dateStr,
@@ -4048,16 +4125,40 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         isToday: dateStr === todayStr,
         isPast,
         isSunday,
-        freeSlots,
-        busyCount: missions.filter((m: any) => m.date === dateStr && m.status !== 'cancelled').length,
+        availableServices,
       };
     });
-  }, [weekOffset, missions, providers, todayStr]);
+  }, [weekOffset, allMissions, providersByDomain, todayStr]);
 
   const WEEKDAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
   const MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-  const totalFree = weekDays.reduce((s, d) => s + d.freeSlots.length, 0);
+  const totalFree = weekDays.reduce((s, d) => s + d.availableServices.reduce((ss: number, svc: any) => ss + svc.groupedSlots.length, 0), 0);
+
+  // Comptage des prestataires libres par type de service pour la semaine (dédupliqués par ID)
+  // Utilise les données déjà calculées par computeAvailabilitySlots (identique page publique)
+  const providerCountsByService = useMemo(() => {
+    const counts: Record<string, Set<string>> = {};
+    for (const svc of SERVICE_TYPES_ARR) counts[svc] = new Set();
+    
+    for (const day of weekDays) {
+      if (day.isPast) continue;
+      for (const svc of day.availableServices) {
+        for (const slot of svc.groupedSlots) {
+          for (const dur of slot.durations) {
+            const info = slot.providersByDuration[dur];
+            if (info?.ids) {
+              info.ids.forEach((id: string) => counts[svc.serviceType]?.add(String(id)));
+            }
+          }
+        }
+      }
+    }
+    
+    return Object.fromEntries(
+      Object.entries(counts).map(([k, v]) => [k, v.size])
+    ) as Record<string, number>;
+  }, [weekDays]);
 
   const shareLink = typeof window !== 'undefined' ? `${window.location.origin}/disponibilites` : '';
   const handleCopy = () => {
@@ -4067,23 +4168,23 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     });
   };
 
-  // Service type badge helper
-  const getServiceTypeBadge = (serviceType: string) => {
-    const type = getServiceTypeFromText(serviceType);
-    switch (type) {
-      case 'Ménage': return { bg: 'bg-blue-100', text: 'text-blue-700', icon: '🧹' };
-      case 'Jardinage': return { bg: 'bg-green-100', text: 'text-green-700', icon: '🌿' };
-      case 'Bricolage': return { bg: 'bg-orange-100', text: 'text-orange-700', icon: '🔧' };
-      case 'Personnalisé': return { bg: 'bg-purple-100', text: 'text-purple-700', icon: '✨' };
-      default: return { bg: 'bg-gray-100', text: 'text-gray-700', icon: '📋' };
-    }
+  // Couleurs par type de service — IDENTIQUE à la page publique
+  const SERVICE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+    'Ménage':    { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-700',    dot: 'bg-blue-500' },
+    'Jardinage': { bg: 'bg-green-50',   border: 'border-green-200',   text: 'text-green-700',   dot: 'bg-green-500' },
+    'Bricolage': { bg: 'bg-orange-50',  border: 'border-orange-200',  text: 'text-orange-700',  dot: 'bg-orange-500' },
+    'Autre':     { bg: 'bg-purple-50',  border: 'border-purple-200',  text: 'text-purple-700',  dot: 'bg-purple-500' },
+    'Personnalisé': { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', dot: 'bg-purple-500' },
   };
 
   // Count providers available for a service type on a date (logique centralisée)
   const getAvailableProvidersByServiceType = useCallback((date: string, serviceType: string): number => {
     if (!providers || providers.length === 0) return 0;
     const normalizedType = getServiceTypeFromText(serviceType);
-    const normalizedMissions = (missions || []).map((m: any) => ({
+    // Inclure missions réelles + missions provisoires (devis)
+    const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+    const allMissions = [...(missions || []), ...provisionalMissions];
+    const normalizedMissions = allMissions.map((m: any) => ({
       providerId: m.providerId ?? m.provider_id,
       provider_id: m.provider_id ?? m.providerId,
       date: m.date,
@@ -4093,7 +4194,11 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       endTime: m.endTime ?? m.end_time,
       status: m.status,
     }));
-    return (providers || []).filter((p: any) => {
+    // Dédupliquer les providers par ID
+    const uniqueProviders = (providers || []).filter((p, index, self) => 
+      index === self.findIndex((pr) => String(pr.id) === String(p.id))
+    );
+    return uniqueProviders.filter((p: any) => {
       // Filtrer uniquement les prestataires actifs (FR: Actif/Passif, EN: Active/Passive)
       if (!isProviderActive(p)) return false;
       const providerType = getServiceTypeFromText(p.specialty || '');
@@ -4102,12 +4207,15 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const providerFreeSlots = computeFreeSlotsUtil(date, [p], normalizedMissions);
       return providerFreeSlots.length > 0;
     }).length;
-  }, [providers, missions]);
+  }, [providers, missions, documents]);
 
   // Get available provider types + count for a specific date + time range
-  const getSlotProviderDetails = useCallback((date: string, startTime: string, endTime: string): { count: number; types: string[] } => {
-    if (!providers || providers.length === 0) return { count: 0, types: [] };
-    const normalizedMissions = (missions || []).map((m: any) => ({
+  const getSlotProviderDetails = useCallback((date: string, startTime: string, endTime: string): { count: number; types: string[]; names: string[] } => {
+    if (!providers || providers.length === 0) return { count: 0, types: [], names: [] };
+    // Inclure missions réelles + missions provisoires (devis)
+    const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+    const allMissions = [...(missions || []), ...provisionalMissions];
+    const normalizedMissions = allMissions.map((m: any) => ({
       providerId: m.providerId ?? m.provider_id,
       provider_id: m.provider_id ?? m.providerId,
       date: m.date,
@@ -4118,18 +4226,48 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       status: m.status,
     }));
     const availableTypes = new Set<string>();
+    const providerNames: string[] = [];
+    const seenProviderIds = new Set<string>(); // Éviter les doublons
     let count = 0;
+
+    // Convertir les heures en minutes pour la vérification
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+    const startMin = startH * 60 + startM;
+    const endMin = endH * 60 + endM;
+
+    // Jour de la semaine pour la vérification des heures de travail
+    const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+
     (providers || []).forEach((p: any) => {
+      const providerId = String(p.id);
       if (!isProviderActive(p)) return;
-      const slots = computeFreeSlotsUtil(date, [p], normalizedMissions);
-      if (slots.length > 0) {
+      if (seenProviderIds.has(providerId)) return; // Doublon
+
+      // Vérifier les heures de travail du prestataire pour ce jour
+      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      if (workingHours.length === 0) return;
+      // Le prestataire doit couvrir la totalité du créneau demandé
+      let coversAll = true;
+      for (let h = startH; h < endH; h++) {
+        if (!workingHours.includes(h)) { coversAll = false; break; }
+      }
+      if (!coversAll) return;
+
+      // Vérifier si le provider est libre SPÉCIFIQUEMENT sur ce créneau
+      const isFree = isProviderFreeDuring(p, date, startMin, endMin, normalizedMissions);
+      if (isFree) {
+        seenProviderIds.add(providerId);
         count++;
         const type = getServiceTypeFromText(p.specialty || '');
         availableTypes.add(type);
+        // Ajouter le nom du prestataire
+        const name = `${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`.trim() || 'Prestataire';
+        providerNames.push(name);
       }
     });
-    return { count, types: Array.from(availableTypes) };
-  }, [providers, missions]);
+    return { count, types: Array.from(availableTypes), names: providerNames };
+  }, [providers, missions, documents]);
 
   // Available packs
   const availablePacks = useMemo(() => {
@@ -4347,22 +4485,39 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         </div>
 
         {/* Stats */}
-        <div className="flex items-center justify-center gap-6 mb-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-600">{totalFree}</div>
-            <div className="text-xs text-gray-400">créneaux libres</div>
+        <div className="flex flex-col items-center gap-3 mb-4">
+          <div className="flex items-center justify-center gap-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-emerald-600">{totalFree}</div>
+              <div className="text-xs text-gray-400">créneaux libres</div>
+            </div>
+            <div className="w-px h-8 bg-gray-200" />
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-700">{OPEN_HOUR}h–{CLOSE_HOUR}h</div>
+              <div className="text-xs text-gray-400">heures d'ouverture</div>
+            </div>
           </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-700">{OPEN_HOUR}h–{CLOSE_HOUR}h</div>
-            <div className="text-xs text-gray-400">heures d'ouverture</div>
+          {/* Compteurs par type de service */}
+          <div className="flex flex-wrap gap-2 justify-center">
+            {(['Ménage', 'Jardinage', 'Bricolage'] as const).map(svcType => {
+              const count = providerCountsByService[svcType] || 0;
+              if (count === 0) return null;
+              const c = SERVICE_COLORS[svcType] || SERVICE_COLORS['Autre'];
+              return (
+                <div key={svcType} className={`${c.bg} ${c.text} rounded-lg px-2.5 py-1 text-xs font-bold flex items-center gap-1.5 border ${c.border}`}>
+                  <span className={`w-2 h-2 rounded-full ${c.dot} inline-block`} />
+                  {svcType} : {count} prestataire{count > 1 ? 's' : ''}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Days grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
           {weekDays.map((day) => {
-            const hasSlots = day.freeSlots.length > 0;
+            const totalSlots = day.availableServices.reduce((s: number, svc: any) => s + svc.groupedSlots.length, 0);
+            const hasSlots = totalSlots > 0;
             return (
               <div
                 key={day.date}
@@ -4372,24 +4527,20 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     : day.isPast || day.isSunday
                     ? 'border-gray-100 bg-gray-50'
                     : hasSlots
-                    ? 'border-green-200 bg-white'
+                    ? 'border-green-200 bg-white hover:shadow-md cursor-pointer'
                     : 'border-orange-200 bg-white'
                 }`}
+                onClick={() => hasSlots && !day.isPast && !day.isSunday && setExpandedDay(day.date)}
               >
-                <div className={`px-3 py-2 text-center relative ${
+                <div className={`px-3 py-2 text-center ${
                   day.isToday ? 'bg-emerald-500 text-white' :
                   day.isPast || day.isSunday ? 'bg-gray-100 text-gray-400' :
                   hasSlots ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800'
                 }`}>
                   <div className="text-[11px] font-bold uppercase">{WEEKDAYS[day.dayOfWeek]}</div>
                   <div className="text-lg font-bold">{day.dayOfMonth}</div>
-                  {hasSlots && day.freeSlots.length <= 2 && !day.isPast && !day.isSunday && (
-                    <span className="absolute top-1 right-1 px-1.5 py-0.5 bg-red-500 text-white text-[8px] font-bold rounded-full animate-pulse">
-                      {day.freeSlots.length} restant{day.freeSlots.length > 1 ? 's' : ''}
-                    </span>
-                  )}
                 </div>
-                <div className="p-2 space-y-1">
+                <div className="p-2">
                   {day.isPast ? (
                     <p className="text-xs text-gray-400 text-center py-2">Passé</p>
                   ) : day.isSunday ? (
@@ -4397,41 +4548,31 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                       <CalendarX className="w-3 h-3" /> Fermé
                     </p>
                   ) : hasSlots ? (
-                    day.freeSlots.map((sl, i) => {
-                      const slotInfo = getSlotProviderDetails(day.date, sl.startTime, sl.endTime);
-                      // Calculer la durée du créneau
-                      const [sh, sm] = sl.startTime.split(':').map(Number);
-                      const [eh, em] = sl.endTime.split(':').map(Number);
-                      const durationH = (eh * 60 + em - sh * 60 - sm) / 60;
-                      const durationLabel = `${durationH}h`;
-                      // Icône selon l'heure de début
-                      const icon = sh < 12 ? '☀️' : sh < 15 ? '🌤️' : '🌅';
-                      return (
-                        <button
-                          key={i}
-                          onClick={() => { setBookingSlot({ date: day.date, startTime: sl.startTime, endTime: sl.endTime }); setSelectedPackId(''); setBookingStep('pack'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); }}
-                          className="w-full flex flex-col gap-0.5 bg-green-50 border border-green-100 rounded-lg px-2 py-2 hover:bg-green-100 hover:border-green-300 transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-1.5 w-full">
-                            <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                            <span className="text-[11px] font-bold text-green-800">{icon} {sl.startTime}–{sl.endTime}</span>
-                            <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{durationLabel}</span>
-                            <ArrowRight className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition ml-auto" />
-                          </div>
-                          {slotInfo.count > 0 && (
-                            <div className="flex items-center gap-1 pl-5">
-                              <span className="text-[9px] text-emerald-600 font-bold">{slotInfo.count} prest. dispo</span>
-                              <span className="text-[9px] text-gray-400">•</span>
-                              <span className="text-[9px] text-gray-500 truncate">{slotInfo.types.join(', ')}</span>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="text-2xl font-bold text-green-600">{totalSlots}</div>
+                      <div className="text-[10px] text-slate-500 text-center">
+                        créneau{totalSlots > 1 ? 'x' : ''} disponible{totalSlots > 1 ? 's' : ''}
+                      </div>
+                      {/* Compteur par type de service */}
+                      <div className="flex flex-col gap-0.5 w-full">
+                        {day.availableServices.map((svc: any) => {
+                          const c = SERVICE_COLORS[svc.serviceType] || SERVICE_COLORS['Autre'];
+                          return (
+                            <div key={svc.serviceType} className={`text-[9px] ${c.bg} ${c.text} rounded px-1.5 py-0.5 font-semibold text-center`}>
+                              {svc.serviceType} : {svc.totalProviders} libre{svc.totalProviders > 1 ? 's' : ''}
                             </div>
-                          )}
-                        </button>
-                      );
-                    })
+                          );
+                        })}
+                      </div>
+                      <button className="mt-1 flex items-center gap-1 text-[11px] font-bold text-green-600 hover:text-green-800 transition">
+                        Voir les horaires
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   ) : (
-                    <div className="text-center py-2">
-                      <p className="text-xs text-orange-500 font-bold">Complet</p>
-                      <p className="text-[10px] text-orange-400">Aucun créneau</p>
+                    <div className="text-xs text-orange-500 text-center py-2 flex flex-col items-center gap-1">
+                      <XCircle className="w-4 h-4" />
+                      <span className="font-bold">Saturé</span>
                     </div>
                   )}
                 </div>
@@ -4439,6 +4580,87 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
             );
           })}
         </div>
+
+        {/* Modal with detailed slots for selected day — IDENTIQUE à la page publique */}
+        {expandedDay && (() => {
+          const selectedDay = weekDays.find(d => d.date === expandedDay);
+          if (!selectedDay || selectedDay.availableServices.length === 0) return null;
+          const totalSlots = selectedDay.availableServices.reduce((s: number, svc: any) => s + svc.groupedSlots.length, 0);
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setExpandedDay(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="bg-gradient-to-r from-brand-blue to-teal-700 px-6 py-4 text-white flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold">{WEEKDAYS[selectedDay.dayOfWeek]} {selectedDay.dayOfMonth}</h3>
+                    <p className="text-sm text-white/80">{totalSlots} créneau{totalSlots > 1 ? 'x' : ''} • {selectedDay.availableServices.length} service{selectedDay.availableServices.length > 1 ? 's' : ''}</p>
+                  </div>
+                  <button onClick={() => setExpandedDay(null)} className="p-2 hover:bg-white/20 rounded-lg transition">
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-4 space-y-3 overflow-y-auto max-h-[60vh]">
+                  {selectedDay.availableServices.map((svc: any) => {
+                    const c = SERVICE_COLORS[svc.serviceType] || SERVICE_COLORS['Autre'];
+                    return (
+                      <div key={svc.serviceType} className={`rounded-lg border ${c.border} ${c.bg} px-3 py-2.5`}>
+                        <div className={`text-sm font-bold ${c.text} flex items-center gap-1.5 mb-2`}>
+                          <span className={`w-2.5 h-2.5 rounded-full ${c.dot} inline-block`} />
+                          {svc.serviceType}
+                          <span className="text-[10px] text-slate-400 font-normal ml-auto">
+                            {svc.totalProviders} prestataire{svc.totalProviders > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {svc.groupedSlots.map((slot: any, i: number) => {
+                            const durationHours = [...slot.durations].sort((a: number, b: number) => b - a);
+                            const bestCount = slot.maxProviderCount;
+                            return (
+                              <button
+                                key={i}
+                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setBookingStep('pack'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); setExpandedDay(null); }}
+                                className="w-full bg-white/80 rounded-lg p-2.5 border border-slate-100 hover:border-green-300 hover:bg-green-50 transition-all cursor-pointer text-left"
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <ClockIcon className={`w-4 h-4 ${c.text}`} />
+                                    <span className={`text-sm font-bold ${c.text}`}>
+                                      {slot.startTime} — {slot.endTime}
+                                    </span>
+                                  </div>
+                                  <span className={`text-xs font-bold ${bestCount >= 2 ? 'text-green-600' : 'text-blue-600'}`}>
+                                    {bestCount} libre{bestCount > 1 ? 's' : ''}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {durationHours.map((dur: number) => {
+                                    const info = slot.providersByDuration[dur];
+                                    const count = info?.count || 0;
+                                    return (
+                                      <span
+                                        key={dur}
+                                        className={`px-2.5 py-1 rounded text-xs font-bold ${
+                                          count > 0
+                                            ? `${c.bg} ${c.text} border ${c.border}`
+                                            : 'bg-slate-100 text-slate-300 border border-slate-100'
+                                        }`}
+                                      >
+                                        Pack {dur}h {count > 0 && <span className="text-[10px] opacity-70">({count})</span>}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Share info */}
@@ -4562,9 +4784,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                         const sessions = getPackSessionCount(pack);
                         const hoursPerSession = getPackHoursPerSession(pack);
                         const totalHours = sessions * hoursPerSession;
-                        const badge = getServiceTypeBadge(pack.mainService || '');
+                        const c = SERVICE_COLORS[pack.mainService || ''] || SERVICE_COLORS['Autre'];
                         const serviceTypeName = getServiceTypeFromText(pack.mainService || '');
-                        const availCount = getAvailableProvidersByServiceType(bookingSlot.date, pack.mainService || '');
+                        const availCount = getAvailableProvidersCount(bookingSlot.date, bookingSlot.startTime, bookingSlot.endTime, pack.mainService || '');
                         return (
                           <button
                             key={pack.id}
@@ -4578,8 +4800,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             <div className="flex items-center justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`${badge.bg} ${badge.text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
-                                    {badge.icon} {serviceTypeName}
+                                  <span className={`${c.bg} ${c.text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
+                                    <span className={`w-2 h-2 rounded-full ${c.dot} inline-block mr-1`} />
+                                    {serviceTypeName}
                                   </span>
                                   {availCount > 0 ? (
                                     <span className="text-[10px] text-emerald-600 font-bold">
@@ -4640,9 +4863,16 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`${getServiceTypeBadge(selectedPack.mainService || '').bg} ${getServiceTypeBadge(selectedPack.mainService || '').text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
-                        {getServiceTypeBadge(selectedPack.mainService || '').icon} {getServiceTypeFromText(selectedPack.mainService || '')}
-                      </span>
+                      {(() => {
+                        const serviceType = getServiceTypeFromText(selectedPack.mainService || '');
+                        const c = SERVICE_COLORS[serviceType] || SERVICE_COLORS['Autre'];
+                        return (
+                          <span className={`${c.bg} ${c.text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
+                            <span className={`w-2 h-2 rounded-full ${c.dot} inline-block mr-1`} />
+                            {serviceType}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="text-sm font-bold text-emerald-800">{selectedPack.name}</div>
                     <div className="text-xs text-emerald-600">

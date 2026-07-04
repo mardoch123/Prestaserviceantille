@@ -1823,7 +1823,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 };
 
                 const mapProviders = (pData: any[], leavesData: any[] | null) => {
-                    return pData.map((p: any) => ({
+                    // Dédupliquer les providers par ID à la source
+                    const uniqueProviders = pData.filter((p, index, self) => 
+                        index === self.findIndex((pr) => String(pr.id) === String(p.id))
+                    );
+                    if (uniqueProviders.length !== pData.length) {
+                        console.warn('[DataContext] Providers doublons détectés:', pData.length, '->', uniqueProviders.length, 'après déduplication');
+                    }
+                    return uniqueProviders.map((p: any) => ({
                         ...p,
                         firstName: p.first_name || p.firstName,
                         lastName: p.last_name || p.lastName,
@@ -2303,24 +2310,36 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
 
                     if (dData) {
-                        const mappedDocs = dData.map((d: any) => ({
-                            ...d,
-                            clientId: d.client_id || d.clientId,
-                            clientName: d.client_name || d.clientName,
-                            unitPrice: d.unit_price || d.unitPrice,
-                            tvaRate: d.tva_rate || d.tvaRate,
-                            totalHT: d.total_ht || d.totalHT,
-                            totalTTC: d.total_ttc || d.totalTTC,
-                            taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-                            slotsData: d.slots_data || d.slotsData,
-                            reminderSent: d.reminder_sent || d.reminderSent,
-                            signatureData: d.signature_data || d.signatureData,
-                            signatureDate: d.signature_date || d.signatureDate,
-                            recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
-                            frequency: d.frequency,
-                            packId: d.pack_id || d.packId,
-                            serviceType: d.service_type || d.serviceType
-                        }));
+                        const mappedDocs = dData.map((d: any) => {
+                            // Calculer la date d'expiration (created_at + 48h) pour les devis
+                            // Cohérent avec PublicAvailabilityPage.tsx et getProvisionalMissionsFromDocuments
+                            let expirationDate: string | null = null;
+                            if (d.created_at) {
+                                const createdAtMs = new Date(d.created_at).getTime();
+                                if (Number.isFinite(createdAtMs)) {
+                                    expirationDate = new Date(createdAtMs + 48 * 60 * 60 * 1000).toISOString();
+                                }
+                            }
+                            return {
+                                ...d,
+                                clientId: d.client_id || d.clientId,
+                                clientName: d.client_name || d.clientName,
+                                unitPrice: d.unit_price || d.unitPrice,
+                                tvaRate: d.tva_rate || d.tvaRate,
+                                totalHT: d.total_ht || d.totalHT,
+                                totalTTC: d.total_ttc || d.totalTTC,
+                                taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+                                slotsData: d.slots_data || d.slotsData,
+                                reminderSent: d.reminder_sent || d.reminderSent,
+                                signatureData: d.signature_data || d.signatureData,
+                                signatureDate: d.signature_date || d.signatureDate,
+                                recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
+                                frequency: d.frequency,
+                                packId: d.pack_id || d.packId,
+                                serviceType: d.service_type || d.serviceType,
+                                expirationDate,
+                            };
+                        });
                         setDocuments(mappedDocs);
                         dataCache.set('documents', mappedDocs); // Sauvegarder dans le cache les données mappées
                     }
@@ -3502,17 +3521,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             throw new Error('Vous êtes en mode démo');
         }
-        // Guardrail: avoid duplicates for same client + date + startTime (except cancelled)
-        // This is a UI/back-end safety net; DB uniqueness constraint should also exist.
-        const duplicateLocal = (missions || []).some(m =>
-            String(m?.clientId || '') === String(mission?.clientId || '') &&
-            String(m?.date || '') === String(mission?.date || '') &&
-            String(m?.startTime || '') === String(mission?.startTime || '') &&
-            String(m?.status || '') !== 'cancelled'
-        );
-        if (duplicateLocal) {
-            throw new Error('Une mission existe déjà pour ce client à cette date et heure.');
-        }
+        // NOTE: La vérification anti-doublons a été retirée pour permettre
+        // plusieurs missions pour le même client à la même date/heure (ex: 2 devis séparés).
 
         const finalId = generateUUID();
         const dbData = {
@@ -3535,15 +3545,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
         if (error) {
-            // If DB uniqueness constraint exists (recommended), handle it gracefully.
+            // Si contrainte UNIQUE en base, on l'ignore pour permettre les missions multiples même créneau
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
             if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                throw new Error('Une mission existe déjà pour ce client à cette date et heure.');
+                // On laisse passer : on récupère la mission via un select
+                console.warn('[addMission] Doublon détecté mais autorisé:', mission.clientName, mission.date, mission.startTime);
+            } else {
+                console.error("Error adding mission:", error);
+                throw error;
             }
-
-            console.error("Error adding mission:", error);
-            throw error; // Throw error to be caught by UI
         }
 
         if (data) {

@@ -33,6 +33,7 @@ export interface MissionLike {
 /** Provider minimal nécessaire au calcul */
 export interface ProviderLike {
   id: string;
+  status?: string;
   specialty?: string;
   availabilityMode?: 'unavailable' | 'available';
   availability_mode?: 'unavailable' | 'available';
@@ -55,6 +56,8 @@ export const AVAILABILITY_CLOSE_HOUR = 16;
 const BLOCK_SIZE_MIN = 30;
 /** Seuil de durée (en heures) à partir duquel on bascule en blocs fixes */
 const LONG_SERVICE_THRESHOLD = 3;
+/** Nombre maximum de prestations par jour et par prestataire */
+export const MAX_PRESTATIONS_PER_DAY = 2;
 
 /**
  * Vérifie si un statut de prestataire est considéré comme "actif" (peut recevoir des missions).
@@ -63,6 +66,46 @@ const LONG_SERVICE_THRESHOLD = 3;
 export function isProviderActive(provider: { status?: string }): boolean {
   const s = String(provider.status || '').toLowerCase().trim();
   return s === 'active' || s === 'actif' || s === 'passive' || s === 'passif';
+}
+
+/**
+ * Extrait les missions provisoires depuis les devis envoyés (status 'sent', non expirés).
+ * Ces créneaux doivent être pris en compte pour bloquer les disponibilités et éviter le surbooking.
+ *
+ * @param documents  Liste des documents (devis, factures, etc.)
+ * @returns          Missions provisoires au format MissionLike[]
+ */
+export function getProvisionalMissionsFromDocuments(documents: any[]): MissionLike[] {
+  if (!documents || documents.length === 0) return [];
+  const now = new Date();
+
+  return documents
+    .filter((d: any) => d?.type === 'Devis' && d?.status === 'sent')
+    .filter((d: any) => {
+      // Filtrer les devis expirés
+      const expStr = d.expirationDate || d.expiration_date;
+      if (expStr) {
+        try {
+          if (new Date(expStr) < now) return false;
+        } catch { /* ignore */ }
+      }
+      return true;
+    })
+    .filter((d: any) => Array.isArray(d.slotsData) && d.slotsData.length > 0)
+    .flatMap((d: any) =>
+      (d.slotsData || []).map((slot: any, idx: number) => ({
+        id: `provisional-${d.id}-${idx}`,
+        providerId: slot?.providerId || d.providerId || null,
+        provider_id: slot?.providerId || d.providerId || null,
+        date: slot?.date || '',
+        start_time: slot?.startTime || '',
+        startTime: slot?.startTime || '',
+        end_time: slot?.endTime || '',
+        endTime: slot?.endTime || '',
+        status: 'planned', // considéré comme planifié pour bloquer la dispo
+      }))
+    )
+    .filter((m: MissionLike) => !!m.date);
 }
 
 /** Blocs fixes pour prestations longues (>= 3h) */
@@ -182,7 +225,48 @@ function normalizeProviderId(id: any): string {
 }
 
 /**
+ * Normalise le statut d'une mission pour garantir la cohérence
+ * entre les différentes sources de données (Supabase direct, DataContext, etc.).
+ * Gère les variantes FR/EN, accents, majuscules/minuscules, tirets.
+ */
+function normalizeMissionStatus(status: any): string {
+  const raw = String(status || '').trim();
+  const plain = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-+/g, '_');
+
+  if (plain === 'in_progress' || plain === 'inprogress' || plain === 'en_cours' || plain === 'encours' || plain === 'demarree' || plain === 'demarre') return 'in_progress';
+  if (plain === 'completed' || plain === 'complete' || plain === 'terminee' || plain === 'termine' || plain === 'done' || plain === 'finished') return 'completed';
+  if (plain === 'cancelled' || plain === 'canceled' || plain === 'annulee' || plain === 'annule') return 'cancelled';
+  if (plain === 'planned' || plain === 'planifiee' || plain === 'planifie') return 'planned';
+  return 'planned';
+}
+
+/**
+ * Compte le nombre de missions d'un prestataire pour une date donnée.
+ * Les missions annulées ne sont pas comptées.
+ */
+export function getProviderDailyMissionCount(
+  provider: ProviderLike,
+  dateStr: string,
+  missions: MissionLike[]
+): number {
+  const pid = normalizeProviderId(provider.id);
+  return missions.filter(m => {
+    const mPid = normalizeProviderId(m.providerId || m.provider_id);
+    return mPid === pid &&
+           mPid !== '' &&
+           m.date === dateStr &&
+           normalizeMissionStatus(m.status) !== 'cancelled';
+  }).length;
+}
+
+/**
  * Vérifie si un prestataire est libre pendant un créneau donné (en minutes).
+ * Règle métier : max 2 prestations/jour/prestataire.
  */
 export function isProviderFreeDuring(
   provider: ProviderLike,
@@ -200,8 +284,11 @@ export function isProviderFreeDuring(
     return mPid === pid &&
            mPid !== '' &&
            m.date === dateStr &&
-           m.status !== 'cancelled';
+           normalizeMissionStatus(m.status) !== 'cancelled';
   });
+
+  // Règle métier : max 2 prestations par jour et par prestataire
+  if (providerMissions.length >= MAX_PRESTATIONS_PER_DAY) return false;
 
   return !checkMissionOverlap(startMin, endMin, providerMissions);
 }
@@ -232,6 +319,15 @@ export function computeFreeSlots(
     return [];
   }
 
+  // Dédupliquer les providers par ID (au cas où)
+  const seenProviderIds = new Set<string>();
+  const uniqueProviders = providers.filter(p => {
+    const pid = normalizeProviderId(p.id);
+    if (seenProviderIds.has(pid)) return false;
+    seenProviderIds.add(pid);
+    return true;
+  });
+
   const dayOfWeek = getDayOfWeek(dateStr);
   const openHour = AVAILABILITY_OPEN_HOUR;  // 8
   const closeHour = AVAILABILITY_CLOSE_HOUR; // 16
@@ -242,7 +338,7 @@ export function computeFreeSlots(
     : [...VALID_DURATIONS_H];
 
   const slots: TimeSlot[] = [];
-  const seen = new Set<string>(); // éviter les doublons
+  const seen = new Set<string>(); // éviter les doublons de créneaux
 
   // Pour chaque durée (6h, 4h, 3h - du plus long au plus court)
   for (const duration of durations.sort((a, b) => b - a)) {
@@ -254,7 +350,7 @@ export function computeFreeSlots(
       const key = `${startMin}-${endMin}`;
 
       // Vérifier si au moins un prestataire est libre pour cette durée complète
-      const hasProvider = providers.some(p => {
+      const hasProvider = uniqueProviders.some(p => {
         if (isProviderOnLeave(p, dateStr)) return false;
         const workingHours = getProviderWorkingHours(p, dayOfWeek);
         // Le prestataire doit travailler pendant TOUTES les heures du créneau
@@ -368,4 +464,165 @@ export function getAvailableProvidersCount(
  */
 export function slotDurationMinutes(slot: TimeSlot): number {
   return timeToMinutes(slot.endTime) - timeToMinutes(slot.startTime);
+}
+
+// ─── Nouveau type de créneau enrichi ────────────────────────────────────────
+
+export interface EnrichedSlot {
+  startTime: string;       // HH:mm
+  endTime: string;         // HH:mm
+  durationHours: number;   // 3, 4 ou 6
+  providerCount: number;   // nombre de prestataires libres sur ce créneau
+  providerIds: string[];   // IDs des prestataires libres
+}
+
+/**
+ * Calcule les créneaux cumulatifs de 3h, 4h, 6h entre 9h et 16h.
+ * Pour chaque créneau, retourne le nombre de prestataires disponibles.
+ *
+ * @param dateStr       Date au format YYYY-MM-DD
+ * @param providers     Liste de prestataires
+ * @param missions      Liste de missions (toutes dates)
+ * @param serviceType   Type de service pour filtrer par spécialité (optionnel)
+ * @returns             Créneaux enrichis avec nombre de prestataires
+ */
+export function computeAvailabilitySlots(
+  dateStr: string,
+  providers: ProviderLike[],
+  missions: MissionLike[],
+  serviceType?: string
+): EnrichedSlot[] {
+  if (!providers || providers.length === 0) return [];
+
+  const dayOfWeek = getDayOfWeek(dateStr);
+  const openH = AVAILABILITY_OPEN_HOUR;   // 8h (cohérent avec computeFreeSlots)
+  const closeH = AVAILABILITY_CLOSE_HOUR; // 16h (cohérent avec computeFreeSlots)
+  const durations = [6, 4, 3]; // du plus long au plus court
+
+  // Filtrer par type de service si demandé
+  let filteredProviders = providers;
+  if (serviceType) {
+    const domain = serviceType;
+    filteredProviders = providers.filter(p => {
+      const pDomain = mapSpecialtyToDomain(p.specialty || '');
+      return pDomain === domain || domain === 'Autre' || domain === 'Personnalisé';
+    });
+  }
+
+  // Dédupliquer les providers par ID (au cas où)
+  const seenIds = new Set<string>();
+  filteredProviders = filteredProviders.filter(p => {
+    const pid = normalizeProviderId(p.id);
+    if (seenIds.has(pid)) return false;
+    seenIds.add(pid);
+    return true;
+  });
+
+  // Filtrer uniquement les prestataires actifs/passifs (FR: Actif/Passif, EN: Active/Passive)
+  // Cohérent avec PublicAvailabilityPage.tsx qui pré-filtre avant d'appeler cette fonction
+  filteredProviders = filteredProviders.filter(p => isProviderActive(p));
+
+  if (filteredProviders.length === 0) return [];
+
+  const slots: EnrichedSlot[] = [];
+  const seen = new Set<string>();
+
+  for (const duration of durations) {
+    for (let startH = openH; startH + duration <= closeH; startH++) {
+      const endH = startH + duration;
+      const startMin = startH * 60;
+      const endMin = endH * 60;
+      const key = `${startMin}-${endMin}`;
+
+      if (seen.has(key)) continue;
+
+      // Compter les prestataires libres pour ce créneau (sans doublons)
+      const freeProviderIdsSet = new Set<string>();
+
+      for (const p of filteredProviders) {
+        const pid = normalizeProviderId(p.id);
+        if (freeProviderIdsSet.has(pid)) continue; // Doublon
+
+        if (isProviderOnLeave(p, dateStr)) continue;
+
+        const workingHours = getProviderWorkingHours(p, dayOfWeek);
+        if (workingHours.length === 0) continue;
+
+        // Le prestataire doit travailler pendant TOUTES les heures du créneau
+        let coversAll = true;
+        for (let h = startH; h < endH; h++) {
+          if (!workingHours.includes(h)) {
+            coversAll = false;
+            break;
+          }
+        }
+        if (!coversAll) continue;
+
+        // Vérifier pas de chevauchement + règle max 2/jour
+        if (isProviderFreeDuring(p, dateStr, startMin, endMin, missions)) {
+          freeProviderIdsSet.add(pid);
+        }
+      }
+
+      const freeProviderIds = Array.from(freeProviderIdsSet);
+
+      if (freeProviderIds.length > 0) {
+        seen.add(key);
+        slots.push({
+          startTime: minutesToTime(startMin),
+          endTime: minutesToTime(endMin),
+          durationHours: duration,
+          providerCount: freeProviderIds.length,
+          providerIds: freeProviderIds,
+        });
+      }
+    }
+  }
+
+  // Trier par heure de début, puis par durée décroissante
+  return slots.sort((a, b) => {
+    const timeCmp = a.startTime.localeCompare(b.startTime);
+    if (timeCmp !== 0) return timeCmp;
+    return b.durationHours - a.durationHours;
+  });
+}
+
+/**
+ * Regroupe les créneaux enrichis par plage horaire (start-end unique).
+ * Pour chaque plage, indique les durées possibles et le nombre de prestataires max.
+ */
+export interface GroupedSlot {
+  startTime: string;
+  endTime: string;
+  durations: number[];           // durées possibles [3, 4, 6]
+  maxProviderCount: number;      // nb max de prestataires (sur toutes les durées)
+  providersByDuration: Record<number, { count: number; ids: string[] }>;
+}
+
+export function groupSlotsByTime(slots: EnrichedSlot[]): GroupedSlot[] {
+  const map = new Map<string, GroupedSlot>();
+
+  for (const slot of slots) {
+    const key = `${slot.startTime}-${slot.endTime}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        durations: [],
+        maxProviderCount: 0,
+        providersByDuration: {},
+      });
+    }
+    const group = map.get(key)!;
+    group.durations.push(slot.durationHours);
+    group.providersByDuration[slot.durationHours] = {
+      count: slot.providerCount,
+      ids: slot.providerIds,
+    };
+    if (slot.providerCount > group.maxProviderCount) {
+      group.maxProviderCount = slot.providerCount;
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.startTime.localeCompare(b.startTime));
 }
