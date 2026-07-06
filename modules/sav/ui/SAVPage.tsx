@@ -1248,7 +1248,6 @@ const MissionsWithoutSAVView: React.FC<{
               >
                 <option value="all">Tous les services</option>
                 <option value="ménage">Ménage</option>
-                <option value="jardinage">Jardinage</option>
                 <option value="bricolage">Bricolage</option>
                 <option value="autre">Autre</option>
               </select>

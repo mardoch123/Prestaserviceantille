@@ -83,7 +83,6 @@ const SAP_SERVICES = [
     "Repassage à domicile",
     "Préparation de repas à domicile",
     "Livraison de repas à domicile",
-    "Jardinage",
     "Petit bricolage (homme toutes mains)",
     "Maintenance et vigilance temporaire de domicile (gardiennage)",
     "Assistance administrative à domicile",

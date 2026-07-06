@@ -1,6 +1,8 @@
+import { isMenageSpecialty } from './availabilityCalculator';
+
 export type ServiceTypeFilter = 'all' | 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre' | 'Personnalisé';
 
-export const DEFAULT_SERVICE_TYPES: Exclude<ServiceTypeFilter, 'all'>[] = ['Ménage', 'Jardinage', 'Bricolage', 'Autre', 'Personnalisé'];
+export const DEFAULT_SERVICE_TYPES: Exclude<ServiceTypeFilter, 'all'>[] = ['Ménage', 'Jardinage', 'Bricolage'];
 
 const normalize = (value: string): string =>
     String(value || '')
@@ -8,60 +10,37 @@ const normalize = (value: string): string =>
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase();
 
-export const getServiceTypeFromText = (text: string): Exclude<ServiceTypeFilter, 'all'> => {
-    const t = normalize(text);
+const JARDINAGE_KEYWORDS = [
+  'jardin', 'jardinage', 'paysag', 'tonte', 'gazon',
+  'taille', 'haie', 'elag', 'abattage', 'debrouss',
+  'plantation', 'fleur', 'pelouse',
+];
 
-    if (!t.trim()) return 'Autre';
+const BRICOLAGE_KEYWORDS = [
+  'bricol', 'plomber', 'electric', 'peinture', 'macon',
+  'menuis', 'serrur', 'climat', 'piscine', 'repar',
+  'install', 'montage', 'travaux', 'homme toutes mains',
+];
 
-    // Ménage en premier (ordre cohérent avec mapSpecialtyToDomain dans availabilityCalculator.ts)
-    if (
-        t.includes('menage') ||
-        t.includes('nettoyage') ||
-        t.includes('vitre') ||
-        t.includes('repass') ||
-        t.includes('aspirat') ||
-        t.includes('entretien') ||
-        t.includes('maison') ||
-        t.includes('domicile')
-    ) {
-        return 'Ménage';
-    }
+/**
+ * Détecte le type de service à partir du texte d'une mission.
+ * Utilisé pour le filtre sidebar (planning, dashboard, etc.)
+ */
+export const getServiceTypeFromText = (text: string): string => {
+    const normalized = normalize(text);
+    if (!normalized) return 'Autre';
 
-    if (
-        t.includes('jardin') ||
-        t.includes('tonte') ||
-        t.includes('elag') ||
-        t.includes('debrou') ||
-        t.includes('taille') ||
-        t.includes('desher') ||
-        t.includes('haie') ||
-        t.includes('pelouse')
-    ) {
-        return 'Jardinage';
-    }
-
-    if (
-        t.includes('brico') ||
-        t.includes('montage') ||
-        t.includes('reparation') ||
-        t.includes('petit travaux') ||
-        t.includes('plomberie') ||
-        t.includes('electric') ||
-        t.includes('peinture') ||
-        t.includes('installation') ||
-        t.includes('fixation') ||
-        t.includes('perç') ||
-        t.includes('perc')
-    ) {
-        return 'Bricolage';
-    }
+    if (JARDINAGE_KEYWORDS.some(kw => normalized.includes(kw))) return 'Jardinage';
+    if (BRICOLAGE_KEYWORDS.some(kw => normalized.includes(kw))) return 'Bricolage';
+    if (isMenageSpecialty(text)) return 'Ménage';
 
     return 'Autre';
 };
 
 export const matchesServiceTypeFilterFromText = (text: string, filter: ServiceTypeFilter): boolean => {
     if (!filter || filter === 'all') return true;
-    return getServiceTypeFromText(text) === filter;
+    const type = getServiceTypeFromText(text);
+    return type === filter;
 };
 
 export const getServiceTypeOptions = (items: Array<{ text?: string | null }>): ServiceTypeFilter[] => {
@@ -69,7 +48,8 @@ export const getServiceTypeOptions = (items: Array<{ text?: string | null }>): S
     for (const it of items) {
         const txt = String(it?.text || '').trim();
         if (!txt) continue;
-        set.add(getServiceTypeFromText(txt));
+        const t = getServiceTypeFromText(txt) as Exclude<ServiceTypeFilter, 'all'>;
+        if (t) set.add(t);
     }
 
     const ordered: Exclude<ServiceTypeFilter, 'all'>[] = [...DEFAULT_SERVICE_TYPES];

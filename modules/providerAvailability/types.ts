@@ -2,7 +2,7 @@ export type ProviderAvailabilityStatus = 'available' | 'busy' | 'leave' | 'unava
 
 export type ViewMode = 'day' | 'week' | 'month' | 'hourly';
 
-export type ProviderDomain = 'Ménage' | 'Jardinage' | 'Bricolage' | 'Autre';
+export type ProviderDomain = 'Ménage' | 'Bricolage' | 'Autre';
 
 export type TimeSlot = {
   startTime: string; // HH:mm

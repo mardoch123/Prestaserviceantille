@@ -21,13 +21,18 @@ import {
   getProvidersWithAvailability,
 } from '../client';
 import { useData } from '../../../context/DataContext';
+import {
+  computeAvailabilitySlots,
+  groupSlotsByTime,
+  isProviderActive,
+  isMenageSpecialty,
+  type EnrichedSlot,
+  type GroupedSlot,
+} from '../../../utils/availabilityCalculator';
 
 const domains: { value: ProviderDomain | 'all'; label: string; color: string }[] = [
   { value: 'all', label: 'Tous', color: 'bg-slate-500' },
   { value: 'Ménage', label: 'Ménage', color: 'bg-blue-500' },
-  { value: 'Jardinage', label: 'Jardinage', color: 'bg-green-500' },
-  { value: 'Bricolage', label: 'Bricolage', color: 'bg-orange-500' },
-  { value: 'Autre', label: 'Autre', color: 'bg-purple-500' },
 ];
 
 const statusConfig: Record<ProviderAvailabilityStatus, { label: string; color: string; bgColor: string; icon: React.ReactNode; borderColor: string }> = {
@@ -255,8 +260,8 @@ export const ProviderAvailabilityPage: React.FC = () => {
     });
   }, [providersWithAvailability, domainFilter, searchQuery]);
 
-  // Service types for the "Créneaux Libres" section
-  const serviceTypes = ['Ménage', 'Jardinage', 'Bricolage', 'Autre'] as const;
+  // Service types for the "Créneaux Libres" section — seul "Ménage"
+  const serviceTypes = ['Ménage'] as const;
 
   // Get status for provider on specific date (must be before useMemo that uses it)
   const getProviderStatus = (provider: ProviderWithAvailability, date: string): ProviderAvailabilityStatus => {
@@ -271,44 +276,26 @@ export const ProviderAvailabilityPage: React.FC = () => {
   // Compute available slots grouped by service type for the selected date
   const slotsByServiceType = useMemo(() => {
     const todayStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-    const dayOfWeek = selectedDate.getDay();
-    const workingHours = Array.from({ length: 8 }, (_, i) => i + 8); // 8h to 15h (blocs matin 8h-12h, après-midi 12h-16h)
 
-    const result: Record<string, { hours: number[]; providerCount: number }> = {};
+    const result: Record<string, { groupedSlots: GroupedSlot[]; enrichedSlots: EnrichedSlot[]; providerCount: number }> = {};
 
     for (const svcType of serviceTypes) {
-      const providersForType = filteredProviders.filter(p => p.domain === svcType);
-      const availableHoursSet = new Set<number>();
-
-      for (const provider of providersForType) {
-        const dayStatus = getProviderStatus(provider, todayStr);
-        if (dayStatus === 'leave' || dayStatus === 'unavailable') continue;
-
-        const providerHours = (provider as any).getAvailableHours?.(dayOfWeek) || [];
-
-        // Get missions for this provider on this date
-        const providerMissions = (allMissions || []).filter((m: any) =>
-          m.providerId === provider.id &&
-          m.date === todayStr &&
-          m.status !== 'cancelled'
-        );
-
-        for (const hour of providerHours) {
-          // Check if provider is busy during this hour
-          const isBusy = providerMissions.some((m: any) => {
-            const startHour = parseInt(m.startTime?.split(':')[0] || '0');
-            const endHour = parseInt(m.endTime?.split(':')[0] || '0');
-            return hour >= startHour && hour < endHour;
-          });
-          if (!isBusy) {
-            availableHoursSet.add(hour);
-          }
-        }
+      // Filtrer strictement par spécialité Ménage + actifs
+      const activeProviders = filteredProviders.filter(p => isProviderActive(p) && isMenageSpecialty(p.specialty || ''));
+      if (activeProviders.length === 0) {
+        result[svcType] = { groupedSlots: [], enrichedSlots: [], providerCount: 0 };
+        continue;
       }
 
+      // Calcul centralisé : créneaux cumulatifs avec nombre de prestataires
+      const enrichedSlots = computeAvailabilitySlots(todayStr, activeProviders, (allMissions || []) as any[]);
+      const groupedSlots = groupSlotsByTime(enrichedSlots);
+      const freeProviderIds = new Set(enrichedSlots.flatMap(s => s.providerIds));
+
       result[svcType] = {
-        hours: Array.from(availableHoursSet).sort((a, b) => a - b),
-        providerCount: providersForType.length,
+        groupedSlots,
+        enrichedSlots,
+        providerCount: freeProviderIds.size,
       };
     }
 
@@ -596,7 +583,6 @@ export const ProviderAvailabilityPage: React.FC = () => {
                           <div className="p-1.5 md:p-3 border-r border-slate-200 flex items-center gap-1.5 md:gap-2">
                             <div className={`w-1 md:w-2 h-5 md:h-8 rounded-full shrink-0 ${
                               provider.domain === 'Ménage' ? 'bg-blue-500' :
-                              provider.domain === 'Jardinage' ? 'bg-green-500' :
                               provider.domain === 'Bricolage' ? 'bg-orange-500' : 'bg-purple-500'
                             }`} />
                             <div className="min-w-0 overflow-hidden">
@@ -724,7 +710,6 @@ export const ProviderAvailabilityPage: React.FC = () => {
                         <div className="p-1.5 md:p-3 border-r border-slate-200 flex items-center gap-1.5 md:gap-2">
                           <div className={`w-1 md:w-2 h-5 md:h-8 rounded-full shrink-0 ${
                             provider.domain === 'Ménage' ? 'bg-blue-500' :
-                            provider.domain === 'Jardinage' ? 'bg-green-500' :
                             provider.domain === 'Bricolage' ? 'bg-orange-500' : 'bg-purple-500'
                           }`} />
                           <div className="min-w-0 overflow-hidden">
@@ -800,22 +785,10 @@ export const ProviderAvailabilityPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {serviceTypes.map((svcType) => {
             const data = slotsByServiceType[svcType];
-            const hasAvailability = data && data.hours.length > 0;
-            const domainColor =
-              svcType === 'Ménage' ? 'border-blue-200 bg-blue-50' :
-              svcType === 'Jardinage' ? 'border-green-200 bg-green-50' :
-              svcType === 'Bricolage' ? 'border-orange-200 bg-orange-50' :
-              'border-purple-200 bg-purple-50';
-            const dotColor =
-              svcType === 'Ménage' ? 'bg-blue-500' :
-              svcType === 'Jardinage' ? 'bg-green-500' :
-              svcType === 'Bricolage' ? 'bg-orange-500' :
-              'bg-purple-500';
-            const textColor =
-              svcType === 'Ménage' ? 'text-blue-700' :
-              svcType === 'Jardinage' ? 'text-green-700' :
-              svcType === 'Bricolage' ? 'text-orange-700' :
-              'text-purple-700';
+            const hasAvailability = data && data.groupedSlots.length > 0;
+            const domainColor = 'border-blue-200 bg-blue-50';
+            const dotColor = 'bg-blue-500';
+            const textColor = 'text-blue-700';
 
             return (
               <div
@@ -830,15 +803,41 @@ export const ProviderAvailabilityPage: React.FC = () => {
                   <span className="text-xs text-slate-500 ml-auto">{data?.providerCount || 0} prest.</span>
                 </div>
                 {hasAvailability ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {data.hours.map((hour) => (
-                      <span
-                        key={hour}
-                        className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-white border ${textColor} border-current/20`}
-                      >
-                        {hour.toString().padStart(2, '0')}:00
-                      </span>
-                    ))}
+                  <div className="space-y-2">
+                    {data.groupedSlots.map((slot, i) => {
+                      const durationHours = [...slot.durations].sort((a, b) => b - a);
+                      const bestCount = slot.maxProviderCount;
+                      return (
+                        <div key={i} className="bg-white/80 rounded-lg p-2 border border-slate-100">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-xs font-bold ${textColor}`}>
+                              {slot.startTime} — {slot.endTime}
+                            </span>
+                            <span className={`text-xs font-bold ${bestCount >= 2 ? 'text-green-600' : 'text-blue-600'}`}>
+                              {bestCount} libre{bestCount > 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {durationHours.map((dur) => {
+                              const info = slot.providersByDuration[dur];
+                              const count = info?.count || 0;
+                              return (
+                                <span
+                                  key={dur}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    count > 0
+                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      : 'bg-slate-100 text-slate-300 border border-slate-100'
+                                  }`}
+                                >
+                                  Pack {dur}h {count > 0 && <span className="text-[9px] opacity-70">({count})</span>}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-xs text-slate-500 italic">Aucun créneau disponible</p>
@@ -867,13 +866,9 @@ export const ProviderAvailabilityPage: React.FC = () => {
   );
 };
 
-// Helper function
+// Helper function — filtre strict Ménage
 function mapSpecialtyToDomain(specialty: string): any {
-  const specialtyLower = (specialty || '').toLowerCase();
-  if (specialtyLower.includes('ménage') || specialtyLower.includes('menage')) return 'Ménage';
-  if (specialtyLower.includes('jardin')) return 'Jardinage';
-  if (specialtyLower.includes('bricol')) return 'Bricolage';
-  return 'Autre';
+  return isMenageSpecialty(specialty) ? 'Ménage' : null;
 }
 
 export default ProviderAvailabilityPage;

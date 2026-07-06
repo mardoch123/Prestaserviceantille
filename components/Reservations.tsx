@@ -101,7 +101,7 @@ const Reservations: React.FC = () => {
                 <div className="p-8 animate-in fade-in slide-in-from-right-4">
                     <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Que souhaite le client ?</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {['Ménage Standard', 'Grand Nettoyage', 'Jardinage', 'Bricolage', 'Garde d\'enfant', 'Assistance'].map(service => (
+                        {['Ménage Standard', 'Grand Nettoyage', 'Bricolage', 'Garde d\'enfant', 'Assistance'].map(service => (
                             <div 
                                 key={service}
                                 onClick={() => { setSelectedService(service); handleNext(); }}

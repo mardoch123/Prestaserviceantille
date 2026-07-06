@@ -299,7 +299,7 @@ const Login: React.FC = () => {
                             </div>
                         )}
                     </div>
-                    <div className="text-sm font-extrabold text-slate-700 tracking-wide">Menage - Repassage - Jardinage</div>
+                    <div className="text-sm font-extrabold text-slate-700 tracking-wide">Menage - Repassage - Bricolage</div>
                     <div className="w-28 h-px bg-slate-200 mx-auto mt-3 mb-3" />
                     <h1 className="text-2xl font-serif font-bold text-slate-800">Espace Connexion</h1>
                     <p className="text-slate-500 text-sm mt-2">Accédez à votre tableau de bord</p>

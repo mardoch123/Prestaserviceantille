@@ -2,13 +2,16 @@
  * Module centralisé de calcul de disponibilités des prestataires.
  *
  * Règles métier :
- * - Granularité 30 min pour les services < 3h
- * - Blocs fixes Matin (08:00–12:00) / Après-midi (12:00–16:00) pour services >= 3h
+ * - Créneaux fixes autorisés :
+ *   • 6h : 09:00–15:00 ou 08:00–16:00
+ *   • 4h : 09:00–13:00, 08:00–12:00, 12:00–16:00 ou 13:00–17:00
+ *     (un prestataire ne peut pas avoir 2 créneaux de 4h le même jour)
+ *   • 3h : 09:00–12:00, 08:00–11:00, 12:00–15:00 ou 13:00–16:00
+ * - Temps de trajet : 30 min minimum entre deux prestations (TRAVEL_BUFFER_MIN)
  * - Respect strict des plages de travail (availabilityMode, availabilityHours,
  *   nonInterventionHours, nonInterventionDays)
  * - Vérification des congés approuvés (leaves)
- * - Chevauchement précis en minutes (pas en heures entières)
- * - Horaires globaux : 08:00–16:00
+ * - Max 2 prestations par jour et par prestataire
  */
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -48,16 +51,38 @@ export interface ProviderLike {
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
-/** Heure d'ouverture globale (cohérent blocs matin/après-midi) */
+/** Heure d'ouverture globale */
 export const AVAILABILITY_OPEN_HOUR = 8;
-/** Heure de fermeture globale */
-export const AVAILABILITY_CLOSE_HOUR = 16;
-/** Taille d'un bloc flexible en minutes */
-const BLOCK_SIZE_MIN = 30;
-/** Seuil de durée (en heures) à partir duquel on bascule en blocs fixes */
-const LONG_SERVICE_THRESHOLD = 3;
+/** Heure de fermeture globale (étendue à 17h pour le créneau 13h–17h) */
+export const AVAILABILITY_CLOSE_HOUR = 17;
 /** Nombre maximum de prestations par jour et par prestataire */
 export const MAX_PRESTATIONS_PER_DAY = 2;
+/**
+ * Temps de trajet minimum entre deux prestations (en minutes).
+ * Les prestataires ont besoin d'un intervalle pour se rendre à la prochaine prestation.
+ */
+export const TRAVEL_BUFFER_MIN = 30;
+
+/**
+ * Créneaux autorisés fixes pour la disponibilité.
+ * Un prestataire ne peut être réservé que sur l'un de ces créneaux.
+ * Règle : un prestataire ne peut pas avoir 2 créneaux de 4h le même jour.
+ */
+export const ALLOWED_SLOTS: Array<{ duration: number; startTime: string; endTime: string }> = [
+  // 6h
+  { duration: 6, startTime: '09:00', endTime: '15:00' },
+  { duration: 6, startTime: '08:00', endTime: '16:00' },
+  // 4h
+  { duration: 4, startTime: '09:00', endTime: '13:00' },
+  { duration: 4, startTime: '08:00', endTime: '12:00' },
+  { duration: 4, startTime: '12:00', endTime: '16:00' },
+  { duration: 4, startTime: '13:00', endTime: '17:00' },
+  // 3h
+  { duration: 3, startTime: '09:00', endTime: '12:00' },
+  { duration: 3, startTime: '08:00', endTime: '11:00' },
+  { duration: 3, startTime: '12:00', endTime: '15:00' },
+  { duration: 3, startTime: '13:00', endTime: '16:00' },
+];
 
 /**
  * Vérifie si un statut de prestataire est considéré comme "actif" (peut recevoir des missions).
@@ -197,13 +222,15 @@ export function isProviderOnLeave(provider: ProviderLike, dateStr: string): bool
 }
 
 /**
- * Vérifie si un créneau (en minutes) chevauche une liste de missions occupées.
- * Chevauchement : slotStart < missionEnd AND slotEnd > missionStart
+ * Vérifie si un créneau (en minutes) chevauche une liste de missions occupées,
+ * en tenant compte du temps de trajet (TRAVEL_BUFFER_MIN).
+ * Chevauchement avec buffer : slotStart < missionEnd + buffer AND slotEnd > missionStart - buffer
  */
 export function checkMissionOverlap(
   slotStartMin: number,
   slotEndMin: number,
-  busyMissions: Array<{ start_time?: string; startTime?: string; end_time?: string; endTime?: string }>
+  busyMissions: Array<{ start_time?: string; startTime?: string; end_time?: string; endTime?: string }>,
+  bufferMin: number = TRAVEL_BUFFER_MIN
 ): boolean {
   return busyMissions.some(m => {
     const rawStart = m.start_time || m.startTime || '';
@@ -212,7 +239,7 @@ export function checkMissionOverlap(
     const mStart = timeToMinutes(rawStart);
     const mEnd = timeToMinutes(rawEnd);
     if (mEnd <= mStart) return false; // mission invalide (durée 0 ou négative)
-    return slotStartMin < mEnd && slotEndMin > mStart;
+    return slotStartMin < (mEnd + bufferMin) && slotEndMin > (mStart - bufferMin);
   });
 }
 
@@ -294,6 +321,28 @@ export function isProviderFreeDuring(
 }
 
 /**
+ * Vérifie si un prestataire a déjà un créneau de 4h assigné pour une date donnée.
+ * Règle : un prestataire ne peut pas avoir 2 créneaux de 4h le même jour.
+ */
+export function hasProviderExisting4hSlot(
+  provider: ProviderLike,
+  dateStr: string,
+  missions: MissionLike[]
+): boolean {
+  const pid = normalizeProviderId(provider.id);
+  return missions.some(m => {
+    const mPid = normalizeProviderId(m.providerId || m.provider_id);
+    if (mPid !== pid || mPid === '' || m.date !== dateStr) return false;
+    if (normalizeMissionStatus(m.status) === 'cancelled') return false;
+    const rawStart = m.start_time || m.startTime || '';
+    const rawEnd = m.end_time || m.endTime || '';
+    if (!rawStart || !rawEnd) return false;
+    const dur = timeToMinutes(rawEnd) - timeToMinutes(rawStart);
+    return dur === 4 * 60;
+  });
+}
+
+/**
  * Créneaux de durée valides (en heures) pour la réservation.
  */
 export const VALID_DURATIONS_H = [3, 4, 6] as const;
@@ -326,48 +375,48 @@ export function computeFreeSlots(
     if (seenProviderIds.has(pid)) return false;
     seenProviderIds.add(pid);
     return true;
-  });
+  }).filter(p => isMenageSpecialty(p.specialty || ''));
 
   const dayOfWeek = getDayOfWeek(dateStr);
-  const openHour = AVAILABILITY_OPEN_HOUR;  // 8
-  const closeHour = AVAILABILITY_CLOSE_HOUR; // 16
 
-  // Durées à tester : si serviceDuration spécifié et valide, n'utiliser que celle-là
-  const durations = serviceDuration && VALID_DURATIONS_H.includes(serviceDuration as any)
-    ? [serviceDuration]
-    : [...VALID_DURATIONS_H];
+  // Filtrer les créneaux autorisés par durée si demandée
+  let allowedSlots = ALLOWED_SLOTS;
+  if (serviceDuration && VALID_DURATIONS_H.includes(serviceDuration as any)) {
+    allowedSlots = ALLOWED_SLOTS.filter(s => s.duration === serviceDuration);
+  }
 
   const slots: TimeSlot[] = [];
-  const seen = new Set<string>(); // éviter les doublons de créneaux
+  const seen = new Set<string>();
 
-  // Pour chaque durée (6h, 4h, 3h - du plus long au plus court)
-  for (const duration of durations.sort((a, b) => b - a)) {
-    // Pour chaque heure de début possible
-    for (let startH = openHour; startH + duration <= closeHour; startH++) {
-      const endH = startH + duration;
-      const startMin = startH * 60;
-      const endMin = endH * 60;
-      const key = `${startMin}-${endMin}`;
+  for (const slotDef of allowedSlots) {
+    const startMin = timeToMinutes(slotDef.startTime);
+    const endMin = timeToMinutes(slotDef.endTime);
+    const startH = Math.floor(startMin / 60);
+    const endH = Math.ceil(endMin / 60);
+    const key = `${startMin}-${endMin}`;
 
-      // Vérifier si au moins un prestataire est libre pour cette durée complète
-      const hasProvider = uniqueProviders.some(p => {
-        if (isProviderOnLeave(p, dateStr)) return false;
-        const workingHours = getProviderWorkingHours(p, dayOfWeek);
-        // Le prestataire doit travailler pendant TOUTES les heures du créneau
-        for (let h = startH; h < endH; h++) {
-          if (!workingHours.includes(h)) return false;
-        }
-        // Et ne pas avoir de mission qui chevauche ce créneau
-        return isProviderFreeDuring(p, dateStr, startMin, endMin, missions);
-      });
+    if (seen.has(key)) continue;
 
-      if (hasProvider && !seen.has(key)) {
-        seen.add(key);
-        slots.push({
-          startTime: minutesToTime(startMin),
-          endTime: minutesToTime(endMin),
-        });
+    // Vérifier si au moins un prestataire est libre pour ce créneau
+    const hasProvider = uniqueProviders.some(p => {
+      if (isProviderOnLeave(p, dateStr)) return false;
+      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      // Le prestataire doit travailler pendant TOUTES les heures du créneau
+      for (let h = startH; h < endH; h++) {
+        if (!workingHours.includes(h)) return false;
       }
+      // Règle 4h : pas 2 créneaux de 4h le même jour
+      if (slotDef.duration === 4 && hasProviderExisting4hSlot(p, dateStr, missions)) return false;
+      // Et ne pas avoir de mission qui chevauche ce créneau
+      return isProviderFreeDuring(p, dateStr, startMin, endMin, missions);
+    });
+
+    if (hasProvider) {
+      seen.add(key);
+      slots.push({
+        startTime: slotDef.startTime,
+        endTime: slotDef.endTime,
+      });
     }
   }
 
@@ -376,14 +425,35 @@ export function computeFreeSlots(
 }
 
 /**
- * Mappe une spécialité prestataire vers un domaine de service standardisé.
+ * Mots-clés reconnus comme spécialité « Ménage ».
+ * Seuls les prestataires dont la spécialité contient l'un de ces mots-clés
+ * sont affichés dans les disponibilités et le flux de réservation.
  */
-export function mapSpecialtyToDomain(specialty: string): string {
-  const s = (specialty || '').toLowerCase();
-  if (s.includes('ménage') || s.includes('menage') || s.includes('nettoyage')) return 'Ménage';
-  if (s.includes('jardin')) return 'Jardinage';
-  if (s.includes('bricol')) return 'Bricolage';
-  return 'Autre';
+const MENAGE_KEYWORDS = [
+  'menage', 'ménage', 'nettoyage', 'entretien',
+  'repassage', 'vitres', 'aspiration', 'domicile', 'maison',
+];
+
+/**
+ * Vérifie si une spécialité prestataire correspond strictement au domaine « Ménage ».
+ * Exclut jardinage, bricolage, et toute autre spécialité non liée au ménage.
+ */
+export function isMenageSpecialty(specialty: string): boolean {
+  const normalized = String(specialty || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  if (!normalized) return false;
+  return MENAGE_KEYWORDS.some(kw => normalized.includes(kw));
+}
+
+/**
+ * Mappe une spécialité prestataire vers un domaine de service standardisé.
+ * Retourne 'Ménage' uniquement si la spécialité correspond au ménage, sinon null.
+ */
+export function mapSpecialtyToDomain(specialty: string): string | null {
+  return isMenageSpecialty(specialty) ? 'Ménage' : null;
 }
 
 /**
@@ -397,7 +467,7 @@ export function computeFreeSlotsForServiceType(
   serviceType: string,
   serviceDuration?: number | null
 ): TimeSlot[] {
-  const domain = serviceType; // 'Ménage', 'Jardinage', 'Bricolage', 'Autre'
+  const domain = serviceType; // 'Ménage', 'Bricolage', 'Autre'
   const domainProviders = providers.filter(p => mapSpecialtyToDomain(p.specialty || '') === domain);
 
   if (domainProviders.length === 0) return [];
@@ -438,6 +508,9 @@ export function getAvailableProvidersCount(
       return pDomain === domain || domain === 'Autre' || domain === 'Personnalisé';
     });
   }
+
+  // Filtrer uniquement les prestataires dont la spécialité est strictement « Ménage »
+  filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
 
   return filteredProviders.filter(p => {
     // Vérifier congé
@@ -495,15 +568,16 @@ export function computeAvailabilitySlots(
   if (!providers || providers.length === 0) return [];
 
   const dayOfWeek = getDayOfWeek(dateStr);
-  const openH = AVAILABILITY_OPEN_HOUR;   // 8h (cohérent avec computeFreeSlots)
-  const closeH = AVAILABILITY_CLOSE_HOUR; // 16h (cohérent avec computeFreeSlots)
-  const durations = [6, 4, 3]; // du plus long au plus court
 
   // Filtrer par type de service si demandé
   let filteredProviders = providers;
+
+  // Filtrer systématiquement par spécialité Ménage (exclure jardinage, bricolage, etc.)
+  filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
+
   if (serviceType) {
     const domain = serviceType;
-    filteredProviders = providers.filter(p => {
+    filteredProviders = filteredProviders.filter(p => {
       const pDomain = mapSpecialtyToDomain(p.specialty || '');
       return pDomain === domain || domain === 'Autre' || domain === 'Personnalisé';
     });
@@ -519,7 +593,6 @@ export function computeAvailabilitySlots(
   });
 
   // Filtrer uniquement les prestataires actifs/passifs (FR: Actif/Passif, EN: Active/Passive)
-  // Cohérent avec PublicAvailabilityPage.tsx qui pré-filtre avant d'appeler cette fonction
   filteredProviders = filteredProviders.filter(p => isProviderActive(p));
 
   if (filteredProviders.length === 0) return [];
@@ -527,55 +600,60 @@ export function computeAvailabilitySlots(
   const slots: EnrichedSlot[] = [];
   const seen = new Set<string>();
 
-  for (const duration of durations) {
-    for (let startH = openH; startH + duration <= closeH; startH++) {
-      const endH = startH + duration;
-      const startMin = startH * 60;
-      const endMin = endH * 60;
-      const key = `${startMin}-${endMin}`;
+  // Parcourir les créneaux autorisés fixes (du plus long au plus court)
+  const sortedAllowed = [...ALLOWED_SLOTS].sort((a, b) => b.duration - a.duration);
 
-      if (seen.has(key)) continue;
+  for (const slotDef of sortedAllowed) {
+    const startMin = timeToMinutes(slotDef.startTime);
+    const endMin = timeToMinutes(slotDef.endTime);
+    const startH = Math.floor(startMin / 60);
+    const endH = Math.ceil(endMin / 60);
+    const key = `${startMin}-${endMin}`;
 
-      // Compter les prestataires libres pour ce créneau (sans doublons)
-      const freeProviderIdsSet = new Set<string>();
+    if (seen.has(key)) continue;
 
-      for (const p of filteredProviders) {
-        const pid = normalizeProviderId(p.id);
-        if (freeProviderIdsSet.has(pid)) continue; // Doublon
+    // Compter les prestataires libres pour ce créneau (sans doublons)
+    const freeProviderIdsSet = new Set<string>();
 
-        if (isProviderOnLeave(p, dateStr)) continue;
+    for (const p of filteredProviders) {
+      const pid = normalizeProviderId(p.id);
+      if (freeProviderIdsSet.has(pid)) continue; // Doublon
 
-        const workingHours = getProviderWorkingHours(p, dayOfWeek);
-        if (workingHours.length === 0) continue;
+      if (isProviderOnLeave(p, dateStr)) continue;
 
-        // Le prestataire doit travailler pendant TOUTES les heures du créneau
-        let coversAll = true;
-        for (let h = startH; h < endH; h++) {
-          if (!workingHours.includes(h)) {
-            coversAll = false;
-            break;
-          }
-        }
-        if (!coversAll) continue;
+      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      if (workingHours.length === 0) continue;
 
-        // Vérifier pas de chevauchement + règle max 2/jour
-        if (isProviderFreeDuring(p, dateStr, startMin, endMin, missions)) {
-          freeProviderIdsSet.add(pid);
+      // Le prestataire doit travailler pendant TOUTES les heures du créneau
+      let coversAll = true;
+      for (let h = startH; h < endH; h++) {
+        if (!workingHours.includes(h)) {
+          coversAll = false;
+          break;
         }
       }
+      if (!coversAll) continue;
 
-      const freeProviderIds = Array.from(freeProviderIdsSet);
+      // Règle 4h : pas 2 créneaux de 4h le même jour
+      if (slotDef.duration === 4 && hasProviderExisting4hSlot(p, dateStr, missions)) continue;
 
-      if (freeProviderIds.length > 0) {
-        seen.add(key);
-        slots.push({
-          startTime: minutesToTime(startMin),
-          endTime: minutesToTime(endMin),
-          durationHours: duration,
-          providerCount: freeProviderIds.length,
-          providerIds: freeProviderIds,
-        });
+      // Vérifier pas de chevauchement + règle max 2/jour
+      if (isProviderFreeDuring(p, dateStr, startMin, endMin, missions)) {
+        freeProviderIdsSet.add(pid);
       }
+    }
+
+    const freeProviderIds = Array.from(freeProviderIdsSet);
+
+    if (freeProviderIds.length > 0) {
+      seen.add(key);
+      slots.push({
+        startTime: slotDef.startTime,
+        endTime: slotDef.endTime,
+        durationHours: slotDef.duration,
+        providerCount: freeProviderIds.length,
+        providerIds: freeProviderIds,
+      });
     }
   }
 

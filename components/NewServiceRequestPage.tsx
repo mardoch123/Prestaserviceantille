@@ -10,7 +10,6 @@ import {
   ArrowRight,
   CheckCircle,
   Home,
-  Flower2,
   Wrench,
   HelpCircle,
   Package,
@@ -48,7 +47,6 @@ interface InterventionSlot {
 
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
   'Ménage': <Home className="w-6 h-6" />,
-  'Jardinage': <Flower2 className="w-6 h-6" />,
   'Bricolage': <Wrench className="w-6 h-6" />,
   'Autre': <HelpCircle className="w-6 h-6" />,
   'Personnalisé': <Sparkles className="w-6 h-6" />,
@@ -56,7 +54,6 @@ const SERVICE_ICONS: Record<string, React.ReactNode> = {
 
 const SERVICE_COLORS: Record<string, string> = {
   'Ménage': 'bg-blue-500',
-  'Jardinage': 'bg-green-500',
   'Bricolage': 'bg-orange-500',
   'Autre': 'bg-slate-500',
   'Personnalisé': 'bg-purple-500',
@@ -644,7 +641,7 @@ ${additionalNotes ? `Notes additionnelles: ${additionalNotes}` : ''}
               <p className="text-slate-500 mb-4 sm:mb-6 text-sm">Sélectionnez la catégorie qui correspond à votre besoin</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {(['Ménage', 'Jardinage', 'Bricolage', 'Autre', 'Personnalisé'] as ServiceTypeFilter[]).map((service) => (
+                {(['Ménage', 'Bricolage', 'Autre', 'Personnalisé'] as ServiceTypeFilter[]).map((service) => (
                   <button
                     key={service}
                     onClick={() => setSelectedService(service)}
@@ -660,7 +657,6 @@ ${additionalNotes ? `Notes additionnelles: ${additionalNotes}` : ''}
                     <h3 className="text-base sm:text-lg font-bold text-slate-800 mb-1 truncate">{service}</h3>
                     <p className="text-xs sm:text-sm text-slate-500 line-clamp-2">
                       {service === 'Ménage' && 'Nettoyage, repassage, vitres, entretien de votre domicile'}
-                      {service === 'Jardinage' && 'Tonte, taille, débroussaillage, entretien de votre jardin'}
                       {service === 'Bricolage' && 'Petits travaux, réparations, montage, installations'}
                       {service === 'Autre' && 'Services personnalisés selon vos besoins spécifiques'}
                       {service === 'Personnalisé' && 'Interventions sur mesure et demandes spéciales'}

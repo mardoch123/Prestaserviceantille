@@ -1,4 +1,5 @@
 import { supabase } from '../../utils/supabaseClient';
+import { isMenageSpecialty } from '../../utils/availabilityCalculator';
 import type {
   ProviderWithAvailability,
   ProviderAvailabilitySlot,
@@ -33,6 +34,10 @@ export async function getProvidersWithAvailability(
   if (!providersData || providersData.length === 0) {
     return [];
   }
+
+  // Filtrer strictement par spécialité Ménage (exclure jardinage, bricolage, etc.)
+  const menageProviders = providersData.filter((p: any) => isMenageSpecialty(p.specialty || ''));
+  if (menageProviders.length === 0) return [];
 
   // Get provider availability slots for the date range (limit 100)
   const { data: availabilityData, error: availabilityError } = await supabase
@@ -95,7 +100,7 @@ export async function getProvidersWithAvailability(
   });
 
   // Map providers with their availability
-  return providersData.map((provider: any) => {
+  return menageProviders.map((provider: any) => {
     const domain = mapSpecialtyToDomain(provider.specialty);
     const providerAvailability = availabilityMap.get(provider.id) || new Map();
     const providerAvailableSlots = availableSlotsMap.get(provider.id) || new Map();
@@ -457,11 +462,7 @@ export async function getClientsForAssignment(): Promise<{ id: string; name: str
 
 // Helper functions
 function mapSpecialtyToDomain(specialty: string): any {
-  const specialtyLower = (specialty || '').toLowerCase();
-  if (specialtyLower.includes('ménage') || specialtyLower.includes('menage')) return 'Ménage';
-  if (specialtyLower.includes('jardin')) return 'Jardinage';
-  if (specialtyLower.includes('bricol')) return 'Bricolage';
-  return 'Autre';
+  return isMenageSpecialty(specialty) ? 'Ménage' : null;
 }
 
 function mapDbToAvailabilitySlot(data: any): ProviderAvailabilitySlot {

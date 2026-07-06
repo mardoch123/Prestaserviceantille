@@ -29,7 +29,6 @@ import {
 // Extended List of Specialties
 const PROVIDER_SPECIALTIES = [
     "Ménage / Entretien",
-    "Jardinage",
     "Bricolage",
     "Plomberie",
     "Électricité",

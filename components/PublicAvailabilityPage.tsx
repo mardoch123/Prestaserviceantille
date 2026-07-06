@@ -19,6 +19,7 @@ import {
   groupSlotsByTime,
   getProvisionalMissionsFromDocuments,
   mapSpecialtyToDomain,
+  isMenageSpecialty,
   AVAILABILITY_OPEN_HOUR,
   AVAILABILITY_CLOSE_HOUR,
   MissionLike,
@@ -57,13 +58,10 @@ const MONTHS = [
 
 const OPEN_HOUR = AVAILABILITY_OPEN_HOUR;
 const CLOSE_HOUR = AVAILABILITY_CLOSE_HOUR;
-const SERVICE_TYPES = ['Ménage', 'Jardinage', 'Bricolage', 'Autre'] as const;
+const SERVICE_TYPES = ['Ménage'] as const;
 
 const SERVICE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
   'Ménage':    { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-700',    dot: 'bg-blue-500' },
-  'Jardinage': { bg: 'bg-green-50',   border: 'border-green-200',   text: 'text-green-700',   dot: 'bg-green-500' },
-  'Bricolage': { bg: 'bg-orange-50',  border: 'border-orange-200',  text: 'text-orange-700',  dot: 'bg-orange-500' },
-  'Autre':     { bg: 'bg-purple-50',  border: 'border-purple-200',  text: 'text-purple-700',  dot: 'bg-purple-500' },
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -242,13 +240,13 @@ const PublicAvailabilityPage: React.FC = () => {
     fetchData(rangeStart, rangeEnd);
   }, [rangeStart, rangeEnd, fetchData]);
 
-  // Group providers by service domain
+  // Group providers by service domain — seul "Ménage" : uniquement les prestataires Ménage / Entretien
   const providersByDomain = useMemo(() => {
-    const map: Record<string, any[]> = {};
-    for (const svc of SERVICE_TYPES) map[svc] = [];
+    const map: Record<string, any[]> = { 'Ménage': [] };
     for (const p of providers) {
-      const domain = mapSpecialtyToDomain(p.specialty);
-      if (map[domain]) map[domain].push(p);
+      // Filtrer strictement par spécialité Ménage (exclure jardinage, bricolage, etc.)
+      if (!isMenageSpecialty(p.specialty || '')) continue;
+      map['Ménage'].push(p);
     }
     return map;
   }, [providers]);
@@ -282,7 +280,8 @@ const PublicAvailabilityPage: React.FC = () => {
           if (domainProviders.length === 0) continue;
 
           // Calcul centralisé : créneaux cumulatifs avec nombre de prestataires
-          const enrichedSlots = computeAvailabilitySlots(dateStr, domainProviders, missions, svcType);
+          // Pas de filtre par spécialité : tous les prestataires sont sous "Ménage"
+          const enrichedSlots = computeAvailabilitySlots(dateStr, domainProviders, missions);
           const groupedSlots = groupSlotsByTime(enrichedSlots);
 
           // Compter les prestataires RÉELLEMENT libres ce jour-là (dédupliqués par ID)
