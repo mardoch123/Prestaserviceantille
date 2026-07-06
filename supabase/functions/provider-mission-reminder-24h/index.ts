@@ -64,7 +64,7 @@ function buildReminderMessage(params: {
 
   return `PRESTA SERVICES ANTILLES
 31 Résidence L'Autre Bord – 97220 La Trinité
-📧 prestaservicesantilles.rh@gmail.com | 📞 0696 06 15 94
+📧 prestaservicesantilles@gmail.com | 📞 0696 06 15 94
 
 Objet : Rappel mission dans 24h
 

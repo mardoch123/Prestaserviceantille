@@ -345,7 +345,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         name: 'PRESTA SERVICES ANTILLES',
         address: '31 Résidence L’Autre Bord – 97220 La Trinité',
         siret: 'SAP944789700',
-        email: 'prestaservicesantilles.rh@gmail.com',
+        email: 'prestaservicesantilles@gmail.com',
         phone: '0696 06 15 94',
         tvaRateDefault: 8.5,
         emailNotifications: true,
@@ -1352,7 +1352,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const legalTemplate = `PRESTA SERVICES ANTILLES – SASU
 Siège : 31 Résidence L’Autre Bord – 97220 La Trinité
 N° SAP : SAP944789700
-Email : prestaservicesantilles.rh@gmail.com
+Email : prestaservicesantilles@gmail.com
 Assurance RCP : Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox et Assurance :
 Contrat n° RCP250714175810 – Assurup pour le compte de Hiscox – validité : 01/08/2025 → 31/07/2026 – plafond : 100 000 € par période – Monde entier (hors USA/Canada).
 Attestation disponible sur demande.
@@ -1373,7 +1373,7 @@ Le Client assure l’accès au domicile aux dates et créneaux convenus, fournit
 Le Prestataire n’est pas responsable (i) des retards résultant d’un manquement du Client, notamment en cas d’accès impossible ou d’absence de QR code, ni (ii) des dommages, défauts ou dysfonctionnements antérieurs à l’intervention. Sa responsabilité est limitée aux dommages directs, certains et prouvés, dans la limite des plafonds de ses assurances.
 
 – Protection des données (RGPD)
-Données traitées : identité et coordonnées, adresse d’intervention, consignes d’accès, données de pointage. Base légale : exécution du Contrat. Durées de conservation : pendant le Contrat puis selon les délais légaux. Droits du Client : accès, rectification, effacement, limitation, opposition et portabilité (contact : prestaservicesantilles.rh@gmail.com). Les sous‑traitants (hébergement, paiement, pointage) sont tenus à des obligations de confidentialité et de sécurité. Aucun transfert hors UE n’est effectué sans garanties adéquates.
+Données traitées : identité et coordonnées, adresse d’intervention, consignes d’accès, données de pointage. Base légale : exécution du Contrat. Durées de conservation : pendant le Contrat puis selon les délais légaux. Droits du Client : accès, rectification, effacement, limitation, opposition et portabilité (contact : prestaservicesantilles@gmail.com). Les sous‑traitants (hébergement, paiement, pointage) sont tenus à des obligations de confidentialité et de sécurité. Aucun transfert hors UE n’est effectué sans garanties adéquates.
 
 – Résiliation
 12.1. Avec préavis : chaque Partie peut résilier le Contrat à tout moment, sous réserve d’un préavis de 30 jours notifié par lettre recommandée avec accusé de réception ou par courriel avec accusé de réception.
@@ -3241,19 +3241,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 await refreshWithTimeout(15000);
                 setLoading(false);
             } else if (event === 'SIGNED_OUT') {
+                // Try to recover session silently without clearing data immediately
                 performSilentLogin().then(recovered => {
                     if (recovered) {
                         refreshData();
-                    } else {
-                        setCurrentUser(null);
-                        setMissions([]);
-                        setClients([]);
-                        setClientLeads([]);
-                        setProviders([]);
-                        setDocuments([]);
-                        localStorage.removeItem('presta_current_user');
-                        setLoading(false);
                     }
+                    // REMOVED: Don't clear user data on SIGNED_OUT - keep cached session
+                    // The heartbeat and token refresh will retry later
+                    setLoading(false);
                 });
             } else if (event === 'INITIAL_SESSION' && !session?.user) {
                 setLoading(false);
@@ -3278,6 +3273,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             localStorage.setItem('presta_last_reconnect', now.toString());
 
             try {
+                // First, try to refresh the session proactively
+                const { data: refreshedSession, error: refreshError } = await supabase.auth.refreshSession();
+                if (!refreshError && refreshedSession?.session) {
+                    setIsOnline(true);
+                    const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
+                    if (!lastDataRefresh || (now - parseInt(lastDataRefresh)) > 300000) {
+                        await refreshData();
+                        localStorage.setItem('presta_last_data_refresh', now.toString());
+                    }
+                    return;
+                }
+
+                // If refresh failed, check existing session
                 const { data, error } = await supabase.auth.getSession();
                 if (error) {
                     if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
@@ -3294,6 +3302,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         localStorage.setItem('presta_last_data_refresh', now.toString());
                     }
                 } else if (currentUser) {
+                    // Try silent login but NEVER force logout if it fails
                     const recovered = await performSilentLogin();
                     if (recovered) {
                         const lastDataRefresh = localStorage.getItem('presta_last_data_refresh');
@@ -3301,9 +3310,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             refreshData();
                             localStorage.setItem('presta_last_data_refresh', now.toString());
                         }
-                    } else if (currentUser?.role === 'admin') {
-                        await logout(true);
                     }
+                    // REMOVED: aggressive logout for admin - keep user logged in using cached data
                 }
             } catch { /* reconnexion non critique */ }
         };
@@ -3316,6 +3324,43 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             window.removeEventListener('focus', handleReconnection);
         };
     }, []);
+
+    // --- PROACTIVE TOKEN REFRESH (every 25 min, well before 1h JWT expiry) ---
+    useEffect(() => {
+        if (!isSupabaseConfigured || !currentUser) return;
+
+        const refreshSessionToken = async () => {
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error) return;
+
+                if (session) {
+                    // Check if token expires soon (within 10 minutes)
+                    const expiresAt = session.expires_at;
+                    const now = Math.floor(Date.now() / 1000);
+                    if (expiresAt && (expiresAt - now) < 600) {
+                        // Token expires soon, refresh it
+                        await supabase.auth.refreshSession();
+                        console.log('[Session] Token refreshed proactively');
+                    }
+                    if (!isOnline) setIsOnline(true);
+                } else {
+                    // No session at all, try to recover silently
+                    await performSilentLogin();
+                }
+            } catch {
+                // Non-critical, ignore errors
+            }
+        };
+
+        // Run immediately on mount
+        refreshSessionToken();
+
+        // Then refresh every 25 minutes (before the 1h JWT expiry)
+        const tokenRefreshInterval = setInterval(refreshSessionToken, 25 * 60 * 1000);
+
+        return () => clearInterval(tokenRefreshInterval);
+    }, [currentUser, isOnline]);
 
     // --- HEARTBEAT & CONNECTION KEEPALIVE ---
     useEffect(() => {
@@ -3340,12 +3385,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 if (!session) {
-                    if (currentUser) await performSilentLogin();
+                    // Try to refresh session first before falling back to silent login
+                    const { data: refreshResult } = await supabase.auth.refreshSession();
+                    if (!refreshResult?.session && currentUser) {
+                        await performSilentLogin();
+                    }
                 } else {
                     if (!isOnline) setIsOnline(true);
                 }
             } catch { /* heartbeat non critique */ }
-        }, 600000);
+        }, 300000); // Every 5 minutes instead of 10
 
         return () => clearInterval(heartbeatInterval);
     }, [currentUser, isOnline]);
@@ -6485,7 +6534,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const secretaryName = currentUser?.name || 'Secrétaire';
 
             await sendEmail(
-                'prestaservicesantilles.rh@gmail.com',
+                'prestaservicesantilles@gmail.com',
                 `Demande de validation - Contrat ${contract.id}`,
                 'contract_validation_request',
                 {
@@ -6550,7 +6599,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (approved) {
                 const clientName = contract.name || 'Client';
                 await sendEmail(
-                    'prestaservicesantilles.rh@gmail.com',
+                    'prestaservicesantilles@gmail.com',
                     `Contrat ${contract.id} validé`,
                     'contract_validated',
                     {

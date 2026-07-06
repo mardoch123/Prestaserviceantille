@@ -5,7 +5,7 @@ const getEnv = (key: string): string | undefined => (globalThis as any)?.Deno?.e
 
 const EMAIL_BRAND_NAME = 'Presta Services Antilles';
 const COMPANY_NAME = 'PRESTA SERVICES ANTILLES';
-const COMPANY_EMAIL = 'prestaservicesantilles.rh@gmail.com';
+const COMPANY_EMAIL = 'prestaservicesantilles@gmail.com';
 const COMPANY_PHONE = '0696 06 15 94';
 const COMPANY_ADDRESS = "31 Résidence L'Autre Bord – 97220 La Trinité";
 

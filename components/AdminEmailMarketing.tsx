@@ -208,7 +208,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
   
   <p style="color: #64748b; font-size: 12px; margin-top: 30px; text-align: center;">
     Presta Services Antilles - Simplifiez votre quotidien<br>
-    📞 0696 06 15 94 | 📧 prestaservicesantilles.rh@gmail.com
+    📞 0696 06 15 94 | 📧 prestaservicesantilles@gmail.com
   </p>
 </div>`;
   };
@@ -306,7 +306,7 @@ export const AdminEmailMarketingPage: React.FC = () => {
   <a href="https://www.prestaservicesantilles.com/" style="display: inline-block; background: #0d9488; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Découvrir nos offres</a>
   <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
     Presta Services Antilles - Simplifiez votre quotidien<br>
-    📞 0696 06 15 94 | 📧 prestaservicesantilles.rh@gmail.com
+    📞 0696 06 15 94 | 📧 prestaservicesantilles@gmail.com
   </p>
 </div>`
         }));

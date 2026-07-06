@@ -100,7 +100,7 @@ export interface EmailTemplateData {
     subject: string;
     message: string;
 }
-
+ 
 /**
  * Generates a complete email message based on template type and context
  */
@@ -109,7 +109,7 @@ export const generateEmailTemplate = (
     context: any
 ): EmailTemplateData => {
     const companyName = 'PRESTA SERVICES ANTILLES';
-    const companyEmail = 'prestaservicesantilles.rh@gmail.com';
+    const companyEmail = 'prestaservicesantilles@gmail.com';
     const companyPhone = '0696 06 15 94';
     const companyAddress = '31 Résidence L\'Autre Bord – 97220 La Trinité';
 

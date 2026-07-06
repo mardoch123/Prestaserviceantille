@@ -85,5 +85,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    // Use localStorage explicitly for session persistence across tabs/sessions
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    // Keep session alive across browser tabs
+    storageKey: 'sb-presta-auth-token',
   }
 });

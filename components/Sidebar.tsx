@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { SafeImage } from './SafeImage';
 import { 
   LayoutDashboard, 
   BarChart2, 
@@ -484,22 +483,36 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 <X className="w-6 h-6" />
             </button>
 
-            {/* Dynamic Logo from Settings */}
-            {companySettings.logoUrl ? (
-                 <div className="w-24 h-24 mb-2 flex items-center justify-center">
-                    <SafeImage
-                        src={companySettings.logoUrl}
-                        alt="Logo"
-                        className="w-full h-full object-contain"
-                        timeout={5000}
-                        retryCount={1}
+            {/* Dynamic Logo from Settings - Always visible, no lazy loading */}
+            {(() => {
+              const logoUrl = companySettings.logoUrl || localStorage.getItem('presta_cached_logo_url') || '';
+              if (logoUrl) {
+                return (
+                  <div className="w-24 h-24 mb-2 flex items-center justify-center">
+                    <img
+                      src={logoUrl}
+                      alt="Logo"
+                      className="w-full h-full object-contain"
+                      loading="eager"
+                      decoding="sync"
+                      onError={(e) => {
+                        // Hide broken image but keep container
+                        (e.target as HTMLImageElement).style.visibility = 'hidden';
+                      }}
+                      onLoad={() => {
+                        // Cache the logo URL for offline/future use
+                        try { localStorage.setItem('presta_cached_logo_url', logoUrl); } catch {}
+                      }}
                     />
-                 </div>
-            ) : (
+                  </div>
+                );
+              }
+              return (
                 <div className="w-20 h-20 rounded-full bg-white border-2 border-brand-orange flex items-center justify-center mb-2 shadow-sm overflow-hidden">
                    <span className="text-brand-blue font-bold text-xs text-center">PRESTA<br/>SERVICES<br/>ANTILLES</span>
                 </div>
-            )}
+              );
+            })()}
             <h1 className={`text-lg font-serif font-bold text-center ${isSoberMode ? 'text-white' : 'text-slate-800'}`}>SIMPLIFIEZ</h1>
             <p className={`text-xs text-center ${isSoberMode ? 'text-slate-300' : 'text-slate-500'}`}>VOTRE QUOTIDIEN</p>
 

@@ -167,7 +167,7 @@ const Login: React.FC = () => {
                     name: 'PRESTA SERVICES ANTILLES',
                     address: '31 Résidence L’Autre Bord – 97220 La Trinité',
                     siret: 'SAP944789700',
-                    email: 'prestaservicesantilles.rh@gmail.com',
+                    email: 'prestaservicesantilles@gmail.com',
                     phone: '0696 00 00 00',
                     tva_rate_default: 2.1
                 });

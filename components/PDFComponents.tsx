@@ -148,10 +148,11 @@ const cleanHTMLPreserveLineBreaks = (text: string): string => {
 
 const formatContractText = (text: string): string => {
   const base = cleanHTMLPreserveLineBreaks(text);
-  // Ajouter de l'air autour des "Article X" pour une lecture plus claire
+  const nl = String.fromCharCode(10);
+  const articleRegex = new RegExp(nl + '?(Article\\s+\\d+[^' + nl + ']*)', 'gi');
   return base
-    .replace(/\n?(Article\s+\d+[^\n]*)/gi, '\n\n$1')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(articleRegex, nl + nl + '$1')
+    .replace(new RegExp(nl + '{3,}', 'g'), nl + nl)
     .trim();
 };
 
@@ -971,7 +972,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                     <Text style={[styles.title, styles.titleBrand, styles.titleQuote]}>{doc.status === 'signed' ? 'DEVIS SIGNÉ' : 'DEVIS'}</Text>
                     <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>
                         Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
-                        Email : prestaservicesantilles.rh@gmail.com
+                        Email : prestaservicesantilles@gmail.com
                     </Text>
                     <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
                   </View>
@@ -986,7 +987,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
         
                   <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>
                       Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
-                      Email : prestaservicesantilles.rh@gmail.com
+                      Email : prestaservicesantilles@gmail.com
                   </Text>
                 <Text style={[styles.subtitleSmall, styles.subtitleSmallQuote]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
               </View>
@@ -1215,7 +1216,7 @@ export const SignedQuotePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       </View>
 
       <View style={[styles.footer, styles.footerQuote]} fixed>
-        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles@gmail.com</Text>
         <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
@@ -1243,7 +1244,7 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
             <Text style={[styles.title, styles.titleInvoice]}>FACTURE</Text>
             <Text style={[styles.subtitle, styles.subtitleInvoice]}>
               Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
-              Email : prestaservicesantilles.rh@gmail.com
+              Email : prestaservicesantilles@gmail.com
             </Text>
             <Text style={[styles.subtitle, styles.subtitleInvoice]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
           </View>
@@ -1414,7 +1415,7 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       )}
 
       <View style={[styles.footer, styles.footerInvoice]} fixed>
-        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Presta Services Antilles - SIRET:  944 789 700 00019 - Email: : prestaservicesantilles@gmail.com</Text>
         <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
@@ -1444,7 +1445,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
                   <Text style={styles.subtitleSmall}>Contrat de services entre Presta Services Antilles et {doc.clientName}</Text>
                   <Text style={styles.subtitleSmall}>
                     Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
-                    Email : prestaservicesantilles.rh@gmail.com
+                    Email : prestaservicesantilles@gmail.com
                   </Text>
                   <Text style={styles.subtitleSmall}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
                 </View>
@@ -1592,7 +1593,7 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
       </View>
 
       <View style={styles.footer} fixed>
-        <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email : prestaservicesantilles.rh@gmail.com</Text>
+        <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email : prestaservicesantilles@gmail.com</Text>
         <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
       </View>
     </Page>
