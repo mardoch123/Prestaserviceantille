@@ -187,6 +187,7 @@ const Planning: React.FC = () => {
   const [quickAssignTarget, setQuickAssignTarget] = useState<{ date: string; providerId: string; providerName: string; startTime: string; endTime: string } | null>(null);
   const [quickAssignMission, setQuickAssignMission] = useState<Mission | null>(null);
   const [showUnassignedSidebar, setShowUnassignedSidebar] = useState(false);
+  const [showDesktopFilters, setShowDesktopFilters] = useState(false);
   const [dayAssignOpen, setDayAssignOpen] = useState(false);
   const [dayAssignDate, setDayAssignDate] = useState<string | null>(null);
 
@@ -2392,126 +2393,222 @@ const Planning: React.FC = () => {
           </div>
       )}
 
-      {/* ===== DESKTOP TOOLBAR (hidden on mobile) ===== */}
-      <div className="hidden md:block">
-      <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-end mb-2 md:mb-6">
-           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-               <h2 className="text-2xl md:text-3xl font-serif font-bold text-slate-800">Planning</h2>
-               <button
-                   type="button"
-                   onClick={() => { setIsModalOpen(true); setSelectedSlotKey(''); }}
-                   className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:opacity-90 transition"
-               >
-                   <Plus className="w-4 h-4" /> Nouvelle Mission
-               </button>
-
-               {selectedMissionIds.size > 0 && (
-                   <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
-                       <Trash2 className="w-4 h-4" /> Supprimer ({selectedMissionIds.size})
-                   </button>
-               )}
-           </div>
-           
-           {/* Date Range Display */}
-           <div className="flex items-center gap-2 md:self-auto">
-               <div className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-600">
-                   {dateRangeString}
-               </div>
-               <button
-                   type="button"
-                   onClick={() => setIsStatsModalOpen(true)}
-                   className="bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
-                   title="Afficher les statistiques"
-               >
-                   Statistiques
-               </button>
-               <button
-                   type="button"
-                   onClick={() => navigate('/provider-availability')}
-                   className="bg-brand-blue text-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg shadow-sm text-sm font-bold hover:bg-teal-700 transition flex items-center gap-2"
-                   title="Voir la disponibilité des prestataires"
-               >
-                   <Users className="w-4 h-4" />
-                   <span className="hidden sm:inline">Disponibilité</span>
-               </button>
-               {/* GRAFTED: Notification bell */}
-               <button
-                   type="button"
-                   onClick={() => setShowNotifications(v => !v)}
-                   className="relative p-2 bg-white rounded-lg shadow-sm border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
-                   aria-label={`Notifications${notificationsData.length > 0 ? ` — ${notificationsData.length} non lue(s)` : ''}`}
-               >
-                   <Bell className="w-4 h-4" />
-                   {notificationsData.length > 0 && (
-                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
-                           {notificationsData.length > 9 ? '9+' : notificationsData.length}
-                       </span>
-                   )}
-               </button>
-               {/* GRAFTED: Export buttons */}
-               <div className="relative group">
-                   <button
-                       type="button"
-                       className="p-2 bg-white rounded-lg shadow-sm border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
-                       aria-label="Exporter"
-                   >
-                       <Download className="w-4 h-4" />
-                   </button>
-                   <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-slate-200 py-1 hidden group-hover:block z-20">
-                       <button
-                           type="button"
-                           onClick={exportToPDFDay}
-                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                       >
-                           <FileText className="w-3 h-3" /> PDF Jour
-                       </button>
-                       <button
-                           type="button"
-                           onClick={exportToPDFWeek}
-                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                       >
-                           <FileText className="w-3 h-3" /> PDF Semaine
-                       </button>
-                       <button
-                           type="button"
-                           onClick={exportToCSV}
-                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                       >
-                           <FileSpreadsheet className="w-3 h-3" /> Exporter CSV
-                       </button>
-                       <button
-                           type="button"
-                           onClick={handlePrint}
-                           className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                       >
-                           <Printer className="w-3 h-3" /> Imprimer
-                       </button>
-                   </div>
-               </div>
-           </div>
+      {/* ===== DESKTOP COMPACT TOOLBAR ===== */}
+      {/* Mobile navigation (stays outside desktop wrapper) */}
+      <div className="md:hidden flex items-center gap-2 mb-2">
+          <div className="flex-1 flex items-center justify-between bg-slate-200/50 p-1 rounded-full">
+              <button onClick={handlePrevWeek} className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800" title="Semaine précédente" aria-label="Semaine précédente">
+                  <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button onClick={handleCurrentWeek} className="bg-[#66BB44] text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm hover:bg-green-600" title="Semaine en cours" aria-label="Semaine en cours">
+                  <Calendar className="w-4 h-4" />
+              </button>
+              <button onClick={handleNextWeek} className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800" title="Semaine suivante" aria-label="Semaine suivante">
+                  <ChevronRight className="w-4 h-4" />
+              </button>
+          </div>
+          <button onClick={() => setShowMobileFilters(v => !v)} className={`w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 transition ${showMobileFilters ? 'text-brand-blue' : 'text-slate-700'}`} title={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'} aria-label={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}>
+              <SlidersHorizontal className="w-4 h-4" />
+          </button>
       </div>
 
+      {/* Mobile filters panel */}
+      {showMobileFilters && (
+        <div className="md:hidden bg-white rounded-xl border border-slate-200 shadow-sm p-3 mb-3 space-y-3 animate-in slide-in-from-top duration-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-700">Filtres</h3>
+            <button type="button" onClick={() => { setSelectedProvider('all'); setSelectedClient('all'); setSelectedStatus('all'); setSearchQuery(''); setCustomDateRange(false); setStartDate(''); setEndDate(''); setShowMobileFilters(false); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 font-bold">
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          </div>
+          <div className="relative">
+            <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-blue" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
+          </div>
+          <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
+          <SearchableSelect options={[{ value: 'all', label: 'Tous les clients' }, ...clients.map(c => ({ value: c.name, label: c.name }))]} value={selectedClient} onChange={(value) => setSelectedClient(value)} className="w-full" />
+          <SearchableSelect options={[{ value: 'all', label: 'Tous' }, { value: 'planned', label: 'Prévues' }, { value: 'in_progress', label: 'En cours' }, { value: 'completed', label: 'Terminées' }, { value: 'cancelled', label: 'Annulées' }]} value={selectedStatus} onChange={(value) => setSelectedStatus(value)} className="w-full" />
+          <button type="button" onClick={() => { setCustomDateRange(!customDateRange); if (!customDateRange) { setStartDate(''); setEndDate(''); } }} className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition border ${customDateRange ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-slate-700 border-slate-200'}`}>
+            <Calendar className="w-3.5 h-3.5 inline mr-1.5" />{customDateRange ? 'Plage personnalisée' : 'Plage par défaut'}
+          </button>
+          {customDateRange && (
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-blue" />
+              <span className="text-xs text-slate-500 font-bold">au</span>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-blue" />
+            </div>
+          )}
+        </div>
+      )}
 
+      <div className="hidden md:block">
+        {/* Compact toolbar row */}
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {/* Title */}
+          <h2 className="text-xl font-serif font-bold text-slate-800 shrink-0">Planning</h2>
 
-      {/* GRAFTED: Mini-dashboard semaine */}
-      <div className="mb-3">
-          <button
-              type="button"
-              onClick={() => setShowWeekDashboard(v => !v)}
-              className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition text-sm font-bold text-slate-700"
-              aria-expanded={showWeekDashboard}
-          >
-              <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-500" />
-                  <span>Semaine du {weekStart.format('DD/MM')} au {weekEnd.format('DD/MM')}</span>
-                  <span className="text-xs font-normal text-slate-500 hidden sm:inline">
-                      · {weekDashboardData.totalMissions} prestation{weekDashboardData.totalMissions !== 1 ? 's' : ''} · {weekDashboardData.totalHours.toFixed(0)}h
-                  </span>
-              </div>
-              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showWeekDashboard ? 'rotate-90' : ''}`} />
+          {/* Navigation compacte */}
+          <div className="flex items-center bg-slate-100 rounded-full p-0.5 gap-0.5">
+            <button onClick={handlePrevWeek} className="w-8 h-8 rounded-full bg-white text-slate-700 flex items-center justify-center hover:bg-brand-blue hover:text-white transition shadow-sm" title="Semaine précédente" aria-label="Semaine précédente">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button onClick={handleCurrentWeek} className="px-3 h-8 rounded-full bg-white text-slate-700 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition shadow-sm text-xs font-bold">
+              {currentWeekOffset === 0 ? 'Cette semaine' : dayjs.tz(colDates[0], 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+            </button>
+            <button onClick={handleNextWeek} className="w-8 h-8 rounded-full bg-white text-slate-700 flex items-center justify-center hover:bg-brand-blue hover:text-white transition shadow-sm" title="Semaine suivante" aria-label="Semaine suivante">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Séparateur */}
+          <div className="w-px h-6 bg-slate-200" />
+
+          {/* Bouton Mission */}
+          <button type="button" onClick={() => { setIsModalOpen(true); setSelectedSlotKey(''); }} className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-bold shadow-sm hover:bg-blue-700 transition">
+            <Plus className="w-4 h-4" /> Mission
           </button>
 
-          {showWeekDashboard && (
+          {selectedMissionIds.size > 0 && (
+            <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-bold shadow-sm hover:bg-red-600 transition">
+              <Trash2 className="w-3.5 h-3.5" /> {selectedMissionIds.size}
+            </button>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Bouton Filtres */}
+          <button type="button" onClick={() => setShowDesktopFilters(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition border ${showDesktopFilters ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+            <SlidersHorizontal className="w-3.5 h-3.5" /> Filtres
+            {(selectedProvider !== 'all' || selectedClient !== 'all' || selectedStatus !== 'all' || searchQuery) && (
+              <span className={`w-2 h-2 rounded-full ${showDesktopFilters ? 'bg-white' : 'bg-brand-blue'}`} />
+            )}
+          </button>
+
+          {/* Bouton Semaine */}
+          <button type="button" onClick={() => setShowWeekDashboard(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition border ${showWeekDashboard ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+            <Calendar className="w-3.5 h-3.5" /> Semaine
+          </button>
+
+          {/* Bouton Synthèse */}
+          <button type="button" onClick={() => setShowDailySummary(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition bg-gradient-to-r from-indigo-500 to-blue-600 text-white border-0 shadow-sm hover:from-indigo-600 hover:to-blue-700">
+            <Users className="w-3.5 h-3.5" /> Synthèse
+            <span className="text-[10px] opacity-80">{dailySummaryData.totalScheduled}</span>
+          </button>
+
+          {/* Bouton Légende */}
+          <button type="button" onClick={() => setShowColorLegend(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition border ${showColorLegend ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+            <span className="w-3 h-3 rounded-full bg-gradient-to-r from-green-200 via-yellow-200 to-orange-200 inline-block border border-slate-200" /> Légende
+          </button>
+
+          {/* Séparateur */}
+          <div className="w-px h-6 bg-slate-200" />
+
+          {/* Actions secondaires */}
+          <button type="button" onClick={() => setIsStatsModalOpen(true)} className="p-2 bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition" title="Statistiques">
+            <FileText className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={() => navigate('/provider-availability')} className="p-2 bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition" title="Disponibilité">
+            <Users className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={() => setShowNotifications(v => !v)} className="relative p-2 bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition" aria-label="Notifications">
+            <Bell className="w-4 h-4" />
+            {notificationsData.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                {notificationsData.length > 9 ? '9+' : notificationsData.length}
+              </span>
+            )}
+          </button>
+          <div className="relative group">
+            <button type="button" className="p-2 bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition" aria-label="Exporter">
+              <Download className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-slate-200 py-1 hidden group-hover:block z-20">
+              <button type="button" onClick={exportToPDFDay} className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"><FileText className="w-3 h-3" /> PDF Jour</button>
+              <button type="button" onClick={exportToPDFWeek} className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"><FileText className="w-3 h-3" /> PDF Semaine</button>
+              <button type="button" onClick={exportToCSV} className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"><FileSpreadsheet className="w-3 h-3" /> Exporter CSV</button>
+              <button type="button" onClick={handlePrint} className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"><Printer className="w-3 h-3" /> Imprimer</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Panneau de filtres collapsible */}
+        {showDesktopFilters && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-3 animate-in slide-in-from-top duration-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-700">Filtres du planning</h3>
+              <button type="button" onClick={() => { setSelectedProvider('all'); setSelectedClient('all'); setSelectedStatus('all'); setSearchQuery(''); setCustomDateRange(false); setStartDate(''); setEndDate(''); }} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 font-bold">
+                <RotateCcw className="w-3 h-3" /> Réinitialiser
+              </button>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              {/* Recherche */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Rechercher</label>
+                <div className="relative">
+                  <input type="text" placeholder="Nom, client..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue/20" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
+                </div>
+              </div>
+              {/* Prestataire */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Prestataire</label>
+                <SearchableSelect
+                  options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]}
+                  value={selectedProvider}
+                  onChange={(value) => setSelectedProvider(value)}
+                  className="w-full"
+                />
+              </div>
+              {/* Client */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Client</label>
+                <SearchableSelect
+                  options={[{ value: 'all', label: 'Tous les clients' }, ...clients.map(c => ({ value: c.name, label: c.name }))]}
+                  value={selectedClient}
+                  onChange={(value) => setSelectedClient(value)}
+                  className="w-full"
+                />
+              </div>
+              {/* Statut */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Statut</label>
+                <SearchableSelect
+                  options={[{ value: 'all', label: 'Tous' }, { value: 'planned', label: 'Prévues' }, { value: 'in_progress', label: 'En cours' }, { value: 'completed', label: 'Terminées' }, { value: 'cancelled', label: 'Annulées' }]}
+                  value={selectedStatus}
+                  onChange={(value) => setSelectedStatus(value)}
+                  className="w-full"
+                />
+              </div>
+              {/* Plage de dates */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Plage de dates</label>
+                <button type="button" onClick={() => { setCustomDateRange(!customDateRange); if (!customDateRange) { setStartDate(''); setEndDate(''); } }} className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition border ${customDateRange ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+                  <Calendar className="w-3.5 h-3.5 inline mr-1.5" />{customDateRange ? 'Personnalisée' : 'Par défaut'}
+                </button>
+              </div>
+            </div>
+            {customDateRange && (
+              <div className="flex items-center gap-3 mt-3 bg-slate-50 rounded-lg px-3 py-2">
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-blue" />
+                <span className="text-xs text-slate-500 font-bold">au</span>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-blue" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Légende compacte */}
+        {showColorLegend && (
+          <div className="flex items-center gap-4 mb-3 px-1 animate-in slide-in-from-top duration-200">
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#dcfce7' }} /> &lt;60% Normal</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#fef9c3' }} /> 60–89% Chargé</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ffedd5' }} /> ≥90% Complet</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ccfbf1' }} /> Jour clos</span>
+          </div>
+        )}
+
+        {/* Mini-dashboard semaine collapsible */}
+        {showWeekDashboard && (
               <div className="mt-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-3 space-y-3">
                   {/* Mini-stats */}
                   <div className="flex flex-wrap gap-2">
@@ -2535,7 +2632,7 @@ const Planning: React.FC = () => {
                       )}
                   </div>
 
-                  {/* Day grid — horizontal scroll on mobile */}
+                  {/* Day grid */}
                   <div className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory">
                       {weekDashboardData.days.map(day => {
                           const isToday = day.dateStr === getMartiniqueToday();
@@ -2584,220 +2681,6 @@ const Planning: React.FC = () => {
                   </div>
               </div>
           )}
-      </div>
-
-       {/* Filters & Navigation */}
-       <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-6 lg:flex-row lg:items-center lg:justify-between">
-           <div className="w-full lg:w-auto">
-                <div className="md:hidden flex items-center gap-2">
-                    <div className="flex-1 flex items-center justify-between bg-slate-200/50 p-1 rounded-full">
-                        <button
-                            onClick={handlePrevWeek}
-                            className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800"
-                            title="Semaine précédente"
-                            aria-label="Semaine précédente"
-                        >
-                            <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={handleCurrentWeek}
-                            className="bg-[#66BB44] text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm hover:bg-green-600"
-                            title="Semaine en cours"
-                            aria-label="Semaine en cours"
-                        >
-                            <Calendar className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={handleNextWeek}
-                            className="bg-[#006699] text-white w-9 h-9 rounded-full flex items-center justify-center hover:bg-blue-800"
-                            title="Semaine suivante"
-                            aria-label="Semaine suivante"
-                        >
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <button
-                        onClick={() => setShowMobileFilters(v => !v)}
-                        className={`w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 transition ${showMobileFilters ? 'text-brand-blue' : 'text-slate-700'}`}
-                        title={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
-                        aria-label={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
-                    >
-                        <SlidersHorizontal className="w-4 h-4" />
-                    </button>
-                </div>
-
-                <div className="hidden md:flex flex-row items-center gap-4">
-                    <span className="text-brand-blue italic text-sm font-bold">Navigation :</span>
-                    <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-200/50 p-2 sm:p-1 rounded-2xl sm:rounded-full">
-                        <button onClick={handlePrevWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
-                            <ChevronLeft className="w-3 h-3" /> Précédente
-                        </button>
-                        <button onClick={handleCurrentWeek} className="w-full sm:w-auto bg-[#66BB44] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold shadow-sm hover:bg-green-600">
-                            En cours
-                        </button>
-                        <button onClick={handleNextWeek} className="w-full sm:w-auto bg-[#006699] text-white px-4 py-2 sm:py-1 rounded-xl sm:rounded-full text-sm font-bold flex items-center justify-center gap-1 hover:bg-blue-800">
-                            Suivante <ChevronRight className="w-3 h-3" />
-                        </button>
-                    </div>
-                </div>
-           </div>
-
-           <div className={`${showMobileFilters ? 'flex' : 'hidden'} md:flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2`}>
-               <div className="relative w-full sm:w-48">
-                   <input 
-                      type="text"
-                      placeholder="Rechercher..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full border border-slate-300 rounded px-3 py-2 sm:py-1 text-sm focus:outline-none focus:border-brand-blue"
-                   />
-                   <Search className="w-3 h-3 text-slate-400 absolute right-3 top-3 sm:top-2" />
-               </div>
-               
-               <div className="w-full sm:w-64">
-                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Prestataire :</div>
-                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Prestataire :</div>
-                    <div className="relative w-full">
-                        <SearchableSelect
-                            options={[
-                                { value: 'all', label: 'Tous les prestataires' },
-                                ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))
-                            ]}
-                            value={selectedProvider}
-                            onChange={(value) => setSelectedProvider(value)}
-                            className="w-full"
-                        />
-                    </div>
-               </div>
-               
-               <div className="w-full sm:w-48">
-                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Client :</div>
-                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Client :</div>
-                    <div className="relative w-full">
-                        <SearchableSelect
-                            options={[
-                                { value: 'all', label: 'Tous les clients' },
-                                ...clients.map(c => ({ value: c.name, label: c.name }))
-                            ]}
-                            value={selectedClient}
-                            onChange={(value) => setSelectedClient(value)}
-                            className="w-full"
-                        />
-                    </div>
-               </div>
-               
-               <div className="w-full sm:w-36">
-                    <div className="text-brand-blue italic text-sm font-bold mb-1 sm:hidden">Statut :</div>
-                    <div className="hidden sm:block text-brand-blue italic text-sm font-bold">Statut :</div>
-                    <div className="relative w-full">
-                        <SearchableSelect
-                            options={[
-                                { value: 'all', label: 'Tous' },
-                                { value: 'planned', label: 'Prévues' },
-                                { value: 'in_progress', label: 'En cours' },
-                                { value: 'completed', label: 'Terminées' },
-                                { value: 'cancelled', label: 'Annulées' }
-                            ]}
-                            value={selectedStatus}
-                            onChange={(value) => setSelectedStatus(value)}
-                            className="w-full"
-                        />
-                    </div>
-               </div>
-               
-               <button
-                   onClick={() => {
-                       setCustomDateRange(!customDateRange);
-                       if (!customDateRange) {
-                           setStartDate('');
-                           setEndDate('');
-                       }
-                   }}
-                   className={`w-full sm:w-auto px-3 py-2 sm:py-1 rounded text-sm font-bold transition ${
-                       customDateRange 
-                           ? 'bg-brand-blue text-white' 
-                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                   }`}
-               >
-                   <Calendar className="w-3 h-3 inline mr-1" />
-                   Plage perso
-               </button>
-               
-               {customDateRange && (
-                   <div className="w-full flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 bg-slate-100 rounded px-3 py-2 sm:py-1">
-                       <input
-                           type="date"
-                           value={startDate}
-                           onChange={(e) => setStartDate(e.target.value)}
-                           className="w-full sm:w-auto text-sm border border-slate-300 rounded px-2 py-2 sm:py-1 focus:outline-none focus:border-brand-blue"
-                       />
-                       <span className="text-xs text-slate-500 text-center sm:text-left">au</span>
-                       <input
-                           type="date"
-                           value={endDate}
-                           onChange={(e) => setEndDate(e.target.value)}
-                           className="w-full sm:w-auto text-sm border border-slate-300 rounded px-2 py-2 sm:py-1 focus:outline-none focus:border-brand-blue"
-                       />
-                   </div>
-               )}
-               
-               <button
-                   onClick={() => {
-                       setSelectedProvider('all');
-                       setSelectedClient('all');
-                       setSelectedStatus('all');
-                       setSearchQuery('');
-                       setCustomDateRange(false);
-                       setStartDate('');
-                       setEndDate('');
-                   }}
-                   className="w-full sm:w-auto px-3 py-2 sm:py-1 bg-slate-100 text-slate-700 rounded text-sm font-bold hover:bg-slate-200 transition"
-               >
-                   <RotateCcw className="w-3 h-3 inline mr-1" />
-                   Reset
-               </button>
-           </div>
-       </div>
-
-       {/* GRAFTED: Légende des couleurs + Vue synthétique journalière */}
-       <div className="mb-4">
-           {/* Color legend row */}
-           <div className="flex items-center gap-2 mb-2">
-               <button
-                   type="button"
-                   onClick={() => setShowColorLegend(!showColorLegend)}
-                   className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 transition font-bold"
-                   title="Légende des couleurs"
-               >
-                   <span className="w-4 h-4 rounded-full bg-slate-200 text-[9px] font-bold flex items-center justify-center text-slate-600">?</span>
-                   Légende
-               </button>
-               {showColorLegend && (
-                   <div className="flex flex-wrap gap-2">
-                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#dcfce7' }} />&lt;60 % Normal</span>
-                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#fef9c3' }} />60–89 % Chargé</span>
-                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ffedd5' }} />≥90 % Complet</span>
-                       <span className="flex items-center gap-1 text-[10px] text-slate-600"><span className="w-3 h-3 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ccfbf1' }} />Jour clos</span>
-                   </div>
-               )}
-           </div>
-           <button
-               onClick={() => setShowDailySummary(true)}
-               className="w-full flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-blue-600 text-white rounded-xl hover:from-indigo-600 hover:to-blue-700 transition shadow-md"
-           >
-               <div className="flex items-center gap-2">
-                   <Users className="w-4 h-4 text-white" />
-                   <span className="font-bold text-sm text-white">
-                       Synthèse du {dayjs.tz(statsDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
-                   </span>
-                   <span className="text-xs text-indigo-200">
-                       {dailySummaryData.totalScheduled} planifiées{!isDatePast(statsDate) && ` • ${dailySummaryData.totalAvailable} disponibles`}
-                       {isDatePast(statsDate) && ' • jour passé'}
-                   </span>
-               </div>
-               <ChevronRight className="w-4 h-4 text-indigo-200" />
-           </button>
-       </div>
       </div>
       {/* End Desktop Toolbar wrapper */}
 

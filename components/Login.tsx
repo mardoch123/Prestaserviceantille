@@ -62,14 +62,15 @@ const Login: React.FC = () => {
                 } catch { }
 
                 if (!session?.user) {
-                    if (storedUser && (storedUser.role === 'client' || storedUser.role === 'provider')) {
-                        console.log("No Supabase session, but local user found (fallback). Preserving local session.");
+                    // NE JAMAIS supprimer presta_current_user ici, quel que soit le rôle.
+                    // C'est notre filet de sécurité pour la récupération de session.
+                    // initializeAuth dans DataContext gère la récupération proprement.
+                    if (storedUser) {
+                        console.log("No Supabase session, but local user found. Preserving local session for recovery.", storedUser.role);
                         return;
                     }
 
-                    console.log("No valid Supabase session found, cleaning local state...");
-                    // Nettoyer seulement s'il n'y a pas de session valide
-                    localStorage.removeItem('presta_current_user');
+                    console.log("No valid Supabase session and no cached user.");
                 } else {
                     console.log("Valid Supabase session found, keeping recovery data");
                     // Ne pas nettoyer pour permettre la récupération automatique

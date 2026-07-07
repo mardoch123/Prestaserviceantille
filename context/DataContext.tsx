@@ -298,6 +298,7 @@ interface DataContextType {
     pendingSyncCount: number;
     loading: boolean;
     dataLoading: boolean;
+    isBackgroundRefreshing: boolean;
 
     // Session management functions
     extendReadingSession: () => void;
@@ -777,6 +778,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [isOnline, setIsOnline] = useState(true);
     const [loading, setLoading] = useState(true);
     const [dataLoading, setDataLoading] = useState(false);
+    const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
     const hasLoadedOnceRef = useRef(false);
@@ -2112,8 +2114,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         const mappedClients = mapClients(clientRows, null, null);
                         setClients(mappedClients);
                         dataCache.set('clients', mappedClients);
-                    } else {
-                        setClients([]);
+                    } else if (!hasLoadedOnceRef.current) {
+                        // Ne reset que si c'est le premier chargement et pas de cache
+                        const cachedClients = dataCache.get<any[]>('clients', undefined, 24 * 60 * 60 * 1000);
+                        if (!cachedClients) setClients([]);
                     }
 
                     const mappedProviders = mapProviders(Array.isArray(providerRows) ? providerRows : [], Array.isArray(leavesRows) ? leavesRows : []);
@@ -2196,13 +2200,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         setMissionChangeRequests([]);
                     }
 
-                    setDocuments([]);
-                    setPacks([]);
-                    setContracts([]);
-                    setReminders([]);
-                    setExpenses([]);
-                    setGenericContracts([]);
-                    setClientLeads([]);
+                    // Ne jamais reset les données si elles existent déjà (protection anti-disparition)
+                    if (!hasLoadedOnceRef.current) {
+                        const cachedDocs = dataCache.get<any[]>('documents', undefined, 24 * 60 * 60 * 1000);
+                        const cachedPacks = dataCache.get<any[]>('packs', undefined, 24 * 60 * 60 * 1000);
+                        const cachedContracts = dataCache.get<any[]>('contracts', undefined, 24 * 60 * 60 * 1000);
+                        if (!cachedDocs) setDocuments([]);
+                        if (!cachedPacks) setPacks([]);
+                        if (!cachedContracts) setContracts([]);
+                        setReminders([]);
+                        setExpenses([]);
+                        setGenericContracts([]);
+                        setClientLeads([]);
+                    }
 
                     return;
                 }
@@ -2245,27 +2255,27 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 void (async () => {
-                    // Requêtes secondaires en 3 lots pour éviter ERR_CONNECTION_RESET
+                    // Requêtes secondaires en 2 lots pour éviter ERR_CONNECTION_RESET
                     // (limite navigateur : 6 connexions simultanées par domaine en HTTP/1.1)
-                    const [leadsData, dData, packData, ctData, eData] = await Promise.all([
+                    // Lot 1 : documents, packs, contracts + données secondaires
+                    const [leadsData, dData, packData, ctData, msgData, notifData, cfData, settingsRaw] = await Promise.all([
                         fetchTable('client_leads'),
                         fetchTable('documents'),
                         fetchTable('packs'),
                         fetchTable('contracts'),
-                                                Promise.resolve([]), // expenses temporairement désactivé - base en timeout,
-                    ]);
-                    const [msgData, notifData, cfData, settingsRaw] = await Promise.all([
                         fetchTable('messages'),
                         fetchTable('notifications'),
                         fetchTable('contact_forms'),
                         fetchTable('company_settings', '*', 15000),
                     ]);
-                    const [vsData, vrData, leavesData, gcData, mcrData] = await Promise.all([
+                    // Lot 2 : scans, vidéos, congés, contrats génériques, changements
+                    const [vsData, vrData, leavesData, gcData, mcrData, eData] = await Promise.all([
                         fetchTable('visit_scans'),
                         fetchTable('video_recordings'),
                         fetchTable('leaves'),
                         fetchTable('generic_contracts'),
                         fetchMissionChangeRequests(15000),
+                        Promise.resolve([]), // expenses temporairement désactivé - base en timeout
                     ]);
                     const settingsData = settingsRaw?.[0] || null;
 
@@ -2296,6 +2306,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                     if (Array.isArray(leadsData) && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin')) {
                         setClientLeads(leadsData as any);
+                        dataCache.set('clientLeads', leadsData);
                     } else {
                         setClientLeads([]);
                     }
@@ -2371,10 +2382,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     dataCache.set('contracts', ctData);
                 }
                 if (gcData) {
-                    setGenericContracts(gcData.map((gc: any) => ({
+                    const mapped = gcData.map((gc: any) => ({
                         ...gc,
                         isActive: typeof gc.is_active === 'boolean' ? gc.is_active : (typeof gc.isActive === 'boolean' ? gc.isActive : false)
-                    })));
+                    }));
+                    setGenericContracts(mapped);
+                    dataCache.set('genericContracts', mapped);
                 }
                 if (rData) {
                     setReminders(rData.map((r: any) => ({
@@ -2456,28 +2469,30 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         createdAt: r.created_at || r.createdAt,
                         respondedAt: r.responded_at || r.respondedAt
                     })));
+                    dataCache.set('missionChangeRequests', mcrData);
                 }
 
                 if (vsData) {
                     const sorted = vsData.sort((a: any, b: any) =>
                         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                     );
-                    setVisitScans(sorted.map((s: any) => ({
+                    const mappedVs = sorted.map((s: any) => ({
                         ...s,
                         clientId: s.client_id || s.clientId,
                         scannerId: s.scanner_id || s.scannerId,
                         scannerName: s.scanner_name || s.scannerName,
                         scanType: s.scan_type || s.scanType,
                         locationData: s.location_data
-                    })));
+                    }));
+                    setVisitScans(mappedVs);
+                    dataCache.set('visitScans', mappedVs);
                 }
 
                 if (vrData) {
                     const sorted = vrData.sort((a: any, b: any) =>
                         new Date(b.start_time || b.startTime || b.created_at).getTime() - new Date(a.start_time || a.startTime || a.created_at).getTime()
                     );
-
-                    setVideoRecordings(sorted.map((r: any) => ({
+                    const mappedVr = sorted.map((r: any) => ({
                         id: r.id,
                         sessionId: r.session_id || r.sessionId,
                         providerId: r.provider_id || r.providerId,
@@ -2493,7 +2508,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         accessToken: r.access_token || r.accessToken,
                         expiresAt: r.expires_at || r.expiresAt,
                         url: r.url
-                    })));
+                    }));
+                    setVideoRecordings(mappedVr);
+                    dataCache.set('videoRecordings', mappedVr);
                 }
 
                 if (settingsData) {
@@ -3162,11 +3179,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     return;
                 }
 
-                console.log("Starting auth initialization...");
+                console.log("[Auth] Starting auth initialization...");
 
                 let restoredUser: User | null = null;
 
-                // First try to restore user from localStorage for immediate UI update
+                // 1. Restore user from localStorage for immediate UI update
                 try {
                     const storedUser = localStorage.getItem('presta_current_user');
                     if (storedUser) {
@@ -3181,32 +3198,67 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             } else if (userObj.role === 'provider' && userObj.relatedEntityId) {
                                 setSimulatedProviderId(userObj.relatedEntityId);
                             }
+                            console.log("[Auth] Restored user from cache:", userObj.role, userObj.email);
                         }
                     }
                 } catch { /* ignoré */ }
 
+                // 2. If we have a cached user (client/provider), trust the cache and load data immediately
                 if (restoredUser && (restoredUser.role === 'client' || restoredUser.role === 'provider') && mounted) {
+                    console.log("[Auth] Using cached client/provider, loading data...");
                     try { await refreshData(); } catch { }
+                    // Refresh session in background (non-blocking)
+                    supabase.auth.refreshSession().then(({ data, error }) => {
+                        if (error) console.warn("[Auth] Background session refresh failed:", error.message);
+                        else console.log("[Auth] Background session refresh OK");
+                    });
                     return;
                 }
 
-                const { data: { session }, error } = await supabase.auth.getSession();
+                // 3. Try to get/refresh the Supabase session
+                let { data: { session }, error } = await supabase.auth.getSession();
                 if (error) console.warn("[Auth] Session check error:", error.message);
 
+                // 4. If no session, try to refresh it explicitly
+                if (!session) {
+                    console.log("[Auth] No active session, attempting refresh...");
+                    const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+                    if (!refreshError && refreshData?.session) {
+                        session = refreshData.session;
+                        console.log("[Auth] Session refreshed successfully");
+                    } else {
+                        console.warn("[Auth] Session refresh failed:", refreshError?.message);
+                    }
+                }
+
+                // 5. If we have a valid session now, fetch profile and load data
                 if (session?.user && mounted) {
                     const isValid = await fetchUserProfile(session.user);
                     if (isValid) {
                         try {
                             await refreshData();
                         } catch {
-                            const recovered = await performSilentLogin();
-                            if (recovered) await refreshData();
+                            console.warn("[Auth] refreshData failed after valid session");
+                            // If we have a cached admin user, keep them logged in
+                            if (restoredUser) {
+                                console.log("[Auth] Keeping cached admin user despite refreshData failure");
+                                setCurrentUser(restoredUser);
+                            }
                         }
-                    } else {
-                        const recovered = await performSilentLogin();
-                        if (recovered) await refreshData();
+                    } else if (restoredUser && mounted) {
+                        // Profile fetch failed but we have a cached user - keep them
+                        console.log("[Auth] fetchUserProfile failed, keeping cached user");
+                        setCurrentUser(restoredUser);
+                        try { await refreshData(); } catch { }
                     }
-                } else {
+                } else if (restoredUser && mounted) {
+                    // No valid Supabase session but we have a cached admin user
+                    // Keep them logged in with cached data instead of forcing logout
+                    console.log("[Auth] No valid session, keeping cached admin user");
+                    setCurrentUser(restoredUser);
+                    try { await refreshData(); } catch { }
+                } else if (mounted) {
+                    // No session, no cached user - try silent login as last resort
                     const recovered = await performSilentLogin();
                     if (recovered) await refreshData();
                 }
@@ -3397,6 +3449,29 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }, 300000); // Every 5 minutes instead of 10
 
         return () => clearInterval(heartbeatInterval);
+    }, [currentUser, isOnline]);
+
+    // --- BACKGROUND PERIODIC DATA REFRESH (every 2 minutes) ---
+    useEffect(() => {
+        if (!isSupabaseConfigured || !currentUser || !isOnline) return;
+
+        const backgroundRefresh = async () => {
+            // Ne pas rafraîchir si l'onglet est en arrière-plan
+            if (document.visibilityState === 'hidden') return;
+
+            setIsBackgroundRefreshing(true);
+            try {
+                await refreshData({ silent: true });
+            } catch (e) {
+                console.warn('[BackgroundRefresh] Error during background refresh:', e);
+            } finally {
+                setIsBackgroundRefreshing(false);
+            }
+        };
+
+        const interval = setInterval(backgroundRefresh, 2 * 60 * 1000); // 2 minutes
+
+        return () => clearInterval(interval);
     }, [currentUser, isOnline]);
 
     const sendEmail = async (to: string, subject: string, template: string, context: any) => {
@@ -5294,10 +5369,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if ((data as any).availabilityHours && typeof (data as any).availabilityHours === 'object') {
             dbData.availability_hours = (data as any).availabilityHours;
         }
-        const { error } = await supabase.from('providers').update(dbData).eq('id', id);
-        if (!error) {
-            setProviders(prev => prev.map(p => String(p.id) === String(id) ? { ...p, ...data } : p));
+        console.log('[updateProvider] id:', id, 'dbData:', JSON.stringify(dbData));
+        const { data: updatedRow, error } = await supabase.from('providers').update(dbData).eq('id', id).select().single();
+        if (error) {
+            console.error('[updateProvider] Erreur Supabase:', error.message, error.details, 'code:', error.code);
+            throw error;
         }
+        console.log('[updateProvider] Succès, row retournée:', updatedRow ? 'OK' : 'NULL');
+        setProviders(prev => prev.map(p => String(p.id) === String(id) ? { ...p, ...data } : p));
     };
 
     const deleteProviders = async (ids: string[]) => {
@@ -7876,7 +7955,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              activeStream, startLiveStream, stopLiveStream,
              videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
              generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
-             isOnline, pendingSyncCount, loading, dataLoading,
+             isOnline, pendingSyncCount, loading, dataLoading, isBackgroundRefreshing,
              extendReadingSession, endReadingSession, isReadingDocument,
              connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
              getAvailableSlots, refreshData, refreshVisitScansOnly, sendEmail,
