@@ -163,7 +163,9 @@ const Providers: React.FC = () => {
     nonInterventionHours: {} as Record<number, Array<{ start: string; end: string }>>,
     // Nouveau système de disponibilité
     availabilityMode: 'unavailable' as 'unavailable' | 'available',
-    availabilityHours: {} as Record<number, Array<{ start: string; end: string }>>
+    availabilityHours: {} as Record<number, Array<{ start: string; end: string }>>,
+    // Indisponibilités programmées sur N semaines
+    scheduledUnavailabilities: [] as Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>
   });
 
   const [leaveForm, setLeaveForm] = useState({
@@ -304,7 +306,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {} });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [] });
       setIsModalOpen(true);
   };
 
@@ -321,7 +323,8 @@ const Providers: React.FC = () => {
           nonInterventionDays: Array.isArray(provider?.nonInterventionDays) ? provider.nonInterventionDays : [],
           nonInterventionHours: (provider?.nonInterventionHours && typeof provider.nonInterventionHours === 'object') ? provider.nonInterventionHours : {},
           availabilityMode: provider?.availabilityMode || 'unavailable',
-          availabilityHours: (provider?.availabilityHours && typeof provider.availabilityHours === 'object') ? provider.availabilityHours : {}
+          availabilityHours: (provider?.availabilityHours && typeof provider.availabilityHours === 'object') ? provider.availabilityHours : {},
+          scheduledUnavailabilities: Array.isArray(provider?.scheduledUnavailabilities) ? provider.scheduledUnavailabilities : []
       });
       setIsModalOpen(true);
   };
@@ -415,7 +418,8 @@ const Providers: React.FC = () => {
                   nonInterventionDays: formData.nonInterventionDays,
                   nonInterventionHours: formData.nonInterventionHours,
                   availabilityMode: formData.availabilityMode,
-                  availabilityHours: formData.availabilityHours
+                  availabilityHours: formData.availabilityHours,
+                  scheduledUnavailabilities: formData.scheduledUnavailabilities
               });
               showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
               setIsModalOpen(false);
@@ -431,7 +435,8 @@ const Providers: React.FC = () => {
                   nonInterventionDays: formData.nonInterventionDays,
                   nonInterventionHours: formData.nonInterventionHours,
                   availabilityMode: formData.availabilityMode,
-                  availabilityHours: formData.availabilityHours
+                  availabilityHours: formData.availabilityHours,
+                  scheduledUnavailabilities: formData.scheduledUnavailabilities
               });
               
               setIsModalOpen(false);
@@ -444,7 +449,7 @@ const Providers: React.FC = () => {
               }
           }
           // Reset form
-          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {} });
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [] });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
           showToast(String((error as any)?.message || 'Une erreur est survenue.'), 'error');
@@ -795,6 +800,14 @@ Lien de connexion : https://presta-antilles.app/login`);
                                           .join(', ')}
                                       </button>
                                     )}
+                                    {Array.isArray((p as any).scheduledUnavailabilities) && (p as any).scheduledUnavailabilities.length > 0 && (
+                                      <span
+                                        className="ml-1 text-[10px] bg-orange-200 text-orange-900 px-1.5 py-0.5 rounded font-bold"
+                                        title={`${(p as any).scheduledUnavailabilities.length} indisponibilité(s) programmée(s)`}
+                                      >
+                                        📅 {(p as any).scheduledUnavailabilities.length} program.
+                                      </span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 text-slate-600">
                                     <div className="flex flex-col text-xs">
@@ -1140,6 +1153,142 @@ Lien de connexion : https://presta-antilles.app/login`);
                         </div>
                     </div>
 
+                    {/* Indisponibilités programmées sur plusieurs semaines */}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                            <CalendarX className="w-4 h-4 text-orange-500" />
+                            Indisponibilités programmées (multi-semaines)
+                        </label>
+                        <div className="mb-3 p-3 rounded-lg border bg-orange-50 border-orange-200 text-sm text-orange-800">
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <p className="text-xs">
+                                    Définissez des créneaux d'indisponibilité récurrents sur <strong>N semaines</strong> à partir d'une date de début.
+                                    Utile pour planifier des absences partielles (ex: tous les lundis 8h-12h pendant 4 semaines).
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Liste des indisponibilités programmées */}
+                        {formData.scheduledUnavailabilities.length > 0 && (
+                            <div className="space-y-2 mb-3">
+                                {formData.scheduledUnavailabilities.map((su, idx) => (
+                                    <div key={su.id || idx} className="bg-white border border-orange-200 rounded-lg p-3 flex flex-wrap items-center gap-3">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded">
+                                                {getDayLabel(su.dayOfWeek)}
+                                            </span>
+                                            <span className="text-xs font-medium text-orange-700">
+                                                {su.startTime} – {su.endTime}
+                                            </span>
+                                            <span className="text-xs text-slate-500">
+                                                à partir du <strong>{su.startDate ? new Date(su.startDate).toLocaleDateString('fr-FR') : '—'}</strong>
+                                            </span>
+                                            <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">
+                                                {su.weeks} semaine{su.weeks > 1 ? 's' : ''}
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    scheduledUnavailabilities: prev.scheduledUnavailabilities.filter((_, i) => i !== idx)
+                                                }));
+                                            }}
+                                            className="ml-auto p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                            title="Supprimer"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Formulaire d'ajout */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                {/* Jour */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Jour</label>
+                                    <select
+                                        id="su-dayOfWeek"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    >
+                                        {NON_INTERVENTION_DAY_OPTIONS.map(d => (
+                                            <option key={d.value} value={d.value}>{d.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {/* Heure début */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Début</label>
+                                    <input
+                                        id="su-startTime"
+                                        type="time"
+                                        defaultValue="08:00"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Heure fin */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Fin</label>
+                                    <input
+                                        id="su-endTime"
+                                        type="time"
+                                        defaultValue="12:00"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Date de début */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">À partir du</label>
+                                    <input
+                                        id="su-startDate"
+                                        type="date"
+                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Nombre de semaines */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Semaines</label>
+                                    <input
+                                        id="su-weeks"
+                                        type="number"
+                                        min={1}
+                                        max={52}
+                                        defaultValue={4}
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const dayOfWeek = parseInt((document.getElementById('su-dayOfWeek') as HTMLSelectElement)?.value || '1', 10);
+                                    const startTime = (document.getElementById('su-startTime') as HTMLInputElement)?.value || '08:00';
+                                    const endTime = (document.getElementById('su-endTime') as HTMLInputElement)?.value || '12:00';
+                                    const startDate = (document.getElementById('su-startDate') as HTMLInputElement)?.value || new Date().toISOString().split('T')[0];
+                                    const weeks = parseInt((document.getElementById('su-weeks') as HTMLInputElement)?.value || '4', 10);
+                                    if (weeks < 1 || !startDate || !startTime || !endTime) return;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        scheduledUnavailabilities: [
+                                            ...prev.scheduledUnavailabilities,
+                                            { id: `su-${Date.now()}`, dayOfWeek, startTime, endTime, startDate, weeks }
+                                        ]
+                                    }));
+                                }}
+                                className="w-full py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-2"
+                            >
+                                <CalendarX className="w-4 h-4" />
+                                Ajouter une indisponibilité programmée
+                            </button>
+                        </div>
+                    </div>
+
                      <div className="grid grid-cols-2 gap-4">
                          <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">
@@ -1280,6 +1429,27 @@ Lien de connexion : https://presta-antilles.app/login`);
                           </div>
                         ) : (
                           <div className="text-sm text-slate-400">Aucun jour de non-intervention défini.</div>
+                        )}
+                    </div>
+
+                    {/* Indisponibilités programmées multi-semaines */}
+                    <div className="bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                          <CalendarX className="w-4 h-4 text-orange-500" /> Indisponibilités programmées
+                        </div>
+                        {Array.isArray((selectedProviderDetails as any).scheduledUnavailabilities) && (selectedProviderDetails as any).scheduledUnavailabilities.length > 0 ? (
+                          <div className="space-y-2">
+                            {(selectedProviderDetails as any).scheduledUnavailabilities.map((su: any, idx: number) => (
+                              <div key={`su-${idx}`} className="p-3 bg-orange-50 border border-orange-200 rounded-lg flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded">{getDayLabel(su.dayOfWeek)}</span>
+                                <span className="text-xs font-medium text-orange-700">{su.startTime} – {su.endTime}</span>
+                                <span className="text-xs text-slate-500">à partir du <strong>{su.startDate ? new Date(su.startDate).toLocaleDateString('fr-FR') : '—'}</strong></span>
+                                <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">{su.weeks} semaine{su.weeks > 1 ? 's' : ''}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-slate-400">Aucune indisponibilité programmée.</div>
                         )}
                     </div>
 

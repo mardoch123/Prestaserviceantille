@@ -1839,6 +1839,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         availabilityHours: (p.availability_hours && typeof p.availability_hours === 'object')
                             ? p.availability_hours
                             : ((p.availabilityHours && typeof p.availabilityHours === 'object') ? p.availabilityHours : {}),
+                        // Indisponibilités programmées multi-semaines
+                        scheduledUnavailabilities: Array.isArray(p.scheduled_unavailabilities)
+                            ? p.scheduled_unavailabilities
+                            : (Array.isArray(p.scheduledUnavailabilities) ? p.scheduledUnavailabilities : []),
                         leaves: leavesData ? leavesData.map((l: any) => ({
                             id: l.id,
                             providerId: l.provider_id,
@@ -4658,6 +4662,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 availability_hours: ((providerData as any).availabilityHours && typeof (providerData as any).availabilityHours === 'object')
                     ? (providerData as any).availabilityHours
                     : {},
+                scheduled_unavailabilities: Array.isArray((providerData as any).scheduledUnavailabilities)
+                    ? (providerData as any).scheduledUnavailabilities
+                    : [],
                 hours_worked: 0,
                 rating: 5
             };
@@ -4730,6 +4737,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     availabilityHours: (newProvider.availability_hours && typeof newProvider.availability_hours === 'object')
                         ? newProvider.availability_hours
                         : (((providerData as any).availabilityHours && typeof (providerData as any).availabilityHours === 'object') ? (providerData as any).availabilityHours : {}),
+                    scheduledUnavailabilities: Array.isArray(newProvider.scheduled_unavailabilities)
+                        ? newProvider.scheduled_unavailabilities
+                        : (Array.isArray((providerData as any).scheduledUnavailabilities) ? (providerData as any).scheduledUnavailabilities : []),
                     leaves: []
                 }]);
 
@@ -5159,6 +5169,39 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
 
+            // Vérifier les indisponibilités programmées multi-semaines
+            const scheds = (provider as any)?.scheduledUnavailabilities;
+            if (Array.isArray(scheds) && scheds.length > 0) {
+                const toMin = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+                const missionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                const missionDay = missionDate.day();
+                const missionDateStart = missionDate.startOf('day');
+                const hasScheduledBlock = scheds.some((su: any) => {
+                    if (su.dayOfWeek !== missionDay) return false;
+                    const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+                    if (missionDateStart.isBefore(suStart)) return false;
+                    const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
+                    if (missionDateStart.isAfter(suEnd)) return false;
+                    const s = toMin(existingMission.startTime);
+                    const e = toMin(existingMission.endTime);
+                    const rStart = toMin(su.startTime);
+                    const rEnd = toMin(su.endTime);
+                    if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (hasScheduledBlock) {
+                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (programmation multi-semaines) sur ce créneau.`);
+                }
+            }
+
             // Check for mission time conflicts with other missions
             const conflictCheck = await checkProviderMissionConflict(
                 providerId,
@@ -5368,6 +5411,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if ((data as any).availabilityMode) dbData.availability_mode = (data as any).availabilityMode;
         if ((data as any).availabilityHours && typeof (data as any).availabilityHours === 'object') {
             dbData.availability_hours = (data as any).availabilityHours;
+        }
+        // Indisponibilités programmées multi-semaines
+        if (Array.isArray((data as any).scheduledUnavailabilities)) {
+            dbData.scheduled_unavailabilities = (data as any).scheduledUnavailabilities;
         }
         console.log('[updateProvider] id:', id, 'dbData:', JSON.stringify(dbData));
         const { data: updatedRow, error } = await supabase.from('providers').update(dbData).eq('id', id).select().single();

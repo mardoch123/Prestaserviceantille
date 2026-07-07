@@ -11,8 +11,11 @@
  * - Respect strict des plages de travail (availabilityMode, availabilityHours,
  *   nonInterventionHours, nonInterventionDays)
  * - Vérification des congés approuvés (leaves)
+ * - Jours fériés Martinique (bloquent la réservation)
  * - Max 2 prestations par jour et par prestataire
  */
+
+import { isHoliday } from './holidays';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,8 @@ export interface ProviderLike {
   nonInterventionDays?: number[];
   non_intervention_days?: number[];
   leaves?: Array<{ startDate: string; endDate: string; status?: string }>;
+  scheduledUnavailabilities?: Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>;
+  scheduled_unavailabilities?: Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>;
 }
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -212,6 +217,56 @@ export function getProviderWorkingHours(provider: ProviderLike, dayOfWeek: numbe
 }
 
 /**
+ * Retourne les indisponibilités programmées actives pour une date donnée.
+ * Vérifie si la date tombe dans la fenêtre de N semaines à partir de startDate.
+ */
+export function getScheduledUnavailabilitiesForDate(
+  provider: ProviderLike,
+  dateStr: string
+): Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }> {
+  const scheds = provider.scheduledUnavailabilities || provider.scheduled_unavailabilities || [];
+  if (!Array.isArray(scheds) || scheds.length === 0) return [];
+
+  const date = new Date(dateStr + 'T12:00:00');
+  const dateDay = date.getDay();
+
+  return scheds.filter(su => {
+    // Le jour de la semaine doit correspondre
+    if (su.dayOfWeek !== dateDay) return false;
+
+    // Vérifier que la date est dans la fenêtre de N semaines
+    const startDate = new Date(su.startDate + 'T00:00:00');
+    if (date < startDate) return false; // pas encore commencé
+
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + (su.weeks * 7) - 1);
+    if (date > endDate) return false; // fenêtre terminée
+
+    return true;
+  });
+}
+
+/**
+ * Filtre les heures de travail en retirant celles bloquées par les indisponibilités programmées.
+ */
+export function filterHoursByScheduledUnavailabilities(
+  provider: ProviderLike,
+  dateStr: string,
+  workingHours: number[]
+): number[] {
+  const activeScheds = getScheduledUnavailabilitiesForDate(provider, dateStr);
+  if (activeScheds.length === 0) return workingHours;
+
+  return workingHours.filter(h => {
+    return !activeScheds.some(su => {
+      const sh = parseInt((su.startTime || '00:00').split(':')[0], 10);
+      const eh = parseInt((su.endTime || '00:00').split(':')[0], 10);
+      return h >= sh && h < eh;
+    });
+  });
+}
+
+/**
  * Vérifie si un prestataire est en congé approuvé pour une date donnée.
  */
 export function isProviderOnLeave(provider: ProviderLike, dateStr: string): boolean {
@@ -364,6 +419,9 @@ export function computeFreeSlots(
   missions: MissionLike[],
   serviceDuration?: number | null
 ): TimeSlot[] {
+  // Jour férié Martinique → aucun créneau disponible
+  if (isHoliday(dateStr)) return [];
+
   if (!providers || providers.length === 0) {
     return [];
   }
@@ -400,7 +458,10 @@ export function computeFreeSlots(
     // Vérifier si au moins un prestataire est libre pour ce créneau
     const hasProvider = uniqueProviders.some(p => {
       if (isProviderOnLeave(p, dateStr)) return false;
-      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      let workingHours = getProviderWorkingHours(p, dayOfWeek);
+      // Filtrer par indisponibilités programmées multi-semaines
+      workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
+      if (workingHours.length === 0) return false;
       // Le prestataire doit travailler pendant TOUTES les heures du créneau
       for (let h = startH; h < endH; h++) {
         if (!workingHours.includes(h)) return false;
@@ -494,6 +555,9 @@ export function getAvailableProvidersCount(
   missions: MissionLike[],
   serviceType?: string
 ): number {
+  // Jour férié Martinique → aucun prestataire disponible
+  if (isHoliday(dateStr)) return 0;
+
   if (!providers || providers.length === 0) return 0;
 
   const startMin = timeToMinutes(startTime);
@@ -517,7 +581,11 @@ export function getAvailableProvidersCount(
     if (isProviderOnLeave(p, dateStr)) return false;
 
     // Vérifier heures de travail pour ce jour
-    const workingHours = getProviderWorkingHours(p, dayOfWeek);
+    let workingHours = getProviderWorkingHours(p, dayOfWeek);
+    if (workingHours.length === 0) return false;
+
+    // Filtrer par indisponibilités programmées multi-semaines
+    workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
     if (workingHours.length === 0) return false;
 
     // Le prestataire doit couvrir la totalité du créneau demandé
@@ -565,6 +633,9 @@ export function computeAvailabilitySlots(
   missions: MissionLike[],
   serviceType?: string
 ): EnrichedSlot[] {
+  // Jour férié Martinique → aucun créneau
+  if (isHoliday(dateStr)) return [];
+
   if (!providers || providers.length === 0) return [];
 
   const dayOfWeek = getDayOfWeek(dateStr);
@@ -621,7 +692,11 @@ export function computeAvailabilitySlots(
 
       if (isProviderOnLeave(p, dateStr)) continue;
 
-      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      let workingHours = getProviderWorkingHours(p, dayOfWeek);
+      if (workingHours.length === 0) continue;
+
+      // Filtrer par indisponibilités programmées multi-semaines
+      workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
       if (workingHours.length === 0) continue;
 
       // Le prestataire doit travailler pendant TOUTES les heures du créneau

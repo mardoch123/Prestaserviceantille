@@ -8,6 +8,7 @@ import { COMPANY_STAMP_URL, COMPANY_SIGNATURE_URL, LOGO_NORMAL, LOGO_SAP } from 
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { SafeImage, LogoImage } from './SafeImage';
 import { getServiceTypeFromText } from '../utils/serviceTypes';
+import { isHoliday, getHolidayName } from '../utils/holidays';
 import {
   computeFreeSlots as computeFreeSlotsUtil,
   getProvisionalMissionsFromDocuments,
@@ -15,6 +16,7 @@ import {
   isProviderActive,
   isProviderFreeDuring,
   getProviderWorkingHours,
+  filterHoursByScheduledUnavailabilities,
   computeAvailabilitySlots,
   groupSlotsByTime,
   mapSpecialtyToDomain,
@@ -4100,6 +4102,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       const dayOfWeekIdx = d.getDay();
       const isSunday = false; // 7j/7 — pas de jour fermé
       const isPast = dateStr < todayStr;
+      const holidayName = getHolidayName(dateStr);
+      const isHolidayDay = !!holidayName;
 
       // Utiliser EXACTEMENT la même logique que la page publique : computeAvailabilitySlots
       const availableServices: any[] = [];
@@ -4129,6 +4133,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
         isToday: dateStr === todayStr,
         isPast,
         isSunday,
+        isHoliday: isHolidayDay,
+        holidayName,
         availableServices,
       };
     });
@@ -4245,7 +4251,10 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       if (seenProviderIds.has(providerId)) return; // Doublon
 
       // Vérifier les heures de travail du prestataire pour ce jour
-      const workingHours = getProviderWorkingHours(p, dayOfWeek);
+      let workingHours = getProviderWorkingHours(p, dayOfWeek);
+      if (workingHours.length === 0) return;
+      // Filtrer par indisponibilités programmées multi-semaines
+      workingHours = filterHoursByScheduledUnavailabilities(p, date, workingHours);
       if (workingHours.length === 0) return;
       // Le prestataire doit couvrir la totalité du créneau demandé
       let coversAll = true;
@@ -4522,7 +4531,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
               <div
                 key={day.date}
                 className={`rounded-xl overflow-hidden border transition-all ${
-                  day.isToday
+                  day.isHoliday
+                    ? 'border-purple-200 bg-purple-50'
+                    : day.isToday
                     ? 'border-emerald-300 ring-2 ring-emerald-100'
                     : day.isPast || day.isSunday
                     ? 'border-gray-100 bg-gray-50'
@@ -4530,18 +4541,26 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                     ? 'border-green-200 bg-white hover:shadow-md cursor-pointer'
                     : 'border-orange-200 bg-white'
                 }`}
-                onClick={() => hasSlots && !day.isPast && !day.isSunday && setExpandedDay(day.date)}
+                onClick={() => hasSlots && !day.isPast && !day.isSunday && !day.isHoliday && setExpandedDay(day.date)}
               >
                 <div className={`px-3 py-2 text-center ${
+                  day.isHoliday ? 'bg-purple-500 text-white' :
                   day.isToday ? 'bg-emerald-500 text-white' :
                   day.isPast || day.isSunday ? 'bg-gray-100 text-gray-400' :
                   hasSlots ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800'
                 }`}>
                   <div className="text-[11px] font-bold uppercase">{WEEKDAYS[day.dayOfWeek]}</div>
                   <div className="text-lg font-bold">{day.dayOfMonth}</div>
+                  {day.isHoliday && <div className="text-[9px] font-bold uppercase tracking-wider">Férié</div>}
                 </div>
                 <div className="p-2">
-                  {day.isPast ? (
+                  {day.isHoliday ? (
+                    <div className="text-xs text-purple-600 text-center py-2 flex flex-col items-center gap-1">
+                      <Star className="w-4 h-4" />
+                      <span className="font-bold">{day.holidayName || 'Jour férié'}</span>
+                      <span className="text-[10px] text-purple-400">Aucune réservation</span>
+                    </div>
+                  ) : day.isPast ? (
                     <p className="text-xs text-gray-400 text-center py-2">Passé</p>
                   ) : day.isSunday ? (
                     <p className="text-xs text-gray-400 text-center py-2 flex items-center justify-center gap-1">
@@ -4940,7 +4959,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             const pid = String(p.id);
                             if (seenIds.has(pid)) continue;
                             if (isProviderOnLeave(p, dateStr)) continue;
-                            const wh = getProviderWorkingHours(p, dayOfWeek);
+                            let wh = getProviderWorkingHours(p, dayOfWeek);
+                            if (wh.length === 0) continue;
+                            wh = filterHoursByScheduledUnavailabilities(p, dateStr, wh);
                             if (wh.length === 0) continue;
                             let covers = true;
                             for (let h = sH; h < eH; h++) {

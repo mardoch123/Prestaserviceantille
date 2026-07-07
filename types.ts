@@ -47,6 +47,16 @@ export interface WeeklyTimeRange {
     end: string; // HH:mm
 }
 
+// Indisponibilité programmée sur N semaines à partir d'une date de début
+export interface ScheduledUnavailability {
+    id: string; // identifiant unique côté client
+    dayOfWeek: number; // 0=Dimanche ... 6=Samedi
+    startTime: string; // HH:mm
+    endTime: string; // HH:mm
+    startDate: string; // YYYY-MM-DD (date de début de la première occurrence)
+    weeks: number; // nombre de semaines d'application (1 = une seule semaine)
+}
+
 export interface Provider {
     id: string;
     firstName: string; // first_name en DB
@@ -65,6 +75,8 @@ export interface Provider {
     // Nouveau système de gestion des disponibilités
     availabilityMode?: 'unavailable' | 'available'; // Mode: 'unavailable' = heures d'indisponibilité, 'available' = heures de disponibilité uniquement
     availabilityHours?: Record<number, WeeklyTimeRange[]>; // plages de disponibilité (quand availabilityMode = 'available')
+    // Indisponibilités programmées sur plusieurs semaines
+    scheduledUnavailabilities?: ScheduledUnavailability[];
 }
 
 // DTO for creating a provider (no ID)

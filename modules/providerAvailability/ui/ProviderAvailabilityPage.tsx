@@ -219,11 +219,24 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
         const hasMissions = providerMissions.length > 0;
 
+        // Check scheduled unavailabilities (multi-week)
+        const scheds = (provider as any).scheduledUnavailabilities || [];
+        const hasScheduledUnavailability = Array.isArray(scheds) && scheds.some((su: any) => {
+          if (su.dayOfWeek !== dayOfWeek) return false;
+          const suStart = new Date(su.startDate + 'T00:00:00');
+          const currentDate = new Date(dateStr + 'T12:00:00');
+          if (currentDate < suStart) return false;
+          const suEndDate = new Date(suStart);
+          suEndDate.setDate(suEndDate.getDate() + (su.weeks * 7) - 1);
+          if (currentDate > suEndDate) return false;
+          return true;
+        });
+
         // Determine status
         let status: ProviderAvailabilityStatus;
         if (isOnLeave) {
           status = 'leave';
-        } else if (isDayUnavailable) {
+        } else if (isDayUnavailable || hasScheduledUnavailability) {
           status = 'unavailable';
         } else if (hasMissions) {
           status = 'busy';

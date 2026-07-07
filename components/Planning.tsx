@@ -54,6 +54,7 @@ import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
+import { getHolidayName } from '../utils/holidays';
 
 // Mobile features integration
 import { useHaptic } from '../hooks/useHaptic';
@@ -783,7 +784,6 @@ const Planning: React.FC = () => {
       const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
           ? (provider as any).nonInterventionHours[day]
           : undefined;
-      if (!Array.isArray(ranges) || ranges.length === 0) return false;
 
       const toMinutes = (t: any) => {
           const raw = String(t || '').trim();
@@ -799,12 +799,38 @@ const Planning: React.FC = () => {
       const e = toMinutes(endTime);
       if (!Number.isFinite(s) || !Number.isFinite(e)) return false;
 
-      return ranges.some((r: any) => {
-          const rStart = toMinutes(r?.start);
-          const rEnd = toMinutes(r?.end);
-          if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
-          return s < rEnd && e > rStart;
-      });
+      // Vérifier les plages récurrentes
+      if (Array.isArray(ranges) && ranges.length > 0) {
+          const hasRecurringBlock = ranges.some((r: any) => {
+              const rStart = toMinutes(r?.start);
+              const rEnd = toMinutes(r?.end);
+              if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+              return s < rEnd && e > rStart;
+          });
+          if (hasRecurringBlock) return true;
+      }
+
+      // Vérifier les indisponibilités programmées multi-semaines
+      const scheds = (provider as any)?.scheduledUnavailabilities;
+      if (Array.isArray(scheds) && scheds.length > 0) {
+          const dateObj = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+          const dateDay = dateObj.day();
+          const dateObjStart = dateObj.startOf('day');
+          const hasScheduledBlock = scheds.some((su: any) => {
+              if (su.dayOfWeek !== dateDay) return false;
+              const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+              if (dateObjStart.isBefore(suStart)) return false;
+              const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
+              if (dateObjStart.isAfter(suEnd)) return false;
+              const rStart = toMinutes(su.startTime);
+              const rEnd = toMinutes(su.endTime);
+              if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+              return s < rEnd && e > rStart;
+          });
+          if (hasScheduledBlock) return true;
+      }
+
+      return false;
   };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -2763,25 +2789,31 @@ const Planning: React.FC = () => {
                                 const isToday = dateStr === getMartiniqueToday();
                                 const dayStatus = dayFillStatus.get(dateStr);
                                 const count = missionsForDate.length;
+                                const holidayName = getHolidayName(dateStr);
+                                const isHoliday = !!holidayName;
                                 return (
                                     <button
                                         key={dateStr}
                                         type="button"
                                         onClick={() => setFocusedDate(dateStr)}
                                         className={`shrink-0 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl min-w-[44px] transition-all ${
-                                            isSelected
+                                            isHoliday
+                                                ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                                : isSelected
                                                 ? 'bg-[#006699] text-white shadow-md scale-105'
                                                 : isToday
                                                     ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                                     : 'text-slate-700 hover:bg-slate-50'
                                         }`}
-                                        aria-label={`${d.format('dddd DD/MM')} — ${count} mission${count !== 1 ? 's' : ''}`}
+                                        aria-label={`${d.format('dddd DD/MM')}${isHoliday ? ' — Férié' : ''} — ${count} mission${count !== 1 ? 's' : ''}`}
                                     >
-                                        <span className={`text-[10px] font-bold uppercase leading-none ${isSelected ? 'text-white/80' : 'text-slate-400'}`}>
+                                        <span className={`text-[10px] font-bold uppercase leading-none ${isSelected ? 'text-white/80' : isHoliday ? 'text-purple-400' : 'text-slate-400'}`}>
                                             {d.format('dd').charAt(0)}
                                         </span>
                                         <span className="text-sm font-bold leading-none">{d.format('D')}</span>
-                                        {count > 0 ? (
+                                        {isHoliday ? (
+                                            <span className="text-[7px] font-black text-purple-500 leading-none">Férié</span>
+                                        ) : count > 0 ? (
                                             <span className={`text-[9px] font-black leading-none px-1 rounded-full ${
                                                 isSelected ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
                                             }`}>{count}</span>
@@ -2996,6 +3028,9 @@ const Planning: React.FC = () => {
                                 >
                                     <div className="text-sm">{d}</div>
                                     <div className={`text-[11px] ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>{dateStr ? dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM') : '—'}</div>
+                                    {dateStr && getHolidayName(dateStr) && (
+                                      <div className={`text-[8px] font-bold leading-tight ${isSelected ? 'text-yellow-200' : 'text-purple-600'}`}>Férié</div>
+                                    )}
                                     {dayStatus?.status === 'clos' && <div className="text-[8px] font-bold text-teal-700 leading-tight">Clos</div>}
                                 </button>
                             );
