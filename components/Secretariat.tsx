@@ -2595,7 +2595,7 @@ const Secretariat: React.FC = () => {
                             )}
                         </div>
 
-                        {providers.every(p => p.leaves.length === 0) ? (
+                        {providers.every(p => (p.leaves || []).length === 0) ? (
                             <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-lg">
                                 <CalendarX className="w-8 h-8 mx-auto mb-2 opacity-50" />
                                 Aucune absence déclarée pour le moment.
@@ -2603,7 +2603,7 @@ const Secretariat: React.FC = () => {
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {providers.map(provider => {
-                                    if (provider.leaves.length === 0) return null;
+                                    if ((provider.leaves || []).length === 0) return null;
                                     return (
                                         <div key={provider.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
                                             <div className="flex justify-between items-start mb-3">
@@ -2611,10 +2611,10 @@ const Secretariat: React.FC = () => {
                                                     <User className="w-4 h-4" />
                                                     {provider.firstName} {provider.lastName}
                                                 </h4>
-                                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{provider.leaves.length} absence(s)</span>
+                                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{(provider.leaves || []).length} absence(s)</span>
                                             </div>
                                             <div className="space-y-2">
-                                                {provider.leaves.map((leave, i) => (
+                                                {(provider.leaves || []).map((leave, i) => (
                                                     <div key={i} className="text-sm bg-slate-50 p-2 rounded flex flex-col gap-2">
                                                         <div className="flex justify-between items-center">
                                                             <span className="text-slate-600 flex flex-col">

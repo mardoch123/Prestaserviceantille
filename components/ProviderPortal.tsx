@@ -1976,7 +1976,7 @@ const ProviderPortal: React.FC = () => {
                         <History className="w-4 h-4 text-emerald-500" /> 
                         Historique
                       </h4>
-                      {provider.leaves.length === 0 ? (
+                      {(provider.leaves || []).length === 0 ? (
                         <div className="text-center py-6">
                           <div className="w-14 h-14 mx-auto mb-3 bg-gray-100 rounded-full flex items-center justify-center">
                             <CalendarX className="w-7 h-7 text-gray-300" />
@@ -1985,7 +1985,7 @@ const ProviderPortal: React.FC = () => {
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {provider.leaves.map(l => (
+                          {(provider.leaves || []).map(l => (
                             <div key={l.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-xl border border-gray-100">
                               <div className="flex items-center gap-3">
                                 <div className={`w-3 h-3 rounded-full ${l.status === 'approved' ? 'bg-emerald-500' : l.status === 'rejected' ? 'bg-red-500' : 'bg-amber-400'}`}></div>

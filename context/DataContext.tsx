@@ -5461,7 +5461,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) {
             setProviders(prev => prev.map(p => {
                 if (p.id === providerId) {
-                    const updatedLeaves = p.leaves.map(l => l.id === leaveId ? { ...l, status } : l);
+                    const leaves = p.leaves || [];
+                    const updatedLeaves = leaves.map(l => l.id === leaveId ? { ...l, status } : l);
                     return { ...p, leaves: updatedLeaves };
                 }
                 return p;
@@ -7513,7 +7514,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const available: { time: string, provider: string, score: number, reason: string }[] = [];
 
         providers.filter(p => p.status === 'Active').forEach(provider => {
-            const leavesOnDate = provider.leaves.filter(l => {
+            const leavesOnDate = (provider.leaves || []).filter(l => {
                 return date >= l.startDate && date <= l.endDate;
             });
 
