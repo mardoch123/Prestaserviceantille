@@ -172,6 +172,7 @@ interface DataContextType {
     cancelMissionByClient: (id: string) => Promise<void>;
     canCancelMission: (mission: Mission) => boolean;
     assignProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
+    assignSecondProvider: (missionId: string, providerId: string, providerName: string) => Promise<void>;
     updateMission: (id: string, data: Partial<Mission>) => Promise<void>;
     completeMission: (id: string) => Promise<void>;
     deleteMissions: (ids: string[]) => Promise<void>;
@@ -1843,6 +1844,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         scheduledUnavailabilities: Array.isArray(p.scheduled_unavailabilities)
                             ? p.scheduled_unavailabilities
                             : (Array.isArray(p.scheduledUnavailabilities) ? p.scheduledUnavailabilities : []),
+                        // Indisponibilités ponctuelles
+                        oneTimeUnavailabilities: Array.isArray(p.one_time_unavailabilities)
+                            ? p.one_time_unavailabilities
+                            : (Array.isArray(p.oneTimeUnavailabilities) ? p.oneTimeUnavailabilities : []),
                         leaves: leavesData ? leavesData.map((l: any) => ({
                             id: l.id,
                             providerId: l.provider_id,
@@ -1880,6 +1885,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientName: m.client_name || m.clientName,
                         providerId: m.provider_id || m.providerId,
                         providerName: m.provider_name || m.providerName,
+                        provider2Id: m.provider2_id || m.provider2Id || null,
+                        provider2Name: m.provider2_name || m.provider2Name || null,
                         status: normalizeStatus(m.status),
                         startPhotos: m.start_photos || m.startPhotos,
                         endPhotos: m.end_photos || m.endPhotos,
@@ -2080,6 +2087,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         clientName: m.client_name || m.clientName,
                         providerId: m.provider_id || m.providerId,
                         providerName: m.provider_name || m.providerName,
+                        provider2Id: m.provider2_id || m.provider2Id || null,
+                        provider2Name: m.provider2_name || m.provider2Name || null,
                         status: m.status,
                         startPhotos: m.start_photos || m.startPhotos,
                         endPhotos: m.end_photos || m.endPhotos,
@@ -2775,6 +2784,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             clientName: m.client_name || m.clientName,
             providerId: m.provider_id || m.providerId,
             providerName: m.provider_name || m.providerName,
+            provider2Id: m.provider2_id || m.provider2Id || null,
+            provider2Name: m.provider2_name || m.provider2Name || null,
             status: (() => {
                 const raw = String(m.status || '').trim();
                 const plain = raw
@@ -3655,6 +3666,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             service: mission.service,
             provider_id: (!mission.providerId || mission.providerId === 'null') ? null : mission.providerId,
             provider_name: mission.providerName,
+            provider2_id: (!mission.provider2Id || mission.provider2Id === 'null') ? null : mission.provider2Id,
+            provider2_name: mission.provider2Name,
             status: mission.status,
             color: mission.color,
             source: mission.source,
@@ -3687,6 +3700,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 clientName: m.client_name,
                 providerId: m.provider_id,
                 providerName: m.provider_name,
+                provider2Id: m.provider2_id || null,
+                provider2Name: m.provider2_name || null,
                 startPhotos: m.start_photos,
                 endPhotos: m.end_photos,
                 startVideo: m.start_video,
@@ -5202,6 +5217,34 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
             }
 
+            // Vérifier les indisponibilités ponctuelles
+            const oneTimes = (provider as any)?.oneTimeUnavailabilities;
+            if (Array.isArray(oneTimes) && oneTimes.length > 0) {
+                const toMin2 = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+                const activeForDate = oneTimes.filter((otu: any) => otu.date === existingMission.date);
+                if (activeForDate.length > 0) {
+                    const s = toMin2(existingMission.startTime);
+                    const e = toMin2(existingMission.endTime);
+                    const hasOneTimeBlock = activeForDate.some((otu: any) => {
+                        const otuStart = toMin2(otu.startTime);
+                        const otuEnd = toMin2(otu.endTime);
+                        if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
+                        return s < otuEnd && e > otuStart;
+                    });
+                    if (hasOneTimeBlock) {
+                        throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (indisponibilité ponctuelle) sur ce créneau.`);
+                    }
+                }
+            }
+
             // Check for mission time conflicts with other missions
             const conflictCheck = await checkProviderMissionConflict(
                 providerId,
@@ -5255,6 +5298,162 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (existingMission && existingMission.providerId && existingMission.providerId !== providerId) {
                 await addNotification('provider', 'alert', 'Mission Annulée', `La mission du ${existingMission.date} a été annulée pour remplacement.`, existingMission.providerId);
+            }
+        }
+    };
+
+    const assignSecondProvider = async (missionId: string, providerId: string, providerName: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
+        const existingMission = missions.find(m => m.id === missionId);
+
+        if (existingMission?.date) {
+            const provider = providers.find(p => p.id === providerId);
+            const days = (provider as any)?.nonInterventionDays;
+            const day = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            if (Array.isArray(days) && days.includes(day)) {
+                throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
+            }
+
+            const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+                ? (provider as any).nonInterventionHours[day]
+                : undefined;
+            if (Array.isArray(ranges) && ranges.length > 0) {
+                const toMinutes = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+
+                const s = toMinutes(existingMission.startTime);
+                const e = toMinutes(existingMission.endTime);
+                const hasHourBlock = Number.isFinite(s) && Number.isFinite(e) && ranges.some((r: any) => {
+                    const rStart = toMinutes(r?.start);
+                    const rEnd = toMinutes(r?.end);
+                    if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (hasHourBlock) {
+                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible sur ce créneau horaire.`);
+                }
+            }
+
+            // Vérifier les indisponibilités programmées multi-semaines
+            const scheds = (provider as any)?.scheduledUnavailabilities;
+            if (Array.isArray(scheds) && scheds.length > 0) {
+                const toMin = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+                const missionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                const missionDay = missionDate.day();
+                const missionDateStart = missionDate.startOf('day');
+                const hasScheduledBlock = scheds.some((su: any) => {
+                    if (su.dayOfWeek !== missionDay) return false;
+                    const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+                    if (missionDateStart.isBefore(suStart)) return false;
+                    const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
+                    if (missionDateStart.isAfter(suEnd)) return false;
+                    const s = toMin(existingMission.startTime);
+                    const e = toMin(existingMission.endTime);
+                    const rStart = toMin(su.startTime);
+                    const rEnd = toMin(su.endTime);
+                    if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+                    return s < rEnd && e > rStart;
+                });
+                if (hasScheduledBlock) {
+                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (programmation multi-semaines) sur ce créneau.`);
+                }
+            }
+
+            // Vérifier les indisponibilités ponctuelles
+            const oneTimes = (provider as any)?.oneTimeUnavailabilities;
+            if (Array.isArray(oneTimes) && oneTimes.length > 0) {
+                const toMin = (t: any) => {
+                    const raw = String(t || '').trim();
+                    if (!raw) return NaN;
+                    const parts = raw.includes(':') ? raw.split(':') : [];
+                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+                const activeForDate = oneTimes.filter((otu: any) => otu.date === existingMission.date);
+                if (activeForDate.length > 0) {
+                    const s = toMin(existingMission.startTime);
+                    const e = toMin(existingMission.endTime);
+                    const hasOneTimeBlock = activeForDate.some((otu: any) => {
+                        const otuStart = toMin(otu.startTime);
+                        const otuEnd = toMin(otu.endTime);
+                        if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
+                        return s < otuEnd && e > otuStart;
+                    });
+                    if (hasOneTimeBlock) {
+                        throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (indisponibilité ponctuelle) sur ce créneau.`);
+                    }
+                }
+            }
+
+            // Check for mission time conflicts (as provider1 OR provider2)
+            const conflictCheck = await checkProviderMissionConflict(
+                providerId,
+                existingMission.date,
+                existingMission.startTime,
+                existingMission.endTime,
+                missionId
+            );
+
+            if (conflictCheck.hasConflict) {
+                const conflict = conflictCheck.conflictingMission;
+                throw new Error(
+                    `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
+                );
+            }
+        }
+
+        const { error } = await supabase.from('missions').update({ provider2_id: providerId, provider2_name: providerName }).eq('id', missionId);
+
+        if (!error) {
+            setMissions(prev => prev.map(m => m.id === missionId ? { ...m, provider2Id: providerId, provider2Name: providerName } : m));
+
+            await addNotification(
+                'admin',
+                'info',
+                'Mission attribuée (binôme)',
+                `2e prestataire assigné à la mission: ${providerName} (${existingMission?.clientName || 'Client'} - ${existingMission?.date || ''} ${existingMission?.startTime || ''}-${existingMission?.endTime || ''}).`,
+                undefined,
+                `mission:${missionId}`
+            );
+
+            // N'envoyer notification + email au prestataire que si la mission est dans les 20h
+            const missionDateStr = existingMission?.date && existingMission?.startTime
+                ? `${existingMission.date}T${existingMission.startTime}`
+                : null;
+            const hoursUntilMission = missionDateStr
+                ? (new Date(missionDateStr).getTime() - Date.now()) / (1000 * 60 * 60)
+                : Infinity;
+
+            if (hoursUntilMission <= 20) {
+                await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné comme 2e prestataire à une mission.`, providerId);
+
+                const provider = providers.find(p => p.id === providerId);
+                if (provider) {
+                    await sendEmail(provider.email, 'Nouvelle Mission Assignée (Binôme)', 'provider_mission_assigned', {
+                        missionId,
+                        clientName: missions.find(m => m.id === missionId)?.clientName
+                    });
+                }
             }
         }
     };
@@ -5415,6 +5614,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // Indisponibilités programmées multi-semaines
         if (Array.isArray((data as any).scheduledUnavailabilities)) {
             dbData.scheduled_unavailabilities = (data as any).scheduledUnavailabilities;
+        }
+        // Indisponibilités ponctuelles
+        if (Array.isArray((data as any).oneTimeUnavailabilities)) {
+            dbData.one_time_unavailabilities = (data as any).oneTimeUnavailabilities;
         }
         console.log('[updateProvider] id:', id, 'dbData:', JSON.stringify(dbData));
         const { data: updatedRow, error } = await supabase.from('providers').update(dbData).eq('id', id).select().single();
@@ -7972,7 +8175,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
              isDemoMode, demoRole, enterDemoMode,
  
-            missions, addMission, startMission, endMission, submitMissionReport, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, updateMission, completeMission, deleteMissions,
+            missions, addMission, startMission, endMission, submitMissionReport, enqueueStartMission, enqueueEndMission, cancelMissionByProvider, cancelMissionByClient, canCancelMission, assignProvider, assignSecondProvider, updateMission, completeMission, deleteMissions,
  
              clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  

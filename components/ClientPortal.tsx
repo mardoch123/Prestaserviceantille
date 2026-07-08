@@ -17,6 +17,7 @@ import {
   isProviderFreeDuring,
   getProviderWorkingHours,
   filterHoursByScheduledUnavailabilities,
+  filterHoursByOneTimeUnavailabilities,
   computeAvailabilitySlots,
   groupSlotsByTime,
   mapSpecialtyToDomain,
@@ -4255,6 +4256,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       if (workingHours.length === 0) return;
       // Filtrer par indisponibilités programmées multi-semaines
       workingHours = filterHoursByScheduledUnavailabilities(p, date, workingHours);
+      // Filtrer par indisponibilités ponctuelles
+      workingHours = filterHoursByOneTimeUnavailabilities(p, date, workingHours);
       if (workingHours.length === 0) return;
       // Le prestataire doit couvrir la totalité du créneau demandé
       let coversAll = true;
@@ -4962,6 +4965,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             let wh = getProviderWorkingHours(p, dayOfWeek);
                             if (wh.length === 0) continue;
                             wh = filterHoursByScheduledUnavailabilities(p, dateStr, wh);
+                            wh = filterHoursByOneTimeUnavailabilities(p, dateStr, wh);
                             if (wh.length === 0) continue;
                             let covers = true;
                             for (let h = sH; h < eH; h++) {

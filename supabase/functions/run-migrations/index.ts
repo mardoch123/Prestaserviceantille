@@ -84,6 +84,45 @@ serve(async (req: Request) => {
       results.company_email = `error: ${err.message}`;
     }
 
+    // Migration 3: Add provider2_id and provider2_name to missions
+    try {
+      const p2Check = await sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'missions' AND column_name = 'provider2_id'
+      `;
+      if (p2Check.length === 0) {
+        await sql`
+          ALTER TABLE missions
+          ADD COLUMN provider2_id UUID REFERENCES providers(id),
+          ADD COLUMN provider2_name TEXT
+        `;
+        results.provider2_columns = 'created';
+      } else {
+        results.provider2_columns = 'already_exists';
+      }
+    } catch (err: any) {
+      results.provider2_columns = `error: ${err.message}`;
+    }
+
+    // Migration 4: Add one_time_unavailabilities to providers
+    try {
+      const otuCheck = await sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'providers' AND column_name = 'one_time_unavailabilities'
+      `;
+      if (otuCheck.length === 0) {
+        await sql`
+          ALTER TABLE providers
+          ADD COLUMN one_time_unavailabilities JSONB DEFAULT '[]'::jsonb
+        `;
+        results.one_time_unavailabilities = 'created';
+      } else {
+        results.one_time_unavailabilities = 'already_exists';
+      }
+    } catch (err: any) {
+      results.one_time_unavailabilities = `error: ${err.message}`;
+    }
+
     await sql.end();
 
     return new Response(

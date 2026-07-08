@@ -2339,6 +2339,9 @@ const Secretariat: React.FC = () => {
                                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                                                 <User className="w-3 h-3" />
                                                 {mission.providerName || "À assigner"}
+                                                {(mission as any).provider2Name && (
+                                                    <span className="text-violet-600 font-bold">+ {(mission as any).provider2Name}</span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

@@ -28,6 +28,8 @@ export interface TimeSlot {
 export interface MissionLike {
   providerId?: string;
   provider_id?: string;
+  provider2Id?: string;
+  provider2_id?: string;
   date: string;           // YYYY-MM-DD
   start_time?: string;    // HH:mm
   startTime?: string;
@@ -52,6 +54,8 @@ export interface ProviderLike {
   leaves?: Array<{ startDate: string; endDate: string; status?: string }>;
   scheduledUnavailabilities?: Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>;
   scheduled_unavailabilities?: Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>;
+  oneTimeUnavailabilities?: Array<{ date: string; startTime: string; endTime: string }>;
+  one_time_unavailabilities?: Array<{ date: string; startTime: string; endTime: string }>;
 }
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -267,6 +271,56 @@ export function filterHoursByScheduledUnavailabilities(
 }
 
 /**
+ * Filtre les heures de travail en retirant celles bloquées par les indisponibilités ponctuelles.
+ * Une indisponibilité ponctuelle concerne une date précise et un créneau horaire.
+ */
+export function filterHoursByOneTimeUnavailabilities(
+  provider: ProviderLike,
+  dateStr: string,
+  workingHours: number[]
+): number[] {
+  const oneTimes = provider.oneTimeUnavailabilities || provider.one_time_unavailabilities || [];
+  if (!Array.isArray(oneTimes) || oneTimes.length === 0) return workingHours;
+
+  const activeForDate = oneTimes.filter(otu => otu.date === dateStr);
+  if (activeForDate.length === 0) return workingHours;
+
+  return workingHours.filter(h => {
+    return !activeForDate.some(otu => {
+      const sh = parseInt((otu.startTime || '00:00').split(':')[0], 10);
+      const eh = parseInt((otu.endTime || '00:00').split(':')[0], 10);
+      return h >= sh && h < eh;
+    });
+  });
+}
+
+/**
+ * Vérifie si un prestataire est bloqué par une indisponibilité ponctuelle pour une date/créneau donné.
+ */
+export function isProviderBlockedByOneTimeUnavailability(
+  provider: ProviderLike,
+  dateStr: string,
+  startTime: string,
+  endTime: string
+): boolean {
+  const oneTimes = provider.oneTimeUnavailabilities || provider.one_time_unavailabilities || [];
+  if (!Array.isArray(oneTimes) || oneTimes.length === 0) return false;
+
+  const activeForDate = oneTimes.filter(otu => otu.date === dateStr);
+  if (activeForDate.length === 0) return false;
+
+  const s = timeToMinutes(startTime);
+  const e = timeToMinutes(endTime);
+
+  return activeForDate.some(otu => {
+    const otuStart = timeToMinutes(otu.startTime || '00:00');
+    const otuEnd = timeToMinutes(otu.endTime || '00:00');
+    if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
+    return s < otuEnd && e > otuStart;
+  });
+}
+
+/**
  * Vérifie si un prestataire est en congé approuvé pour une date donnée.
  */
 export function isProviderOnLeave(provider: ProviderLike, dateStr: string): boolean {
@@ -339,8 +393,10 @@ export function getProviderDailyMissionCount(
   const pid = normalizeProviderId(provider.id);
   return missions.filter(m => {
     const mPid = normalizeProviderId(m.providerId || m.provider_id);
-    return mPid === pid &&
-           mPid !== '' &&
+    const mP2Id = normalizeProviderId(m.provider2Id || m.provider2_id);
+    const matchesProvider = mPid === pid && mPid !== '';
+    const matchesProvider2 = mP2Id === pid && mP2Id !== '';
+    return (matchesProvider || matchesProvider2) &&
            m.date === dateStr &&
            normalizeMissionStatus(m.status) !== 'cancelled';
   }).length;
@@ -359,12 +415,17 @@ export function isProviderFreeDuring(
 ): boolean {
   if (isProviderOnLeave(provider, dateStr)) return false;
 
+  // Vérifier indisponibilité ponctuelle
+  if (isProviderBlockedByOneTimeUnavailability(provider, dateStr, minutesToTime(startMin), minutesToTime(endMin))) return false;
+
   const pid = normalizeProviderId(provider.id);
 
   const providerMissions = missions.filter(m => {
     const mPid = normalizeProviderId(m.providerId || m.provider_id);
-    return mPid === pid &&
-           mPid !== '' &&
+    const mP2Id = normalizeProviderId(m.provider2Id || m.provider2_id);
+    const matchesProvider = mPid === pid && mPid !== '';
+    const matchesProvider2 = mP2Id === pid && mP2Id !== '';
+    return (matchesProvider || matchesProvider2) &&
            m.date === dateStr &&
            normalizeMissionStatus(m.status) !== 'cancelled';
   });
@@ -387,7 +448,11 @@ export function hasProviderExisting4hSlot(
   const pid = normalizeProviderId(provider.id);
   return missions.some(m => {
     const mPid = normalizeProviderId(m.providerId || m.provider_id);
-    if (mPid !== pid || mPid === '' || m.date !== dateStr) return false;
+    const mP2Id = normalizeProviderId(m.provider2Id || m.provider2_id);
+    const matchesProvider = mPid === pid && mPid !== '';
+    const matchesProvider2 = mP2Id === pid && mP2Id !== '';
+    if (!matchesProvider && !matchesProvider2) return false;
+    if (m.date !== dateStr) return false;
     if (normalizeMissionStatus(m.status) === 'cancelled') return false;
     const rawStart = m.start_time || m.startTime || '';
     const rawEnd = m.end_time || m.endTime || '';
@@ -461,6 +526,8 @@ export function computeFreeSlots(
       let workingHours = getProviderWorkingHours(p, dayOfWeek);
       // Filtrer par indisponibilités programmées multi-semaines
       workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
+      // Filtrer par indisponibilités ponctuelles
+      workingHours = filterHoursByOneTimeUnavailabilities(p, dateStr, workingHours);
       if (workingHours.length === 0) return false;
       // Le prestataire doit travailler pendant TOUTES les heures du créneau
       for (let h = startH; h < endH; h++) {
@@ -586,6 +653,8 @@ export function getAvailableProvidersCount(
 
     // Filtrer par indisponibilités programmées multi-semaines
     workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
+    // Filtrer par indisponibilités ponctuelles
+    workingHours = filterHoursByOneTimeUnavailabilities(p, dateStr, workingHours);
     if (workingHours.length === 0) return false;
 
     // Le prestataire doit couvrir la totalité du créneau demandé
@@ -697,6 +766,8 @@ export function computeAvailabilitySlots(
 
       // Filtrer par indisponibilités programmées multi-semaines
       workingHours = filterHoursByScheduledUnavailabilities(p, dateStr, workingHours);
+      // Filtrer par indisponibilités ponctuelles
+      workingHours = filterHoursByOneTimeUnavailabilities(p, dateStr, workingHours);
       if (workingHours.length === 0) continue;
 
       // Le prestataire doit travailler pendant TOUTES les heures du créneau

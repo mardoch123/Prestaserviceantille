@@ -62,7 +62,7 @@ import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -105,6 +105,7 @@ const Planning: React.FC = () => {
   // Selection State for Unassigned Missions
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
   const [assignProviderId, setAssignProviderId] = useState<string>('');
+  const [assignSecondProviderSelect, setAssignSecondProviderSelect] = useState<string>('');
   
   // BULK DELETE STATE
   const [selectedMissionIds, setSelectedMissionIds] = useState<Set<string>>(new Set());
@@ -115,6 +116,7 @@ const Planning: React.FC = () => {
       clientId: '',
       service: '',
       providerId: '',
+      provider2Id: '',
       date: '',
       startTime: '09:00',
       endTime: '11:00',
@@ -830,6 +832,21 @@ const Planning: React.FC = () => {
           if (hasScheduledBlock) return true;
       }
 
+      // Vérifier les indisponibilités ponctuelles
+      const oneTimes = (provider as any)?.oneTimeUnavailabilities;
+      if (Array.isArray(oneTimes) && oneTimes.length > 0) {
+          const activeForDate = oneTimes.filter((otu: any) => otu.date === dateStr);
+          if (activeForDate.length > 0) {
+              const hasOneTimeBlock = activeForDate.some((otu: any) => {
+                  const otuStart = toMinutes(otu.startTime);
+                  const otuEnd = toMinutes(otu.endTime);
+                  if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
+                  return s < otuEnd && e > otuStart;
+              });
+              if (hasOneTimeBlock) return true;
+          }
+      }
+
       return false;
   };
 
@@ -1379,8 +1396,8 @@ const Planning: React.FC = () => {
               notifications.push({
                   id: `plan-underutilized-${p.id}`,
                   type: 'planning',
-                  title: `${p.firstName} sous-utilisé`,
-                  message: `${p.firstName} n'a que ${todayHours.toFixed(1)}h planifiées — ${available.toFixed(1)}h disponibles`,
+                  title: `${p.firstName || 'Prestataire'} sous-utilisé`,
+                  message: `${p.firstName || 'Prestataire'} n'a que ${todayHours.toFixed(1)}h planifiées — ${available.toFixed(1)}h disponibles`,
                   priority: 'medium',
               });
           }
@@ -1423,8 +1440,8 @@ const Planning: React.FC = () => {
               notifications.push({
                   id: `workload-full-${p.id}`,
                   type: 'workload',
-                  title: `${p.firstName} complet`,
-                  message: `${p.firstName} a travaillé ${todayHours.toFixed(1)}h aujourd'hui — aucune prestation supplémentaire possible`,
+                  title: `${p.firstName || 'Prestataire'} complet`,
+                  message: `${p.firstName || 'Prestataire'} a travaillé ${todayHours.toFixed(1)}h aujourd'hui — aucune prestation supplémentaire possible`,
                   priority: 'low',
               });
           }
@@ -1477,7 +1494,7 @@ const Planning: React.FC = () => {
           }).join('\n')
           : '• Aucune prestation trouvée';
       const companyName = companySettings?.name || 'Presta Services Antilles';
-      return `Bonjour ${provider.firstName},\n\nVoici votre planning du ${dateLabel} :\n\n${lines}\n\nTotal : ${total.toFixed(1)}h de travail aujourd'hui.\n\nBonne journée ! 🙏\n${companyName}`;
+      return `Bonjour ${provider.firstName || ''},\n\nVoici votre planning du ${dateLabel} :\n\n${lines}\n\nTotal : ${total.toFixed(1)}h de travail aujourd'hui.\n\nBonne journée ! 🙏\n${companyName}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1499,6 +1516,7 @@ const Planning: React.FC = () => {
           // Get client and provider
           const client = clients.find(c => c.id === missionForm.clientId);
           const provider = providers.find(p => p.id === missionForm.providerId);
+          const provider2 = missionForm.provider2Id ? providers.find(p => p.id === missionForm.provider2Id) : null;
           
           if (!client) { throw new Error("Client invalide"); }
 
@@ -1514,7 +1532,7 @@ const Planning: React.FC = () => {
           if (provider) {
               const existingHours = getProviderDailyHours(provider.id, missionForm.date);
               if (existingHours + slotDurationHours > MAX_PROVIDER_DAILY_HOURS) {
-                  throw new Error(`${provider.firstName} ${provider.lastName} dépasserait 7h/jour (${existingHours.toFixed(1)}h déjà planifiées + ${roundedDuration}h = ${(existingHours + slotDurationHours).toFixed(1)}h).`);
+                  throw new Error(`${getProviderDisplayName(provider)} dépasserait 7h/jour (${existingHours.toFixed(1)}h déjà planifiées + ${roundedDuration}h = ${(existingHours + slotDurationHours).toFixed(1)}h).`);
               }
           }
 
@@ -1538,11 +1556,19 @@ const Planning: React.FC = () => {
               const dateStr = currentDate.format('YYYY-MM-DD');
 
               if (provider && isProviderNonWorkingDay(provider.id, dateStr)) {
-                  throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : ne travaille pas aujourd'hui.`);
+                  throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : ne travaille pas aujourd'hui.`);
               }
 
               if (provider && isProviderNonWorkingHours(provider.id, dateStr, missionForm.startTime, missionForm.endTime)) {
-                  throw new Error(`Impossible de programmer ${provider.firstName} ${provider.lastName} le ${dateStr} : indisponible sur ce créneau horaire.`);
+                  throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : indisponible sur ce créneau horaire.`);
+              }
+
+              // Vérifier le 2e prestataire
+              if (provider2 && isProviderNonWorkingDay(provider2.id, dateStr)) {
+                  throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : ne travaille pas aujourd'hui.`);
+              }
+              if (provider2 && isProviderNonWorkingHours(provider2.id, dateStr, missionForm.startTime, missionForm.endTime)) {
+                  throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : indisponible sur ce créneau horaire.`);
               }
 
               // --- GRAFTED: Vérification chevauchement d'horaires pour la même prestataire ---
@@ -1556,7 +1582,25 @@ const Planning: React.FC = () => {
                       return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
                   });
                   if (hasOverlap) {
-                      throw new Error(`Conflit d'horaire : ${provider.firstName} ${provider.lastName} a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
+                      throw new Error(`Conflit d'horaire : ${getProviderDisplayName(provider)} a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
+                  }
+              }
+
+              // Vérification chevauchement pour le 2e prestataire
+              if (provider2) {
+                  const hasOverlap2 = missions.some(m => {
+                      if (m.status === 'cancelled' || m.date !== dateStr) return false;
+                      const mP1 = m.providerId === provider2.id;
+                      const mP2 = m.provider2Id === provider2.id;
+                      if (!mP1 && !mP2) return false;
+                      const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
+                  });
+                  if (hasOverlap2) {
+                      throw new Error(`Conflit d'horaire : ${getProviderDisplayName(provider2)} (2e prestataire) a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
                   }
               }
 
@@ -1570,7 +1614,9 @@ const Planning: React.FC = () => {
                   clientName: client.name,
                   service: missionForm.service,
                   providerId: provider ? provider.id : null,
-                  providerName: provider ? `${provider.firstName} ${provider.lastName}` : 'À assigner',
+                  providerName: provider ? getProviderDisplayName(provider) : 'À assigner',
+                  provider2Id: provider2 ? provider2.id : null,
+                  provider2Name: provider2 ? getProviderDisplayName(provider2) : undefined,
                   status: 'planned',
                   color: provider ? 'orange' : 'gray'
               });
@@ -1679,9 +1725,12 @@ const Planning: React.FC = () => {
       const missionStart = new Date(`${dateStr}T${startTime}`);
       const missionEnd = new Date(`${dateStr}T${endTime}`);
 
-      // Check for conflicts with existing missions
+      // Check for conflicts with existing missions (as provider1 OR provider2)
       const conflictingMissions = missions.filter(m => {
-          if (m.status === 'cancelled' || !m.date || m.providerId !== providerId) return false;
+          if (m.status === 'cancelled' || !m.date) return false;
+          const matchesP1 = m.providerId === providerId;
+          const matchesP2 = m.provider2Id === providerId;
+          if (!matchesP1 && !matchesP2) return false;
           if (excludeMissionId && m.id === excludeMissionId) return false;
           const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
           const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
@@ -1762,6 +1811,14 @@ const Planning: React.FC = () => {
       };
   };
 
+  // Helper: nom complet sécurisé d'un prestataire
+  const getProviderDisplayName = (p: any): string => {
+      if (!p) return '';
+      const first = p.firstName || p.first_name || '';
+      const last = p.lastName || p.last_name || '';
+      return `${first} ${last}`.trim() || 'Prestataire';
+  };
+
   const handleAssignMission = async () => {
       if (!selectedMissionId || !assignProviderId) {
           toast.warning('Veuillez sélectionner une mission et un prestataire.');
@@ -1779,23 +1836,21 @@ const Planning: React.FC = () => {
 
       // Check if provider is available (includes mission conflict check)
       if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
-          toast.error(`${provider.firstName} ${provider.lastName} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
+          toast.error(`${getProviderDisplayName(provider)} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
           hapticError();
           return;
       }
 
       setIsSubmitting(true);
       try {
-          // Ensure we are using valid IDs from refreshed data
-          await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
-
+          await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
           toast.success(`Prestataire assigné ! Email envoyé.`);
           success();
           if (refreshData) await refreshData();
 
-          // Reset states
           setSelectedMissionId(null);
           setAssignProviderId('');
+          setAssignSecondProviderSelect('');
       } catch (error: any) {
           toast.error(error?.message || 'Erreur lors de l\'assignation.');
           hapticError();
@@ -1809,6 +1864,7 @@ const Planning: React.FC = () => {
 
       const mission = missions.find(m => m.id === selectedMissionId);
       const provider = providers.find(p => p.id === assignProviderId);
+      const provider2 = assignSecondProviderSelect ? providers.find(p => p.id === assignSecondProviderSelect) : null;
 
       if (!mission || !provider) {
           toast.error('Mission ou prestataire introuvable.');
@@ -1817,24 +1873,39 @@ const Planning: React.FC = () => {
 
       if (isSubmitting) return;
 
-      // Check if provider is available (includes mission conflict, non-working days, leaves)
+      // Check if 1st provider is available
       if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
-          toast.warning(`Impossible de programmer ${provider.firstName} ${provider.lastName} : indisponible ou conflit avec une autre mission.`);
+          toast.warning(`Impossible de programmer ${getProviderDisplayName(provider)} : indisponible ou conflit avec une autre mission.`);
           return;
+      }
+
+      // Check if 2nd provider is available (if selected)
+      if (provider2) {
+          if (!isProviderAvailable(provider2.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
+              toast.warning(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) : indisponible ou conflit avec une autre mission.`);
+              return;
+          }
       }
 
       setIsSubmitting(true);
       try {
-          // Ensure we are using valid IDs from refreshed data
-          await assignProvider(mission.id, provider.id, `${provider.firstName} ${provider.lastName}`);
+          // Assigner le 1er prestataire
+          await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
 
-          toast.success(`Prestataire assigné ! Email envoyé.`);
+          // Assigner le 2e prestataire si sélectionné
+          if (provider2) {
+              await assignSecondProvider(mission.id, provider2.id, getProviderDisplayName(provider2));
+              toast.success(`Binôme assigné : ${getProviderDisplayName(provider)} + ${getProviderDisplayName(provider2)} ! Emails envoyés.`);
+          } else {
+              toast.success(`Prestataire assigné ! Email envoyé.`);
+          }
           success();
           if (refreshData) await refreshData();
 
           // Reset states => closes modal
           setSelectedMissionId(null);
           setAssignProviderId('');
+          setAssignSecondProviderSelect('');
       } catch (error: any) {
           toast.error(error?.message || 'Erreur lors de l\'assignation.');
           hapticError();
@@ -1947,7 +2018,7 @@ const Planning: React.FC = () => {
                       color: 'gray'
                   });
               } else if (nextProvider) {
-                  await assignProvider(missionId, nextProvider.id, `${nextProvider.firstName} ${nextProvider.lastName}`);
+                  await assignProvider(missionId, nextProvider.id, getProviderDisplayName(nextProvider));
               }
           }
 
@@ -1991,7 +2062,7 @@ const Planning: React.FC = () => {
 
           // Si on garde un prestataire (ou on en met un), vérifier qu'il travaille ce jour-là
           if (nextProvider && isProviderNonWorkingDay(nextProvider.id, nextDate)) {
-              throw new Error(`Impossible de programmer ${nextProvider.firstName} ${nextProvider.lastName} le ${nextDate} : ne travaille pas aujourd'hui.`);
+              throw new Error(`Impossible de programmer ${getProviderDisplayName(nextProvider)} le ${nextDate} : ne travaille pas aujourd'hui.`);
           }
 
           // Check if any provider with matching specialty is available for this slot
@@ -2045,9 +2116,9 @@ const Planning: React.FC = () => {
               } else if (nextProvider) {
                   // Check for conflicts before assigning new provider
                   if (!isProviderAvailable(nextProvider.id, nextDate, nextStart, nextEnd, missionId)) {
-                      throw new Error(`${nextProvider.firstName} ${nextProvider.lastName} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
+                      throw new Error(`${getProviderDisplayName(nextProvider)} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
                   }
-                  await assignProvider(missionId, nextProvider.id, `${nextProvider.firstName} ${nextProvider.lastName}`);
+                  await assignProvider(missionId, nextProvider.id, getProviderDisplayName(nextProvider));
               }
           }
 
@@ -2387,7 +2458,7 @@ const Planning: React.FC = () => {
                                   <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand-blue" />
                                   <Search className="w-3 h-3 text-slate-400 absolute right-3 top-3.5" />
                               </div>
-                              <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
+                              <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: getProviderDisplayName(p), label: getProviderDisplayName(p) }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
                               <SearchableSelect options={[{ value: 'all', label: 'Tous les clients' }, ...clients.map(c => ({ value: c.name, label: c.name }))]} value={selectedClient} onChange={(value) => setSelectedClient(value)} className="w-full" />
                               <SearchableSelect options={[{ value: 'all', label: 'Tous' }, { value: 'planned', label: 'Prévues' }, { value: 'in_progress', label: 'En cours' }, { value: 'completed', label: 'Terminées' }, { value: 'cancelled', label: 'Annulées' }]} value={selectedStatus} onChange={(value) => setSelectedStatus(value)} className="w-full" />
                               <button onClick={() => { setCustomDateRange(!customDateRange); if (!customDateRange) { setStartDate(''); setEndDate(''); } }} className={`w-full px-3 py-2.5 rounded-lg text-sm font-bold transition ${customDateRange ? 'bg-brand-blue text-white' : 'bg-slate-100 text-slate-700'}`}>
@@ -2451,7 +2522,7 @@ const Planning: React.FC = () => {
             <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-blue" />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
           </div>
-          <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
+          <SearchableSelect options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: getProviderDisplayName(p), label: getProviderDisplayName(p) }))]} value={selectedProvider} onChange={(value) => setSelectedProvider(value)} className="w-full" />
           <SearchableSelect options={[{ value: 'all', label: 'Tous les clients' }, ...clients.map(c => ({ value: c.name, label: c.name }))]} value={selectedClient} onChange={(value) => setSelectedClient(value)} className="w-full" />
           <SearchableSelect options={[{ value: 'all', label: 'Tous' }, { value: 'planned', label: 'Prévues' }, { value: 'in_progress', label: 'En cours' }, { value: 'completed', label: 'Terminées' }, { value: 'cancelled', label: 'Annulées' }]} value={selectedStatus} onChange={(value) => setSelectedStatus(value)} className="w-full" />
           <button type="button" onClick={() => { setCustomDateRange(!customDateRange); if (!customDateRange) { setStartDate(''); setEndDate(''); } }} className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition border ${customDateRange ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-slate-700 border-slate-200'}`}>
@@ -2579,7 +2650,7 @@ const Planning: React.FC = () => {
               <div>
                 <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Prestataire</label>
                 <SearchableSelect
-                  options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: `${p.firstName} ${p.lastName}`, label: `${p.firstName} ${p.lastName}` }))]}
+                  options={[{ value: 'all', label: 'Tous les prestataires' }, ...providers.filter(p => p?.status === 'Active').map(p => ({ value: getProviderDisplayName(p), label: getProviderDisplayName(p) }))]}
                   value={selectedProvider}
                   onChange={(value) => setSelectedProvider(value)}
                   className="w-full"
@@ -2961,6 +3032,18 @@ const Planning: React.FC = () => {
                                                                 </button>
                                                             ) : (
                                                                 <span className="text-[11px] font-bold text-slate-500 truncate">{item.providerName || 'Non assigné'}</span>
+                                                            )}
+                                                            {item.provider2Id && (
+                                                                <>
+                                                                    <span className="text-[10px] text-violet-400">+</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => { e.stopPropagation(); const p = providers.find(pr => pr.id === item.provider2Id); if (p) setSelectedProviderStats(p); }}
+                                                                        className="text-[11px] font-bold text-violet-600 truncate hover:text-violet-800 hover:underline text-left"
+                                                                    >
+                                                                        {item.provider2Name}
+                                                                    </button>
+                                                                </>
                                                             )}
                                                             <span className="text-[10px] text-slate-400">·</span>
                                                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${style.statusCls || 'bg-slate-100 text-slate-600'}`}>{style.label}</span>
@@ -3569,7 +3652,7 @@ const Planning: React.FC = () => {
                                     const available = reason === null;
                                     return (
                                         <option key={p.id} value={p.id} disabled={!available}>
-                                            {p.firstName} {p.lastName} {reason ? `(${reason})` : ''}
+                                            {getProviderDisplayName(p)} {reason ? `(${reason})` : ''}
                                         </option>
                                     );
                                 })}
@@ -3581,7 +3664,7 @@ const Planning: React.FC = () => {
                                         const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
                                             value: p.id,
-                                            label: `${p.firstName} ${p.lastName}${reason ? ` (${reason})` : ''}`,
+                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
                                             disabled: reason !== null
                                         };
                                     })
@@ -3589,6 +3672,25 @@ const Planning: React.FC = () => {
                                 value={missionForm.providerId}
                                 onChange={(value) => setMissionForm(prev => ({ ...prev, providerId: value }))}
                                 placeholder="(À assigner plus tard)"
+                             />
+                        </div>
+                        <div>
+                             <label className="block text-sm font-bold text-slate-700 mb-1">2e Prestataire <span className="font-normal text-slate-400 text-xs">(optionnel)</span></label>
+                             <SearchableSelect
+                                options={[
+                                    { value: '', label: '(Aucun)' },
+                                    ...providers.filter(p => p.id !== missionForm.providerId).map(p => {
+                                        const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
+                                        return {
+                                            value: p.id,
+                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
+                                            disabled: reason !== null
+                                        };
+                                    })
+                                ]}
+                                value={missionForm.provider2Id}
+                                onChange={(value) => setMissionForm(prev => ({ ...prev, provider2Id: value }))}
+                                placeholder="(Aucun)"
                              />
                         </div>
                     </div>
@@ -3831,7 +3933,7 @@ const Planning: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2">Choisir un prestataire</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">1er Prestataire *</label>
                             <select 
                                 className="w-full p-3 bg-white border border-slate-300 rounded-lg outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
                                 value={assignProviderId}
@@ -3844,7 +3946,35 @@ const Planning: React.FC = () => {
                                     const available = reason === null;
                                     const isActive = p.status === 'Active';
                                     const canAssign = available && isActive;
-                                    let label = p.firstName + ' ' + p.lastName;
+                                    const name = getProviderDisplayName(p);
+                                    let label = name;
+                                    if (!isActive) label += ' (Inactif)';
+                                    else if (reason) label += ` (${reason})`;
+                                    return (
+                                        <option key={p.id} value={p.id} disabled={!canAssign} className={!canAssign ? 'text-slate-400' : ''}>
+                                            {label}
+                                        </option>
+                                    )
+                                })}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-violet-700 mb-2">2e Prestataire (binôme, optionnel)</label>
+                            <select 
+                                className="w-full p-3 bg-violet-50 border border-violet-300 rounded-lg outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                                value={assignSecondProviderSelect}
+                                onChange={(e) => setAssignSecondProviderSelect(e.target.value)}
+                                disabled={isSubmitting}
+                            >
+                                <option value="">Aucun (prestataire seul)</option>
+                                {providers.filter(p => p.id !== assignProviderId).map(p => {
+                                    const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
+                                    const available = reason === null;
+                                    const isActive = p.status === 'Active';
+                                    const canAssign = available && isActive;
+                                    const name = getProviderDisplayName(p);
+                                    let label = name;
                                     if (!isActive) label += ' (Inactif)';
                                     else if (reason) label += ` (${reason})`;
                                     return (
@@ -4229,7 +4359,7 @@ const Planning: React.FC = () => {
                                         const reason = editMissionForm.date ? getProviderUnavailableReason(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime, selectedMissionDetails?.id) : null;
                                         return {
                                             value: p.id,
-                                            label: `${p.firstName} ${p.lastName}${reason ? ` (${reason})` : ''}`,
+                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
                                             disabled: reason !== null
                                         };
                                     })
@@ -4450,7 +4580,7 @@ const Planning: React.FC = () => {
                                       {dailySummaryData.scheduledProviders.map(({ provider, slots, totalHours }) => (
                                           <div key={provider.id} className="p-3 bg-white rounded-xl border border-indigo-200 shadow-sm">
                                               <div className="flex items-center justify-between gap-2">
-                                                  <span className="font-black text-sm text-indigo-900 truncate">{provider.firstName} {provider.lastName ?? ''}</span>
+                                                  <span className="font-black text-sm text-indigo-900 truncate">{getProviderDisplayName(provider)}</span>
                                                   <span className={`text-xs font-black px-2 py-0.5 rounded-full text-white shrink-0 ${totalHours >= 7 ? 'bg-red-500' : totalHours >= 4 ? 'bg-amber-500' : 'bg-emerald-500'}`}>
                                                       {totalHours.toFixed(1)}h
                                                   </span>
@@ -4503,7 +4633,7 @@ const Planning: React.FC = () => {
                                       {dailySummaryData.availableProviders.map(({ provider, availableHours, availabilityRange }) => (
                                           <div key={provider.id} className="p-3 bg-white rounded-xl border border-emerald-200 shadow-sm">
                                               <div className="flex items-center justify-between gap-2">
-                                                  <span className="font-black text-sm text-emerald-900 truncate">{provider.firstName} {provider.lastName ?? ''}</span>
+                                                  <span className="font-black text-sm text-emerald-900 truncate">{getProviderDisplayName(provider)}</span>
                                                   <span className="text-xs font-black text-white bg-emerald-500 px-2 py-0.5 rounded-full shrink-0">{availableHours}h</span>
                                               </div>
                                               <div className="flex items-center gap-1.5 mt-1.5">
@@ -4641,7 +4771,7 @@ const Planning: React.FC = () => {
                               {(selectedProviderStats.firstName || '')[0]}{(selectedProviderStats.lastName || '')[0] || ''}
                           </div>
                           <div>
-                              <h2 className="text-lg font-black text-white">{selectedProviderStats.firstName} {selectedProviderStats.lastName}</h2>
+                              <h2 className="text-lg font-black text-white">{getProviderDisplayName(selectedProviderStats)}</h2>
                               <p className="text-xs text-violet-200">{providerStatsData.weekPlanned} prestations cette semaine</p>
                           </div>
                       </div>
@@ -4902,8 +5032,8 @@ const Planning: React.FC = () => {
                                                   disabled={!canAssign}
                                                   onClick={async () => {
                                                       try {
-                                                          await assignProvider(quickAssignMission.id, p.id, `${p.firstName} ${p.lastName}`);
-                                                          toast.success(`${p.firstName} assigné(e) !`);
+                                                          await assignProvider(quickAssignMission.id, p.id, getProviderDisplayName(p));
+                                                          toast.success(`${getProviderDisplayName(p)} assigné(e) !`);
                                                           if (refreshData) await refreshData();
                                                       } catch (err: any) {
                                                           toast.error(err?.message || 'Erreur d\'assignation');
@@ -4919,10 +5049,10 @@ const Planning: React.FC = () => {
                                                   }`}
                                               >
                                                   <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-black text-indigo-700 shrink-0">
-                                                      {(p.firstName || '')[0]}{(p.lastName || '')[0] || ''}
+                                                      {(getProviderDisplayName(p).split(' ')[0] || '')[0]}{(getProviderDisplayName(p).split(' ')[1] || '')[0] || ''}
                                                   </div>
                                                   <div className="flex-1 min-w-0">
-                                                      <div className="text-xs font-bold text-slate-800 truncate">{p.firstName} {p.lastName}</div>
+                                                      <div className="text-xs font-bold text-slate-800 truncate">{getProviderDisplayName(p)}</div>
                                                       <div className="text-[10px] text-slate-500">
                                                           {!isWorkingDay ? 'Jour de repos' : `${existingHours.toFixed(1)}h/${MAX_PROVIDER_DAILY_HOURS}h`}
                                                       </div>
@@ -5061,7 +5191,7 @@ const Planning: React.FC = () => {
                   <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
                       <div>
                           <h2 id="wa-preview-title" className="text-lg font-bold text-slate-900">Pr\u00e9visualisation WhatsApp</h2>
-                          <p className="text-sm text-slate-500">{whatsappPreviewData.provider.firstName} {whatsappPreviewData.provider.lastName}</p>
+                          <p className="text-sm text-slate-500">{getProviderDisplayName(whatsappPreviewData.provider)}</p>
                       </div>
                       <button type="button" onClick={() => setWhatsappPreviewOpen(false)} className="p-2 hover:bg-slate-100 rounded-full" aria-label="Fermer la pr\u00e9visualisation">
                           <X className="w-5 h-5 text-slate-500" />
@@ -5132,7 +5262,7 @@ const Planning: React.FC = () => {
                               return (
                                   <div key={provider.id} className={`flex items-center justify-between gap-3 p-2 rounded-lg border ${sent ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
                                       <div className="min-w-0">
-                                          <p className="font-bold text-sm text-slate-800 truncate">{provider.firstName} {provider.lastName}</p>
+                                          <p className="font-bold text-sm text-slate-800 truncate">{getProviderDisplayName(provider)}</p>
                                           {phone ? (
                                               <p className="text-xs text-slate-500 truncate">{provider.phone}</p>
                                           ) : (

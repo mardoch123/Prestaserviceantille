@@ -47,6 +47,15 @@ export interface WeeklyTimeRange {
     end: string; // HH:mm
 }
 
+// Indisponibilité ponctuelle à une date et heure spécifiques
+export interface OneTimeUnavailability {
+    id: string; // identifiant unique côté client
+    date: string; // YYYY-MM-DD
+    startTime: string; // HH:mm
+    endTime: string; // HH:mm
+    reason?: string; // optionnel (ex: "RDV médical")
+}
+
 // Indisponibilité programmée sur N semaines à partir d'une date de début
 export interface ScheduledUnavailability {
     id: string; // identifiant unique côté client
@@ -77,6 +86,8 @@ export interface Provider {
     availabilityHours?: Record<number, WeeklyTimeRange[]>; // plages de disponibilité (quand availabilityMode = 'available')
     // Indisponibilités programmées sur plusieurs semaines
     scheduledUnavailabilities?: ScheduledUnavailability[];
+    // Indisponibilités ponctuelles (date + créneau unique)
+    oneTimeUnavailabilities?: OneTimeUnavailability[];
 }
 
 // DTO for creating a provider (no ID)
@@ -198,6 +209,10 @@ export interface Mission {
 
     providerId: string | null; // FK
     providerName?: string; // Denormalized
+
+    // 2e prestataire (binôme)
+    provider2Id?: string | null; // FK
+    provider2Name?: string; // Denormalized
 
     service: string;
     status: 'planned' | 'in_progress' | 'completed' | 'cancelled';

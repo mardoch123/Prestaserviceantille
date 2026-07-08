@@ -165,7 +165,9 @@ const Providers: React.FC = () => {
     availabilityMode: 'unavailable' as 'unavailable' | 'available',
     availabilityHours: {} as Record<number, Array<{ start: string; end: string }>>,
     // Indisponibilités programmées sur N semaines
-    scheduledUnavailabilities: [] as Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>
+    scheduledUnavailabilities: [] as Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }>,
+    // Indisponibilités ponctuelles (date + créneau unique)
+    oneTimeUnavailabilities: [] as Array<{ id: string; date: string; startTime: string; endTime: string; reason?: string }>
   });
 
   const [leaveForm, setLeaveForm] = useState({
@@ -306,7 +308,7 @@ const Providers: React.FC = () => {
   const openCreateModal = () => {
       setIsEditMode(false);
       setCurrentEditId(null);
-      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [] });
+      setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [], oneTimeUnavailabilities: [] });
       setIsModalOpen(true);
   };
 
@@ -324,7 +326,8 @@ const Providers: React.FC = () => {
           nonInterventionHours: (provider?.nonInterventionHours && typeof provider.nonInterventionHours === 'object') ? provider.nonInterventionHours : {},
           availabilityMode: provider?.availabilityMode || 'unavailable',
           availabilityHours: (provider?.availabilityHours && typeof provider.availabilityHours === 'object') ? provider.availabilityHours : {},
-          scheduledUnavailabilities: Array.isArray(provider?.scheduledUnavailabilities) ? provider.scheduledUnavailabilities : []
+          scheduledUnavailabilities: Array.isArray(provider?.scheduledUnavailabilities) ? provider.scheduledUnavailabilities : [],
+          oneTimeUnavailabilities: Array.isArray(provider?.oneTimeUnavailabilities) ? provider.oneTimeUnavailabilities : []
       });
       setIsModalOpen(true);
   };
@@ -419,7 +422,8 @@ const Providers: React.FC = () => {
                   nonInterventionHours: formData.nonInterventionHours,
                   availabilityMode: formData.availabilityMode,
                   availabilityHours: formData.availabilityHours,
-                  scheduledUnavailabilities: formData.scheduledUnavailabilities
+                  scheduledUnavailabilities: formData.scheduledUnavailabilities,
+                  oneTimeUnavailabilities: formData.oneTimeUnavailabilities
               });
               showToast(`Fiche de ${formData.firstName} ${formData.lastName} mise à jour.`);
               setIsModalOpen(false);
@@ -436,7 +440,8 @@ const Providers: React.FC = () => {
                   nonInterventionHours: formData.nonInterventionHours,
                   availabilityMode: formData.availabilityMode,
                   availabilityHours: formData.availabilityHours,
-                  scheduledUnavailabilities: formData.scheduledUnavailabilities
+                  scheduledUnavailabilities: formData.scheduledUnavailabilities,
+                  oneTimeUnavailabilities: formData.oneTimeUnavailabilities
               });
               
               setIsModalOpen(false);
@@ -449,7 +454,7 @@ const Providers: React.FC = () => {
               }
           }
           // Reset form
-          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [] });
+          setFormData({ lastName: '', firstName: '', specialty: 'Ménage / Entretien', phone: '', email: '', status: 'Active', nonInterventionDays: [], nonInterventionHours: {}, availabilityMode: 'unavailable', availabilityHours: {}, scheduledUnavailabilities: [], oneTimeUnavailabilities: [] });
       } catch (error) {
           console.error("Erreur soumission prestataire:", error);
           showToast(String((error as any)?.message || 'Une erreur est survenue.'), 'error');
@@ -806,6 +811,14 @@ Lien de connexion : https://presta-antilles.app/login`);
                                         title={`${(p as any).scheduledUnavailabilities.length} indisponibilité(s) programmée(s)`}
                                       >
                                         📅 {(p as any).scheduledUnavailabilities.length} program.
+                                      </span>
+                                    )}
+                                    {Array.isArray((p as any).oneTimeUnavailabilities) && (p as any).oneTimeUnavailabilities.length > 0 && (
+                                      <span
+                                        className="ml-1 text-[10px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded font-bold"
+                                        title={`${(p as any).oneTimeUnavailabilities.length} indisponibilité(s) ponctuelle(s)`}
+                                      >
+                                        🕐 {(p as any).oneTimeUnavailabilities.length} ponct.
                                       </span>
                                     )}
                                 </td>
@@ -1285,6 +1298,134 @@ Lien de connexion : https://presta-antilles.app/login`);
                             >
                                 <CalendarX className="w-4 h-4" />
                                 Ajouter une indisponibilité programmée
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Indisponibilités ponctuelles */}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                            <CalendarX className="w-4 h-4 text-rose-500" />
+                            Indisponibilités ponctuelles
+                        </label>
+                        <div className="mb-3 p-3 rounded-lg border bg-rose-50 border-rose-200 text-sm text-rose-800">
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <p className="text-xs">
+                                    Définissez une indisponibilité à une <strong>date et heure spécifiques</strong>. Après ce créneau, le prestataire redevient 100% disponible.
+                                    Utile pour des RDV médicaux, démarches, etc.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Liste des indisponibilités ponctuelles */}
+                        {formData.oneTimeUnavailabilities.length > 0 && (
+                            <div className="space-y-2 mb-3">
+                                {formData.oneTimeUnavailabilities.map((otu, idx) => (
+                                    <div key={otu.id || idx} className="bg-white border border-rose-200 rounded-lg p-3 flex flex-wrap items-center gap-3">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded">
+                                                {otu.date ? new Date(otu.date + 'T12:00:00').toLocaleDateString('fr-FR') : '—'}
+                                            </span>
+                                            <span className="text-xs font-medium text-rose-700">
+                                                {otu.startTime} – {otu.endTime}
+                                            </span>
+                                            {otu.reason && (
+                                                <span className="text-xs text-slate-500 italic">
+                                                    {otu.reason}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    oneTimeUnavailabilities: prev.oneTimeUnavailabilities.filter((_, i) => i !== idx)
+                                                }));
+                                            }}
+                                            className="ml-auto p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                            title="Supprimer"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Formulaire d'ajout */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                {/* Date */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Date</label>
+                                    <input
+                                        id="otu-date"
+                                        type="date"
+                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Heure début */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Début</label>
+                                    <input
+                                        id="otu-startTime"
+                                        type="time"
+                                        defaultValue="08:00"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Heure fin */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Fin</label>
+                                    <input
+                                        id="otu-endTime"
+                                        type="time"
+                                        defaultValue="12:00"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                                {/* Raison */}
+                                <div className="sm:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">Raison <span className="font-normal text-slate-400">(optionnel)</span></label>
+                                    <input
+                                        id="otu-reason"
+                                        type="text"
+                                        placeholder="Ex: RDV médical"
+                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const date = (document.getElementById('otu-date') as HTMLInputElement)?.value || '';
+                                    const startTime = (document.getElementById('otu-startTime') as HTMLInputElement)?.value || '08:00';
+                                    const endTime = (document.getElementById('otu-endTime') as HTMLInputElement)?.value || '12:00';
+                                    const reason = (document.getElementById('otu-reason') as HTMLInputElement)?.value?.trim() || '';
+                                    if (!date || !startTime || !endTime) return;
+                                    // Vérifier les doublons
+                                    const isDuplicate = formData.oneTimeUnavailabilities.some(existing =>
+                                        existing.date === date && existing.startTime === startTime && existing.endTime === endTime
+                                    );
+                                    if (isDuplicate) {
+                                        showToast('Cette indisponibilité ponctuelle existe déjà.', 'warning');
+                                        return;
+                                    }
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        oneTimeUnavailabilities: [
+                                            ...prev.oneTimeUnavailabilities,
+                                            { id: `otu-${Date.now()}`, date, startTime, endTime, reason: reason || undefined }
+                                        ]
+                                    }));
+                                }}
+                                className="w-full py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-2"
+                            >
+                                <CalendarX className="w-4 h-4" />
+                                Ajouter une indisponibilité ponctuelle
                             </button>
                         </div>
                     </div>

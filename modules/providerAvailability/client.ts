@@ -351,25 +351,42 @@ export async function checkProviderMissionConflict(
   endTime: string,
   excludeMissionId?: string
 ): Promise<{ hasConflict: boolean; conflictingMission?: any }> {
-  // Get all missions for this provider on this date
-  const { data: missions, error } = await supabase
+  // Get all missions for this provider on this date (as provider1 OR provider2)
+  const { data: missionsAsP1, error: error1 } = await supabase
     .from('missions')
     .select('id, client_name, start_time, end_time, service, status')
     .eq('provider_id', providerId)
     .eq('date', date)
     .neq('status', 'cancelled');
 
-  if (error) {
-    console.error('Error checking mission conflicts:', error);
-    throw error;
+  const { data: missionsAsP2, error: error2 } = await supabase
+    .from('missions')
+    .select('id, client_name, start_time, end_time, service, status')
+    .eq('provider2_id', providerId)
+    .eq('date', date)
+    .neq('status', 'cancelled');
+
+  if (error1) {
+    console.error('Error checking mission conflicts (provider1):', error1);
+    throw error1;
   }
+  if (error2) {
+    console.error('Error checking mission conflicts (provider2):', error2);
+    throw error2;
+  }
+
+  // Combine and deduplicate
+  const allMissions = [...(missionsAsP1 || []), ...(missionsAsP2 || [])];
+  const uniqueMissions = allMissions.filter((m, index, self) =>
+    index === self.findIndex((t) => t.id === m.id)
+  );
 
   // Convert times to minutes for comparison
   const missionStart = timeToMinutes(startTime);
   const missionEnd = timeToMinutes(endTime);
 
   // Check for conflicts
-  for (const mission of (missions || [])) {
+  for (const mission of uniqueMissions) {
     // Skip the mission we're trying to assign (in case of update)
     if (excludeMissionId && mission.id === excludeMissionId) continue;
 
