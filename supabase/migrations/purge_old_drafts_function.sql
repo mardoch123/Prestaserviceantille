@@ -4,13 +4,23 @@
 -- Cette fonction supprime les documents en statut 'draft' créés il y a plus de 2 jours.
 -- Elle peut être appelée manuellement ou planifiée via pg_cron.
 --
--- Usage :
+-- Usage manuel :
 --   SELECT purge_old_drafts();
 --
--- Ou pour planifier automatiquement tous les jours à 3h du matin (heure Martinique) :
---   SELECT cron.schedule('purge-old-drafts', '0 3 * * *', 'America/Martinique', 'SELECT purge_old_drafts()');
+-- Planification automatique (tous les jours à 3h du matin) :
+--   SELECT cron.schedule('purge-old-drafts', '0 3 * * *', 'SELECT purge_old_drafts()');
+--
+-- Vérifier les jobs planifiés :
+--   SELECT * FROM cron.job;
+--
+-- Supprimer le job planifié :
+--   SELECT cron.unschedule('purge-old-drafts');
 -- ============================================================
 
+-- 1. Activer pg_cron si disponible (Supabase self-hosted)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- 2. Fonction de purge
 CREATE OR REPLACE FUNCTION purge_old_drafts()
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -38,3 +48,18 @@ $$;
 
 -- Commentaire pour documentation
 COMMENT ON FUNCTION purge_old_drafts() IS 'Supprime les devis/factures en statut draft créés il y a plus de 2 jours';
+
+-- 3. Planification automatique : tous les jours à 3h du matin
+-- Supprime d'abord l'ancien job s'il existe pour éviter les doublons
+DO $$
+BEGIN
+    -- Tenter de supprimer un job existant (ignore si n'existe pas)
+    BEGIN
+        PERFORM cron.unschedule('purge-old-drafts');
+    EXCEPTION WHEN OTHERS THEN
+        NULL; -- Job n'existait pas, on continue
+    END;
+
+    -- Créer le job planifié
+    PERFORM cron.schedule('purge-old-drafts', '0 3 * * *', 'SELECT purge_old_drafts()');
+END $$;
