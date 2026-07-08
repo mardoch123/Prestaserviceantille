@@ -582,13 +582,9 @@ const DevisFactures: React.FC = () => {
         setShowCloseConfirm(false);
     };
 
-    // Demande de confirmation avant fermeture du modal
+    // Demande TOUJOURS une confirmation avant fermeture du modal devis
     const requestCloseModal = () => {
-        if (isDraftDirty) {
-            setShowCloseConfirm(true);
-        } else {
-            closeModal();
-        }
+        setShowCloseConfirm(true);
     };
 
     const confirmCloseModal = () => {
@@ -4489,9 +4485,9 @@ const DevisFactures: React.FC = () => {
                             <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-4">
                                 <AlertTriangle className="w-6 h-6" />
                             </div>
-                            <h3 className="text-lg font-bold text-slate-800 mb-2">Fermer sans enregistrer ?</h3>
+                            <h3 className="text-lg font-bold text-slate-800 mb-2">Fermer le devis ?</h3>
                             <p className="text-sm text-slate-600 mb-6">
-                                Vous avez des modifications en cours. Voulez-vous vraiment fermer ? Les modifications seront perdues.
+                                Êtes-vous sûr de vouloir fermer ? Si le devis n'est pas envoyé, il sera perdu.
                             </p>
                             <div className="flex gap-3 w-full">
                                 <button
