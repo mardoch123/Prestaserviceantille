@@ -370,6 +370,7 @@ const DevisFactures: React.FC = () => {
     const [localDraftId, setLocalDraftId] = useState<string | null>(null);
     const [isDraftBlocked, setIsDraftBlocked] = useState(false);
     const [isDraftDirty, setIsDraftDirty] = useState(false);
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
     const autosaveTimeoutRef = useRef<number | null>(null);
 
     const generateUUID = () => {
@@ -578,6 +579,21 @@ const DevisFactures: React.FC = () => {
         setLocalDraftId(null);
         setIsDraftBlocked(false);
         setIsDraftDirty(false);
+        setShowCloseConfirm(false);
+    };
+
+    // Demande de confirmation avant fermeture du modal
+    const requestCloseModal = () => {
+        if (isDraftDirty) {
+            setShowCloseConfirm(true);
+        } else {
+            closeModal();
+        }
+    };
+
+    const confirmCloseModal = () => {
+        setShowCloseConfirm(false);
+        closeModal();
     };
 
     const openDuplicateModal = (doc: any) => {
@@ -2505,8 +2521,25 @@ const DevisFactures: React.FC = () => {
             docs = docs.filter(doc => doc.clientName.toLowerCase().includes(query) || doc.ref.toLowerCase().includes(query));
         }
         
-        // Tri par ordre de création (date)
+        // Tri prioritaire : devis envoyés > signés > autres > brouillons
+        // Puis par date à l'intérieur de chaque groupe
+        const STATUS_PRIORITY: Record<string, number> = {
+            'sent': 0,      // Devis envoyés en premier
+            'signed': 1,    // Devis signés ensuite
+            'validated': 2,
+            'converted': 3,
+            'pending': 4,
+            'paid': 5,
+            'expired': 6,
+            'rejected': 7,
+            'draft': 8,     // Brouillons en dernier
+        };
+
         docs.sort((a, b) => {
+            const priorityA = STATUS_PRIORITY[String(a.status || '').toLowerCase()] ?? 5;
+            const priorityB = STATUS_PRIORITY[String(b.status || '').toLowerCase()] ?? 5;
+            if (priorityA !== priorityB) return priorityA - priorityB;
+            // À priorité égale, tri par date
             const dateA = new Date(a.date).getTime();
             const dateB = new Date(b.date).getTime();
             return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
@@ -3510,11 +3543,11 @@ const DevisFactures: React.FC = () => {
             </div>
 
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) requestCloseModal(); }} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); requestCloseModal(); } }}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50 rounded-t-2xl sticky top-0 z-10">
                             <div><h3 className="text-2xl font-serif font-bold text-slate-800">{modalMode === 'devis' ? 'Édition de Devis' : 'Édition de Facture'}</h3><p className="text-xs text-slate-500 mt-1">Infos obligatoires <span className="text-red-500">*</span></p></div>
-                            <button onClick={() => closeModal()} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-6 h-6 text-slate-500" /></button>
+                            <button onClick={requestCloseModal} className="p-2 hover:bg-slate-200 rounded-full transition" title="Fermer (confirmation requise si des modifications sont en cours)"><X className="w-6 h-6 text-slate-500" /></button>
                         </div>
                         <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8" onBlurCapture={() => scheduleDraftAutosave()}>
                             <div className="lg:col-span-7 space-y-8">
@@ -4443,6 +4476,37 @@ const DevisFactures: React.FC = () => {
                                     ))}
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation de fermeture du modal devis */}
+            {showCloseConfirm && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-4">
+                                <AlertTriangle className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-2">Fermer sans enregistrer ?</h3>
+                            <p className="text-sm text-slate-600 mb-6">
+                                Vous avez des modifications en cours. Voulez-vous vraiment fermer ? Les modifications seront perdues.
+                            </p>
+                            <div className="flex gap-3 w-full">
+                                <button
+                                    onClick={() => setShowCloseConfirm(false)}
+                                    className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm"
+                                >
+                                    Continuer l'édition
+                                </button>
+                                <button
+                                    onClick={confirmCloseModal}
+                                    className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition text-sm"
+                                >
+                                    Fermer quand même
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -784,6 +784,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const hasLoadedOnceRef = useRef(false);
 
+    // Délai de grâce avant de considérer l'app comme offline (évite les coupures brefes)
+    const offlineGracePeriodRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const OFFLINE_GRACE_MS = 8000; // 8 secondes avant de passer en mode offline
+
     const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
     // Session management pour éviter la déconnexion pendant lecture
@@ -1426,16 +1430,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 return;
             }
 
-            const handleOnline = () => setIsOnline(true);
+            const handleOnline = () => {
+                // Annuler le timer offline si le réseau revient dans le délai de grâce
+                if (offlineGracePeriodRef.current) {
+                    clearTimeout(offlineGracePeriodRef.current);
+                    offlineGracePeriodRef.current = null;
+                }
+                setIsOnline(true);
+            };
             const handleOffline = () => {
-                void (async () => {
+                // Ne passer offline qu'après un délai de grâce (évite les micro-coupures)
+                if (offlineGracePeriodRef.current) {
+                    clearTimeout(offlineGracePeriodRef.current);
+                }
+                offlineGracePeriodRef.current = setTimeout(async () => {
+                    offlineGracePeriodRef.current = null;
                     try {
                         const online = await getCurrentOnlineStatus();
                         if (!removed) setIsOnline(online);
                     } catch {
                         if (!removed) setIsOnline(false);
                     }
-                })();
+                }, OFFLINE_GRACE_MS);
             };
             window.addEventListener('online', handleOnline);
             window.addEventListener('offline', handleOffline);
@@ -1452,6 +1468,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         return () => {
             removed = true;
+            if (offlineGracePeriodRef.current) {
+                clearTimeout(offlineGracePeriodRef.current);
+                offlineGracePeriodRef.current = null;
+            }
             if (networkListener) {
                 networkListener.remove();
             }
@@ -1755,7 +1775,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (cachedMessages) setMessages(cachedMessages);
                     if (cachedContactForms) setContactForms(cachedContactForms);
 
-                    return !!(cachedClients || cachedProviders || cachedMissions);
+                    return !!(cachedClients || cachedProviders || cachedMissions || cachedDocuments || cachedPacks);
                 };
 
                 // Charger depuis le cache immédiatement (ne bloque pas le thread)
@@ -2235,15 +2255,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const clientSelect = '*';
                 const reminderSelect = '*';
 
-                const [cData, pData, mData, rData] = await Promise.all([
+                // Lot 1 (PRIORITAIRE) : clients, providers, missions, reminders, documents (devis), packs
+                // Ces données sont essentielles pour créer des devis immédiatement
+                const [cData, pData, mData, rData, dData, packData] = await Promise.all([
                     fetchTable('clients', clientSelect, 20000),
                     fetchTable('providers', providerSelect, 20000),
                     fetchMissionsWindow(25000, missionSelect),
-                    fetchTable('reminders', reminderSelect, 20000)
+                    fetchTable('reminders', reminderSelect, 20000),
+                    fetchTable('documents'),
+                    fetchTable('packs'),
                 ]);
 
                 if (cData) {
-                    setClients(mapClients(cData, null, null));
+                    setClients(mapClients(cData, packData || null, null));
                     dataCache.set('clients', cData); // Sauvegarder dans le cache
                 }
                 if (pData) {
@@ -2266,22 +2290,76 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         notifyEmail: r.notify_email || r.notifyEmail
                     })));
                 }
+                // Documents (devis) - chargés en priorité
+                if (dData) {
+                    const mappedDocs = dData.map((d: any) => {
+                        let expirationDate: string | null = null;
+                        if (d.created_at) {
+                            const createdAtMs = new Date(d.created_at).getTime();
+                            if (Number.isFinite(createdAtMs)) {
+                                expirationDate = new Date(createdAtMs + 48 * 60 * 60 * 1000).toISOString();
+                            }
+                        }
+                        return {
+                            ...d,
+                            clientId: d.client_id || d.clientId,
+                            clientName: d.client_name || d.clientName,
+                            unitPrice: d.unit_price || d.unitPrice,
+                            tvaRate: d.tva_rate || d.tvaRate,
+                            totalHT: d.total_ht || d.totalHT,
+                            totalTTC: d.total_ttc || d.totalTTC,
+                            taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
+                            slotsData: d.slots_data || d.slotsData,
+                            reminderSent: d.reminder_sent || d.reminderSent,
+                            signatureData: d.signature_data || d.signatureData,
+                            signatureDate: d.signature_date || d.signatureDate,
+                            recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
+                            frequency: d.frequency,
+                            packId: d.pack_id || d.packId,
+                            serviceType: d.service_type || d.serviceType,
+                            expirationDate,
+                        };
+                    });
+                    setDocuments(mappedDocs);
+                    dataCache.set('documents', mappedDocs);
+                }
+                // Packs - chargés en priorité
+                if (packData) {
+                    setPacks(packData.map((p: any) => {
+                        const desc = p.description || '';
+                        const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
+                        const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
+                        return {
+                            ...p,
+                            mainService: p.main_service || p.mainService,
+                            priceTTC: p.price_ttc || p.priceTTC,
+                            priceHT: p.price_ht || p.priceHT,
+                            priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
+                            suppliesIncluded: p.supplies_included || p.suppliesIncluded,
+                            suppliesDetails: p.supplies_details || p.suppliesDetails,
+                            isSap: p.is_sap || p.isSap,
+                            contractType: p.contract_type || p.contractType,
+                            quantity: p.quantity || '',
+                            location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
+                            frequency: freq
+                        };
+                    }));
+                    dataCache.set('packs', packData);
+                }
 
                 void (async () => {
                     // Requêtes secondaires en 2 lots pour éviter ERR_CONNECTION_RESET
                     // (limite navigateur : 6 connexions simultanées par domaine en HTTP/1.1)
-                    // Lot 1 : documents, packs, contracts + données secondaires
-                    const [leadsData, dData, packData, ctData, msgData, notifData, cfData, settingsRaw] = await Promise.all([
+                    // Lot 2 : contracts, messages, notifications, formulaires, settings, leads
+                    const [leadsData, ctData, msgData, notifData, cfData, settingsRaw] = await Promise.all([
                         fetchTable('client_leads'),
-                        fetchTable('documents'),
-                        fetchTable('packs'),
                         fetchTable('contracts'),
                         fetchTable('messages'),
                         fetchTable('notifications'),
                         fetchTable('contact_forms'),
                         fetchTable('company_settings', '*', 15000),
                     ]);
-                    // Lot 2 : scans, vidéos, congés, contrats génériques, changements
+                    // Lot 3 : scans, vidéos, congés, contrats génériques, changements
                     const [vsData, vrData, leavesData, gcData, mcrData, eData] = await Promise.all([
                         fetchTable('visit_scans'),
                         fetchTable('video_recordings'),
@@ -2292,11 +2370,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     ]);
                     const settingsData = settingsRaw?.[0] || null;
 
-                    // Re-map clients with pack/contract data; retry if initial fetch failed
+                    // Re-map clients with contract data if available
                     if (!cData) {
                         const retryClients = await fetchTable('clients', clientSelect, 20000);
                         if (retryClients) setClients(mapClients(retryClients, packData || null, ctData || null));
-                    } else if (packData || ctData) {
+                    } else if (ctData) {
                         setClients(mapClients(cData, packData || null, ctData || null));
                     }
 
@@ -2324,63 +2402,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         setClientLeads([]);
                     }
 
-                    if (dData) {
-                        const mappedDocs = dData.map((d: any) => {
-                            // Calculer la date d'expiration (created_at + 48h) pour les devis
-                            // Cohérent avec PublicAvailabilityPage.tsx et getProvisionalMissionsFromDocuments
-                            let expirationDate: string | null = null;
-                            if (d.created_at) {
-                                const createdAtMs = new Date(d.created_at).getTime();
-                                if (Number.isFinite(createdAtMs)) {
-                                    expirationDate = new Date(createdAtMs + 48 * 60 * 60 * 1000).toISOString();
-                                }
-                            }
-                            return {
-                                ...d,
-                                clientId: d.client_id || d.clientId,
-                                clientName: d.client_name || d.clientName,
-                                unitPrice: d.unit_price || d.unitPrice,
-                                tvaRate: d.tva_rate || d.tvaRate,
-                                totalHT: d.total_ht || d.totalHT,
-                                totalTTC: d.total_ttc || d.totalTTC,
-                                taxCreditEnabled: d.tax_credit_enabled || d.taxCreditEnabled,
-                                slotsData: d.slots_data || d.slotsData,
-                                reminderSent: d.reminder_sent || d.reminderSent,
-                                signatureData: d.signature_data || d.signatureData,
-                                signatureDate: d.signature_date || d.signatureDate,
-                                recurrenceEndDate: d.recurrence_end_date || d.recurrenceEndDate,
-                                frequency: d.frequency,
-                                packId: d.pack_id || d.packId,
-                                serviceType: d.service_type || d.serviceType,
-                                expirationDate,
-                            };
-                        });
-                        setDocuments(mappedDocs);
-                        dataCache.set('documents', mappedDocs); // Sauvegarder dans le cache les données mappées
-                    }
-                    if (packData) {
-                        setPacks(packData.map((p: any) => {
-                            const desc = p.description || '';
-                            const locationMatch = desc.match(/Lieu: (.*?)(\||$)/);
-                            const freq = p.frequency ? capitalize(p.frequency) : 'Ponctuelle';
+                    // Documents et Packs déjà chargés dans le lot 1 - pas de traitement dupliqué
 
-                            return {
-                                ...p,
-                                mainService: p.main_service || p.mainService,
-                                priceTTC: p.price_ttc || p.priceTTC,
-                                priceHT: p.price_ht || p.priceHT,
-                                priceTaxCredit: p.price_tax_credit || p.priceTaxCredit,
-                                suppliesIncluded: p.supplies_included || p.suppliesIncluded,
-                                suppliesDetails: p.supplies_details || p.suppliesDetails,
-                                isSap: p.is_sap || p.isSap,
-                                contractType: p.contract_type || p.contractType,
-                                quantity: p.quantity || '',
-                                location: locationMatch ? locationMatch[1].trim() : (p.location || ''),
-                                frequency: freq
-                            };
-                        }));
-                        dataCache.set('packs', packData);
-                    }
                 if (ctData) {
                     setContracts(ctData.map((c: any) => ({
                         ...c,
@@ -2548,6 +2571,37 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         apiKey: settingsData.message_api_key,
                         baseUrl: settingsData.message_base_url
                     });
+                }
+
+                // --- PURGE AUTOMATIQUE DES BROUILLONS DE PLUS DE 2 JOURS ---
+                // Exécutée en tout dernier pour ne jamais bloquer le chargement des données
+                try {
+                    const twoDaysAgo = dayjs().tz(MARTINIQUE_TIMEZONE).subtract(2, 'day').toISOString();
+                    const currentDocs = dataCache.get<any[]>('documents') || [];
+                    const oldDrafts = currentDocs.filter((d: any) => {
+                        const status = String(d.status || '').toLowerCase();
+                        if (status !== 'draft') return false;
+                        const createdAt = d.created_at || d.date;
+                        if (!createdAt) return false;
+                        return new Date(createdAt).getTime() < new Date(twoDaysAgo).getTime();
+                    });
+                    if (oldDrafts.length > 0) {
+                        const oldDraftIds = oldDrafts.map((d: any) => String(d.id));
+                        console.log(`[PurgeDrafts] Suppression de ${oldDraftIds.length} brouillon(s) de plus de 2 jours`);
+                        const { error } = await supabase
+                            .from('documents')
+                            .delete()
+                            .in('id', oldDraftIds);
+                        if (!error) {
+                            setDocuments(prev => prev.filter(d => !oldDraftIds.includes(String(d.id))));
+                            const remaining = currentDocs.filter((d: any) => !oldDraftIds.includes(String(d.id)));
+                            dataCache.set('documents', remaining);
+                        } else {
+                            console.warn('[PurgeDrafts] Erreur suppression:', error.message);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[PurgeDrafts] Erreur non critique:', err);
                 }
 
                 })();

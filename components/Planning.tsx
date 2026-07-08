@@ -2167,6 +2167,10 @@ const Planning: React.FC = () => {
           ? dayjs.tz(mission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY')
           : '—';
 
+      const fullAddress = client?.address
+          ? `${client.address}${client.city ? ', ' + client.city : ''}`
+          : (client?.city || '—');
+
       const info = [
           `Mission: ${mission.service || '—'}`,
           `Date: ${formattedDate}`,
@@ -2174,7 +2178,7 @@ const Planning: React.FC = () => {
           `Durée: ${mission.duration ? `${mission.duration}h` : '—'}`,
           `Client: ${client?.name || mission.clientName || '—'}`,
           `Téléphone client: ${client?.phone || '—'}`,
-          `Adresse: ${client?.address || '—'}`,
+          `Adresse: ${fullAddress}`,
           `Prestataire: ${mission.providerName || 'À assigner'}`,
           `Devis source: ${mission.sourceDocumentId || '—'}`
       ].join('\n');

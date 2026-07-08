@@ -689,7 +689,11 @@ const AppLayout: React.FC = () => {
         return <PublicAvailabilityPage />;
     }
 
-    if (!isOnline) {
+    // NE JAMAIS démonter l'application quand le réseau chute brièvement.
+    // Si l'utilisateur est déjà connecté avec des données en cache, on continue
+    // normalement avec le bandeau OfflineBanner non-bloquant.
+    // On ne montre l'écran offline complet que si pas de session et pas de cache.
+    if (!isOnline && !currentUser && !loading) {
         return <OfflineScreen />;
     }
 
