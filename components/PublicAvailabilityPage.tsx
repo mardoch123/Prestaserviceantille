@@ -121,6 +121,20 @@ const PublicAvailabilityPage: React.FC = () => {
   const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Vérifier si un admin est connecté
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsAdmin(!!session);
+    };
+    checkSession();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAdmin(!!session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const fetchData = useCallback(async (startDate: string, endDate: string) => {
     setLoading(true);
@@ -503,7 +517,7 @@ const PublicAvailabilityPage: React.FC = () => {
         {!loading && viewMode === 'week' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
             {weekDays.map((day) => (
-              <DayCard key={day.date} day={day} providers={providers} />
+              <DayCard key={day.date} day={day} providers={providers} isAdmin={isAdmin} />
             ))}
           </div>
         )}
@@ -622,7 +636,7 @@ const PublicAvailabilityPage: React.FC = () => {
 
 // ── Day Card sub-component ──
 
-const DayCard: React.FC<{ day: DayAvailability; providers?: any[] }> = ({ day, providers = [] }) => {
+const DayCard: React.FC<{ day: DayAvailability; providers?: any[]; isAdmin?: boolean }> = ({ day, providers = [], isAdmin = false }) => {
   const [showModal, setShowModal] = useState(false);
   const hasServices = day.availableServices.length > 0 && !day.isPast;
   const totalSlots = day.availableServices.reduce((s, svc) => s + svc.groupedSlots.length, 0);
@@ -768,8 +782,8 @@ const DayCard: React.FC<{ day: DayAvailability; providers?: any[] }> = ({ day, p
                                 );
                               })}
                             </div>
-                            {/* Afficher les noms des prestataires pour la durée max */}
-                            {(() => {
+                            {/* Afficher les noms des prestataires uniquement si admin connecté */}
+                            {isAdmin && (() => {
                               const maxDur = durationHours.find(d => (slot.providersByDuration[d]?.count || 0) > 0);
                               if (maxDur) {
                                 const info = slot.providersByDuration[maxDur];
