@@ -17,6 +17,13 @@ import { SignedQuotePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { toast } from './mobile/Toast';
 
+// Helper safe pour convertir toute valeur en nombre fini (jamais undefined/NaN)
+const safeNum = (v: any): number => {
+    if (v === null || v === undefined) return 0;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : 0;
+};
+
 // Hook pour détecter si l'écran est mobile
 const useIsMobile = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -701,7 +708,12 @@ const DevisFactures: React.FC = () => {
         setTaxCreditActive(!!draft.form.taxCreditActive);
         setInterventionSlots(Array.isArray(draft.form.interventionSlots) ? draft.form.interventionSlots : []);
         setPackSpecificConfig(draft.form.packSpecificConfig || {});
-        setCustomLines(Array.isArray(draft.form.customLines) ? draft.form.customLines : []);
+        setCustomLines(Array.isArray(draft.form.customLines) ? draft.form.customLines.map((cl: any) => ({
+                        id: cl.id || `custom-${Math.random()}`,
+                        description: cl.description || '',
+                        unitPrice: safeNum(cl.unitPrice),
+                        quantity: safeNum(cl.quantity) || 1
+                    })) : []);
         setPrefilledRef(String(draft.ref || ''));
     };
 
@@ -734,7 +746,7 @@ const DevisFactures: React.FC = () => {
 
     // Calculer le total des lignes personnalisées
     const calculateCustomTotal = () => {
-        return customLines.reduce((total, line) => total + (line.unitPrice * line.quantity), 0);
+        return customLines.reduce((total, line) => total + (safeNum(line.unitPrice) * safeNum(line.quantity)), 0);
     };
 
     const isPackUltime6Name = (name: any): boolean => {
@@ -1533,7 +1545,7 @@ const DevisFactures: React.FC = () => {
 
         const isUltime6 = isPackUltime6Name(pack?.name);
 
-        const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+        const totalHours = interventionSlots.reduce((acc, s) => acc + safeNum(s.duration), 0);
         const sessionCount = interventionSlots.length;
 
         // Calculer le nombre total d'heures requis pour ce pack
@@ -1543,7 +1555,7 @@ const DevisFactures: React.FC = () => {
         if (Math.abs(totalHours - requiredTotalHours) > 0.01) {
             return {
                 isValid: false,
-                message: `Le pack "${pack.name}" requiert exactement ${requiredTotalHours}h. Vous avez planifié ${totalHours.toFixed(1)}h (${sessionCount} séance(s)).`
+                message: `Le pack "${pack.name}" requiert exactement ${requiredTotalHours}h. Vous avez planifié ${safeNum(totalHours).toFixed(1)}h (${sessionCount} séance(s)).`
             };
         }
 
@@ -2069,7 +2081,7 @@ const DevisFactures: React.FC = () => {
 
             // Determine description suffix based on slots if custom
             let finalDescription = customDescription;
-            const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+            const totalHours = interventionSlots.reduce((acc, s) => acc + safeNum(s.duration), 0);
             
             if (serviceType === 'custom') {
                 // Pour les devis personnalisés, la description doit être l'ensemble des désignations des lignes personnalisées
@@ -2934,7 +2946,7 @@ const DevisFactures: React.FC = () => {
                                     {/* Montant et statut */}
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <div className="text-lg font-bold text-slate-900">{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</div>
+                                            <div className="text-lg font-bold text-slate-900">{safeNum(doc.totalTTC).toFixed(2)} €</div>
                                         </div>
                                         <div className="text-center">
                                             <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -3347,7 +3359,7 @@ const DevisFactures: React.FC = () => {
                                                 return <span className="text-slate-400 text-xs font-medium italic">Personnalisé</span>;
                                             })()}
                                         </td>
-                                        <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{doc.totalTTC ? doc.totalTTC.toFixed(2) : '0.00'} €</td>
+                                        <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{safeNum(doc.totalTTC).toFixed(2)} €</td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                                                 <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -3678,7 +3690,7 @@ const DevisFactures: React.FC = () => {
                                                                     />
                                                                     <div className="col-span-1 flex items-center justify-end">
                                                                         <span className="text-sm font-bold text-slate-800">
-                                                                            {(line.unitPrice * line.quantity).toFixed(2)}€
+                                                                            {(safeNum(line.unitPrice) * safeNum(line.quantity)).toFixed(2)}€
                                                                         </span>
                                                                     </div>
                                                                 </div>
@@ -3692,7 +3704,7 @@ const DevisFactures: React.FC = () => {
                                             {customLines.length > 0 && (
                                                 <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
                                                     <span className="text-sm font-bold text-blue-700">Total TTC</span>
-                                                    <span className="font-mono font-bold text-blue-800">{calculateCustomTotal().toFixed(2)} €</span>
+                                                    <span className="font-mono font-bold text-blue-800">{safeNum(calculateCustomTotal()).toFixed(2)} €</span>
                                                 </div>
                                             )}
                                         </div>
@@ -3775,7 +3787,7 @@ const DevisFactures: React.FC = () => {
                                                                         </div>
                                                                     </div>
                                                                     <div className="text-xs text-slate-500">
-                                                                        Durée : {slot.duration.toFixed(1)}h
+                                                                        Durée : {safeNum(slot.duration).toFixed(1)}h
                                                                     </div>
 
                                                                     <div className="flex items-center justify-between">
@@ -4059,23 +4071,23 @@ const DevisFactures: React.FC = () => {
                                                 customLines.map((line, index) => (
                                                     <tr key={line.id}>
                                                         <td className="py-3 text-slate-700 font-medium">{line.description || `Ligne ${index + 1}`}</td>
-                                                        <td className="py-3 text-center text-slate-500">{line.unitPrice.toFixed(2)}€</td>
-                                                        <td className="py-3 text-right text-slate-800 font-bold">{(line.unitPrice * line.quantity).toFixed(2)} €</td>
+                                                        <td className="py-3 text-center text-slate-500">{safeNum(line.unitPrice).toFixed(2)}€</td>
+                                                        <td className="py-3 text-right text-slate-800 font-bold">{(safeNum(line.unitPrice) * safeNum(line.quantity)).toFixed(2)} €</td>
                                                     </tr>
                                                 ))
                                             ) : (
                                                 // Afficher le pack
                                                 <tr>
                                                     <td className="py-3 text-slate-700 font-medium">{customDescription || "Pack..."}</td>
-                                                    <td className="py-3 text-center text-slate-500">{unitPrice.toFixed(2)}€</td>
-                                                    <td className="py-3 text-right text-slate-800 font-bold">{totalHT.toFixed(2)} €</td>
+                                                    <td className="py-3 text-center text-slate-500">{safeNum(unitPrice).toFixed(2)}€</td>
+                                                    <td className="py-3 text-right text-slate-800 font-bold">{safeNum(totalHT).toFixed(2)} €</td>
                                                 </tr>
                                             )}
                                         </tbody>
                                     </table>
 
                                     <div className="space-y-2 pt-2 border-t border-slate-100 text-slate-600">
-                                        <div className="flex justify-between"><span>Total HT : </span><span>{serviceType === 'custom' ? calculateCustomTotal().toFixed(2) : totalHT.toFixed(2)} €</span></div>
+                                        <div className="flex justify-between"><span>Total HT : </span><span>{serviceType === 'custom' ? safeNum(calculateCustomTotal()).toFixed(2) : safeNum(totalHT).toFixed(2)} €</span></div>
                                         <div className="flex justify-between items-center">
                                             <span>TVA : </span>
                                             <select
@@ -4091,9 +4103,9 @@ const DevisFactures: React.FC = () => {
                                                 <option value={8.5}>8.5% (Professionnel)</option>
                                             </select>
                                         </div>
-                                        <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA : </span><span>{((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (tvaRate / 100)).toFixed(2)} €</span></div>
+                                        <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA : </span><span>{safeNum((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (tvaRate / 100)).toFixed(2)} €</span></div>
                                     </div>
-                                    <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total HT : </span><span>{((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (1 + tvaRate / 100)).toFixed(2)} €</span></div>
+                                    <div className="flex justify-between font-bold text-lg text-slate-800 pt-4 border-t border-slate-100 mt-2"><span>Total TTC : </span><span>{safeNum((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (1 + tvaRate / 100)).toFixed(2)} €</span></div>
                                 </div>
 
                                 {/* TAX CREDIT SECTION */}
@@ -4123,11 +4135,11 @@ const DevisFactures: React.FC = () => {
                                             <div className="pt-2 border-t border-dashed border-slate-200 space-y-1">
                                                 <div className="flex justify-between font-bold text-brand-blue text-sm pt-1">
                                                     <span>Reste à charge client : </span>
-                                                    <span>{clientToPay.toFixed(2)} €</span>
+                                                    <span>{safeNum(clientToPay).toFixed(2)} €</span>
                                                 </div>
                                                 <div className="flex justify-between text-green-600 text-xs">
                                                     <span>Montant URSSAF (Avance immédiate) : </span>
-                                                    <span className="font-bold">{taxCreditAmount.toFixed(2)} €</span>
+                                                    <span className="font-bold">{safeNum(taxCreditAmount).toFixed(2)} €</span>
                                                 </div>
                                             </div>
                                         </div>
