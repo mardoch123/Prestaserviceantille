@@ -138,6 +138,9 @@ const ClientPortal: React.FC = () => {
     const activeClientId = simulatedClientId || (currentUser?.role === 'client' ? currentUser.relatedEntityId : null);
     const client = clients.find(c => String((c as any).id || '') === String(activeClientId || ''));
 
+    // Vérifier si l'utilisateur est admin (pour afficher les noms des prestataires)
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+
     const profileLoadTimeoutRef = useRef<number | null>(null);
 
     // Get client's video recordings for replay
@@ -3912,9 +3915,13 @@ interface ClientAvailabilityTabProps {
 }
 
 const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, providers, client, addDocument, signQuoteWithData, addNotification }) => {
+  const { currentUser } = useData();
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+
+  // Vérifier si l'utilisateur est admin (pour afficher les noms des prestataires)
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   // Booking states
   const [bookingSlot, setBookingSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
@@ -4674,7 +4681,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                                         >
                                           Pack {dur}h {count > 0 && <span className="text-[10px] opacity-70">({count})</span>}
                                         </span>
-                                        {count > 0 && providerNames.length > 0 && (
+                                        {isAdmin && count > 0 && providerNames.length > 0 && (
                                           <div className="text-[10px] text-slate-500 mt-0.5 pl-1">
                                             {providerNames.join(', ')}
                                           </div>
@@ -5010,7 +5017,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                                   </span>
                                 )}
                               </div>
-                              {freeCount > 0 && (
+                              {isAdmin && freeCount > 0 && (
                                 <div className="text-[11px] text-emerald-600 pl-6">
                                   {freeProviderNames.join(', ')}
                                 </div>
