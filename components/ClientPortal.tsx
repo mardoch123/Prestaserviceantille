@@ -4969,6 +4969,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                           for (const p of activeProvs) {
                             const pid = String(p.id);
                             if (seenIds.has(pid)) continue;
+                            // Filtrer strictement par spécialité Ménage
+                            if (!isMenageSpecialty(p.specialty || '')) continue;
                             if (isProviderOnLeave(p, dateStr)) continue;
                             let wh = getProviderWorkingHours(p, dayOfWeek);
                             if (wh.length === 0) continue;
