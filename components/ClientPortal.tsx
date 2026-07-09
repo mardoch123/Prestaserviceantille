@@ -4189,6 +4189,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   // Couleurs par type de service — seul Ménage
   const SERVICE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
     'Ménage':    { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-700',    dot: 'bg-blue-500' },
+    'Autre':     { bg: 'bg-slate-50',   border: 'border-slate-200',  text: 'text-slate-700',   dot: 'bg-slate-500' },
   };
 
   // Count providers available for a service type on a date (logique centralisée)
