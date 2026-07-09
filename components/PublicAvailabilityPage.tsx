@@ -14,6 +14,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
+import { useData } from '../context/DataContext';
 import {
   computeAvailabilitySlots,
   groupSlotsByTime,
@@ -115,26 +116,16 @@ const getProviderNamesFromIds = (ids: string[], providersList: any[]): string[] 
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const PublicAvailabilityPage: React.FC = () => {
+  const { currentUser } = useData();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [anchorDate, setAnchorDate] = useState<Date>(getToday());
   const [missions, setMissions] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
 
-  // Vérifier si un admin est connecté
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setIsAdmin(!!session);
-    };
-    checkSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAdmin(!!session);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  // Vérifier si un admin est connecté via le DataContext
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   const fetchData = useCallback(async (startDate: string, endDate: string) => {
     setLoading(true);
