@@ -782,8 +782,8 @@ const DayCard: React.FC<{ day: DayAvailability; providers?: any[]; isAdmin?: boo
                                 );
                               })}
                             </div>
-                            {/* Afficher TOUJOURS les noms des prestataires libres */}
-                            {(() => {
+                            {/* Afficher les noms des prestataires uniquement si admin connecté */}
+                            {isAdmin && (() => {
                               const maxDur = durationHours.find(d => (slot.providersByDuration[d]?.count || 0) > 0);
                               if (maxDur) {
                                 const info = slot.providersByDuration[maxDur];
