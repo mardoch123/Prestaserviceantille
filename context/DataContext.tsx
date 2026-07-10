@@ -190,7 +190,8 @@ interface DataContextType {
     addProvider: (provider: CreateProviderDTO) => Promise<string | null>; // Returns generated password
     updateProvider: (id: string, data: Partial<Provider>) => Promise<void>;
     deleteProviders: (ids: string[]) => Promise<void>;
-    addLeave: (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => Promise<void>;
+    addLeave: (providerId: string, start: string, end: string, startTime?: string, endTime?: string, status?: 'pending' | 'approved') => Promise<void>;
+    deleteLeave: (leaveId: string, providerId: string) => Promise<void>;
     updateLeaveStatus: (leaveId: string, providerId: string, status: 'approved' | 'rejected') => Promise<void>;
     resetProviderPassword: (id: string) => Promise<void>;
 
@@ -5710,7 +5711,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setProviders(prev => prev.filter(p => !ids.includes(p.id)));
     };
 
-    const addLeave = async (providerId: string, start: string, end: string, startTime?: string, endTime?: string) => {
+    const addLeave = async (providerId: string, start: string, end: string, startTime?: string, endTime?: string, leaveStatus: 'pending' | 'approved' = 'approved') => {
         if (isDemoMode) {
             demoBlocked();
             return;
@@ -5719,7 +5720,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             provider_id: providerId,
             start_date: start,
             end_date: end,
-            status: 'pending',
+            status: leaveStatus,
             start_time: startTime || '00:00:00',
             end_time: endTime || '23:59:59'
         };
@@ -5749,7 +5750,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }));
 
             const provider = providers.find(p => p.id === providerId);
-            await addNotification('admin', 'alert', 'Demande de Congés', `Nouvelle demande de ${provider?.firstName} ${provider?.lastName}.`, undefined, 'tab:absences');
+            await addNotification('admin', 'alert', 'Congés Déclarés', `${provider?.firstName} ${provider?.lastName} est en congé du ${start} au ${end}.`, undefined, 'tab:absences');
+        }
+    };
+
+    const deleteLeave = async (leaveId: string, providerId: string) => {
+        if (isDemoMode) {
+            demoBlocked();
+            return;
+        }
+        const { error } = await supabase.from('leaves').delete().eq('id', leaveId);
+        if (!error) {
+            setProviders(prev => prev.map(p => {
+                if (p.id === providerId) {
+                    return { ...p, leaves: (p.leaves || []).filter(l => l.id !== leaveId) };
+                }
+                return p;
+            }));
+        } else {
+            console.error('[DataContext] deleteLeave error:', error);
         }
     };
 
@@ -8233,7 +8252,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
  
              clients, clientLeads, addClient, updateClient, deleteClients, addLoyaltyHours, submitClientReview, resetClientPassword,
  
-             providers, addProvider, updateProvider, deleteProviders, addLeave, updateLeaveStatus, resetProviderPassword,
+             providers, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, updateLeaveStatus, resetProviderPassword,
  
              documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
  

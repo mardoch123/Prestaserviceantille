@@ -72,7 +72,7 @@ const getProviderCreatedAtMs = (p: any) => {
 };
 
 const Providers: React.FC = () => {
-  const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, resetProviderPassword, refreshData, dataLoading } = useData();
+  const { providers, missions, clients, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, resetProviderPassword, refreshData, dataLoading } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -466,11 +466,30 @@ const Providers: React.FC = () => {
   const handleLeaveSubmit = (e: React.FormEvent) => {
       e.preventDefault();
       if (selectedProviderId && leaveForm.startDate && leaveForm.endDate) {
-          addLeave(selectedProviderId, leaveForm.startDate, leaveForm.endDate);
+          addLeave(selectedProviderId, leaveForm.startDate, leaveForm.endDate, undefined, undefined, 'approved');
           setIsLeaveModalOpen(false);
-          showToast('Congés déclarés avec succès. Le planning sera mis à jour.');
+          showToast('Congés déclarés et pris en compte immédiatement dans les disponibilités.');
           setLeaveForm({ startDate: '', endDate: '' });
       }
+  };
+
+  const handleDeleteLeave = async (leaveId: string) => {
+      if (!selectedProviderId) return;
+      if (!window.confirm('Supprimer ce congé ? Les disponibilités seront recalculées.')) return;
+      await deleteLeave(leaveId, selectedProviderId);
+      showToast('Congé supprimé. Disponibilités réactivées.');
+  };
+
+  const setQuickRange = (weeks: number) => {
+      const today = new Date();
+      const startDate = leaveForm.startDate || today.toISOString().split('T')[0];
+      const start = new Date(startDate);
+      const end = new Date(start);
+      end.setDate(end.getDate() + (weeks * 7) - 1);
+      setLeaveForm({
+          startDate: startDate,
+          endDate: end.toISOString().split('T')[0]
+      });
   };
 
   const handleResetPassword = (id: string) => {
@@ -1789,29 +1808,84 @@ Lien de connexion : https://presta-antilles.app/login`);
            </div>
       )}
 
-      {isLeaveModalOpen && (
+      {isLeaveModalOpen && (() => {
+          const selectedProvider = providers.find(p => p.id === selectedProviderId);
+          const existingLeaves = (selectedProvider?.leaves || []).filter(l => l.status === 'approved' || !l.status);
+          return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-                <div className="p-6 border-b border-slate-100 bg-cream-50">
-                    <h3 className="text-xl font-serif font-bold text-slate-800">Déclarer Congés</h3>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[90vh]">
+                <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-orange-50 to-amber-50">
+                    <h3 className="text-lg font-serif font-bold text-slate-800">Congés — {selectedProvider?.firstName} {selectedProvider?.lastName}</h3>
+                    <p className="text-xs text-slate-500 mt-1">Les congés sont pris en compte immédiatement dans les pages de disponibilité.</p>
                 </div>
-                <form onSubmit={handleLeaveSubmit} className="p-6 space-y-4">
+                <div className="p-5 space-y-4 overflow-y-auto">
+                    {/* Sélection rapide */}
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Date Début</label>
-                        <input type="date" required className="w-full p-2 border rounded" value={leaveForm.startDate} onChange={e => setLeaveForm({...leaveForm, startDate: e.target.value})} />
+                        <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Durée rapide</label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {[{ label: '1 sem.', weeks: 1 }, { label: '2 sem.', weeks: 2 }, { label: '3 sem.', weeks: 3 }, { label: '1 mois', weeks: 4 }].map(opt => (
+                                <button
+                                    key={opt.weeks}
+                                    type="button"
+                                    onClick={() => setQuickRange(opt.weeks)}
+                                    className="px-2 py-2 text-xs font-bold rounded-lg border border-slate-200 bg-slate-50 hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors"
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Date Fin</label>
-                        <input type="date" required className="w-full p-2 border rounded" value={leaveForm.endDate} onChange={e => setLeaveForm({...leaveForm, endDate: e.target.value})} />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2">
-                         <button type="button" onClick={() => setIsLeaveModalOpen(false)} className="px-4 py-2 rounded text-slate-600 font-bold">Annuler</button>
-                         <button type="submit" className="px-4 py-2 rounded bg-brand-orange text-white font-bold">Valider</button>
-                    </div>
-                </form>
+
+                    {/* Dates manuelles */}
+                    <form onSubmit={handleLeaveSubmit} className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Date début</label>
+                                <input type="date" required className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:ring-1 focus:ring-brand-orange outline-none" value={leaveForm.startDate} onChange={e => setLeaveForm({...leaveForm, startDate: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Date fin</label>
+                                <input type="date" required className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:ring-1 focus:ring-brand-orange outline-none" value={leaveForm.endDate} onChange={e => setLeaveForm({...leaveForm, endDate: e.target.value})} />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                             <button type="button" onClick={() => setIsLeaveModalOpen(false)} className="px-4 py-2 rounded-lg text-slate-600 font-bold text-sm hover:bg-slate-100 transition">Annuler</button>
+                             <button type="submit" className="px-4 py-2 rounded-lg bg-brand-orange text-white font-bold text-sm hover:bg-orange-600 transition shadow-sm">Déclarer congés</button>
+                        </div>
+                    </form>
+
+                    {/* Liste des congés existants */}
+                    {existingLeaves.length > 0 && (
+                        <div className="pt-3 border-t border-slate-100">
+                            <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Congés en cours ({existingLeaves.length})</label>
+                            <div className="space-y-2">
+                                {existingLeaves.map((leave, idx) => (
+                                    <div key={leave.id || idx} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-orange-500">🏖️</span>
+                                            <div>
+                                                <span className="text-sm font-bold text-slate-700">{leave.startDate}</span>
+                                                <span className="text-sm text-slate-400"> → </span>
+                                                <span className="text-sm font-bold text-slate-700">{leave.endDate}</span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteLeave(leave.id)}
+                                            className="text-xs text-red-500 hover:text-red-700 font-bold px-2 py-1 rounded hover:bg-red-50 transition"
+                                        >
+                                            Supprimer
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
           </div>
-      )}
+          );
+      })()}
 
       {deleteConfirmOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
