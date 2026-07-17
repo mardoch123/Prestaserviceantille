@@ -4625,7 +4625,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             return (
                               <button
                                 key={i}
-                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setBookingStep('time'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); setExpandedDay(null); }}
+                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setCustomStartTime(slot.startTime); setCustomEndTime(slot.endTime); setBookingStep('pack'); setMultiSlots([]); setExpandedDay(null); }}
                                 className="w-full bg-white/80 rounded-lg p-2.5 border border-slate-100 hover:border-green-300 hover:bg-green-50 transition-all cursor-pointer text-left"
                               >
                                 <div className="flex items-center justify-between mb-2">
@@ -4914,7 +4914,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                       </div>
                       <p className="text-xs text-emerald-600">{formatDate(bookingSlot.date)}</p>
                     </div>
-                    <button onClick={() => setBookingStep('time')} className="text-xs text-emerald-600 hover:underline font-bold">
+                    <button onClick={() => { setBookingSlot(null); setCustomStartTime(''); setCustomEndTime(''); }} className="text-xs text-emerald-600 hover:underline font-bold">
                       Modifier
                     </button>
                   </div>
@@ -5002,7 +5002,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 {/* Navigation buttons */}
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setBookingStep('time')}
+                    onClick={() => { setBookingSlot(null); setCustomStartTime(''); setCustomEndTime(''); }}
                     className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
                   >
                     ← Retour
