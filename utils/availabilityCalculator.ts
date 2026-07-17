@@ -4,9 +4,9 @@
  * Règles métier :
  * - Créneaux fixes autorisés :
  *   • 6h : 09:00–15:00 ou 08:00–16:00
- *   • 4h : 09:00–13:00, 08:00–12:00, 12:00–16:00 ou 13:00–17:00
+ *   • 4h : 09:00–13:00, 08:00–12:00 ou 13:00–17:00
  *     (un prestataire ne peut pas avoir 2 créneaux de 4h le même jour)
- *   • 3h : 09:00–12:00, 08:00–11:00, 12:00–15:00 ou 13:00–16:00
+ *   • 3h : 09:00–12:00, 08:00–11:00, 13:00–16:00, 13:30–16:30 ou 14:00–17:00
  * - Temps de trajet : 30 min minimum entre deux prestations (TRAVEL_BUFFER_MIN)
  * - Respect strict des plages de travail (availabilityMode, availabilityHours,
  *   nonInterventionHours, nonInterventionDays)
@@ -84,13 +84,13 @@ export const ALLOWED_SLOTS: Array<{ duration: number; startTime: string; endTime
   // 4h
   { duration: 4, startTime: '09:00', endTime: '13:00' },
   { duration: 4, startTime: '08:00', endTime: '12:00' },
-  { duration: 4, startTime: '12:00', endTime: '16:00' },
   { duration: 4, startTime: '13:00', endTime: '17:00' },
   // 3h
   { duration: 3, startTime: '09:00', endTime: '12:00' },
   { duration: 3, startTime: '08:00', endTime: '11:00' },
-  { duration: 3, startTime: '12:00', endTime: '15:00' },
   { duration: 3, startTime: '13:00', endTime: '16:00' },
+  { duration: 3, startTime: '13:30', endTime: '16:30' },
+  { duration: 3, startTime: '14:00', endTime: '17:00' },
 ];
 
 /**
@@ -145,7 +145,7 @@ export function getProvisionalMissionsFromDocuments(documents: any[]): MissionLi
 /** Blocs fixes pour prestations longues (>= 3h) */
 export const FIXED_BLOCKS: Array<{ label: string; startTime: string; endTime: string }> = [
   { label: 'Matin',       startTime: '08:00', endTime: '12:00' },
-  { label: 'Après-midi',  startTime: '12:00', endTime: '16:00' },
+  { label: 'Après-midi',  startTime: '13:00', endTime: '17:00' },
 ];
 
 // ─── Helpers internes ───────────────────────────────────────────────────────

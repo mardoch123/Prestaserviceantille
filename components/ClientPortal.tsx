@@ -53,7 +53,7 @@ import {
     AlertTriangle,
     Bell,
     ArrowRight,
-    Camera,
+    
     Video,
     Play,
     Loader,
@@ -299,8 +299,6 @@ const ClientPortal: React.FC = () => {
     const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
     const [termsAccepted, setTermsAccepted] = useState(false);
 
-    // Lightbox State
-    const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
     // Review Form
     const [reviewRating, setReviewRating] = useState(5);
@@ -1465,20 +1463,6 @@ const ClientPortal: React.FC = () => {
     const selectedContract = getQuoteContract();
 
     // Helper to download all images
-    const handleDownloadAllImages = (urls: string[]) => {
-        showToast('Téléchargement des photos en cours...');
-        // Simple loop simulation for multiple downloads
-        urls.forEach((url, i) => {
-            setTimeout(() => {
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `Preuve_Mission_${i + 1}.jpg`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }, i * 300);
-        });
-    };
 
     return (
         <div className="h-full bg-gradient-to-br from-[#f0fdf4] via-[#ecfdf5] to-[#fefce8] flex flex-col font-sans relative overflow-hidden">
@@ -2380,25 +2364,6 @@ const ClientPortal: React.FC = () => {
                                                         );
                                                     })()}
 
-                                                    {/* Report Photos Preview */}
-                                                    {m.status === 'completed' && m.endPhotos && m.endPhotos.length > 0 && (
-                                                        <div className="mt-3">
-                                                            <p className="text-xs font-bold text-slate-600 mb-1 flex items-center gap-1"><Camera className="w-3 h-3" /> Photos de fin de chantier</p>
-                                                            <div className="flex gap-2 overflow-x-auto pb-2">
-                                                                {m.endPhotos.map((url, i) => (
-                                                                    <div key={i} className="w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:opacity-80 transition" onClick={() => setLightboxImage(url)}>
-                                                                        <img src={url} className="w-full h-full object-cover" alt="Preuve" />
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                            <button
-                                                                onClick={() => handleDownloadAllImages(m.endPhotos!)}
-                                                                className="text-xs text-brand-blue font-bold hover:underline flex items-center gap-1 mt-1"
-                                                            >
-                                                                <Download className="w-3 h-3" /> Télécharger toutes les photos
-                                                            </button>
-                                                        </div>
-                                                    )}
                                                 </div>
                                                 <div className="flex flex-col gap-2 items-end w-full md:w-auto">
                                                     {m.status === 'planned' && (
@@ -4298,6 +4263,19 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     return availablePacks.find(p => p.id === selectedPackId) || null;
   }, [availablePacks, selectedPackId]);
 
+  // Durée du créneau sélectionné (en heures)
+  const slotDuration = useMemo(() => {
+    if (!customStartTime || !customEndTime) return null;
+    const dur = (timeToMinutes(customEndTime) - timeToMinutes(customStartTime)) / 60;
+    return dur > 0 ? dur : null;
+  }, [customStartTime, customEndTime]);
+
+  // Packs filtrés par durée du créneau sélectionné
+  const filteredAvailablePacks = useMemo(() => {
+    if (!slotDuration) return availablePacks;
+    return availablePacks.filter(p => getPackHoursPerSession(p) <= slotDuration);
+  }, [availablePacks, slotDuration, getPackHoursPerSession]);
+
   // ─── Signature canvas helpers ───
   const clearCanvas = () => {
     const canvas = canvasRef.current;
@@ -4414,7 +4392,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       setBookingSlot(null);
       setSelectedPackId('');
       setMultiSlots([]);
-      setBookingStep('pack');
+      setBookingStep('time');
       setCustomStartTime('');
       setCustomEndTime('');
       setShowSignatureStep(true);
@@ -4647,7 +4625,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             return (
                               <button
                                 key={i}
-                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setBookingStep('pack'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); setExpandedDay(null); }}
+                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setBookingStep('time'); setCustomStartTime(''); setCustomEndTime(''); setMultiSlots([]); setExpandedDay(null); }}
                                 className="w-full bg-white/80 rounded-lg p-2.5 border border-slate-100 hover:border-green-300 hover:bg-green-50 transition-all cursor-pointer text-left"
                               >
                                 <div className="flex items-center justify-between mb-2">
@@ -4778,28 +4756,28 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
 
       {/* ─── Booking Modal (Step-by-step Wizard) ─── */}
       {bookingSlot && !showSignatureStep && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setBookingSlot(null); setBookingStep('pack'); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setBookingSlot(null); setBookingStep('time'); }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
 
             {/* ── Step indicator (fixed header) ── */}
             <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 pt-4 pb-3 text-white flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-lg font-bold">Réserver un créneau</h3>
-                <button onClick={() => { setBookingSlot(null); setBookingStep('pack'); }} className="p-2 hover:bg-white/20 rounded-full transition">
+                <button onClick={() => { setBookingSlot(null); setBookingStep('time'); }} className="p-2 hover:bg-white/20 rounded-full transition">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <p className="text-white/80 text-sm">{formatDate(bookingSlot.date)}</p>
               {/* Step progress bar */}
               <div className="flex items-center gap-2 mt-2">
-                {['pack', 'time', ...(selectedPack && getPackSessionCount(selectedPack) > 1 ? ['slots'] : [])].map((step, i, arr) => (
+                {['time', 'pack', ...(selectedPack && getPackSessionCount(selectedPack) > 1 ? ['slots'] : [])].map((step, i, arr) => (
                   <React.Fragment key={step}>
                     <div className={`flex items-center gap-1.5 ${bookingStep === step ? 'opacity-100' : arr.indexOf(bookingStep) > i ? 'opacity-70' : 'opacity-40'}`}>
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${arr.indexOf(bookingStep) > i ? 'bg-white/40' : bookingStep === step ? 'bg-white text-emerald-700' : 'bg-white/20'}`}>
                         {arr.indexOf(bookingStep) > i ? '✓' : i + 1}
                       </div>
                       <span className="text-[10px] font-bold uppercase">
-                        {step === 'pack' ? 'Pack' : step === 'time' ? 'Horaires' : 'Séances'}
+                        {step === 'time' ? 'Créneau' : step === 'pack' ? 'Pack' : 'Séances'}
                       </span>
                     </div>
                     {i < arr.length - 1 && <div className={`flex-1 h-0.5 rounded ${arr.indexOf(bookingStep) > i ? 'bg-white/40' : 'bg-white/20'}`} />}
@@ -4811,24 +4789,159 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
             {/* ── Scrollable body ── */}
             <div className="flex-1 overflow-y-auto">
 
-            {/* ── STEP 1: Select Pack ── */}
+            {/* ── STEP 1: Choose Time Slot ── */}
+            {bookingStep === 'time' && (
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    <Clock className="w-4 h-4 inline mr-1" />
+                    Choisissez votre créneau horaire
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Sélectionnez un créneau disponible pour le {formatDate(bookingSlot.date)}
+                  </p>
+
+                  {/* Créneaux fixes */}
+                  <div className="space-y-2">
+                    {(() => {
+                      const dateStr = bookingSlot.date;
+                      const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+
+                      const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+                      const slotMissions = [...(missions || []), ...provisionalMissions].map((m: any) => ({
+                        providerId: m.providerId ?? m.provider_id,
+                        provider_id: m.provider_id ?? m.providerId,
+                        date: m.date,
+                        start_time: m.start_time ?? m.startTime,
+                        startTime: m.startTime ?? m.start_time,
+                        end_time: m.end_time ?? m.endTime,
+                        endTime: m.endTime ?? m.end_time,
+                        status: m.status,
+                      }));
+                      const activeProvs = (providers || []).filter((p: any) => isProviderActive(p));
+
+                      const slotsWithAvailability = ALLOWED_SLOTS.map((slotDef) => {
+                        const sMin = timeToMinutes(slotDef.startTime);
+                        const eMin = timeToMinutes(slotDef.endTime);
+                        const sH = Math.floor(sMin / 60);
+                        const eH = Math.ceil(eMin / 60);
+                        let freeCount = 0;
+                        const seenIds = new Set<string>();
+                        for (const p of activeProvs) {
+                          const pid = String(p.id);
+                          if (seenIds.has(pid)) continue;
+                          if (!isMenageSpecialty(p.specialty || '')) continue;
+                          if (isProviderOnLeave(p, dateStr)) continue;
+                          let wh = getProviderWorkingHours(p, dayOfWeek);
+                          if (wh.length === 0) continue;
+                          wh = filterHoursByScheduledUnavailabilities(p, dateStr, wh);
+                          wh = filterHoursByOneTimeUnavailabilities(p, dateStr, wh);
+                          if (wh.length === 0) continue;
+                          let covers = true;
+                          for (let h = sH; h < eH; h++) {
+                            if (!wh.includes(h)) { covers = false; break; }
+                          }
+                          if (!covers) continue;
+                          if (isProviderFreeDuring(p, dateStr, sMin, eMin, slotMissions)) {
+                            seenIds.add(pid);
+                            freeCount++;
+                          }
+                        }
+                        return { slotDef, freeCount };
+                      });
+
+                      return slotsWithAvailability.map(({ slotDef, freeCount }, idx) => {
+                        const isSelected = customStartTime === slotDef.startTime && customEndTime === slotDef.endTime;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => { setCustomStartTime(slotDef.startTime); setCustomEndTime(slotDef.endTime); }}
+                            disabled={freeCount === 0 && providers.length > 0}
+                            className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                                : freeCount === 0 && providers.length > 0
+                                ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                                : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-gray-500" />
+                              <span className="font-bold text-gray-800">{slotDef.startTime} — {slotDef.endTime}</span>
+                              <span className="text-xs text-gray-500">({slotDef.duration}h)</span>
+                            </div>
+                            {freeCount > 0 ? (
+                              <span className="text-[11px] px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold">
+                                {freeCount} libre{freeCount > 1 ? 's' : ''}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] px-2 py-1 bg-red-100 text-red-600 rounded-full font-bold">
+                                Complet
+                              </span>
+                            )}
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Next button */}
+                <button
+                  onClick={() => { setSelectedPackId(''); setBookingStep('pack'); }}
+                  disabled={!customStartTime}
+                  className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                >
+                  Choisir un pack
+                  <span className="text-lg">→</span>
+                </button>
+              </div>
+            )}
+
+            {/* ── STEP 2: Select Pack (filtered by slot duration) ── */}
             {bookingStep === 'pack' && (
               <div className="p-5 space-y-4">
+                {/* Selected time summary */}
+                {customStartTime && customEndTime && (
+                  <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock className="w-4 h-4 text-emerald-600" />
+                        <span className="text-sm font-bold text-emerald-800">{customStartTime} — {customEndTime}</span>
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
+                          {slotDuration}h
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-600">{formatDate(bookingSlot.date)}</p>
+                    </div>
+                    <button onClick={() => setBookingStep('time')} className="text-xs text-emerald-600 hover:underline font-bold">
+                      Modifier
+                    </button>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
                     Choisissez votre prestation
                   </label>
-                  {availablePacks.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">Aucun pack disponible. Contactez-nous.</p>
+                  {filteredAvailablePacks.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm font-bold text-gray-600 mb-1">Aucun pack disponible pour ce créneau</p>
+                      <p className="text-xs text-gray-400">La durée du créneau ({slotDuration}h) ne correspond à aucun pack. Essayez un autre créneau.</p>
+                      <button onClick={() => setBookingStep('time')} className="mt-3 text-sm text-emerald-600 font-bold hover:underline">
+                        ← Choisir un autre créneau
+                      </button>
+                    </div>
                   ) : (
                     <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                      {availablePacks.map(pack => {
+                      {filteredAvailablePacks.map(pack => {
                         const sessions = getPackSessionCount(pack);
                         const hoursPerSession = getPackHoursPerSession(pack);
                         const totalHours = sessions * hoursPerSession;
                         const c = SERVICE_COLORS[pack.mainService || ''] || SERVICE_COLORS['Autre'];
                         const serviceTypeName = getServiceTypeFromText(pack.mainService || '');
-                        const availCount = getAvailableProvidersCount(bookingSlot.date, bookingSlot.startTime, bookingSlot.endTime, pack.mainService || '');
+                        const availCount = getAvailableProvidersCount(bookingSlot.date, customStartTime || bookingSlot.startTime, customEndTime || bookingSlot.endTime, pack.mainService || '');
                         return (
                           <button
                             key={pack.id}
@@ -4886,192 +4999,10 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   )}
                 </div>
 
-                {/* Next button */}
-                <button
-                  onClick={() => setBookingStep('time')}
-                  disabled={!selectedPackId}
-                  className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                >
-                  Continuer vers les horaires
-                  <span className="text-lg">→</span>
-                </button>
-              </div>
-            )}
-
-            {/* ── STEP 2: Choose Hours ── */}
-            {bookingStep === 'time' && selectedPack && (
-              <div className="p-5 space-y-4">
-                {/* Pack summary */}
-                <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      {(() => {
-                        const serviceType = getServiceTypeFromText(selectedPack.mainService || '');
-                        const c = SERVICE_COLORS[serviceType] || SERVICE_COLORS['Autre'];
-                        return (
-                          <span className={`${c.bg} ${c.text} px-2 py-0.5 rounded-full font-bold text-[11px]`}>
-                            <span className={`w-2 h-2 rounded-full ${c.dot} inline-block mr-1`} />
-                            {serviceType}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    <div className="text-sm font-bold text-emerald-800">{selectedPack.name}</div>
-                    <div className="text-xs text-emerald-600">
-                      {getPackSessionCount(selectedPack)} séance{getPackSessionCount(selectedPack) > 1 ? 's' : ''} • {getPackHoursPerSession(selectedPack)}h/séance • {selectedPack.priceTTC.toFixed(2)} €
-                    </div>
-                  </div>
-                  <button onClick={() => setBookingStep('pack')} className="text-xs text-emerald-600 hover:underline font-bold">
-                    Modifier
-                  </button>
-                </div>
-
-                {/* Time picker */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">
-                    <Clock className="w-4 h-4 inline mr-1" />
-                    Choisissez vos horaires
-                  </label>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Choisissez un créneau disponible pour votre pack de {getPackHoursPerSession(selectedPack)}h
-                  </p>
-
-                  {/* ── Créneaux fixes identiques au planning admin ── */}
-                    <div className="space-y-2">
-                      {(() => {
-                        const packDuration = getPackHoursPerSession(selectedPack);
-                        const dateStr = bookingSlot.date;
-                        const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
-                        const matchingSlots = ALLOWED_SLOTS.filter(s => s.duration === packDuration);
-
-                        // Calculer les prestataires libres pour chaque créneau
-                        const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
-                        const slotMissions = [...(missions || []), ...provisionalMissions].map((m: any) => ({
-                          providerId: m.providerId ?? m.provider_id,
-                          provider_id: m.provider_id ?? m.providerId,
-                          date: m.date,
-                          start_time: m.start_time ?? m.startTime,
-                          startTime: m.startTime ?? m.start_time,
-                          end_time: m.end_time ?? m.endTime,
-                          endTime: m.endTime ?? m.end_time,
-                          status: m.status,
-                        }));
-                        const activeProvs = (providers || []).filter((p: any) => isProviderActive(p));
-
-                        return matchingSlots.map((slotDef, idx) => {
-                          const sMin = timeToMinutes(slotDef.startTime);
-                          const eMin = timeToMinutes(slotDef.endTime);
-                          const sH = Math.floor(sMin / 60);
-                          const eH = Math.ceil(eMin / 60);
-
-                          const freeProviderNames: string[] = [];
-                          const seenIds = new Set<string>();
-                          for (const p of activeProvs) {
-                            const pid = String(p.id);
-                            if (seenIds.has(pid)) continue;
-                            // Filtrer strictement par spécialité Ménage
-                            if (!isMenageSpecialty(p.specialty || '')) continue;
-                            if (isProviderOnLeave(p, dateStr)) continue;
-                            let wh = getProviderWorkingHours(p, dayOfWeek);
-                            if (wh.length === 0) continue;
-                            wh = filterHoursByScheduledUnavailabilities(p, dateStr, wh);
-                            wh = filterHoursByOneTimeUnavailabilities(p, dateStr, wh);
-                            if (wh.length === 0) continue;
-                            let covers = true;
-                            for (let h = sH; h < eH; h++) {
-                              if (!wh.includes(h)) { covers = false; break; }
-                            }
-                            if (!covers) continue;
-                            if (isProviderFreeDuring(p, dateStr, sMin, eMin, slotMissions)) {
-                              seenIds.add(pid);
-                              const nm = `${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`.trim() || 'Prestataire';
-                              freeProviderNames.push(nm);
-                            }
-                          }
-                          const freeCount = freeProviderNames.length;
-                          const isSelected = customStartTime === slotDef.startTime && customEndTime === slotDef.endTime;
-
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => { setCustomStartTime(slotDef.startTime); setCustomEndTime(slotDef.endTime); }}
-                              disabled={freeCount === 0 && providers.length > 0}
-                              className={`w-full flex flex-col gap-1 p-4 rounded-xl border-2 transition-all ${
-                                isSelected
-                                  ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-                                  : freeCount === 0 && providers.length > 0
-                                  ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
-                                  : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-gray-500" />
-                                  <span className="font-bold text-gray-800">{slotDef.startTime} — {slotDef.endTime}</span>
-                                  <span className="text-xs text-gray-500">Pack {slotDef.duration}h</span>
-                                </div>
-                                {freeCount > 0 ? (
-                                  <span className="text-[11px] px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold">
-                                    {freeCount} libre{freeCount > 1 ? 's' : ''}
-                                  </span>
-                                ) : (
-                                  <span className="text-[11px] px-2 py-1 bg-red-100 text-red-600 rounded-full font-bold">
-                                    Complet
-                                  </span>
-                                )}
-                              </div>
-                              {isAdmin && freeCount > 0 && (
-                                <div className="text-[11px] text-emerald-600 pl-6">
-                                  {freeProviderNames.join(', ')}
-                                </div>
-                              )}
-                            </button>
-                          );
-                        });
-                      })()}
-                    </div>
-
-                  {/* Provider availability count */}
-                  <div className="mt-3 flex items-center gap-2">
-                    {(() => {
-                      const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
-                      const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                      const count = getAvailableProvidersCount(bookingSlot.date, s, e, selectedPack?.mainService);
-                      return (
-                        <div className={`flex-1 p-3 rounded-lg border ${count > 0 ? 'bg-emerald-50 border-emerald-200' : count === 0 && providers.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                          <div className="flex items-center gap-2">
-                            {count > 0 ? (
-                              <>
-                                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                                  <Users className="w-4 h-4 text-emerald-600" />
-                                </div>
-                                <div>
-                                  <div className="text-sm font-bold text-emerald-700">{count} prestataire{count > 1 ? 's' : ''} disponible{count > 1 ? 's' : ''}</div>
-                                  <div className="text-[10px] text-emerald-500">sur ce créneau horaire</div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
-                                  <AlertCircle className="w-4 h-4 text-red-500" />
-                                </div>
-                                <div>
-                                  <div className="text-sm font-bold text-red-700">Aucun prestataire disponible</div>
-                                  <div className="text-[10px] text-red-500">Essayez un autre horaire</div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
                 {/* Navigation buttons */}
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setBookingStep('pack')}
+                    onClick={() => setBookingStep('time')}
                     className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
                   >
                     ← Retour
@@ -5079,22 +5010,14 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   <button
                     onClick={() => {
                       if (selectedPack && getPackSessionCount(selectedPack) > 1) {
-                        // Auto-generate additional slots
-                        const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
-                        const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                        const generated = autoGenerateSlots(selectedPack, bookingSlot.date, s, e);
+                        const generated = autoGenerateSlots(selectedPack, bookingSlot.date, customStartTime || bookingSlot.startTime, customEndTime || bookingSlot.endTime);
                         setMultiSlots(generated);
                         setBookingStep('slots');
                       } else {
-                        // Single session: confirm directly
                         handleConfirmBooking();
                       }
                     }}
-                    disabled={(() => {
-                      const s = customStartTime || `${String(OPEN_HOUR).padStart(2, '0')}:00`;
-                      const e = customEndTime || `${String(OPEN_HOUR + getPackHoursPerSession(selectedPack)).padStart(2, '0')}:00`;
-                      return (getAvailableProvidersCount(bookingSlot.date, s, e, selectedPack?.mainService) === 0 && providers.length > 0) || isBooking;
-                    })()}
+                    disabled={!selectedPackId || isBooking}
                     className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
                   >
                     {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
@@ -5187,7 +5110,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                 {/* Navigation buttons */}
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setBookingStep('time')}
+                    onClick={() => setBookingStep('pack')}
                     className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 font-bold hover:bg-gray-100 transition text-sm"
                   >
                     ← Retour
