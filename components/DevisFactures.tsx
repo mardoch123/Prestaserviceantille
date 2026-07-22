@@ -435,7 +435,15 @@ const DevisFactures: React.FC = () => {
 
     const getNowMartinique = (): Date => new Date();
 
-    const getTodayMartiniqueStr = (): string => getMartiniqueToday();
+    const getTodayMartiniqueStr = (): string => {
+        try {
+            const d = getMartiniqueToday();
+            if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+        } catch {}
+        // Fallback sûr si dayjs/tz échoue
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    };
 
     const toMartiniqueISODate = (d: Date): string => {
         return dayjs(d).tz(MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
@@ -453,6 +461,13 @@ const DevisFactures: React.FC = () => {
     };
 
     const toHHMM = (d: Date): string => dayjs(d).tz(MARTINIQUE_TIMEZONE).format('HH:mm');
+
+    // Valide qu'une chaîne est une date YYYY-MM-DD correcte (évite les crashs WebView Android)
+    const isValidDateStr = (d: string): boolean => {
+        if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+        const parsed = new Date(`${d}T00:00:00`);
+        return Number.isFinite(parsed.getTime());
+    };
 
     const isDateTodayMartinique = (dateStr: string): boolean => {
         return String(dateStr || '') === getTodayMartiniqueStr();
@@ -1275,6 +1290,11 @@ const DevisFactures: React.FC = () => {
         const currentSlot = newSlots[index];
 
         const shouldValidate = options?.validate !== false;
+
+        // Protection WebView Android : ne jamais accepter une date vide ou invalide
+        if (field === 'date' && !isValidDateStr(value)) {
+            return;
+        }
 
         if (field === 'date' && shouldValidate) {
             const nextDate = value;
@@ -3761,7 +3781,7 @@ const DevisFactures: React.FC = () => {
                                                                                 type="date"
                                                                                 className="p-2 border border-slate-200 rounded text-sm"
                                                                                 min={getTodayMartiniqueStr()}
-                                                                                value={slot.date || getTodayMartiniqueStr()}
+                                                                                value={isValidDateStr(slot.date) ? slot.date : getTodayMartiniqueStr()}
                                                                                 onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })}
                                                                                 onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })}
                                                                             />
@@ -3946,7 +3966,7 @@ const DevisFactures: React.FC = () => {
                                                                             <AlertTriangle className="w-4 h-4 text-red-500" />
                                                                         </span>
                                                                     )}
-                                                                    <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={slot.date || getTodayMartiniqueStr()} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
+                                                                    <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={isValidDateStr(slot.date) ? slot.date : getTodayMartiniqueStr()} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
                                                                     <div className="flex items-center gap-1">
                                                                         <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
                                                                         <span className="text-slate-400 text-xs">à</span>
