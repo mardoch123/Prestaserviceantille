@@ -706,7 +706,7 @@ const DevisFactures: React.FC = () => {
         setCustomDescription(String(draft.form.customDescription || ''));
         setTvaRate((Number(draft.form.tvaRate || 0) as any));
         setTaxCreditActive(!!draft.form.taxCreditActive);
-        setInterventionSlots(Array.isArray(draft.form.interventionSlots) ? draft.form.interventionSlots : []);
+        setInterventionSlots(Array.isArray(draft.form.interventionSlots) ? normalizeSlots(draft.form.interventionSlots) : []);
         setPackSpecificConfig(draft.form.packSpecificConfig || {});
         setCustomLines(Array.isArray(draft.form.customLines) ? draft.form.customLines.map((cl: any) => ({
                         id: cl.id || `custom-${Math.random()}`,
@@ -829,8 +829,8 @@ const DevisFactures: React.FC = () => {
         if (!raw || typeof raw !== 'object') return null;
         const id = String(raw.id || raw.slotId || raw.slot_id || `slot-${fallbackIndex}`);
         const date = String(raw.date || raw.day || raw.slotDate || raw.slot_date || '');
-        const startTime = String(raw.startTime || raw.start_time || raw.start || '');
-        const endTime = String(raw.endTime || raw.end_time || raw.end || '');
+        const startTime = String(raw.startTime || raw.start_time || raw.start || '09:00');
+        const endTime = String(raw.endTime || raw.end_time || raw.end || '11:00');
         const durationRaw = raw.duration ?? raw.hours ?? raw.totalHours;
         const duration = Number.isFinite(durationRaw) ? Number(durationRaw) : calculateDuration(startTime, endTime);
         if (!date) return null;
@@ -846,7 +846,9 @@ const DevisFactures: React.FC = () => {
 
     // Helper to add hours to time string
     const addHoursToTime = (time: string, hoursToAdd: number): string => {
+        if (!time || !time.includes(':')) return '09:00';
         const [h, m] = time.split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return '09:00';
         const date = new Date(0, 0, 0, h, m);
         date.setHours(date.getHours() + Math.floor(hoursToAdd));
         date.setMinutes(date.getMinutes() + (hoursToAdd % 1) * 60);
@@ -1086,6 +1088,7 @@ const DevisFactures: React.FC = () => {
 
         const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
         const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        if (!slotStart.isValid() || !slotEnd.isValid()) return false;
 
         // 2. Identifier les missions concurrentes (même créneau)
         const conflictingMissions = missions.filter(m => {
@@ -3758,7 +3761,7 @@ const DevisFactures: React.FC = () => {
                                                                                 type="date"
                                                                                 className="p-2 border border-slate-200 rounded text-sm"
                                                                                 min={getTodayMartiniqueStr()}
-                                                                                value={slot.date}
+                                                                                value={slot.date || getTodayMartiniqueStr()}
                                                                                 onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })}
                                                                                 onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })}
                                                                             />
@@ -3943,7 +3946,7 @@ const DevisFactures: React.FC = () => {
                                                                             <AlertTriangle className="w-4 h-4 text-red-500" />
                                                                         </span>
                                                                     )}
-                                                                    <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={slot.date} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
+                                                                    <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={slot.date || getTodayMartiniqueStr()} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
                                                                     <div className="flex items-center gap-1">
                                                                         <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
                                                                         <span className="text-slate-400 text-xs">à</span>
