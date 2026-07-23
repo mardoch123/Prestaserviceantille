@@ -1921,7 +1921,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
                         reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
                         reportSent: m.report_sent || m.reportSent,
-                        sourceDocumentId: m.source_document_id || m.sourceDocumentId
+                        sourceDocumentId: m.source_document_id || m.sourceDocumentId,
+                        isOvertime: m.is_overtime || m.isOvertime || false
                     }));
                 };
 
@@ -2124,6 +2125,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
                         reportSent: m.report_sent || m.reportSent,
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId,
+                        isOvertime: m.is_overtime || m.isOvertime || false
                     }));
                     setMissions(mappedMissions);
                     dataCache.set('missions', mappedMissions);
@@ -2862,7 +2864,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
             reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
             reportSent: m.report_sent || m.reportSent,
-            sourceDocumentId: m.source_document_id || m.sourceDocumentId
+            sourceDocumentId: m.source_document_id || m.sourceDocumentId,
+            isOvertime: m.is_overtime || m.isOvertime || false
         }));
 
         setMissions(prev => {
@@ -2927,7 +2930,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             reminder72hSent: m.reminder_72h_sent,
             reminder24hProviderSent: m.reminder_24h_provider_sent,
             reportSent: m.report_sent,
-            sourceDocumentId: m.source_document_id
+            sourceDocumentId: m.source_document_id,
+            isOvertime: m.is_overtime || false
         } as Mission;
     };
 
@@ -2989,6 +2993,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (data.color !== undefined) dbData.color = data.color;
         if (data.source !== undefined) dbData.source = data.source;
         if (data.sourceDocumentId !== undefined) dbData.source_document_id = data.sourceDocumentId;
+        if (data.isOvertime !== undefined) dbData.is_overtime = data.isOvertime;
 
         const { error } = await supabase.from('missions').update(dbData).eq('id', id);
 
@@ -3726,7 +3731,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             status: mission.status,
             color: mission.color,
             source: mission.source,
-            source_document_id: mission.sourceDocumentId
+            source_document_id: mission.sourceDocumentId,
+            is_overtime: mission.isOvertime || false
         };
 
         const { data, error } = await supabase.from('missions').insert(dbData).select();
@@ -3769,7 +3775,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 reminder72hSent: m.reminder_72h_sent,
                 reminder24hProviderSent: m.reminder_24h_provider_sent,
                 reportSent: m.report_sent,
-                sourceDocumentId: m.source_document_id
+                sourceDocumentId: m.source_document_id,
+                isOvertime: m.is_overtime || false
             };
             setMissions(prev => [...prev, newMission]);
 

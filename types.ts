@@ -234,6 +234,7 @@ export interface Mission {
     reminder24hProviderSent?: boolean; // Reminder sent to provider 24h before mission
     reportSent?: boolean;
     sourceDocumentId?: string;
+    isOvertime?: boolean; // Heures supplémentaires (ignore les validations de disponibilité)
 }
 
 export interface MissionChangeRequest {

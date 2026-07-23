@@ -61,6 +61,21 @@ import { useHaptic } from '../hooks/useHaptic';
 import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
+// Prestataire fictif pour les prestations externalisées
+const EXTERNAL_PROVIDER_ID = '__external__';
+const EXTERNAL_PROVIDER: Provider = {
+    id: EXTERNAL_PROVIDER_ID,
+    firstName: 'Prestation',
+    lastName: 'Externalisée',
+    status: 'Active',
+    specialty: 'Externe',
+    leaves: [],
+    hoursWorked: 0,
+    rating: 0,
+    phone: '',
+    email: '',
+};
+
 const Planning: React.FC = () => {
   const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
@@ -106,6 +121,7 @@ const Planning: React.FC = () => {
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
   const [assignProviderId, setAssignProviderId] = useState<string>('');
   const [assignSecondProviderSelect, setAssignSecondProviderSelect] = useState<string>('');
+  const [assignIsOvertime, setAssignIsOvertime] = useState(false);
   
   // BULK DELETE STATE
   const [selectedMissionIds, setSelectedMissionIds] = useState<Set<string>>(new Set());
@@ -122,7 +138,9 @@ const Planning: React.FC = () => {
       endTime: '11:00',
       endDate: '', // Optionnel si différent
       recurrence: 'none',
-      occurrences: 1
+      occurrences: 1,
+      sourceDocumentId: '',
+      isOvertime: false
   };
   const [missionForm, setMissionForm] = useState(initialFormState);
 
@@ -1043,6 +1061,17 @@ const Planning: React.FC = () => {
   }, [billingSignals.ultimatePackDocs]);
 
   // --- GRAFTED: Handler validation facturation ---
+  // Toast quand la 2ème prestation d'un pack est terminée (prêt à facturer)
+  const shownBillingToastRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+      billingSignals.readyToInvoiceDocs.forEach((data, docId) => {
+          if (!shownBillingToastRef.current.has(docId)) {
+              shownBillingToastRef.current.add(docId);
+              toast.success(`Pack ${data.clientName} : ${data.completedCount} prestations terminées — Prêt à facturer !`);
+          }
+      });
+  }, [billingSignals.readyToInvoiceDocs]);
+
   const handleValidateBilling = async () => {
       if (billingSelectedDocs.size === 0) return;
       setBillingValidating(true);
@@ -1515,21 +1544,27 @@ const Planning: React.FC = () => {
 
           // Get client and provider
           const client = clients.find(c => c.id === missionForm.clientId);
-          const provider = providers.find(p => p.id === missionForm.providerId);
-          const provider2 = missionForm.provider2Id ? providers.find(p => p.id === missionForm.provider2Id) : null;
+          const isExternalProvider = missionForm.providerId === EXTERNAL_PROVIDER_ID;
+          const provider = isExternalProvider ? EXTERNAL_PROVIDER : providers.find(p => p.id === missionForm.providerId);
+          const isExternalProvider2 = missionForm.provider2Id === EXTERNAL_PROVIDER_ID;
+          const provider2 = missionForm.provider2Id
+              ? (isExternalProvider2 ? EXTERNAL_PROVIDER : providers.find(p => p.id === missionForm.provider2Id) ?? null)
+              : null;
           
           if (!client) { throw new Error("Client invalide"); }
+
+          const isOvertimeMode = missionForm.isOvertime;
 
           // --- GRAFTED: Validation durée (3h, 4h, 6h ou 7h uniquement) ---
           const slotDurationHours = calculateDuration(missionForm.date, missionForm.startTime, finalEndDate, missionForm.endTime);
           const roundedDuration = Math.round(slotDurationHours * 10) / 10;
           const isValidDuration = ALLOWED_DURATIONS.some(d => Math.abs(slotDurationHours - d) < 0.05);
-          if (!isValidDuration) {
+          if (!isValidDuration && !isOvertimeMode) {
               throw new Error(`Durée invalide (${roundedDuration}h). Les créneaux autorisés sont : 3h, 4h, 6h ou 7h.`);
           }
 
-          // --- GRAFTED: Validation plafond 7h/jour par prestataire ---
-          if (provider) {
+          // --- GRAFTED: Validation plafond 7h/jour par prestataire (ignoré en heures supplémentaires) ---
+          if (provider && !isOvertimeMode && !isExternalProvider) {
               const existingHours = getProviderDailyHours(provider.id, missionForm.date);
               if (existingHours + slotDurationHours > MAX_PROVIDER_DAILY_HOURS) {
                   throw new Error(`${getProviderDisplayName(provider)} dépasserait 7h/jour (${existingHours.toFixed(1)}h déjà planifiées + ${roundedDuration}h = ${(existingHours + slotDurationHours).toFixed(1)}h).`);
@@ -1555,24 +1590,24 @@ const Planning: React.FC = () => {
 
               const dateStr = currentDate.format('YYYY-MM-DD');
 
-              if (provider && isProviderNonWorkingDay(provider.id, dateStr)) {
+              if (provider && !isOvertimeMode && !isExternalProvider && isProviderNonWorkingDay(provider.id, dateStr)) {
                   throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : ne travaille pas aujourd'hui.`);
               }
 
-              if (provider && isProviderNonWorkingHours(provider.id, dateStr, missionForm.startTime, missionForm.endTime)) {
+              if (provider && !isOvertimeMode && !isExternalProvider && isProviderNonWorkingHours(provider.id, dateStr, missionForm.startTime, missionForm.endTime)) {
                   throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : indisponible sur ce créneau horaire.`);
               }
 
               // Vérifier le 2e prestataire
-              if (provider2 && isProviderNonWorkingDay(provider2.id, dateStr)) {
+              if (provider2 && !isOvertimeMode && !isExternalProvider2 && isProviderNonWorkingDay(provider2.id, dateStr)) {
                   throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : ne travaille pas aujourd'hui.`);
               }
-              if (provider2 && isProviderNonWorkingHours(provider2.id, dateStr, missionForm.startTime, missionForm.endTime)) {
+              if (provider2 && !isOvertimeMode && !isExternalProvider2 && isProviderNonWorkingHours(provider2.id, dateStr, missionForm.startTime, missionForm.endTime)) {
                   throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : indisponible sur ce créneau horaire.`);
               }
 
-              // --- GRAFTED: Vérification chevauchement d'horaires pour la même prestataire ---
-              if (provider) {
+              // --- GRAFTED: Vérification chevauchement d'horaires pour la même prestataire (ignoré en heures supplémentaires) ---
+              if (provider && !isOvertimeMode && !isExternalProvider) {
                   const hasOverlap = missions.some(m => {
                       if (m.status === 'cancelled' || m.date !== dateStr || m.providerId !== provider.id) return false;
                       const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
@@ -1587,7 +1622,7 @@ const Planning: React.FC = () => {
               }
 
               // Vérification chevauchement pour le 2e prestataire
-              if (provider2) {
+              if (provider2 && !isOvertimeMode && !isExternalProvider2) {
                   const hasOverlap2 = missions.some(m => {
                       if (m.status === 'cancelled' || m.date !== dateStr) return false;
                       const mP1 = m.providerId === provider2.id;
@@ -1618,7 +1653,9 @@ const Planning: React.FC = () => {
                   provider2Id: provider2 ? provider2.id : null,
                   provider2Name: provider2 ? getProviderDisplayName(provider2) : undefined,
                   status: 'planned',
-                  color: provider ? 'orange' : 'gray'
+                  color: provider ? 'orange' : 'gray',
+                  sourceDocumentId: missionForm.sourceDocumentId || undefined,
+                  isOvertime: isOvertimeMode
               });
           }
 
@@ -1711,9 +1748,26 @@ const Planning: React.FC = () => {
       }
   };
 
+  // --- Devis signés du client sélectionné (pour liaison lors de la création) ---
+  const clientSignedQuotes = useMemo(() => {
+      if (!missionForm.clientId) return [];
+      return documents.filter(d =>
+          d.clientId === missionForm.clientId &&
+          d.type === 'Devis' &&
+          (d.status === 'signed' || d.status === 'validated')
+      );
+  }, [missionForm.clientId, documents]);
+
+  // Liste des prestataires incluant le prestataire externe fictif
+  const providersWithExternal = useMemo(() => {
+      return [...providers, EXTERNAL_PROVIDER];
+  }, [providers]);
+
   
   // Get the specific reason why a provider is unavailable
   const getProviderUnavailableReason = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59', excludeMissionId?: string): string | null => {
+      // Le prestataire externe est toujours disponible
+      if (providerId === EXTERNAL_PROVIDER_ID) return null;
       const provider = providers.find(p => p.id === providerId);
       if (!provider) return 'Prestataire introuvable';
 
@@ -1827,15 +1881,16 @@ const Planning: React.FC = () => {
       }
 
       const mission = missions.find(m => m.id === selectedMissionId);
-      const provider = providers.find(p => p.id === assignProviderId);
+      const isExternal = assignProviderId === EXTERNAL_PROVIDER_ID;
+      const provider = isExternal ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignProviderId);
 
       if (!mission || !provider) {
           toast.error('Mission ou prestataire introuvable.');
           return;
       }
 
-      // Check if provider is available (includes mission conflict check)
-      if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
+      // Check if provider is available (ignored in overtime mode or external)
+      if (!assignIsOvertime && !isExternal && !isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
           toast.error(`${getProviderDisplayName(provider)} n'est pas disponible sur ce créneau (conflit avec une autre mission ou indisponibilité).`);
           hapticError();
           return;
@@ -1844,13 +1899,17 @@ const Planning: React.FC = () => {
       setIsSubmitting(true);
       try {
           await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
-          toast.success(`Prestataire assigné ! Email envoyé.`);
+          if (assignIsOvertime) {
+              await updateMission(mission.id, { isOvertime: true });
+          }
+          toast.success(`Prestataire assigné${isExternal ? ' (externe)' : ' ! Email envoyé.'}`);
           success();
           if (refreshData) await refreshData();
 
           setSelectedMissionId(null);
           setAssignProviderId('');
           setAssignSecondProviderSelect('');
+          setAssignIsOvertime(false);
       } catch (error: any) {
           toast.error(error?.message || 'Erreur lors de l\'assignation.');
           hapticError();
@@ -1863,8 +1922,12 @@ const Planning: React.FC = () => {
       if (!selectedMissionId || !assignProviderId) return;
 
       const mission = missions.find(m => m.id === selectedMissionId);
-      const provider = providers.find(p => p.id === assignProviderId);
-      const provider2 = assignSecondProviderSelect ? providers.find(p => p.id === assignSecondProviderSelect) : null;
+      const isExternal1 = assignProviderId === EXTERNAL_PROVIDER_ID;
+      const provider = isExternal1 ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignProviderId);
+      const isExternal2 = assignSecondProviderSelect === EXTERNAL_PROVIDER_ID;
+      const provider2 = assignSecondProviderSelect
+          ? (isExternal2 ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignSecondProviderSelect) ?? null)
+          : null;
 
       if (!mission || !provider) {
           toast.error('Mission ou prestataire introuvable.');
@@ -1873,14 +1936,16 @@ const Planning: React.FC = () => {
 
       if (isSubmitting) return;
 
-      // Check if 1st provider is available
-      if (!isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
+      const isOvertimeMode = assignIsOvertime;
+
+      // Check if 1st provider is available (ignored in overtime or external)
+      if (!isOvertimeMode && !isExternal1 && !isProviderAvailable(provider.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
           toast.warning(`Impossible de programmer ${getProviderDisplayName(provider)} : indisponible ou conflit avec une autre mission.`);
           return;
       }
 
-      // Check if 2nd provider is available (if selected)
-      if (provider2) {
+      // Check if 2nd provider is available (if selected, ignored in overtime or external)
+      if (provider2 && !isOvertimeMode && !isExternal2) {
           if (!isProviderAvailable(provider2.id, mission.date, mission.startTime, mission.endTime, mission.id)) {
               toast.warning(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) : indisponible ou conflit avec une autre mission.`);
               return;
@@ -1892,12 +1957,17 @@ const Planning: React.FC = () => {
           // Assigner le 1er prestataire
           await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
 
+          // Marquer comme heures supplémentaires si coché
+          if (isOvertimeMode) {
+              await updateMission(mission.id, { isOvertime: true });
+          }
+
           // Assigner le 2e prestataire si sélectionné
           if (provider2) {
               await assignSecondProvider(mission.id, provider2.id, getProviderDisplayName(provider2));
-              toast.success(`Binôme assigné : ${getProviderDisplayName(provider)} + ${getProviderDisplayName(provider2)} ! Emails envoyés.`);
+              toast.success(`Binôme assigné : ${getProviderDisplayName(provider)} + ${getProviderDisplayName(provider2)} !${isOvertimeMode ? ' (Heures sup.)' : ' Emails envoyés.'}`);
           } else {
-              toast.success(`Prestataire assigné ! Email envoyé.`);
+              toast.success(`Prestataire assigné${isExternal1 ? ' (externe)' : ''} !${isOvertimeMode ? ' (Heures sup.)' : ' Email envoyé.'}`);
           }
           success();
           if (refreshData) await refreshData();
@@ -1906,6 +1976,7 @@ const Planning: React.FC = () => {
           setSelectedMissionId(null);
           setAssignProviderId('');
           setAssignSecondProviderSelect('');
+          setAssignIsOvertime(false);
       } catch (error: any) {
           toast.error(error?.message || 'Erreur lors de l\'assignation.');
           hapticError();
@@ -3548,10 +3619,40 @@ const Planning: React.FC = () => {
                         <SearchableSelect
                             options={clients.map(c => ({ value: c.id, label: c.name }))}
                             value={missionForm.clientId}
-                            onChange={(value) => setMissionForm(prev => ({ ...prev, clientId: value }))}
+                            onChange={(value) => setMissionForm(prev => ({ ...prev, clientId: value, sourceDocumentId: '' }))}
                             placeholder="Sélectionner..."
                         />
                     </div>
+
+                    {/* Liaison devis existant */}
+                    {missionForm.clientId && clientSignedQuotes.length > 0 && (
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">
+                                Lier à un devis signé <span className="font-normal text-slate-400 text-xs">(optionnel)</span>
+                            </label>
+                            <SearchableSelect
+                                options={[
+                                    { value: '', label: '(Aucun devis)' },
+                                    ...clientSignedQuotes.map(d => ({
+                                        value: d.id,
+                                        label: `${d.ref} — ${d.description || d.serviceType || 'Prestation'}${d.totalTTC ? ` (${d.totalTTC}€ TTC)` : ''}`
+                                    }))
+                                ]}
+                                value={missionForm.sourceDocumentId}
+                                onChange={(value) => {
+                                    setMissionForm(prev => {
+                                        const selectedDoc = clientSignedQuotes.find(d => d.id === value);
+                                        return {
+                                            ...prev,
+                                            sourceDocumentId: value,
+                                            service: selectedDoc ? (selectedDoc.serviceType || selectedDoc.description || prev.service) : prev.service
+                                        };
+                                    });
+                                }}
+                                placeholder="(Aucun devis)"
+                            />
+                        </div>
+                    )}
 
                     {/* Date Logic */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3651,6 +3752,7 @@ const Planning: React.FC = () => {
                                 tabIndex={-1}
                              >
                                 <option value="">(À assigner plus tard)</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée</option>
                                 {providers.map(p => {
                                     const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                     const available = reason === null;
@@ -3664,6 +3766,7 @@ const Planning: React.FC = () => {
                              <SearchableSelect
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 Prestation Externalisée (toujours disponible)' },
                                     ...providers.map(p => {
                                         const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
@@ -3683,6 +3786,7 @@ const Planning: React.FC = () => {
                              <SearchableSelect
                                 options={[
                                     { value: '', label: '(Aucun)' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 Prestation Externalisée' },
                                     ...providers.filter(p => p.id !== missionForm.providerId).map(p => {
                                         const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
@@ -3826,6 +3930,23 @@ const Planning: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Heures supplémentaires */}
+                    <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 p-3 rounded-lg">
+                        <input
+                            type="checkbox"
+                            id="missionOvertime"
+                            checked={missionForm.isOvertime}
+                            onChange={(e) => setMissionForm(prev => ({ ...prev, isOvertime: e.target.checked }))}
+                            className="w-4 h-4 text-orange-600 accent-orange-500"
+                        />
+                        <label htmlFor="missionOvertime" className="text-sm font-bold text-orange-800 cursor-pointer select-none">
+                            En heures supplémentaires
+                            <span className="block text-xs font-normal text-orange-600 mt-0.5">
+                                Ignore les contraintes de disponibilité (conflits, jours de repos, horaires)
+                            </span>
+                        </label>
+                    </div>
+
                     <div className="pt-4 flex justify-end gap-3">
                         <button
                             type="button"
@@ -3945,6 +4066,7 @@ const Planning: React.FC = () => {
                                 disabled={isSubmitting}
                             >
                                 <option value="">Sélectionner dans la liste...</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée (toujours disponible)</option>
                                 {providers.map(p => {
                                     const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
                                     const available = reason === null;
@@ -3972,6 +4094,7 @@ const Planning: React.FC = () => {
                                 disabled={isSubmitting}
                             >
                                 <option value="">Aucun (prestataire seul)</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée</option>
                                 {providers.filter(p => p.id !== assignProviderId).map(p => {
                                     const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
                                     const available = reason === null;
@@ -3988,6 +4111,24 @@ const Planning: React.FC = () => {
                                     )
                                 })}
                             </select>
+                        </div>
+
+                        {/* Heures supplémentaires */}
+                        <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 p-3 rounded-lg">
+                            <input
+                                type="checkbox"
+                                id="assignOvertime"
+                                checked={assignIsOvertime}
+                                onChange={(e) => setAssignIsOvertime(e.target.checked)}
+                                className="w-4 h-4 text-orange-600 accent-orange-500"
+                                disabled={isSubmitting}
+                            />
+                            <label htmlFor="assignOvertime" className="text-sm font-bold text-orange-800 cursor-pointer select-none">
+                                En heures supplémentaires
+                                <span className="block text-xs font-normal text-orange-600 mt-0.5">
+                                    Ignore les contraintes de disponibilité
+                                </span>
+                            </label>
                         </div>
                         
                         <div className="bg-blue-50 p-3 rounded-lg flex items-start gap-3">
@@ -4719,6 +4860,22 @@ const Planning: React.FC = () => {
                                                       </button>
                                                       <span className="text-sm font-bold truncate flex-1">{data.clientName}</span>
                                                       <span className="text-[10px] font-black bg-blue-800 px-2 py-0.5 rounded-full shrink-0">{data.completedCount} réalisées</span>
+                                                      <button
+                                                          type="button"
+                                                          onClick={async () => {
+                                                              try {
+                                                                  await convertQuoteToInvoice(docId);
+                                                                  toast.success(`Facture générée pour ${data.clientName}`);
+                                                                  if (refreshData) await refreshData();
+                                                              } catch (e: any) {
+                                                                  toast.error(e?.message || 'Erreur conversion facture');
+                                                              }
+                                                          }}
+                                                          className="shrink-0 px-2 py-1 bg-green-500 hover:bg-green-400 rounded-lg text-[10px] font-black text-white transition"
+                                                          title="Générer la facture maintenant"
+                                                      >
+                                                          Facturer
+                                                      </button>
                                                   </div>
                                               ))}
                                           </div>
@@ -5021,6 +5178,30 @@ const Planning: React.FC = () => {
                               <div>
                                   <label className="block text-xs font-bold text-slate-600 mb-2">Sélectionner une prestataire</label>
                                   <div className="space-y-1 max-h-48 overflow-y-auto">
+                                      {/* Prestataire externe (toujours disponible) */}
+                                      <button
+                                          type="button"
+                                          onClick={async () => {
+                                              try {
+                                                  await assignProvider(quickAssignMission.id, EXTERNAL_PROVIDER_ID, 'Prestation Externalisée');
+                                                  toast.success('Prestation externalisée assignée !');
+                                                  if (refreshData) await refreshData();
+                                              } catch (err: any) {
+                                                  toast.error(err?.message || "Erreur d'assignation");
+                                              }
+                                              setQuickAssignOpen(false);
+                                              setQuickAssignMission(null);
+                                              setQuickAssignTarget(null);
+                                          }}
+                                          className="w-full p-2 rounded-lg text-left transition flex items-center gap-2 bg-blue-50 border border-blue-200 hover:border-blue-400 hover:bg-blue-100"
+                                      >
+                                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-black text-blue-700 shrink-0">PE</div>
+                                          <div className="flex-1 min-w-0">
+                                              <div className="text-xs font-bold text-blue-800 truncate">Prestation Externalisée</div>
+                                              <div className="text-[10px] text-blue-600">Toujours disponible</div>
+                                          </div>
+                                          <CheckCircle className="w-4 h-4 text-blue-500" />
+                                      </button>
                                       {providers.filter(p => p?.status === 'Active').map(p => {
                                           const dayOfWeek = dayjs.tz(quickAssignMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
                                           const nid = (p as any).nonInterventionDays;
