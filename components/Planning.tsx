@@ -203,6 +203,9 @@ const Planning: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
 
+  // --- Modal facturation dédié ---
+  const [showBillingModal, setShowBillingModal] = useState(false);
+
   // --- GRAFTED: Quick Assign & Sidebar ---
   const [quickAssignOpen, setQuickAssignOpen] = useState(false);
   const [quickAssignTarget, setQuickAssignTarget] = useState<{ date: string; providerId: string; providerName: string; startTime: string; endTime: string } | null>(null);
@@ -1024,9 +1027,9 @@ const Planning: React.FC = () => {
       });
 
       const readyToInvoice = new Set<string>(); // mission ids
-      const readyToInvoiceDocs = new Map<string, { completedCount: number; clientName: string; docRef: string }>();
+      const readyToInvoiceDocs = new Map<string, { completedCount: number; totalCount: number; clientName: string; docRef: string; completedMissions: { service: string; date: string }[]; pendingMissions: { service: string; date: string }[] }>();
       const ultimatePackComplete = new Set<string>(); // mission ids
-      const ultimatePackDocs = new Map<string, { completedCount: number; clientName: string; docRef: string }>();
+      const ultimatePackDocs = new Map<string, { completedCount: number; totalCount: number; clientName: string; docRef: string; completedMissions: { service: string; date: string }[]; pendingMissions: { service: string; date: string }[] }>();
 
       byDoc.forEach((missionGroup, docId) => {
           const completed = missionGroup.filter(m => m.status === 'completed');
@@ -1034,16 +1037,19 @@ const Planning: React.FC = () => {
           const clientName = missionGroup[0]?.clientName ?? '—';
           const docRef = doc?.ref ?? docId.slice(0, 8);
 
+          const completedMissions = completed.map(m => ({ service: m.service || 'Prestation', date: m.date || '' }));
+          const pendingMissions = missionGroup.filter(m => m.status !== 'completed' && m.status !== 'cancelled').map(m => ({ service: m.service || 'Prestation', date: m.date || '' }));
+
           if (completed.length >= 6) {
               missionGroup.forEach(m => ultimatePackComplete.add(m.id));
-              ultimatePackDocs.set(docId, { completedCount: completed.length, clientName, docRef });
+              ultimatePackDocs.set(docId, { completedCount: completed.length, totalCount: missionGroup.length, clientName, docRef, completedMissions, pendingMissions });
           } else if (completed.length >= 2) {
               completed.forEach(m => readyToInvoice.add(m.id));
-              readyToInvoiceDocs.set(docId, { completedCount: completed.length, clientName, docRef });
+              readyToInvoiceDocs.set(docId, { completedCount: completed.length, totalCount: missionGroup.length, clientName, docRef, completedMissions, pendingMissions });
           } else if (completed.length === 1 && missionGroup.length === 1 && (missionGroup[0].duration || 0) >= 6) {
               // Pack Ultime 6 : une seule mission de 6h complétée = prêt à facturer
               completed.forEach(m => readyToInvoice.add(m.id));
-              readyToInvoiceDocs.set(docId, { completedCount: 1, clientName, docRef });
+              readyToInvoiceDocs.set(docId, { completedCount: 1, totalCount: missionGroup.length, clientName, docRef, completedMissions, pendingMissions });
           }
       });
 
@@ -1751,12 +1757,31 @@ const Planning: React.FC = () => {
   // --- Devis signés du client sélectionné (pour liaison lors de la création) ---
   const clientSignedQuotes = useMemo(() => {
       if (!missionForm.clientId) return [];
-      return documents.filter(d =>
+      const quotes = documents.filter(d =>
           d.clientId === missionForm.clientId &&
           d.type === 'Devis' &&
           (d.status === 'signed' || d.status === 'validated')
       );
+      // Trier par date décroissante (le plus récent en premier)
+      quotes.sort((a, b) => {
+          const da = (a as any)?.signedAt || (a as any)?.created_at || '';
+          const db = (b as any)?.signedAt || (b as any)?.created_at || '';
+          return String(db).localeCompare(String(da));
+      });
+      return quotes;
   }, [missionForm.clientId, documents]);
+
+  // Auto-sélectionner le dernier devis signé quand le client change
+  useEffect(() => {
+      if (clientSignedQuotes.length > 0 && !missionForm.sourceDocumentId) {
+          const latest = clientSignedQuotes[0];
+          setMissionForm(prev => ({
+              ...prev,
+              sourceDocumentId: latest.id,
+              service: latest.serviceType || latest.description || prev.service
+          }));
+      }
+  }, [missionForm.clientId, clientSignedQuotes]);
 
   // Liste des prestataires incluant le prestataire externe fictif
   const providersWithExternal = useMemo(() => {
@@ -2639,6 +2664,20 @@ const Planning: React.FC = () => {
           <button type="button" onClick={() => { setIsModalOpen(true); setSelectedSlotKey(''); }} className="bg-brand-blue text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-bold shadow-sm hover:bg-blue-700 transition">
             <Plus className="w-4 h-4" /> Mission
           </button>
+
+          {/* Bouton Facturation clignotant */}
+          {(billingSignals.readyToInvoiceDocs.size > 0 || billingSignals.ultimatePackDocs.size > 0) && (
+            <button
+              type="button"
+              onClick={() => setShowBillingModal(true)}
+              className="relative bg-gradient-to-r from-green-500 to-emerald-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-bold shadow-lg hover:from-green-600 hover:to-emerald-700 transition animate-pulse"
+            >
+              <FileText className="w-4 h-4" /> Facturation
+              <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">
+                {billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size}
+              </span>
+            </button>
+          )}
 
           {selectedMissionIds.size > 0 && (
             <button onClick={confirmBulkDeleteMissions} className="bg-red-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-bold shadow-sm hover:bg-red-600 transition">
@@ -4495,23 +4534,56 @@ const Planning: React.FC = () => {
 
                 <form onSubmit={handleEditMissionSubmit} className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
                     <div className="grid grid-cols-1 gap-4">
+                        {/* Prestataire actuel clairement affiché */}
+                        {selectedMissionDetails?.providerName && selectedMissionDetails.providerId && selectedMissionDetails.providerId !== 'null' && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm font-black text-blue-700 shrink-0">
+                                    {(() => {
+                                        const prov = providers.find(p => p.id === selectedMissionDetails.providerId);
+                                        if (!prov) return '?';
+                                        return (prov.firstName?.charAt(0) || '') + (prov.lastName?.charAt(0) || '');
+                                    })()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Prestataire actuel</div>
+                                    <div className="text-sm font-black text-blue-900 truncate">{selectedMissionDetails.providerName}</div>
+                                    <div className="text-[10px] text-blue-500">{selectedMissionDetails.service || 'Prestation'} • {selectedMissionDetails.date}</div>
+                                </div>
+                                {selectedMissionDetails.providerId === EXTERNAL_PROVIDER_ID && (
+                                    <span className="text-[9px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full">EXTERNE</span>
+                                )}
+                            </div>
+                        )}
+                        {(!selectedMissionDetails?.providerId || selectedMissionDetails.providerId === 'null') && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                                    <AlertCircle className="w-5 h-5 text-amber-600" />
+                                </div>
+                                <div className="flex-1">
+                                    <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Non assignée</div>
+                                    <div className="text-sm font-bold text-amber-800">Aucune jobeuse attribuée</div>
+                                </div>
+                            </div>
+                        )}
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">Prestataire</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Modifier l'attribution</label>
                             <SearchableSelect
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🏢 Prestation Externalisée' },
                                     ...providers.map(p => {
+                                        const name = getProviderDisplayName(p);
                                         const reason = editMissionForm.date ? getProviderUnavailableReason(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime, selectedMissionDetails?.id) : null;
                                         return {
                                             value: p.id,
-                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
+                                            label: `${name}${reason ? ` (${reason})` : ''}`,
                                             disabled: reason !== null
                                         };
                                     })
                                 ]}
                                 value={editMissionForm.providerId}
                                 onChange={(value) => setEditMissionForm(prev => ({ ...prev, providerId: value }))}
-                                placeholder="(À assigner plus tard)"
+                                placeholder="Choisir une jobeuse..."
                             />
                         </div>
 
@@ -5173,6 +5245,12 @@ const Planning: React.FC = () => {
                                   <div className="text-sm font-bold text-red-900 mt-1">{quickAssignMission.clientName}</div>
                                   <div className="text-xs text-red-700 mt-1">{quickAssignMission.date} • {quickAssignMission.startTime}-{quickAssignMission.endTime}</div>
                                   <div className="text-xs text-red-600 mt-1">{quickAssignMission.service || 'Prestation'}</div>
+                                  {quickAssignMission.providerName && quickAssignMission.providerId && quickAssignMission.providerId !== 'null' && (
+                                      <div className="mt-2 pt-2 border-t border-red-200">
+                                          <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Jobeuse actuelle</div>
+                                          <div className="text-xs font-black text-red-900">{quickAssignMission.providerName}</div>
+                                      </div>
+                                  )}
                               </div>
 
                               <div>
@@ -5479,6 +5557,205 @@ const Planning: React.FC = () => {
                       <button
                           type="button"
                           onClick={() => setWhatsappSendAllOpen(false)}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition"
+                      >
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* MODAL FACTURATION DÉTAILLÉ */}
+      {showBillingModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowBillingModal(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col" onClick={e => e.stopPropagation()}>
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-green-600 to-emerald-700 px-6 py-5 shrink-0">
+                      <div className="flex items-center justify-between">
+                          <div>
+                              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                                  <FileText className="w-5 h-5" /> Facturation en attente
+                              </h3>
+                              <p className="text-xs text-green-200 mt-1">
+                                  {billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size} client(s) prêt(s) à facturer
+                              </p>
+                          </div>
+                          <button onClick={() => setShowBillingModal(false)} className="p-2 hover:bg-white/20 rounded-full transition">
+                              <X className="w-5 h-5 text-white" />
+                          </button>
+                      </div>
+                  </div>
+
+                  {/* Content */}
+                  <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                      {/* Packs ultimes */}
+                      {billingSignals.ultimatePackDocs.size > 0 && (
+                          <div>
+                              <h4 className="text-xs font-black text-violet-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-violet-600 inline-block" />
+                                  Packs ultimes complets ({billingSignals.ultimatePackDocs.size})
+                              </h4>
+                              <div className="space-y-2">
+                                  {Array.from(billingSignals.ultimatePackDocs.entries()).map(([docId, data]) => {
+                                      const doc = documents.find(d => d.id === docId);
+                                      return (
+                                          <div key={docId} className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                                              <div className="flex items-start justify-between mb-2">
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-sm font-black text-violet-900 truncate">{data.clientName}</div>
+                                                      <div className="text-[10px] text-violet-600 mt-0.5">
+                                                          {doc?.ref && <span className="font-bold">{doc.ref}</span>}
+                                                          {doc?.totalTTC && <span className="ml-1">• {doc.totalTTC}€ TTC</span>}
+                                                      </div>
+                                                  </div>
+                                                  <span className="shrink-0 text-[10px] font-black bg-violet-600 text-white px-2 py-0.5 rounded-full">
+                                                      {data.completedCount} prestations
+                                                  </span>
+                                              </div>
+                                              <div className="text-[10px] text-violet-700 mb-3">
+                                                  {data.completedMissions?.map((m: any, i: number) => (
+                                                      <div key={i} className="flex items-center gap-1">
+                                                          <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
+                                                          <span>{m.service} — {m.date}</span>
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                              <button
+                                                  type="button"
+                                                  onClick={async () => {
+                                                      try {
+                                                          await convertQuoteToInvoice(docId);
+                                                          toast.success(`Facture générée pour ${data.clientName}`);
+                                                          if (refreshData) await refreshData();
+                                                      } catch (e: any) {
+                                                          toast.error(e?.message || 'Erreur conversion facture');
+                                                      }
+                                                  }}
+                                                  className="w-full py-2 bg-gradient-to-r from-violet-600 to-purple-700 hover:from-violet-700 hover:to-purple-800 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5"
+                                              >
+                                                  <FileText className="w-3.5 h-3.5" /> Générer la facture
+                                              </button>
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Packs prêts à facturer */}
+                      {billingSignals.readyToInvoiceDocs.size > 0 && (
+                          <div>
+                              <h4 className="text-xs font-black text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-blue-600 inline-block" />
+                                  Prêts à facturer ({billingSignals.readyToInvoiceDocs.size})
+                              </h4>
+                              <div className="space-y-2">
+                                  {Array.from(billingSignals.readyToInvoiceDocs.entries()).map(([docId, data]) => {
+                                      const doc = documents.find(d => d.id === docId);
+                                      const client = clients.find(c => c.id === doc?.clientId);
+                                      return (
+                                          <div key={docId} className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                              <div className="flex items-start justify-between mb-2">
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-sm font-black text-blue-900 truncate">{data.clientName}</div>
+                                                      <div className="text-[10px] text-blue-600 mt-0.5">
+                                                          {doc?.ref && <span className="font-bold">{doc.ref}</span>}
+                                                          {doc?.totalTTC && <span className="ml-1">• {doc.totalTTC}€ TTC</span>}
+                                                          {client?.pack && <span className="ml-1">• Pack {client.pack}</span>}
+                                                      </div>
+                                                  </div>
+                                                  <span className="shrink-0 text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                                                      {data.completedCount}/{data.totalCount} réalisées
+                                                  </span>
+                                              </div>
+                                              {/* Détails des prestations */}
+                                              <div className="text-[10px] text-blue-700 space-y-0.5 mb-3">
+                                                  {data.completedMissions?.map((m: any, i: number) => (
+                                                      <div key={i} className="flex items-center gap-1">
+                                                          <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
+                                                          <span className="truncate">{m.service} — {m.date}</span>
+                                                      </div>
+                                                  ))}
+                                                  {data.pendingMissions?.map((m: any, i: number) => (
+                                                      <div key={i} className="flex items-center gap-1 opacity-60">
+                                                          <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                                                          <span className="truncate">{m.service} — {m.date} (en attente)</span>
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                              {/* Infos client */}
+                                              {client && (
+                                                  <div className="text-[10px] text-blue-600 bg-blue-100/50 rounded-lg p-2 mb-3 space-y-0.5">
+                                                      {client.phone && <div>📞 {client.phone}</div>}
+                                                      {client.email && <div>📧 {client.email}</div>}
+                                                      {client.address && <div>📍 {client.address}{client.city ? `, ${client.city}` : ''}</div>}
+                                                  </div>
+                                              )}
+                                              <button
+                                                  type="button"
+                                                  onClick={async () => {
+                                                      try {
+                                                          await convertQuoteToInvoice(docId);
+                                                          toast.success(`Facture générée pour ${data.clientName}`);
+                                                          if (refreshData) await refreshData();
+                                                      } catch (e: any) {
+                                                          toast.error(e?.message || 'Erreur conversion facture');
+                                                      }
+                                                  }}
+                                                  className="w-full py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5"
+                                              >
+                                                  <FileText className="w-3.5 h-3.5" /> Générer la facture
+                                              </button>
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Tout facturer d'un coup */}
+                      {(billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size) > 1 && (
+                          <button
+                              type="button"
+                              onClick={async () => {
+                                  setBillingValidating(true);
+                                  const allDocIds = [
+                                      ...Array.from(billingSignals.ultimatePackDocs.keys()),
+                                      ...Array.from(billingSignals.readyToInvoiceDocs.keys())
+                                  ];
+                                  let ok = 0, ko = 0;
+                                  for (const docId of allDocIds) {
+                                      try {
+                                          await convertQuoteToInvoice(docId);
+                                          ok++;
+                                      } catch (e) {
+                                          ko++;
+                                      }
+                                  }
+                                  setBillingValidating(false);
+                                  if (ok > 0) toast.success(`${ok} facture(s) générée(s) avec succès`);
+                                  if (ko > 0) toast.error(`${ko} erreur(s) de conversion`);
+                                  if (refreshData) await refreshData();
+                                  setShowBillingModal(false);
+                              }}
+                              disabled={billingValidating}
+                              className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-700 text-white rounded-xl font-black text-sm hover:from-green-700 hover:to-emerald-800 disabled:opacity-50 transition shadow-lg flex items-center justify-center gap-2"
+                          >
+                              {billingValidating ? (
+                                  <><Loader2 className="w-4 h-4 animate-spin" /> Conversion en cours...</>
+                              ) : (
+                                  <><FileText className="w-4 h-4" /> Tout facturer ({billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size} clients)</>
+                              )}
+                          </button>
+                      )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="p-4 border-t border-slate-100 shrink-0">
+                      <button
+                          type="button"
+                          onClick={() => setShowBillingModal(false)}
                           className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition"
                       >
                           Fermer
