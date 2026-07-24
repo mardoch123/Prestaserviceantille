@@ -116,10 +116,12 @@ alter table public.article_generation_settings enable row level security;
 alter table public.articles enable row level security;
 alter table public.article_generation_runs enable row level security;
 
--- Aucun accès aux réglages ni aux journaux depuis le navigateur.
--- Les articles publiés pourront être lus par des utilisateurs authentifiés lorsque
--- l'interface React sera connectée au module.
+-- Accorder la lecture sur la table articles aux rôles anonyme et authentifié
+grant select on public.articles to anon, authenticated;
+
+-- Politique RLS autorisant la lecture de tous les articles publiés
 drop policy if exists "Authenticated users can read published articles" on public.articles;
-create policy "Authenticated users can read published articles"
-  on public.articles for select to authenticated
+drop policy if exists "Public can read published articles" on public.articles;
+create policy "Public can read published articles"
+  on public.articles for select
   using (status = 'published');

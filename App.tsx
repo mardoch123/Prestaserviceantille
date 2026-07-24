@@ -30,6 +30,7 @@ import ScanSuccess from './components/ScanSuccess';
 import ContactPage from './components/ContactPage';
 import ContactFormsAdmin from './components/ContactFormsAdmin';
 import PublicAvailabilityPage from './components/PublicAvailabilityPage';
+import Blog from './components/Blog';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
@@ -832,6 +833,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/accounting" element={<AccountingStatistics />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
+                        <Route path="/blog" element={<Blog />} />
                         <Route path="/scan" element={<ScanPage />} />
                         <Route path="/scan-success" element={<ScanSuccess />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
