@@ -569,7 +569,7 @@ const Dashboard: React.FC = () => {
           success();
         }
       }}
-      className="h-screen overflow-y-auto"
+      className="w-full min-h-full"
     >
     <div className="p-8 h-full bg-white/40 pb-4 md:pb-8">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
