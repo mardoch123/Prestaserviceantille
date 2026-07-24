@@ -18,6 +18,11 @@ dist-ssr
 .env.*.local
 .env.production
 .env.development
+.env.preprod
+.env.vps
+
+# Documentation locale
+docs/
 
 # Editor directories and files
 .vscode/*

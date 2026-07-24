@@ -23,7 +23,7 @@ const getEnvVar = (key: string): string => {
 };
 
 // Valeurs du projet Supabase principal (fallback si pas de .env)
-const DEFAULT_URL = 'https://outremerfermetures.com/api';
+const DEFAULT_URL = 'https://prestaservicesantilles.com/api';
 const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzcyNTc4ODAwLCJleHAiOjE5MzAzNDUyMDB9.JTRP_WOGEdKzb8rMaSP_FMox5AN0WD4bD_hgP6dW-PA';
 
 const normalizeSupabaseUrl = (raw: string): string => {
@@ -41,7 +41,7 @@ const normalizeSupabaseUrl = (raw: string): string => {
     // Allow proxy base like https://localhost:3000/api/supabase for local/dev
     const isProxySupabase = looksLikeApiProxyPath && /\/api\/supabase(\/|$)/i.test(pathname);
     
-    // Allow VPS/self-hosted Supabase at /api (like outremerfermetures.com/api)
+    // Allow VPS/self-hosted Supabase at /api (like outremerfermetures.com/api or prestaservicesantilles.com/api)
     const isVpsSupabase = looksLikeApiProxyPath && !isProxySupabase;
     
     // If it looks like a random API path (not /api/supabase and not a known VPS), fallback
@@ -58,6 +58,11 @@ const normalizeSupabaseUrl = (raw: string): string => {
 const preferProxyBase = () => {
   try {
     if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      // Do not default to local origin /api on localhost if local proxy is not running
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return '';
+      }
       const origin = window.location.origin.replace(/\/+$/, '');
       return `${origin}/api`;
     }
@@ -74,7 +79,7 @@ const isDev = (() => {
     return false;
   }
 })();
-const rawUrl = envUrl || (isDev ? preferProxyBase() : '') || DEFAULT_URL;
+const rawUrl = envUrl || preferProxyBase() || DEFAULT_URL;
 const supabaseUrl = normalizeSupabaseUrl(rawUrl) || DEFAULT_URL;
 export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || DEFAULT_KEY;
 

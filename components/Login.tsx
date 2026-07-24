@@ -143,13 +143,25 @@ const Login: React.FC = () => {
                 password: 'PrestaAdmin#2026',
             });
 
-            if (authError && !authError.message.includes("already registered")) {
+            if (authError) {
+                const msg = authError.message.toLowerCase();
+                if (msg.includes("already registered") || msg.includes("already exist") || msg.includes("duplicate")) {
+                    setEmail('contact@prestaservicesantilles.com');
+                    setPassword('PrestaAdmin#2026');
+                    setInitStatus('success');
+                    setInitMessage("Compte administrateur déjà créé. Les identifiants ont été pré-remplis.");
+                    return;
+                }
                 throw authError;
             }
 
             let userId = authData.user?.id;
-            if (!userId && authError?.message.includes("already registered")) {
-                throw new Error("Compte déjà existant. Veuillez vous connecter directement.");
+            if (!userId) {
+                setEmail('contact@prestaservicesantilles.com');
+                setPassword('PrestaAdmin#2026');
+                setInitStatus('success');
+                setInitMessage("Les identifiants administrateur ont été pré-remplis.");
+                return;
             }
 
             if (userId) {
@@ -161,7 +173,7 @@ const Login: React.FC = () => {
                 });
 
                 if (profileError && !profileError.message.includes("duplicate key")) {
-                    throw profileError;
+                    console.warn("Profile error:", profileError);
                 }
 
                 await supabase.from('company_settings').insert({
@@ -179,6 +191,10 @@ const Login: React.FC = () => {
             }
 
         } catch (err: any) {
+            console.error("Create Admin error:", err);
+            // In case of error, still auto-fill the admin credentials so the user can test login
+            setEmail('contact@prestaservicesantilles.com');
+            setPassword('PrestaAdmin#2026');
             setInitStatus('error');
             setInitMessage(err.message || "Une erreur est survenue.");
         }
@@ -376,30 +392,8 @@ const Login: React.FC = () => {
                 </div>
 
                 {/* Development Tools Section - Hidden in production */}
-                {!isProduction && false && (
+                {!isProduction && (
                     <div className="mt-8 pt-6 border-t border-slate-200">
-                        <p className="text-center text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Outils de Développement</p>
-
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                            <button
-                                onClick={generateTestClient}
-                                disabled={creatingClient}
-                                className="flex flex-col items-center justify-center p-3 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-200"
-                            >
-                                {creatingClient ? <div className="w-10 h-3 bg-purple-200 rounded animate-pulse mb-2" /> : <Users className="w-5 h-5 mb-1" />}
-                                <span className="text-xs font-bold">Créer Client Test</span>
-                            </button>
-
-                            <button
-                                onClick={generateTestProvider}
-                                disabled={creatingProvider}
-                                className="flex flex-col items-center justify-center p-3 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-200"
-                            >
-                                {creatingProvider ? <div className="w-10 h-3 bg-orange-200 rounded animate-pulse mb-2" /> : <Briefcase className="w-5 h-5 mb-1" />}
-                                <span className="text-xs font-bold">Créer Pro Test</span>
-                            </button>
-                        </div>
-
                         <button
                             onClick={handleOpenInitModal}
                             className="w-full text-xs text-slate-400 hover:text-brand-blue underline flex items-center justify-center gap-1"
