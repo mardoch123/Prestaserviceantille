@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Search, Calendar, Clock, ArrowLeft, Share2, Check, BookOpen, Tag, AlertCircle, RefreshCw, ChevronRight, Phone, Mail, Sparkles } from 'lucide-react';
+import { Search, Calendar, Clock, ArrowLeft, Share2, Check, BookOpen, Tag, AlertCircle, RefreshCw, ChevronRight, Phone, Mail } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { useData } from '../context/DataContext';
 
@@ -76,7 +76,18 @@ const Blog: React.FC = () => {
         .order('published_at', { ascending: false });
 
       if (fetchErr) throw fetchErr;
-      setArticles(data || []);
+      const loadedArticles = data || [];
+      setArticles(loadedArticles);
+
+      // Check URL for direct article slug access e.g. /blog/my-slug
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 2 && pathParts[0] === 'blog') {
+        const slug = pathParts[1];
+        const found = loadedArticles.find((a: Article) => a.slug === slug || a.id === slug);
+        if (found) {
+          setSelectedArticle(found);
+        }
+      }
     } catch (err: any) {
       console.error('[Blog] Error fetching articles:', err);
       setError(err?.message || 'Impossible de charger les articles.');
@@ -87,7 +98,38 @@ const Blog: React.FC = () => {
 
   useEffect(() => {
     fetchArticles();
+
+    const handlePopState = () => {
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 2 && pathParts[0] === 'blog') {
+        const slug = pathParts[1];
+        const found = articles.find((a: Article) => a.slug === slug || a.id === slug);
+        if (found) setSelectedArticle(found);
+      } else {
+        setSelectedArticle(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  const openArticleDetail = (article: Article) => {
+    setSelectedArticle(article);
+    const newPath = `/blog/${article.slug || article.id}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({}, '', newPath);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeArticleDetail = () => {
+    setSelectedArticle(null);
+    if (window.location.pathname !== '/blog') {
+      window.history.pushState({}, '', '/blog');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Filter articles based on search query and category
   const filteredArticles = useMemo(() => {
@@ -104,14 +146,6 @@ const Blog: React.FC = () => {
       return matchesSearch && matchesCategory;
     });
   }, [articles, searchQuery, selectedCategory]);
-
-  const featuredArticle = useMemo(() => {
-    return filteredArticles.length > 0 ? filteredArticles[0] : null;
-  }, [filteredArticles]);
-
-  const regularArticles = useMemo(() => {
-    return filteredArticles.length > 1 ? filteredArticles.slice(1) : filteredArticles;
-  }, [filteredArticles]);
 
   const getReadingTime = (text: string): number => {
     const words = text ? text.split(/\s+/).length : 0;
@@ -220,9 +254,10 @@ const Blog: React.FC = () => {
           <img
             src="https://anciens.prestaservicesantilles.com/images/logo.png"
             alt="Presta Services Antilles"
-            className="h-10 sm:h-12 w-auto object-contain"
+            className="h-10 sm:h-12 w-auto object-contain cursor-pointer"
+            onClick={closeArticleDetail}
           />
-          <div>
+          <div className="cursor-pointer" onClick={closeArticleDetail}>
             <span className="text-sm sm:text-lg font-serif font-bold text-slate-900 block leading-tight">
               Presta Services Antilles
             </span>
@@ -259,9 +294,12 @@ const Blog: React.FC = () => {
           <img
             src="https://anciens.prestaservicesantilles.com/images/logo.png"
             alt="Presta Services Antilles"
-            className="h-8 w-auto object-contain opacity-90"
+            className="h-8 w-auto object-contain opacity-90 cursor-pointer"
+            onClick={closeArticleDetail}
           />
-          <span className="font-serif font-bold text-slate-800 text-base">Presta Services Antilles</span>
+          <span className="font-serif font-bold text-slate-800 text-base cursor-pointer" onClick={closeArticleDetail}>
+            Presta Services Antilles
+          </span>
         </div>
         <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
           Services professionnels à domicile en Martinique : Ménage, Repassage, Bricolage et Jardinage.
@@ -282,6 +320,168 @@ const Blog: React.FC = () => {
     </footer>
   );
 
+  // --------------------------------------------------------------------------
+  // DEDICATED FULL-PAGE ARTICLE READER VIEW
+  // --------------------------------------------------------------------------
+  if (selectedArticle) {
+    const articleImg = getArticleImage(selectedArticle);
+    const relatedArticles = articles
+      .filter((a) => a.id !== selectedArticle.id)
+      .slice(0, 3);
+
+    return (
+      <div className={`w-full max-w-full overflow-x-hidden flex flex-col font-sans ${isPublicPage ? 'min-h-screen' : 'min-h-full'}`}>
+        {isPublicPage && renderPublicHeader()}
+
+        <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full space-y-8 min-w-0">
+          
+          {/* Top Bar Navigation */}
+          <div className="flex items-center justify-between gap-4">
+            <button
+              onClick={closeArticleDetail}
+              className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-brand-blue bg-white hover:bg-cream-100 px-4 py-2.5 rounded-2xl border border-beige-200 shadow-sm transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Retour au Blog
+            </button>
+
+            <button
+              onClick={handleShare}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-cream-100 px-4 py-2.5 rounded-2xl border border-beige-200 shadow-sm transition-all cursor-pointer"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4" />}
+              <span>{copied ? 'Lien copié !' : 'Partager cet article'}</span>
+            </button>
+          </div>
+
+          {/* Dedicated Full Page Article Container */}
+          <article className="bg-white rounded-3xl border border-beige-200 shadow-sm overflow-hidden space-y-0">
+            
+            {/* Hero Cover Header */}
+            <div className="relative h-64 sm:h-96 w-full overflow-hidden bg-slate-900">
+              <img
+                src={articleImg}
+                alt={selectedArticle.title}
+                className="w-full h-full object-cover opacity-90"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-900/40 to-transparent" />
+              
+              <div className="absolute bottom-6 left-6 right-6 z-10 text-white">
+                <div className="flex flex-wrap items-center gap-2.5 mb-2 text-xs">
+                  <span className="bg-brand-orange text-white px-3 py-1 rounded-full font-bold shadow-sm">
+                    {selectedArticle.category || 'Conseils Quotidien'}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-slate-200">
+                    <Calendar className="w-3.5 h-3.5" />
+                    {formatDate(selectedArticle.published_at || selectedArticle.created_at)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-slate-200">
+                    <Clock className="w-3.5 h-3.5" />
+                    {getReadingTime(selectedArticle.content_markdown)} min de lecture
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-4xl md:text-5xl font-serif font-bold text-white leading-tight">
+                  {selectedArticle.title}
+                </h1>
+              </div>
+            </div>
+
+            {/* Article Content */}
+            <div className="p-6 sm:p-10 space-y-6 sm:space-y-8">
+              <p className="text-base sm:text-xl text-slate-700 leading-relaxed font-sans italic border-l-4 border-brand-orange pl-4 py-2 bg-amber-50/30 rounded-r-xl">
+                {selectedArticle.excerpt}
+              </p>
+
+              <div className="prose prose-slate max-w-none font-sans text-sm sm:text-base">
+                {renderMarkdown(selectedArticle.content_markdown)}
+              </div>
+
+              {/* Keywords */}
+              {Array.isArray(selectedArticle.keywords) && selectedArticle.keywords.length > 0 && (
+                <div className="pt-6 border-t border-beige-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-400 mr-2 flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5" /> Mots-clés :
+                    </span>
+                    {selectedArticle.keywords.map((kw, i) => (
+                      <span
+                        key={i}
+                        className="text-xs px-3 py-1 rounded-full bg-cream-100 text-brand-blue font-medium"
+                      >
+                        #{kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Author Signature Card */}
+              <div className="p-5 rounded-2xl bg-cream-100/70 border border-beige-200 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-brand-blue text-white font-bold flex items-center justify-center text-sm shrink-0 shadow-sm">
+                  PSA
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Presta Services Antilles</p>
+                  <p className="text-xs text-slate-600">Vos spécialistes des services à domicile en Martinique (Ménage, Repassage, Bricolage, Jardinage).</p>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          {/* Related Articles Section */}
+          {relatedArticles.length > 0 && (
+            <div className="space-y-4 pt-6">
+              <h3 className="text-xl font-serif font-bold text-slate-900">
+                Autres articles qui pourraient vous intéresser
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {relatedArticles.map((rel) => (
+                  <div
+                    key={rel.id}
+                    onClick={() => openArticleDetail(rel)}
+                    className="bg-white rounded-2xl border border-beige-200 p-4 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-2 group"
+                  >
+                    <div className="h-32 w-full rounded-xl overflow-hidden bg-slate-900">
+                      <img
+                        src={getArticleImage(rel)}
+                        alt={rel.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold text-brand-blue bg-brand-blue/10 px-2 py-0.5 rounded-full inline-block">
+                      {rel.category || 'Conseils Quotidien'}
+                    </span>
+                    <h4 className="text-sm font-serif font-bold text-slate-900 group-hover:text-brand-blue line-clamp-2 transition-colors">
+                      {rel.title}
+                    </h4>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Back Button */}
+          <div className="text-center pt-4">
+            <button
+              onClick={closeArticleDetail}
+              className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-white bg-brand-blue hover:bg-brand-blue/90 px-6 py-3 rounded-2xl shadow-md transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Retour au Blog
+            </button>
+          </div>
+
+        </main>
+
+        {isPublicPage && renderPublicFooter()}
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // BLOG LISTING VIEW (GRID OF ARTICLES)
+  // --------------------------------------------------------------------------
   return (
     <div className={`w-full max-w-full overflow-x-hidden flex flex-col font-sans ${isPublicPage ? 'min-h-screen' : 'min-h-full'}`}>
       {isPublicPage && renderPublicHeader()}
@@ -383,7 +583,7 @@ const Blog: React.FC = () => {
             {filteredArticles.map((article) => (
               <article
                 key={article.id}
-                onClick={() => setSelectedArticle(article)}
+                onClick={() => openArticleDetail(article)}
                 className="bg-white rounded-3xl border border-beige-200 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col overflow-hidden group cursor-pointer hover:-translate-y-0.5"
               >
                 <div className="h-48 w-full overflow-hidden bg-slate-900 relative">
@@ -434,103 +634,6 @@ const Blog: React.FC = () => {
       </main>
 
       {isPublicPage && renderPublicFooter()}
-
-      {/* Reader Modal View with Smooth Vertical Scrolling */}
-      {selectedArticle && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md overflow-y-auto flex items-center justify-center p-3 sm:p-6">
-          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-beige-200 space-y-0 relative">
-            
-            {/* Modal Header Cover */}
-            <div className="relative h-64 md:h-96 w-full overflow-hidden bg-slate-900 shrink-0">
-              <img
-                src={getArticleImage(selectedArticle)}
-                alt={selectedArticle.title}
-                className="w-full h-full object-cover opacity-90"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-900/30 to-transparent" />
-              
-              {/* Back & Share buttons */}
-              <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
-                <button
-                  onClick={() => setSelectedArticle(null)}
-                  className="inline-flex items-center gap-2 text-xs font-bold text-slate-800 bg-white/90 hover:bg-white backdrop-blur-md px-4 py-2 rounded-full shadow-md transition-all cursor-pointer"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Retour au Blog
-                </button>
-                <button
-                  onClick={handleShare}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 bg-white/90 hover:bg-white backdrop-blur-md px-4 py-2 rounded-full shadow-md transition-all cursor-pointer"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
-                  {copied ? 'Lien copié' : 'Partager'}
-                </button>
-              </div>
-
-              {/* Title & Metadata Overlaid */}
-              <div className="absolute bottom-6 left-6 right-6 z-10 text-white">
-                <div className="flex flex-wrap items-center gap-2.5 mb-2 text-xs">
-                  <span className="bg-brand-orange text-white px-3 py-1 rounded-full font-bold shadow-sm">
-                    {selectedArticle.category || 'Conseils Quotidien'}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-slate-200">
-                    <Calendar className="w-3.5 h-3.5" />
-                    {formatDate(selectedArticle.published_at || selectedArticle.created_at)}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-slate-200">
-                    <Clock className="w-3.5 h-3.5" />
-                    {getReadingTime(selectedArticle.content_markdown)} min de lecture
-                  </span>
-                </div>
-                <h1 className="text-xl sm:text-3xl md:text-4xl font-serif font-bold text-white leading-tight">
-                  {selectedArticle.title}
-                </h1>
-              </div>
-            </div>
-
-            {/* Scrollable Article Text */}
-            <div className="p-6 md:p-10 space-y-6 sm:space-y-8">
-              <p className="text-base sm:text-lg text-slate-700 leading-relaxed font-sans italic border-l-4 border-brand-orange pl-4 py-2 bg-amber-50/30 rounded-r-xl">
-                {selectedArticle.excerpt}
-              </p>
-
-              <article className="prose prose-slate max-w-none font-sans text-sm sm:text-base">
-                {renderMarkdown(selectedArticle.content_markdown)}
-              </article>
-
-              {/* Keywords */}
-              {Array.isArray(selectedArticle.keywords) && selectedArticle.keywords.length > 0 && (
-                <div className="pt-6 border-t border-beige-200">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-400 mr-2 flex items-center gap-1">
-                      <Tag className="w-3.5 h-3.5" /> Mots-clés :
-                    </span>
-                    {selectedArticle.keywords.map((kw, i) => (
-                      <span
-                        key={i}
-                        className="text-xs px-3 py-1 rounded-full bg-cream-100 text-brand-blue font-medium"
-                      >
-                        #{kw}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Author Footer */}
-              <div className="p-5 rounded-2xl bg-cream-100/70 border border-beige-200 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-brand-blue text-white font-bold flex items-center justify-center text-sm shrink-0 shadow-sm">
-                  PSA
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">Presta Services Antilles</p>
-                  <p className="text-xs text-slate-600">Vos spécialistes des services à domicile en Martinique (Ménage, Repassage, Bricolage, Jardinage).</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
