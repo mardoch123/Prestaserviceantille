@@ -29,7 +29,8 @@ import {
   Check,
   MailCheck,
   Headphones,
-  Newspaper
+  Newspaper,
+  Sparkles
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
@@ -39,6 +40,7 @@ import { ServiceTypeFilter, getServiceTypeOptions } from '../utils/serviceTypes'
 const navItems: NavItem[] = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
   { label: 'Actualités & Blog', path: '/blog', icon: Newspaper },
+  { label: 'Gestion Articles IA', path: '/admin/articles', icon: Sparkles },
   { label: 'Pointage QR', path: '/qrcode', icon: QrCode },
   { label: 'Parrainage', path: '/parrainage', icon: Gift },
   { label: 'Dashboard Parrain', path: '/parrainage/dashboard', icon: BarChart2 },

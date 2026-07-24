@@ -31,6 +31,7 @@ import ContactPage from './components/ContactPage';
 import ContactFormsAdmin from './components/ContactFormsAdmin';
 import PublicAvailabilityPage from './components/PublicAvailabilityPage';
 import Blog from './components/Blog';
+import AdminArticlesManager from './components/AdminArticlesManager';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
@@ -640,6 +641,7 @@ const AppLayout: React.FC = () => {
     const isFlyersRoute = location.pathname === '/flyers' || location.pathname.startsWith('/flyers/');
     const isReferralRoute = location.pathname.startsWith('/parrainage');
     const isAvailabilityRoute = location.pathname === '/disponibilites';
+    const isBlogPublicRoute = location.pathname === '/blog' || location.pathname.startsWith('/blog/');
 
     const isAdminLike = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
@@ -688,6 +690,10 @@ const AppLayout: React.FC = () => {
 
     if (isAvailabilityRoute) {
         return <PublicAvailabilityPage />;
+    }
+
+    if (isBlogPublicRoute && !currentUser) {
+        return <Blog />;
     }
 
     // NE JAMAIS démonter l'application quand le réseau chute brièvement.
@@ -781,7 +787,7 @@ const AppLayout: React.FC = () => {
             <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
             {/* Main Content Wrapper */}
-            <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
+            <div className="flex-1 flex flex-col h-full min-w-0 relative overflow-hidden transition-all duration-300">
 
                 {/* Offline Banner */}
                 <OfflineBanner />
@@ -790,7 +796,7 @@ const AppLayout: React.FC = () => {
                 <Header onMenuClick={() => setIsSidebarOpen(true)} />
 
                 {/* Content Area */}
-                <main className="flex-1 overflow-hidden relative bg-cream-50/50">
+                <main className="flex-1 overflow-y-auto overflow-x-hidden relative bg-cream-50/50">
                     {/* Decorative background elements inside the scrollable area's container */}
                     <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl -z-10 transform translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
                     <div className="absolute bottom-0 left-0 w-96 h-96 bg-brand-blue/5 rounded-full blur-3xl -z-10 transform -translate-x-1/2 translate-y-1/2 pointer-events-none"></div>
@@ -834,6 +840,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/reports" element={<MissionReports />} />
                         <Route path="/blog" element={<Blog />} />
+                        <Route path="/admin/articles" element={<AdminArticlesManager />} />
                         <Route path="/scan" element={<ScanPage />} />
                         <Route path="/scan-success" element={<ScanSuccess />} />
                         <Route path="*" element={<Navigate to="/" replace />} />

@@ -15,6 +15,14 @@ type ArticleSettings = {
   ai_model: string;
 };
 
+type QualityReport = {
+  keyword_density_score: number; // Max 30
+  structure_score: number;       // Max 25
+  seo_meta_score: number;        // Max 25
+  readability_score: number;     // Max 20
+  feedback: string;
+};
+
 type GeneratedArticle = {
   title: string;
   excerpt: string;
@@ -22,6 +30,10 @@ type GeneratedArticle = {
   seo_title?: string;
   seo_description?: string;
   keywords?: string[];
+  category?: string;
+  image_url?: string;
+  seo_score: number;
+  quality_report: QualityReport;
 };
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -47,12 +59,33 @@ function toSlug(value: string, date: string): string {
   return `${normalized || 'article'}-${date.replaceAll('-', '')}`;
 }
 
+const CATEGORY_IMAGES: Record<string, string> = {
+  'Ménage & Repassage': 'https://images.pexels.com/photos/4099467/pexels-photo-4099467.jpeg?auto=compress&cs=tinysrgb&w=1200',
+  'Bricolage & Jardin': 'https://images.pexels.com/photos/4503273/pexels-photo-4503273.jpeg?auto=compress&cs=tinysrgb&w=1200',
+  'Conseils Quotidien': 'https://images.pexels.com/photos/4239146/pexels-photo-4239146.jpeg?auto=compress&cs=tinysrgb&w=1200',
+  'Martinique & Climat': 'https://images.pexels.com/photos/1005417/pexels-photo-1005417.jpeg?auto=compress&cs=tinysrgb&w=1200',
+};
+
 function extractJson(text: string): GeneratedArticle {
   const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
   const value = JSON.parse(cleaned) as GeneratedArticle;
   if (!value.title?.trim() || !value.excerpt?.trim() || !value.content_markdown?.trim()) {
     throw new Error('The AI response does not contain the required article fields.');
   }
+
+  const category = value.category?.trim() || 'Conseils Quotidien';
+  const defaultImage = CATEGORY_IMAGES[category] || CATEGORY_IMAGES['Conseils Quotidien'];
+
+  // Validate or calculate score from quality_report
+  const qr = value.quality_report || {};
+  const kwScore = Math.min(30, Math.max(0, Number(qr.keyword_density_score) || 20));
+  const structScore = Math.min(25, Math.max(0, Number(qr.structure_score) || 20));
+  const metaScore = Math.min(25, Math.max(0, Number(qr.seo_meta_score) || 20));
+  const readScore = Math.min(20, Math.max(0, Number(qr.readability_score) || 15));
+  
+  const calculatedTotal = kwScore + structScore + metaScore + readScore;
+  const finalScore = typeof value.seo_score === 'number' ? Math.min(100, Math.max(0, value.seo_score)) : calculatedTotal;
+
   return {
     title: value.title.trim(),
     excerpt: value.excerpt.trim(),
@@ -62,33 +95,59 @@ function extractJson(text: string): GeneratedArticle {
     keywords: Array.isArray(value.keywords)
       ? value.keywords.map((keyword) => String(keyword).trim()).filter(Boolean).slice(0, 12)
       : [],
+    category,
+    image_url: value.image_url?.trim() || defaultImage,
+    seo_score: finalScore,
+    quality_report: {
+      keyword_density_score: kwScore,
+      structure_score: structScore,
+      seo_meta_score: metaScore,
+      readability_score: readScore,
+      feedback: qr.feedback?.trim() || 'Article rédigé et évalué avec succès.',
+    },
   };
 }
 
 function buildPrompt(settings: ArticleSettings): string {
   const language = settings.language === 'en' ? 'English' : 'French';
-  return `You are an expert content writer. Return only valid JSON, with no Markdown fence.
+  return `You are an expert content writer and SEO auditor. Return only valid JSON, with no Markdown fence.
 
-Write one original SEO article in ${language}.
+Write one original SEO article in ${language} and grade it according to an official SEO & Quality Rubric.
+
 Topic: ${settings.topic}
 Target audience: ${settings.audience}
 Tone: ${settings.tone}
 Target length: between ${settings.min_words} and ${settings.max_words} words.
 
 Requirements:
-- Be factually cautious: do not invent prices, laws, testimonials, certifications, or company claims.
-- Use useful headings in Markdown and practical advice.
-- Do not include HTML, a call to action containing a URL, or a publication date.
-- Produce an informative article suitable for later editorial review.
+- Be factually cautious: do not invent prices, laws, testimonials, or false company claims.
+- Use clean Markdown headings (##, ###) and clear bullet points.
+- Select a category among: "Ménage & Repassage", "Bricolage & Jardin", "Conseils Quotidien", "Martinique & Climat".
+
+Grade the generated article objectively on a 100-point scale:
+1. Keyword Density Score (0 to 30 points)
+2. Structure & Headings Score (0 to 25 points)
+3. SEO Meta Title & Description Score (0 to 25 points)
+4. Readability & Practical Advice Score (0 to 20 points)
+Sum of the 4 scores = total "seo_score" (0 to 100).
 
 Return this exact JSON shape:
 {
   "title": "string",
+  "category": "string",
   "excerpt": "string, 120 to 220 characters",
   "content_markdown": "string",
-  "seo_title": "string, maximum 60 characters",
-  "seo_description": "string, maximum 155 characters",
-  "keywords": ["string"]
+  "seo_title": "string, max 60 chars",
+  "seo_description": "string, max 155 chars",
+  "keywords": ["string"],
+  "seo_score": 85,
+  "quality_report": {
+    "keyword_density_score": 25,
+    "structure_score": 22,
+    "seo_meta_score": 22,
+    "readability_score": 16,
+    "feedback": "Detailed feedback on what makes this article score well or what could be improved"
+  }
 }`;
 }
 
@@ -110,7 +169,7 @@ async function generateWithDeepSeek(settings: ArticleSettings): Promise<Generate
       messages: [
         {
           role: 'system',
-          content: 'You are an expert content writer for websites and blogs. Respond strictly with valid JSON.',
+          content: 'You are an expert SEO content writer and auditor for web applications. Respond strictly with valid JSON.',
         },
         {
           role: 'user',
@@ -207,6 +266,11 @@ serve(async (request: Request) => {
 
     try {
       const article = await generateArticle(settings);
+      
+      // RULE: Automatically publish if score > 50% AND auto_publish setting is enabled
+      const autoPublish = settings.auto_publish && article.seo_score > 50;
+      const targetStatus = autoPublish ? 'published' : 'draft';
+
       const { data: savedArticle, error: insertError } = await supabase
         .from('articles')
         .insert({
@@ -217,13 +281,27 @@ serve(async (request: Request) => {
           seo_title: article.seo_title || null,
           seo_description: article.seo_description || null,
           keywords: article.keywords || [],
+          category: article.category || 'Conseils Quotidien',
+          image_url: article.image_url || null,
+          seo_score: article.seo_score,
+          quality_report: article.quality_report,
           generated_date: scheduledFor,
-          status: settings.auto_publish ? 'published' : 'draft',
-          published_at: settings.auto_publish ? new Date().toISOString() : null,
+          status: targetStatus,
+          published_at: autoPublish ? new Date().toISOString() : null,
         })
-        .select('id, status, slug')
+        .select('id, status, slug, seo_score')
         .single();
       if (insertError) throw insertError;
+
+      // If score <= 50% or retained as draft, create an admin notification for manual review
+      if (!autoPublish) {
+        await supabase.from('admin_notifications').insert({
+          title: `Article en attente de révision (Score SEO: ${article.seo_score}%)`,
+          message: `L'article "${article.title}" a obtenu un score de ${article.seo_score}% (≤ 50%). Il a été retenu en brouillon pour validation manuelle.`,
+          type: 'article_review',
+          link: '/admin/articles',
+        });
+      }
 
       const { error: completedError } = await supabase
         .from('article_generation_runs')
@@ -231,7 +309,7 @@ serve(async (request: Request) => {
         .eq('id', run.id);
       if (completedError) throw completedError;
 
-      return response({ ok: true, scheduledFor, article: savedArticle });
+      return response({ ok: true, scheduledFor, article: savedArticle, autoPublished: autoPublish });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 1000) : 'Unknown generation error';
       await supabase
