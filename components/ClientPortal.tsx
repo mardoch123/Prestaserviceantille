@@ -5044,7 +5044,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                         handleConfirmBooking();
                       }
                     }}
-                    disabled={!selectedPackId || isBooking || (selectedPack && slotDuration !== null && slotDuration < getPackHoursPerSession(selectedPack))}
+                    disabled={!selectedPackId || isBooking || Boolean(selectedPack && slotDuration !== null && slotDuration < getPackHoursPerSession(selectedPack))}
                     className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
                     title={selectedPack && slotDuration !== null && slotDuration < getPackHoursPerSession(selectedPack) ? `Ce pack requiert un créneau de ${getPackHoursPerSession(selectedPack)}h minimum (créneau actuel : ${slotDuration}h)` : ''}
                   >
