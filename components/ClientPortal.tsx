@@ -9,6 +9,7 @@ import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 
 import { SafeImage, LogoImage } from './SafeImage';
 import { getServiceTypeFromText } from '../utils/serviceTypes';
 import { isHoliday, getHolidayName } from '../utils/holidays';
+import { isPackSerenity } from '../lib/utils';
 import {
   computeFreeSlots as computeFreeSlotsUtil,
   getProvisionalMissionsFromDocuments,
@@ -4254,9 +4255,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     return { count, types: Array.from(availableTypes), names: providerNames };
   }, [providers, missions, documents]);
 
-  // Available packs
+  // Available packs (exclut le Pack Sérénity du système de réservation client)
   const availablePacks = useMemo(() => {
-    return packs.filter(p => p.priceTTC > 0);
+    return packs.filter(p => p.priceTTC > 0 && !isPackSerenity(p));
   }, [packs]);
 
   const selectedPack = useMemo(() => {
@@ -4343,8 +4344,34 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const handleConfirmBooking = async () => {
     if (!bookingSlot || !selectedPack || !client) return;
 
-    // Multi-session packs: warn if not all auto-generated slots found (remaining planned by admin)
+    // Validation obligatoire : vérifier que le nombre de jours/heures requis par le pack est sélectionné
     const sessionCount = getPackSessionCount(selectedPack);
+    const hoursPerSession = getPackHoursPerSession(selectedPack);
+    const requiredTotalHours = sessionCount * hoursPerSession;
+    
+    // Calculer le total des créneaux sélectionnés
+    const allSlotsData = [
+      { date: bookingSlot.date, startTime: customStartTime || bookingSlot.startTime, endTime: customEndTime || bookingSlot.endTime },
+      ...multiSlots
+    ];
+    
+    // Vérifier que tous les créneaux requis sont présents
+    if (sessionCount > 1 && multiSlots.length < sessionCount - 1) {
+      const missing = sessionCount - 1 - multiSlots.length;
+      toast.error(`Ce pack requiert ${sessionCount} séances (${requiredTotalHours}h au total). Il manque ${missing} séance${missing > 1 ? 's' : ''}. Veuillez sélectionner tous les créneaux avant de valider.`);
+      return;
+    }
+    
+    // Vérifier que chaque créneau a la bonne durée
+    const finalStartTime = customStartTime || bookingSlot.startTime;
+    const finalEndTime = customEndTime || bookingSlot.endTime;
+    const firstSlotDuration = (timeToMinutes(finalEndTime) - timeToMinutes(finalStartTime)) / 60;
+    if (firstSlotDuration < hoursPerSession) {
+      toast.error(`Ce pack requiert des créneaux de ${hoursPerSession}h minimum. Le créneau sélectionné est de ${firstSlotDuration}h. Veuillez choisir un créneau adapté.`);
+      return;
+    }
+
+    // Multi-session packs: warn if not all auto-generated slots found (remaining planned by admin)
     if (sessionCount > 1 && multiSlots.length === 0) {
       // No auto-generated slots at all — warn user
       toast.info('Les séances supplémentaires seront planifiées par notre équipe.');
@@ -5017,8 +5044,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                         handleConfirmBooking();
                       }
                     }}
-                    disabled={!selectedPackId || isBooking}
+                    disabled={!selectedPackId || isBooking || (selectedPack && slotDuration !== null && slotDuration < getPackHoursPerSession(selectedPack))}
                     className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                    title={selectedPack && slotDuration !== null && slotDuration < getPackHoursPerSession(selectedPack) ? `Ce pack requiert un créneau de ${getPackHoursPerSession(selectedPack)}h minimum (créneau actuel : ${slotDuration}h)` : ''}
                   >
                     {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
                     {isBooking ? 'Réservation...' :
@@ -5117,8 +5145,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   </button>
                   <button
                     onClick={handleConfirmBooking}
-                    disabled={!selectedPackId || isBooking || !client}
+                    disabled={!selectedPackId || isBooking || !client || (selectedPack && getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1)}
                     className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                    title={selectedPack && getPackSessionCount(selectedPack) > 1 && multiSlots.length < getPackSessionCount(selectedPack) - 1 ? `Il manque ${getPackSessionCount(selectedPack) - 1 - multiSlots.length} séance(s). Tous les créneaux doivent être sélectionnés.` : ''}
                   >
                     {isBooking ? <Loader className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
                     {isBooking ? 'Réservation en cours...' : 'Confirmer et signer'}

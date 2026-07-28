@@ -205,6 +205,8 @@ const Planning: React.FC = () => {
 
   // --- Modal facturation dédié ---
   const [showBillingModal, setShowBillingModal] = useState(false);
+  // IDs des documents déjà facturés pendant cette session (pour l'état "déjà facturé")
+  const [invoicedDocIds, setInvoicedDocIds] = useState<Set<string>>(new Set());
 
   // --- GRAFTED: Quick Assign & Sidebar ---
   const [quickAssignOpen, setQuickAssignOpen] = useState(false);
@@ -1018,9 +1020,14 @@ const Planning: React.FC = () => {
 
   // --- GRAFTED: Indicateurs de facturation (bleu = 2+ réalisées, violet = 6+ réalisées pack ultime) ---
   const billingSignals = useMemo(() => {
+      const today = getMartiniqueToday();
+      const oneMonthAgo = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).subtract(30, 'day').format('YYYY-MM-DD');
+      
       const byDoc = new Map<string, typeof missions>();
       missions.forEach(m => {
           if (!m.sourceDocumentId) return;
+          // Exclure les missions de plus de 1 mois (la facturation n'est plus pertinente)
+          if (m.date && m.date < oneMonthAgo) return;
           const group = byDoc.get(m.sourceDocumentId) ?? [];
           group.push(m);
           byDoc.set(m.sourceDocumentId, group);
@@ -1032,8 +1039,11 @@ const Planning: React.FC = () => {
       const ultimatePackDocs = new Map<string, { completedCount: number; totalCount: number; clientName: string; docRef: string; completedMissions: { service: string; date: string }[]; pendingMissions: { service: string; date: string }[] }>();
 
       byDoc.forEach((missionGroup, docId) => {
-          const completed = missionGroup.filter(m => m.status === 'completed');
+          // Exclure les documents déjà convertis en facture (linkedInvoiceId ou status 'converted')
           const doc = documents.find(d => d.id === docId);
+          if (doc?.linkedInvoiceId || doc?.status === 'converted') return;
+          
+          const completed = missionGroup.filter(m => m.status === 'completed');
           const clientName = missionGroup[0]?.clientName ?? '—';
           const docRef = doc?.ref ?? docId.slice(0, 8);
 
@@ -1447,7 +1457,7 @@ const Planning: React.FC = () => {
               title: 'Facturation possible',
               message: `Devis ${data.clientName} — ${data.completedCount} prestations réalisées`,
               priority: 'high',
-              action: { label: 'Préparer', onClick: () => {} },
+              action: { label: 'Facturer', onClick: () => { setShowBillingModal(true); setShowNotifications(false); } },
           });
       });
 
@@ -1459,7 +1469,7 @@ const Planning: React.FC = () => {
               title: 'Pack complet',
               message: `Pack ultime de ${data.clientName} complet — ${data.completedCount} prestations`,
               priority: 'high',
-              action: { label: 'Facturer', onClick: () => {} },
+              action: { label: 'Facturer', onClick: () => { setShowBillingModal(true); setShowNotifications(false); } },
           });
       });
 
@@ -5626,15 +5636,25 @@ const Planning: React.FC = () => {
                                                   onClick={async () => {
                                                       try {
                                                           await convertQuoteToInvoice(docId);
+                                                          setInvoicedDocIds(prev => new Set([...prev, docId]));
                                                           toast.success(`Facture générée pour ${data.clientName}`);
                                                           if (refreshData) await refreshData();
                                                       } catch (e: any) {
                                                           toast.error(e?.message || 'Erreur conversion facture');
                                                       }
                                                   }}
-                                                  className="w-full py-2 bg-gradient-to-r from-violet-600 to-purple-700 hover:from-violet-700 hover:to-purple-800 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5"
+                                                  disabled={invoicedDocIds.has(docId)}
+                                                  className={`w-full py-2 rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 ${
+                                                      invoicedDocIds.has(docId)
+                                                          ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                                                          : 'bg-gradient-to-r from-violet-600 to-purple-700 hover:from-violet-700 hover:to-purple-800 text-white'
+                                                  }`}
                                               >
-                                                  <FileText className="w-3.5 h-3.5" /> Générer la facture
+                                                  {invoicedDocIds.has(docId) ? (
+                                                      <><CheckCircle className="w-3.5 h-3.5" /> Déjà facturé</>
+                                                  ) : (
+                                                      <><FileText className="w-3.5 h-3.5" /> Générer la facture</>
+                                                  )}
                                               </button>
                                           </div>
                                       );
@@ -5697,15 +5717,25 @@ const Planning: React.FC = () => {
                                                   onClick={async () => {
                                                       try {
                                                           await convertQuoteToInvoice(docId);
+                                                          setInvoicedDocIds(prev => new Set([...prev, docId]));
                                                           toast.success(`Facture générée pour ${data.clientName}`);
                                                           if (refreshData) await refreshData();
                                                       } catch (e: any) {
                                                           toast.error(e?.message || 'Erreur conversion facture');
                                                       }
                                                   }}
-                                                  className="w-full py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5"
+                                                  disabled={invoicedDocIds.has(docId)}
+                                                  className={`w-full py-2 rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 ${
+                                                      invoicedDocIds.has(docId)
+                                                          ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                                                          : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white'
+                                                  }`}
                                               >
-                                                  <FileText className="w-3.5 h-3.5" /> Générer la facture
+                                                  {invoicedDocIds.has(docId) ? (
+                                                      <><CheckCircle className="w-3.5 h-3.5" /> Déjà facturé</>
+                                                  ) : (
+                                                      <><FileText className="w-3.5 h-3.5" /> Générer la facture</>
+                                                  )}
                                               </button>
                                           </div>
                                       );
@@ -5715,29 +5745,37 @@ const Planning: React.FC = () => {
                       )}
 
                       {/* Tout facturer d'un coup */}
-                      {(billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size) > 1 && (
+                      {(billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size) > 1 && (() => {
+                          const allDocIds = [
+                              ...Array.from(billingSignals.ultimatePackDocs.keys()),
+                              ...Array.from(billingSignals.readyToInvoiceDocs.keys())
+                          ];
+                          const remainingCount = allDocIds.filter(id => !invoicedDocIds.has(id)).length;
+                          if (remainingCount === 0) return null;
+                          return (
                           <button
                               type="button"
                               onClick={async () => {
                                   setBillingValidating(true);
-                                  const allDocIds = [
-                                      ...Array.from(billingSignals.ultimatePackDocs.keys()),
-                                      ...Array.from(billingSignals.readyToInvoiceDocs.keys())
-                                  ];
                                   let ok = 0, ko = 0;
+                                  const newlyInvoiced = new Set<string>();
                                   for (const docId of allDocIds) {
+                                      if (invoicedDocIds.has(docId)) continue;
                                       try {
                                           await convertQuoteToInvoice(docId);
+                                          newlyInvoiced.add(docId);
                                           ok++;
                                       } catch (e) {
                                           ko++;
                                       }
                                   }
+                                  if (newlyInvoiced.size > 0) {
+                                      setInvoicedDocIds(prev => new Set([...prev, ...newlyInvoiced]));
+                                  }
                                   setBillingValidating(false);
                                   if (ok > 0) toast.success(`${ok} facture(s) générée(s) avec succès`);
                                   if (ko > 0) toast.error(`${ko} erreur(s) de conversion`);
                                   if (refreshData) await refreshData();
-                                  setShowBillingModal(false);
                               }}
                               disabled={billingValidating}
                               className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-700 text-white rounded-xl font-black text-sm hover:from-green-700 hover:to-emerald-800 disabled:opacity-50 transition shadow-lg flex items-center justify-center gap-2"
@@ -5745,10 +5783,11 @@ const Planning: React.FC = () => {
                               {billingValidating ? (
                                   <><Loader2 className="w-4 h-4 animate-spin" /> Conversion en cours...</>
                               ) : (
-                                  <><FileText className="w-4 h-4" /> Tout facturer ({billingSignals.readyToInvoiceDocs.size + billingSignals.ultimatePackDocs.size} clients)</>
+                                  <><FileText className="w-4 h-4" /> Tout facturer ({remainingCount} client{remainingCount > 1 ? 's' : ''})</>
                               )}
                           </button>
-                      )}
+                          );
+                      })()}
                   </div>
 
                   {/* Footer */}

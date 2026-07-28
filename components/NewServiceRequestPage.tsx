@@ -5,6 +5,7 @@ import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { getMartiniqueToday, formatMartiniqueDate } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
 import { createCustomerServiceRequest } from '../modules/serviceRequests/client';
+import { isPackSerenity } from '../lib/utils';
 import {
   ArrowLeft,
   ArrowRight,
@@ -113,7 +114,8 @@ const NewServiceRequestPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // TOUS les packs disponibles (pas de filtrage par type de service)
-  const allPacks = useMemo(() => packs, [packs]);
+  // Exclusion stricte : le Pack Sérénity ne doit jamais apparaître dans la réservation client
+  const allPacks = useMemo(() => packs.filter(p => !isPackSerenity(p)), [packs]);
 
   // Pack sélectionné
   const selectedPack = useMemo(() => packs.find(p => p.id === selectedPackId), [packs, selectedPackId]);
@@ -376,10 +378,17 @@ const NewServiceRequestPage: React.FC = () => {
           showToast("Le pack 'Ultime 6' ne permet qu'une seule séance de 6h.", 'warning');
           return;
         }
+        // Calculer les heures requises par le pack (logique cohérente avec canProceed)
+        let requiredHours = pack.hours || 0;
+        if (pack.schedules && pack.schedules.length > 0) {
+          requiredHours = pack.schedules.reduce((acc: number, s: any) => acc + (s.days || 1) * (s.hoursPerDay || 2), 0);
+        } else if (pack.interventionSchedules && pack.interventionSchedules.length > 0) {
+          requiredHours = pack.interventionSchedules.reduce((acc: number, s: any) => acc + (s.duration || 2), 0);
+        }
         // Vérifier les heures totales
         const totalHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
-        if (totalHours >= pack.hours) {
-          showToast(`Le pack ${pack.name} est limité à ${pack.hours}h.`, 'warning');
+        if (totalHours >= requiredHours) {
+          showToast(`Le pack ${pack.name} est limité à ${requiredHours}h.`, 'warning');
           return;
         }
       }
@@ -529,7 +538,26 @@ ${additionalNotes ? `Notes additionnelles: ${additionalNotes}` : ''}
           return customDescription.trim().length > 0 && customUnitPrice > 0;
         }
       case 'slots':
-        return interventionSlots.length > 0;
+        if (interventionSlots.length === 0) return false;
+        // Validation obligatoire : si un pack est sélectionné, le total d'heures
+        // planifiées doit correspondre aux heures requises par le pack
+        if (serviceMode === 'pack' && selectedPackId) {
+          const pack = packs.find(p => p.id === selectedPackId);
+          if (pack) {
+            const totalPlannedHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+            // Calculer les heures requises par le pack
+            let requiredHours = pack.hours || 0;
+            // Si le pack a des schedules, utiliser leur total
+            if (pack.schedules && pack.schedules.length > 0) {
+              requiredHours = pack.schedules.reduce((acc: number, s: any) => acc + (s.days || 1) * (s.hoursPerDay || 2), 0);
+            } else if (pack.interventionSchedules && pack.interventionSchedules.length > 0) {
+              requiredHours = pack.interventionSchedules.reduce((acc: number, s: any) => acc + (s.duration || 2), 0);
+            }
+            // Le total planifié doit être >= aux heures requises
+            if (totalPlannedHours < requiredHours) return false;
+          }
+        }
+        return true;
       case 'signature':
         return !!(signatureData || uploadedSignature) && address.trim().length > 0 && agreementChecked;
       default:
@@ -923,17 +951,47 @@ ${additionalNotes ? `Notes additionnelles: ${additionalNotes}` : ''}
                 </div>
               )}
 
-              {/* Total heures */}
-              {interventionSlots.length > 0 && (
-                <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-200">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-700">Total heures planifiées:</span>
-                    <span className="text-lg font-bold text-brand-blue">
-                      {interventionSlots.reduce((acc, s) => acc + s.duration, 0)}h
-                    </span>
-                  </div>
-                </div>
-              )}
+              {/* Total heures avec validation */}
+              {interventionSlots.length > 0 && (() => {
+                const totalPlannedHours = interventionSlots.reduce((acc, s) => acc + s.duration, 0);
+                let requiredHours = 0;
+                let showValidation = false;
+                if (serviceMode === 'pack' && selectedPackId) {
+                  const pack = packs.find(p => p.id === selectedPackId);
+                  if (pack) {
+                    if (pack.schedules && pack.schedules.length > 0) {
+                      requiredHours = pack.schedules.reduce((acc: number, s: any) => acc + (s.days || 1) * (s.hoursPerDay || 2), 0);
+                    } else if (pack.interventionSchedules && pack.interventionSchedules.length > 0) {
+                      requiredHours = pack.interventionSchedules.reduce((acc: number, s: any) => acc + (s.duration || 2), 0);
+                    } else {
+                      requiredHours = pack.hours || 0;
+                    }
+                    showValidation = requiredHours > 0;
+                  }
+                }
+                const hoursOk = !showValidation || totalPlannedHours >= requiredHours;
+                return (
+                  <>
+                    <div className={`mt-4 p-4 rounded-xl border ${hoursOk ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-300'}`}>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-700">Total heures planifiées:</span>
+                        <span className={`text-lg font-bold ${hoursOk ? 'text-brand-blue' : 'text-red-600'}`}>
+                          {totalPlannedHours}h
+                          {showValidation && (
+                            <span className="text-sm font-normal text-slate-500"> / {requiredHours}h requises</span>
+                          )}
+                        </span>
+                      </div>
+                      {!hoursOk && (
+                        <div className="mt-2 flex items-center gap-2 text-sm text-red-700 bg-red-100 p-2 rounded-lg">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>Il manque <strong>{requiredHours - totalPlannedHours}h</strong> pour atteindre les {requiredHours}h requises par ce pack. Ajoutez des créneaux supplémentaires.</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0">
