@@ -1,7 +1,7 @@
 {
   "name": "presta-services-antilles",
   "private": true,
-  "version": "1.0.45",
+  "version": "1.0.48",
   "type": "module",
   "scripts": {
     "dev": "vite",

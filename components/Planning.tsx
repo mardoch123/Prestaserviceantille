@@ -61,12 +61,12 @@ import { useHaptic } from '../hooks/useHaptic';
 import { toast } from '../components/mobile/Toast';
 import { PullToRefresh } from '../components/mobile/PullToRefresh';
 
-// Prestataire fictif pour les prestations externalisées
+// Prestataire fictif pour EDWARD Sylvie (prestations externalisées)
 const EXTERNAL_PROVIDER_ID = '__external__';
 const EXTERNAL_PROVIDER: Provider = {
     id: EXTERNAL_PROVIDER_ID,
-    firstName: 'Prestation',
-    lastName: 'Externalisée',
+    firstName: 'EDWARD',
+    lastName: 'Sylvie',
     status: 'Active',
     specialty: 'Externe',
     leaves: [],
@@ -3801,7 +3801,7 @@ const Planning: React.FC = () => {
                                 tabIndex={-1}
                              >
                                 <option value="">(À assigner plus tard)</option>
-                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie</option>
                                 {providers.map(p => {
                                     const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                     const available = reason === null;
@@ -3815,7 +3815,7 @@ const Planning: React.FC = () => {
                              <SearchableSelect
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
-                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 Prestation Externalisée (toujours disponible)' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie (toujours disponible)' },
                                     ...providers.map(p => {
                                         const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
@@ -3835,7 +3835,7 @@ const Planning: React.FC = () => {
                              <SearchableSelect
                                 options={[
                                     { value: '', label: '(Aucun)' },
-                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 Prestation Externalisée' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie' },
                                     ...providers.filter(p => p.id !== missionForm.providerId).map(p => {
                                         const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
                                         return {
@@ -4115,7 +4115,7 @@ const Planning: React.FC = () => {
                                 disabled={isSubmitting}
                             >
                                 <option value="">Sélectionner dans la liste...</option>
-                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée (toujours disponible)</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie (toujours disponible)</option>
                                 {providers.map(p => {
                                     const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
                                     const available = reason === null;
@@ -4143,7 +4143,7 @@ const Planning: React.FC = () => {
                                 disabled={isSubmitting}
                             >
                                 <option value="">Aucun (prestataire seul)</option>
-                                <option value={EXTERNAL_PROVIDER_ID}>🔵 Prestation Externalisée</option>
+                                <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie</option>
                                 {providers.filter(p => p.id !== assignProviderId).map(p => {
                                     const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
                                     const available = reason === null;
@@ -4580,7 +4580,7 @@ const Planning: React.FC = () => {
                             <SearchableSelect
                                 options={[
                                     { value: '', label: '(À assigner plus tard)' },
-                                    { value: EXTERNAL_PROVIDER_ID, label: '🏢 Prestation Externalisée' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🏢 EDWARD Sylvie' },
                                     ...providers.map(p => {
                                         const name = getProviderDisplayName(p);
                                         const reason = editMissionForm.date ? getProviderUnavailableReason(p.id, editMissionForm.date, editMissionForm.startTime, editMissionForm.endTime, selectedMissionDetails?.id) : null;
@@ -5271,8 +5271,8 @@ const Planning: React.FC = () => {
                                           type="button"
                                           onClick={async () => {
                                               try {
-                                                  await assignProvider(quickAssignMission.id, EXTERNAL_PROVIDER_ID, 'Prestation Externalisée');
-                                                  toast.success('Prestation externalisée assignée !');
+                                                  await assignProvider(quickAssignMission.id, EXTERNAL_PROVIDER_ID, 'EDWARD Sylvie');
+                                                  toast.success('EDWARD Sylvie assignée !');
                                                   if (refreshData) await refreshData();
                                               } catch (err: any) {
                                                   toast.error(err?.message || "Erreur d'assignation");
@@ -5283,9 +5283,9 @@ const Planning: React.FC = () => {
                                           }}
                                           className="w-full p-2 rounded-lg text-left transition flex items-center gap-2 bg-blue-50 border border-blue-200 hover:border-blue-400 hover:bg-blue-100"
                                       >
-                                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-black text-blue-700 shrink-0">PE</div>
+                                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-black text-blue-700 shrink-0">ES</div>
                                           <div className="flex-1 min-w-0">
-                                              <div className="text-xs font-bold text-blue-800 truncate">Prestation Externalisée</div>
+                                              <div className="text-xs font-bold text-blue-800 truncate">EDWARD Sylvie</div>
                                               <div className="text-[10px] text-blue-600">Toujours disponible</div>
                                           </div>
                                           <CheckCircle className="w-4 h-4 text-blue-500" />

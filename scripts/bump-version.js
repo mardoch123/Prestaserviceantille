@@ -1,6 +1,7 @@
 /**
  * Script de gestion de version pour l'application
  * Incrémente automatiquement le numéro de build et la version
+ * Met à jour public/version.json ET android/app/build.gradle
  * À exécuter avant chaque build: node scripts/bump-version.js
  */
 
@@ -12,6 +13,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const versionFilePath = path.join(__dirname, '../public/version.json');
+const buildGradlePath = path.join(__dirname, '../android/app/build.gradle');
+
+function updateBuildGradle(versionCode, versionName) {
+    if (!fs.existsSync(buildGradlePath)) {
+        console.warn('⚠️  android/app/build.gradle introuvable, synchronisation Android ignorée.');
+        return;
+    }
+
+    let content = fs.readFileSync(buildGradlePath, 'utf8');
+    let modified = false;
+
+    // Remplacer versionCode
+    const versionCodeRegex = /(versionCode\s+)\d+/;
+    if (versionCodeRegex.test(content)) {
+        content = content.replace(versionCodeRegex, `$1${versionCode}`);
+        modified = true;
+    }
+
+    // Remplacer versionName
+    const versionNameRegex = /(versionName\s+")\d+\.\d+\.\d+(")/;
+    if (versionNameRegex.test(content)) {
+        content = content.replace(versionNameRegex, `$1${versionName}$2`);
+        modified = true;
+    }
+
+    if (modified) {
+        fs.writeFileSync(buildGradlePath, content);
+        console.log(`📱 build.gradle synchronisé : versionCode ${versionCode} / versionName "${versionName}"`);
+    } else {
+        console.warn('⚠️  Impossible de trouver versionCode/versionName dans build.gradle.');
+    }
+}
 
 function bumpVersion() {
     try {
@@ -39,11 +72,14 @@ function bumpVersion() {
             versionData.version = `${major}.${minor}.${buildNum}`;
         }
         
-        // Écrire le nouveau fichier
+        // Écrire le nouveau fichier version.json
         fs.writeFileSync(versionFilePath, JSON.stringify(versionData, null, 2));
         
         console.log(`✅ Version incrémentée: ${versionData.version} (build #${versionData.buildNumber})`);
         console.log(`📅 Build date: ${versionData.buildDate}`);
+
+        // Synchroniser android/app/build.gradle
+        updateBuildGradle(versionData.buildNumber, versionData.version);
         
         return versionData;
     } catch (error) {
