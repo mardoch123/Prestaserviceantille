@@ -1188,6 +1188,49 @@ const Planning: React.FC = () => {
           }, 0);
   };
 
+  // --- GRAFTED: Heures supplémentaires déjà planifiées pour un prestataire sur un jour donné ---
+  const getProviderOvertimeHours = (providerId: string, dateStr: string): number => {
+      return missions
+          .filter(m => m.providerId === providerId && m.date === dateStr && m.status !== 'cancelled' && m.isOvertime === true)
+          .reduce((acc, m) => {
+              const d = calculateDuration(m.date, m.startTime, m.date, m.endTime);
+              return acc + (Number.isFinite(d) && d > 0 ? d : 0);
+          }, 0);
+  };
+
+  // --- GRAFTED: Label enrichi pour la sélection de prestataire en mode heures sup. ---
+  const getProviderSelectLabel = (p: any, dateStr: string, startTime: string, endTime: string, isOvertimeMode: boolean): { label: string; disabled: boolean; available: boolean } => {
+      const name = getProviderDisplayName(p);
+      const reason = dateStr ? getProviderUnavailableReason(p.id, dateStr, startTime, endTime) : null;
+      const available = reason === null;
+      const isActive = p.status === 'Active';
+
+      if (!isActive) {
+          return { label: `${name} (Inactif)`, disabled: true, available: false };
+      }
+
+      if (isOvertimeMode) {
+          // En mode heures sup : tous les prestataires sont affichés et sélectionnables
+          const overtimeHours = dateStr ? getProviderOvertimeHours(p.id, dateStr) : 0;
+          let label = name;
+          if (available) {
+              label += ` (disponible)`;
+          } else {
+              label += ` (indisponible : ${reason})`;
+          }
+          if (overtimeHours > 0) {
+              label += ` — ${overtimeHours.toFixed(1)}h sup. déjà`;
+          }
+          return { label, disabled: false, available };
+      }
+
+      // Mode normal : seuls les prestataires disponibles sont sélectionnables
+      if (reason) {
+          return { label: `${name} (${reason})`, disabled: true, available: false };
+      }
+      return { label: name, disabled: false, available: true };
+  };
+
   function calculateDuration(startDate: string, startTime: string, endDate: string, endTime: string) {
       const start = dayjs.tz(`${startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const end = dayjs.tz(`${endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
@@ -3792,7 +3835,14 @@ const Planning: React.FC = () => {
 
                     <div className="grid grid-cols-1 gap-4">
                         <div>
-                             <label className="block text-sm font-bold text-slate-700 mb-1">Prestataire</label>
+                             <label className="block text-sm font-bold text-slate-700 mb-1">
+                                Prestataire
+                                {missionForm.isOvertime && (
+                                    <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded border border-orange-300">
+                                        ⚡ Heures sup.
+                                    </span>
+                                )}
+                             </label>
                              <select
                                 name="providerId"
                                 value={missionForm.providerId}
@@ -3803,11 +3853,10 @@ const Planning: React.FC = () => {
                                 <option value="">(À assigner plus tard)</option>
                                 <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie</option>
                                 {providers.map(p => {
-                                    const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
-                                    const available = reason === null;
+                                    const { label, disabled } = getProviderSelectLabel(p, missionForm.date, missionForm.startTime, missionForm.endTime, !!missionForm.isOvertime);
                                     return (
-                                        <option key={p.id} value={p.id} disabled={!available}>
-                                            {getProviderDisplayName(p)} {reason ? `(${reason})` : ''}
+                                        <option key={p.id} value={p.id} disabled={disabled}>
+                                            {label}
                                         </option>
                                     );
                                 })}
@@ -3817,44 +3866,85 @@ const Planning: React.FC = () => {
                                     { value: '', label: '(À assigner plus tard)' },
                                     { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie (toujours disponible)' },
                                     ...providers.map(p => {
-                                        const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
-                                        return {
-                                            value: p.id,
-                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
-                                            disabled: reason !== null
-                                        };
+                                        const { label, disabled } = getProviderSelectLabel(p, missionForm.date, missionForm.startTime, missionForm.endTime, !!missionForm.isOvertime);
+                                        return { value: p.id, label, disabled };
                                     })
                                 ]}
                                 value={missionForm.providerId}
                                 onChange={(value) => setMissionForm(prev => ({ ...prev, providerId: value }))}
                                 placeholder="(À assigner plus tard)"
                              />
+                             {missionForm.isOvertime && missionForm.date && missionForm.providerId && missionForm.providerId !== EXTERNAL_PROVIDER_ID && missionForm.providerId !== '' && (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                    <p className="text-[11px] text-orange-700">
+                                        {(() => {
+                                            const p = providers.find(pr => pr.id === missionForm.providerId);
+                                            if (!p) return null;
+                                            const available = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) === null : true;
+                                            return available
+                                                ? 'Ce prestataire est normalement disponible sur ce créneau.'
+                                                : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
+                                        })()}
+                                    </p>
+                                </div>
+                             )}
                         </div>
                         <div>
-                             <label className="block text-sm font-bold text-slate-700 mb-1">2e Prestataire <span className="font-normal text-slate-400 text-xs">(optionnel)</span></label>
+                             <label className="block text-sm font-bold text-slate-700 mb-1">
+                                2e Prestataire <span className="font-normal text-slate-400 text-xs">(optionnel)</span>
+                                {missionForm.isOvertime && (
+                                    <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded border border-orange-300">
+                                        ⚡ Heures sup.
+                                    </span>
+                                )}
+                             </label>
                              <SearchableSelect
                                 options={[
                                     { value: '', label: '(Aucun)' },
                                     { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie' },
                                     ...providers.filter(p => p.id !== missionForm.providerId).map(p => {
-                                        const reason = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) : null;
-                                        return {
-                                            value: p.id,
-                                            label: `${getProviderDisplayName(p)}${reason ? ` (${reason})` : ''}`,
-                                            disabled: reason !== null
-                                        };
+                                        const { label, disabled } = getProviderSelectLabel(p, missionForm.date, missionForm.startTime, missionForm.endTime, !!missionForm.isOvertime);
+                                        return { value: p.id, label, disabled };
                                     })
                                 ]}
                                 value={missionForm.provider2Id}
                                 onChange={(value) => setMissionForm(prev => ({ ...prev, provider2Id: value }))}
                                 placeholder="(Aucun)"
                              />
+                             {missionForm.isOvertime && missionForm.date && missionForm.provider2Id && missionForm.provider2Id !== EXTERNAL_PROVIDER_ID && missionForm.provider2Id !== '' && (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                    <p className="text-[11px] text-orange-700">
+                                        {(() => {
+                                            const p = providers.find(pr => pr.id === missionForm.provider2Id);
+                                            if (!p) return null;
+                                            const available = missionForm.date ? getProviderUnavailableReason(p.id, missionForm.date, missionForm.startTime, missionForm.endTime) === null : true;
+                                            return available
+                                                ? 'Ce prestataire est normalement disponible sur ce créneau.'
+                                                : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
+                                        })()}
+                                    </p>
+                                </div>
+                             )}
                         </div>
                     </div>
 
                     {/* GRAFTED: Suggestions automatiques de prestataires */}
                     {missionForm.date && missionForm.startTime && missionForm.endTime && (
                         <div className="mt-2">
+                            {missionForm.isOvertime && (
+                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3 text-xs text-orange-700 flex items-start gap-2">
+                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-orange-500" />
+                                    <div>
+                                        <div className="font-bold">Mode heures supplémentaires activé</div>
+                                        <div className="font-normal mt-0.5">
+                                            Tous les prestataires sont affichés dans la liste déroulante, y compris ceux normalement indisponibles.
+                                            Les prestataires indisponibles seront marqués <span className="font-bold">(indisponible&nbsp;: raison)</span>.
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {providerSuggestions.suggestions.length > 0 ? (
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wide">
@@ -3900,12 +3990,17 @@ const Planning: React.FC = () => {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 font-semibold flex items-start gap-2">
+                                <div className={`rounded-xl p-3 text-xs font-semibold flex items-start gap-2 ${missionForm.isOvertime ? 'bg-orange-50 border border-orange-200 text-orange-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
                                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                                     <div>
-                                        <div className="font-bold">Aucune prestataire disponible</div>
+                                        <div className="font-bold">
+                                            {missionForm.isOvertime ? 'Aucune prestataire normalement disponible' : 'Aucune prestataire disponible'}
+                                        </div>
                                         <div className="font-normal mt-1">
-                                            {Array.from(providerSuggestions.reasons.values()).flat().slice(0, 3).join(' • ') || 'Vérifiez les créneaux disponibles'}
+                                            {missionForm.isOvertime
+                                                ? 'Utilisez la liste déroulante pour sélectionner un prestataire en heures supplémentaires.'
+                                                : (Array.from(providerSuggestions.reasons.values()).flat().slice(0, 3).join(' • ') || 'Vérifiez les créneaux disponibles')
+                                            }
                                         </div>
                                     </div>
                                 </div>
@@ -4107,7 +4202,14 @@ const Planning: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2">1er Prestataire *</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">
+                                1er Prestataire *
+                                {assignIsOvertime && (
+                                    <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded border border-orange-300">
+                                        ⚡ Heures sup.
+                                    </span>
+                                )}
+                            </label>
                             <select 
                                 className="w-full p-3 bg-white border border-slate-300 rounded-lg outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
                                 value={assignProviderId}
@@ -4117,25 +4219,43 @@ const Planning: React.FC = () => {
                                 <option value="">Sélectionner dans la liste...</option>
                                 <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie (toujours disponible)</option>
                                 {providers.map(p => {
-                                    const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
-                                    const available = reason === null;
-                                    const isActive = p.status === 'Active';
-                                    const canAssign = available && isActive;
-                                    const name = getProviderDisplayName(p);
-                                    let label = name;
-                                    if (!isActive) label += ' (Inactif)';
-                                    else if (reason) label += ` (${reason})`;
+                                    const dateStr = missionToAssign?.date || '';
+                                    const startTime = missionToAssign?.startTime || '00:00';
+                                    const endTime = missionToAssign?.endTime || '23:59';
+                                    const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
                                     return (
-                                        <option key={p.id} value={p.id} disabled={!canAssign} className={!canAssign ? 'text-slate-400' : ''}>
+                                        <option key={p.id} value={p.id} disabled={isDisabled} className={isDisabled ? 'text-slate-400' : ''}>
                                             {label}
                                         </option>
                                     )
                                 })}
                             </select>
+                            {assignIsOvertime && assignProviderId && assignProviderId !== EXTERNAL_PROVIDER_ID && missionToAssign?.date && (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                    <p className="text-[11px] text-orange-700">
+                                        {(() => {
+                                            const p = providers.find(pr => pr.id === assignProviderId);
+                                            if (!p) return null;
+                                            const available = getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null;
+                                            return available
+                                                ? 'Ce prestataire est normalement disponible sur ce créneau.'
+                                                : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
+                                        })()}
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-violet-700 mb-2">2e Prestataire (binôme, optionnel)</label>
+                            <label className="block text-sm font-bold text-violet-700 mb-2">
+                                2e Prestataire (binôme, optionnel)
+                                {assignIsOvertime && (
+                                    <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded border border-orange-300">
+                                        ⚡ Heures sup.
+                                    </span>
+                                )}
+                            </label>
                             <select 
                                 className="w-full p-3 bg-violet-50 border border-violet-300 rounded-lg outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
                                 value={assignSecondProviderSelect}
@@ -4145,21 +4265,32 @@ const Planning: React.FC = () => {
                                 <option value="">Aucun (prestataire seul)</option>
                                 <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie</option>
                                 {providers.filter(p => p.id !== assignProviderId).map(p => {
-                                    const reason = missionToAssign.date ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) : null;
-                                    const available = reason === null;
-                                    const isActive = p.status === 'Active';
-                                    const canAssign = available && isActive;
-                                    const name = getProviderDisplayName(p);
-                                    let label = name;
-                                    if (!isActive) label += ' (Inactif)';
-                                    else if (reason) label += ` (${reason})`;
+                                    const dateStr = missionToAssign?.date || '';
+                                    const startTime = missionToAssign?.startTime || '00:00';
+                                    const endTime = missionToAssign?.endTime || '23:59';
+                                    const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
                                     return (
-                                        <option key={p.id} value={p.id} disabled={!canAssign} className={!canAssign ? 'text-slate-400' : ''}>
+                                        <option key={p.id} value={p.id} disabled={isDisabled} className={isDisabled ? 'text-slate-400' : ''}>
                                             {label}
                                         </option>
                                     )
                                 })}
                             </select>
+                            {assignIsOvertime && assignSecondProviderSelect && assignSecondProviderSelect !== EXTERNAL_PROVIDER_ID && missionToAssign?.date && (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                    <p className="text-[11px] text-orange-700">
+                                        {(() => {
+                                            const p = providers.find(pr => pr.id === assignSecondProviderSelect);
+                                            if (!p) return null;
+                                            const available = getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null;
+                                            return available
+                                                ? 'Ce prestataire est normalement disponible sur ce créneau.'
+                                                : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
+                                        })()}
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Heures supplémentaires */}
