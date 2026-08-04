@@ -236,7 +236,7 @@ const DevisFactures: React.FC = () => {
         if (!ok) return;
 
         const key = `renew:${id}`;
-        const nowIso = new Date().toISOString();
+        const nowIso = getMartiniqueNowDayjs().toISOString();
         const today = getMartiniqueToday();
 
         try {
@@ -433,7 +433,7 @@ const DevisFactures: React.FC = () => {
         setLocalQuoteDrafts(drafts);
     }, [draftStorageKey]);
 
-    const getNowMartinique = (): Date => new Date();
+    const getNowMartinique = (): Date => getMartiniqueNowDayjs().toDate();
 
     const getTodayMartiniqueStr = (): string => {
         try {
@@ -441,8 +441,8 @@ const DevisFactures: React.FC = () => {
             if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
         } catch {}
         // Fallback sûr si dayjs/tz échoue
-        const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const now = getMartiniqueNowDayjs();
+        return now.format('YYYY-MM-DD');
     };
 
     const toMartiniqueISODate = (d: Date): string => {
@@ -1801,7 +1801,7 @@ const DevisFactures: React.FC = () => {
 
     const getOrCreateDraftRef = () => {
         if (prefilledRef) return prefilledRef;
-        const year = new Date().getFullYear();
+        const year = getMartiniqueNowDayjs().year();
         const ts = Date.now().toString(36).toUpperCase();
         const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
         const ref = `DEV-DRAFT-${year}-${ts}${rand}`;
@@ -1955,7 +1955,7 @@ const DevisFactures: React.FC = () => {
     const openAdminSignModal = async (docId: string, currentStatus?: string) => {
     // If document is expired, reset creation date to today and status to 'sent' first
     if (currentStatus === 'expired') {
-        const now = new Date().toISOString();
+        const now = getMartiniqueNowDayjs().toISOString();
         const { error } = await supabase
             .from('documents')
             .update({ 

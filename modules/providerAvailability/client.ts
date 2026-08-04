@@ -1,5 +1,7 @@
 import { supabase } from '../../utils/supabaseClient';
 import { isMenageSpecialty } from '../../utils/availabilityCalculator';
+import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../../src/utils/dayjsMartinique';
 import type {
   ProviderWithAvailability,
   ProviderAvailabilitySlot,
@@ -132,12 +134,12 @@ export async function getAvailabilityCalendar(
 
   // Generate calendar days
   const days: AvailabilityCalendarDay[] = [];
-  const currentDate = new Date(startDate);
-  const end = new Date(endDate);
+  let currentDate = dayjs.tz(startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+  const end = dayjs.tz(endDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
 
-  while (currentDate <= end) {
-    const dateStr = currentDate.toISOString().split('T')[0];
-    const dayOfWeek = currentDate.getDay();
+  while (!currentDate.isAfter(end, 'day')) {
+    const dateStr = currentDate.format('YYYY-MM-DD');
+    const dayOfWeek = currentDate.day();
 
     const providersForDay: ProviderDayInfo[] = providers.map((provider) => {
       const status = provider.availability.get(dateStr) || 'available';
@@ -155,13 +157,13 @@ export async function getAvailabilityCalendar(
     days.push({
       date: dateStr,
       dayOfWeek,
-      dayOfMonth: currentDate.getDate(),
+      dayOfMonth: currentDate.date(),
       isCurrentMonth: true,
-      isToday: dateStr === new Date().toISOString().split('T')[0],
+      isToday: dateStr === getMartiniqueNow().format('YYYY-MM-DD'),
       providers: providersForDay,
     });
 
-    currentDate.setDate(currentDate.getDate() + 1);
+    currentDate = currentDate.add(1, 'day');
   }
 
   return days;

@@ -40,6 +40,7 @@ import {
     formatMartiniqueDate
 } from '../src/utils/martiniqueTime';
 import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { 
     User,
     Calendar,
@@ -373,9 +374,7 @@ const ClientPortal: React.FC = () => {
         if (!client || !clientMissions.length) return;
 
         const today = getMartiniqueToday();
-        const twoDaysLater = new Date();
-        twoDaysLater.setDate(twoDaysLater.getDate() + 2);
-        const twoDaysStr = twoDaysLater.toISOString().split('T')[0];
+        const twoDaysStr = getMartiniqueNow().add(2, 'day').format('YYYY-MM-DD');
 
         // Check for upcoming missions (J-2 reminder)
         const upcomingMissions = clientMissions.filter(m => 
@@ -390,7 +389,7 @@ const ClientPortal: React.FC = () => {
             const alreadySent = localStorage.getItem(notifKey);
             if (alreadySent) return;
 
-            const daysUntil = Math.ceil((new Date(mission.date).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24));
+            const daysUntil = Math.ceil(dayjs.tz(mission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).diff(dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE), 'day', true));
             const dayLabel = daysUntil === 0 ? "aujourd'hui" : daysUntil === 1 ? 'demain' : `dans ${daysUntil} jours`;
             
             await addNotification(
@@ -1921,7 +1920,7 @@ const ClientPortal: React.FC = () => {
                                     .sort((a, b) => a.date.localeCompare(b.date))[0];
                                 
                                 if (nextMission) {
-                                    const daysUntil = Math.ceil((new Date(nextMission.date).getTime() - new Date(getMartiniqueToday()).getTime()) / (1000 * 60 * 60 * 24));
+                                    const daysUntil = Math.ceil(dayjs.tz(nextMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).diff(dayjs.tz(getMartiniqueToday(), 'YYYY-MM-DD', MARTINIQUE_TIMEZONE), 'day', true));
                                     return (
                                         <div className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
                                             <div className="flex items-center justify-between mb-4">
@@ -1943,7 +1942,7 @@ const ClientPortal: React.FC = () => {
                                                 <div className="flex-1">
                                                     <p className="font-bold text-slate-800">{nextMission.service}</p>
                                                     <p className="text-sm text-slate-500">
-                                                        {formatMartiniqueDate(new Date(nextMission.date))} • {nextMission.startTime} - {nextMission.endTime}
+                                                        {formatMartiniqueDate(dayjs.tz(nextMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).toDate())} • {nextMission.startTime} - {nextMission.endTime}
                                                     </p>
                                                     {nextMission.providerName && (
                                                         <p className="text-xs text-slate-400 mt-1">Prestataire: {nextMission.providerName}</p>
@@ -4008,14 +4007,13 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     const endMin = startMin + hoursPerSession * 60;
 
     // Try next 14 days to find available slots
-    const baseDate = new Date(firstDate);
+    const baseDate = dayjs.tz(firstDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
     for (let d = 1; d <= 14 && generated.length < sessionCount - 1; d++) {
-      const tryDate = new Date(baseDate);
-      tryDate.setDate(baseDate.getDate() + d);
-      const dateStr = tryDate.toISOString().split('T')[0];
+      const tryDate = baseDate.add(d, 'day');
+      const dateStr = tryDate.format('YYYY-MM-DD');
 
       // Skip past dates
-      if (dateStr < new Date().toISOString().split('T')[0]) continue;
+      if (dateStr < getMartiniqueToday()) continue;
 
       // Check if first time slot is available (pass serviceType for accurate filtering)
       const availCount = getAvailableProvidersCount(dateStr, startTime, endTime, pack.mainService);
@@ -4063,17 +4061,15 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   }, [providers]);
 
   const weekDays = useMemo(() => {
-    const now = new Date();
-    const dayOfWeek = now.getDay();
+    const now = getMartiniqueNow();
+    const dayOfWeek = now.day();
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + mondayOffset + weekOffset * 7);
+    const monday = now.add(mondayOffset + weekOffset * 7, 'day');
 
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const dayOfWeekIdx = d.getDay();
+      const d = monday.add(i, 'day');
+      const dateStr = d.format('YYYY-MM-DD');
+      const dayOfWeekIdx = d.day();
       const isSunday = false; // 7j/7 — pas de jour fermé
       const isPast = dateStr < todayStr;
       const holidayName = getHolidayName(dateStr);
@@ -4102,8 +4098,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       return {
         date: dateStr,
         dayOfWeek: dayOfWeekIdx,
-        dayOfMonth: d.getDate(),
-        month: d.getMonth(),
+        dayOfMonth: d.date(),
+        month: d.month(),
         isToday: dateStr === todayStr,
         isPast,
         isSunday,
@@ -4218,7 +4214,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     const endMin = endH * 60 + endM;
 
     // Jour de la semaine pour la vérification des heures de travail
-    const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+    const dayOfWeek = dayjs.tz(date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
 
     (providers || []).forEach((p: any) => {
       const providerId = String(p.id);
@@ -4457,8 +4453,8 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   };
 
   const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + 'T12:00:00');
-    return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+    const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    return `${WEEKDAYS[d.day()]} ${d.date()} ${MONTHS_SHORT[d.month()]}`;
   };
 
   return (
@@ -4832,7 +4828,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                   <div className="space-y-2">
                     {(() => {
                       const dateStr = bookingSlot.date;
-                      const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+                      const dayOfWeek = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
 
                       const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
                       const slotMissions = [...(missions || []), ...provisionalMissions].map((m: any) => ({

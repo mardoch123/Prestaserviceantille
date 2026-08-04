@@ -5,6 +5,8 @@ import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
 import PageLoader from './PageLoader';
 import Pagination from './Pagination';
+import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { 
   Filter, 
   Search, 
@@ -481,14 +483,13 @@ const Providers: React.FC = () => {
   };
 
   const setQuickRange = (weeks: number) => {
-      const today = new Date();
-      const startDate = leaveForm.startDate || today.toISOString().split('T')[0];
-      const start = new Date(startDate);
-      const end = new Date(start);
-      end.setDate(end.getDate() + (weeks * 7) - 1);
+      const today = getMartiniqueNow();
+      const startDate = leaveForm.startDate || today.format('YYYY-MM-DD');
+      const start = dayjs.tz(startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const end = start.add(weeks * 7 - 1, 'day');
       setLeaveForm({
           startDate: startDate,
-          endDate: end.toISOString().split('T')[0]
+          endDate: end.format('YYYY-MM-DD')
       });
   };
 
@@ -1279,7 +1280,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     <input
                                         id="su-startDate"
                                         type="date"
-                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                        defaultValue={getMartiniqueNow().format('YYYY-MM-DD')}
                                         className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
                                     />
                                 </div>
@@ -1302,7 +1303,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     const dayOfWeek = parseInt((document.getElementById('su-dayOfWeek') as HTMLSelectElement)?.value || '1', 10);
                                     const startTime = (document.getElementById('su-startTime') as HTMLInputElement)?.value || '08:00';
                                     const endTime = (document.getElementById('su-endTime') as HTMLInputElement)?.value || '12:00';
-                                    const startDate = (document.getElementById('su-startDate') as HTMLInputElement)?.value || new Date().toISOString().split('T')[0];
+                                    const startDate = (document.getElementById('su-startDate') as HTMLInputElement)?.value || getMartiniqueNow().format('YYYY-MM-DD');
                                     const weeks = parseInt((document.getElementById('su-weeks') as HTMLInputElement)?.value || '4', 10);
                                     if (weeks < 1 || !startDate || !startTime || !endTime) return;
                                     setFormData(prev => ({
@@ -1382,7 +1383,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                                     <input
                                         id="otu-date"
                                         type="date"
-                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                        defaultValue={getMartiniqueNow().format('YYYY-MM-DD')}
                                         className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
                                     />
                                 </div>

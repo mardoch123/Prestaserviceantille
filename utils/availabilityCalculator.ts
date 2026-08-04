@@ -16,6 +16,8 @@
  */
 
 import { isHoliday } from './holidays';
+import dayjs from 'dayjs';
+import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -111,7 +113,7 @@ export function isProviderActive(provider: { status?: string }): boolean {
  */
 export function getProvisionalMissionsFromDocuments(documents: any[]): MissionLike[] {
   if (!documents || documents.length === 0) return [];
-  const now = new Date();
+  const now = dayjs().tz(MARTINIQUE_TIMEZONE).toDate();
 
   return documents
     .filter((d: any) => d?.type === 'Devis' && d?.status === 'sent')
@@ -164,8 +166,7 @@ export function minutesToTime(minutes: number): string {
 }
 
 function getDayOfWeek(dateStr: string): number {
-  const d = new Date(dateStr + 'T12:00:00');
-  return d.getDay();
+  return dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
 }
 
 /** Normalise un nom de champ provider (camelCase ou snake_case) */
@@ -231,20 +232,19 @@ export function getScheduledUnavailabilitiesForDate(
   const scheds = provider.scheduledUnavailabilities || provider.scheduled_unavailabilities || [];
   if (!Array.isArray(scheds) || scheds.length === 0) return [];
 
-  const date = new Date(dateStr + 'T12:00:00');
-  const dateDay = date.getDay();
+  const date = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+  const dateDay = date.day();
 
   return scheds.filter(su => {
     // Le jour de la semaine doit correspondre
     if (su.dayOfWeek !== dateDay) return false;
 
     // Vérifier que la date est dans la fenêtre de N semaines
-    const startDate = new Date(su.startDate + 'T00:00:00');
-    if (date < startDate) return false; // pas encore commencé
+    const startDate = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+    if (date.isBefore(startDate)) return false; // pas encore commencé
 
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + (su.weeks * 7) - 1);
-    if (date > endDate) return false; // fenêtre terminée
+    const endDate = startDate.add(su.weeks * 7 - 1, 'day');
+    if (date.isAfter(endDate)) return false; // fenêtre terminée
 
     return true;
   });

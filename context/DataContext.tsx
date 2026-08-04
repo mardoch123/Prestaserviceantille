@@ -3015,7 +3015,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // Check for 48h reminders (updated from 72h)
     const checkUpcomingReminders = async (currentMissions: Mission[]) => {
-        const now = new Date();
+        const now = dayjs().tz(MARTINIQUE_TIMEZONE);
         const fortyEightHoursInMs = 48 * 60 * 60 * 1000;
 
         // Utiliser for...of au lieu de forEach pour un traitement séquentiel et contrôlé
@@ -3027,8 +3027,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             if (m.status === 'planned' && m.date && !m.reminder48hSent) {
-                const missionDate = new Date(`${m.date}T${m.startTime}`);
-                const diff = missionDate.getTime() - now.getTime();
+                const missionDate = dayjs.tz(`${m.date}T${m.startTime}`, MARTINIQUE_TIMEZONE);
+                const diff = missionDate.valueOf() - now.valueOf();
 
                 // If between 24h and 48h
                 if (diff > 0 && diff <= fortyEightHoursInMs) {
@@ -5338,15 +5338,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 `mission:${missionId}`
             );
 
-            // N'envoyer notification + email au prestataire que si la mission est dans les 20h
+            // N'envoyer notification + email au prestataire que si la mission est dans les 48h
             const missionDateStr = existingMission?.date && existingMission?.startTime
                 ? `${existingMission.date}T${existingMission.startTime}`
                 : null;
             const hoursUntilMission = missionDateStr
-                ? (new Date(missionDateStr).getTime() - Date.now()) / (1000 * 60 * 60)
+                ? dayjs.tz(missionDateStr, MARTINIQUE_TIMEZONE).diff(dayjs().tz(MARTINIQUE_TIMEZONE), 'hour', true)
                 : Infinity;
 
-            if (hoursUntilMission <= 20) {
+            if (hoursUntilMission <= 48) {
                 await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné à une mission.`, providerId);
 
                 const provider = providers.find(p => p.id === providerId);
@@ -5498,15 +5498,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 `mission:${missionId}`
             );
 
-            // N'envoyer notification + email au prestataire que si la mission est dans les 20h
+            // N'envoyer notification + email au prestataire que si la mission est dans les 48h
             const missionDateStr = existingMission?.date && existingMission?.startTime
                 ? `${existingMission.date}T${existingMission.startTime}`
                 : null;
             const hoursUntilMission = missionDateStr
-                ? (new Date(missionDateStr).getTime() - Date.now()) / (1000 * 60 * 60)
+                ? dayjs.tz(missionDateStr, MARTINIQUE_TIMEZONE).diff(dayjs().tz(MARTINIQUE_TIMEZONE), 'hour', true)
                 : Infinity;
 
-            if (hoursUntilMission <= 20) {
+            if (hoursUntilMission <= 48) {
                 await addNotification('provider', 'info', 'Nouvelle Mission', `Vous avez été assigné comme 2e prestataire à une mission.`, providerId);
 
                 const provider = providers.find(p => p.id === providerId);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { getMartiniqueToday, formatMartiniqueDate } from '../src/utils/martiniqueTime';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import SearchableSelect from './SearchableSelect';
 import { createCustomerServiceRequest } from '../modules/serviceRequests/client';
 import { isPackSerenity } from '../lib/utils';
@@ -30,7 +31,6 @@ import {
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -424,7 +424,7 @@ const NewServiceRequestPage: React.FC = () => {
     if (field === 'startTime' && typeof value === 'string') {
       // Calculer la nouvelle heure de fin en gardant la même durée
       const [hours, minutes] = value.split(':').map(Number);
-      const newEnd = dayjs().hour(hours).minute(minutes).add(currentSlot.duration, 'hour');
+      const newEnd = getMartiniqueNow().hour(hours).minute(minutes).add(currentSlot.duration, 'hour');
       newSlots[index] = { 
         ...currentSlot, 
         startTime: value, 

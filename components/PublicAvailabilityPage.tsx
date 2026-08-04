@@ -28,6 +28,8 @@ import {
 } from '../utils/availabilityCalculator';
 import { getHolidayName } from '../utils/holidays';
 import { Star } from 'lucide-react';
+import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -69,34 +71,19 @@ const SERVICE_COLORS: Record<string, { bg: string; border: string; text: string;
   'Ménage':    { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-700',    dot: 'bg-blue-500' },
 };
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
 const toDateStr = (d: Date): string =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  dayjs.tz(d, MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
 
 const isSameDay = (a: Date, b: Date) =>
-  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  dayjs.tz(a, MARTINIQUE_TIMEZONE).isSame(dayjs.tz(b, MARTINIQUE_TIMEZONE), 'day');
 
-const addDays = (d: Date, n: number): Date => {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-};
+const addDays = (d: Date, n: number): Date =>
+  dayjs.tz(d, MARTINIQUE_TIMEZONE).add(n, 'day').toDate();
 
-const getMonday = (d: Date): Date => {
-  const r = new Date(d);
-  const day = r.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  r.setDate(r.getDate() + diff);
-  return r;
-};
+const getMonday = (d: Date): Date =>
+  dayjs.tz(d, MARTINIQUE_TIMEZONE).startOf('week').toDate();
 
-const getToday = (): Date => {
-  const now = new Date();
-  const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-  const mtq = new Date(utc.getTime() - 4 * 3600000);
-  return new Date(mtq.getFullYear(), mtq.getMonth(), mtq.getDate());
-};
+const getToday = (): Date => getMartiniqueNow().startOf('day').toDate();
 
 // ─── (helpers locaux supprimés, logique centralisée dans availabilityCalculator.ts) ───
 
@@ -118,7 +105,7 @@ const getProviderNamesFromIds = (ids: string[], providersList: any[]): string[] 
 const PublicAvailabilityPage: React.FC = () => {
   const { currentUser } = useData();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [anchorDate, setAnchorDate] = useState<Date>(getToday());
+  const [anchorDate, setAnchorDate] = useState<Date>(getMartiniqueNow().toDate());
   const [missions, setMissions] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,16 +219,17 @@ const PublicAvailabilityPage: React.FC = () => {
   }, []);
 
   const { rangeStart, rangeEnd } = useMemo(() => {
+    const anchor = dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE);
     if (viewMode === 'week') {
-      const mon = getMonday(anchorDate);
-      const sun = addDays(mon, 6);
-      return { rangeStart: toDateStr(mon), rangeEnd: toDateStr(sun) };
+      const mon = anchor.startOf('week');
+      const sun = anchor.endOf('week');
+      return { rangeStart: mon.format('YYYY-MM-DD'), rangeEnd: sun.format('YYYY-MM-DD') };
     } else {
-      const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
-      const last = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
-      const gridStart = addDays(first, -first.getDay());
-      const gridEnd = addDays(last, 6 - last.getDay());
-      return { rangeStart: toDateStr(gridStart), rangeEnd: toDateStr(gridEnd) };
+      const first = anchor.startOf('month');
+      const last = anchor.endOf('month');
+      const gridStart = first.startOf('week');
+      const gridEnd = last.endOf('week');
+      return { rangeStart: gridStart.format('YYYY-MM-DD'), rangeEnd: gridEnd.format('YYYY-MM-DD') };
     }
   }, [viewMode, anchorDate]);
 
@@ -263,23 +251,23 @@ const PublicAvailabilityPage: React.FC = () => {
   // Build day availability map — segmented by service type (granularité 30 min)
   const dayMap = useMemo(() => {
     const map = new Map<string, DayAvailability>();
-    const today = getToday();
-    const start = new Date(rangeStart);
-    const end = new Date(rangeEnd);
+    const today = getMartiniqueNow().startOf('day');
+    const start = dayjs.tz(rangeStart, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    const end = dayjs.tz(rangeEnd, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
 
-    for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
-      const dateStr = toDateStr(d);
-      const dayOfWeek = d.getDay();
-      const isPast = d < today;
+    for (let current = start.clone(); !current.isAfter(end, 'day'); current = current.add(1, 'day')) {
+      const dateStr = current.format('YYYY-MM-DD');
+      const dayOfWeek = current.day();
+      const isPast = current.isBefore(today, 'day');
       const holidayName = getHolidayName(dateStr);
 
       const dayData: DayAvailability = {
         date: dateStr,
         dayOfWeek,
-        dayOfMonth: d.getDate(),
-        month: d.getMonth(),
-        year: d.getFullYear(),
-        isToday: isSameDay(d, today),
+        dayOfMonth: current.date(),
+        month: current.month(),
+        year: current.year(),
+        isToday: current.isSame(today, 'day'),
         isPast,
         isHoliday: !!holidayName,
         holidayName,
@@ -319,10 +307,11 @@ const PublicAvailabilityPage: React.FC = () => {
 
   // ── Navigation ──
   const navigate = (dir: -1 | 1) => {
+    const anchor = dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE);
     if (viewMode === 'week') {
-      setAnchorDate(addDays(anchorDate, dir * 7));
+      setAnchorDate(anchor.add(dir * 7, 'day').toDate());
     } else {
-      setAnchorDate(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + dir, 1));
+      setAnchorDate(anchor.add(dir, 'month').startOf('month').toDate());
     }
   };
 
@@ -346,19 +335,20 @@ const PublicAvailabilityPage: React.FC = () => {
 
   // ── Month view data ──
   const monthGrid = useMemo(() => {
-    const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
-    const last = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
-    const gridStart = addDays(first, -first.getDay());
-    const gridEnd = addDays(last, 6 - last.getDay());
+    const anchor = dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE);
+    const first = anchor.startOf('month');
+    const last = anchor.endOf('month');
+    const gridStart = first.startOf('week');
+    const gridEnd = last.endOf('week');
     const days: DayAvailability[] = [];
-    for (let d = new Date(gridStart); d <= gridEnd; d = addDays(d, 1)) {
-      const key = toDateStr(d);
+    for (let current = gridStart.clone(); !current.isAfter(gridEnd, 'day'); current = current.add(1, 'day')) {
+      const key = current.format('YYYY-MM-DD');
       days.push(dayMap.get(key) || {
         date: key,
-        dayOfWeek: d.getDay(),
-        dayOfMonth: d.getDate(),
-        month: d.getMonth(),
-        year: d.getFullYear(),
+        dayOfWeek: current.day(),
+        dayOfMonth: current.date(),
+        month: current.month(),
+        year: current.year(),
         isToday: false,
         isPast: false,
         availableServices: [],
@@ -483,7 +473,7 @@ const PublicAvailabilityPage: React.FC = () => {
           <div className="flex-1 text-center font-bold text-slate-800">
             {viewMode === 'week'
               ? `Semaine du ${weekDays[0]?.dayOfMonth || '?'} ${MONTHS[weekDays[0]?.month || 0]?.slice(0, 3)} ${weekDays[0]?.year || ''}`
-              : `${MONTHS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`
+              : `${MONTHS[dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE).month()]} ${dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE).year()}`
             }
           </div>
           <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
@@ -523,7 +513,7 @@ const PublicAvailabilityPage: React.FC = () => {
             </div>
             <div className="grid grid-cols-7 gap-1">
               {monthGrid.map((day) => {
-                const isCurrentMonth = day.month === anchorDate.getMonth();
+                const isCurrentMonth = day.month === dayjs.tz(anchorDate, MARTINIQUE_TIMEZONE).month();
                 const hasServices = day.availableServices.length > 0;
                 return (
                   <div
@@ -617,8 +607,8 @@ const PublicAvailabilityPage: React.FC = () => {
 
         {/* ── Footer ── */}
         <footer className="mt-8 text-center text-xs text-slate-400 pb-6">
-          <p>© {new Date().getFullYear()} Presta Services Antilles — Tous droits réservés</p>
-          <p className="mt-1">Horaires d'ouverture : {pad(OPEN_HOUR)}h00 — {pad(CLOSE_HOUR)}h00 | 7j/7</p>
+          <p>© {getMartiniqueNow().year()} Presta Services Antilles — Tous droits réservés</p>
+          <p className="mt-1">Horaires d'ouverture : {String(OPEN_HOUR).padStart(2, '0')}h00 — {String(CLOSE_HOUR).padStart(2, '0')}h00 | 7j/7</p>
         </footer>
       </main>
     </div>

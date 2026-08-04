@@ -22,6 +22,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 const ProviderDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -97,7 +98,7 @@ const ProviderDetailPage: React.FC = () => {
 
   // Filtered and sorted missions (most recent first)
   const filteredMissions = useMemo(() => {
-    const today = dayjs().format('YYYY-MM-DD');
+    const today = getMartiniqueNow().format('YYYY-MM-DD');
     let result = [...providerMissions];
 
     // Status filter

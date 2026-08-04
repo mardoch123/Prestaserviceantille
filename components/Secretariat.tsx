@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import PageLoader from './PageLoader';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import dayjs from 'dayjs';
 import {
     PackagePlus,
     FileSignature,
@@ -537,7 +539,7 @@ const Secretariat: React.FC = () => {
         const ok = window.confirm(`Renouveler le devis ${doc?.ref || ''} ? Il repassera en Envoyé et sera re-signable.`);
         if (!ok) return;
 
-        const nowIso = new Date().toISOString();
+        const nowIso = getMartiniqueNow().toISOString();
         const today = getMartiniqueToday();
         try {
             setRenewingQuoteId(id);
@@ -576,7 +578,7 @@ const Secretariat: React.FC = () => {
         const ok = window.confirm(`Renouveler ${expiredIds.length} devis expiré(s) ? Ils repasseront en Envoyé et seront re-signables.`);
         if (!ok) return;
 
-        const nowIso = new Date().toISOString();
+        const nowIso = getMartiniqueNow().toISOString();
         try {
             const { supabase } = await import('../utils/supabaseClient');
             const res = await supabase
@@ -1291,7 +1293,7 @@ const Secretariat: React.FC = () => {
         }
 
         // Inject Date
-        content = content.replace('[DATE]', formatMartiniqueDate(new Date()));
+        content = content.replace('[DATE]', formatMartiniqueDate(getMartiniqueNow().toDate()));
 
         setContractForm(prev => ({ ...prev, content, packId: selectedPackIdForContract }));
         setShowQuoteSelectionModal(false);
@@ -2327,8 +2329,8 @@ const Secretariat: React.FC = () => {
                                 {filteredAgendaMissions.map(mission => (
                                     <div key={mission.id} className="flex items-center p-4 border rounded-lg hover:shadow-sm bg-white transition border-slate-200">
                                         <div className="flex flex-col items-center justify-center w-16 h-16 bg-blue-50 rounded-lg text-brand-blue mr-4">
-                                            <span className="text-xs font-bold uppercase">{new Date(mission.date).toLocaleString('default', { month: 'short' })}</span>
-                                            <span className="text-xl font-bold">{new Date(mission.date).getDate()}</span>
+                                            <span className="text-xs font-bold uppercase">{dayjs.tz(mission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('MMM')}</span>
+                                            <span className="text-xl font-bold">{dayjs.tz(mission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
                                         <div className="flex-1">
                                             <div className="flex justify-between items-start">

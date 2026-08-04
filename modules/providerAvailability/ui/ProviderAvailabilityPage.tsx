@@ -21,6 +21,8 @@ import {
   getProvidersWithAvailability,
 } from '../client';
 import { useData } from '../../../context/DataContext';
+import dayjs from 'dayjs';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../../../src/utils/dayjsMartinique';
 import {
   computeAvailabilitySlots,
   groupSlotsByTime,
@@ -76,16 +78,17 @@ const monthNames = [
 export const ProviderAvailabilityPage: React.FC = () => {
   const { providers: allProviders, missions: allMissions } = useData();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(getMartiniqueNow().toDate());
   const [domainFilter, setDomainFilter] = useState<ProviderDomain | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Calculate date range based on view mode
+  // Calculate date range based on view mode (en heure de la Martinique)
   const dateRange = useMemo(() => {
-    const start = new Date(selectedDate);
-    const end = new Date(selectedDate);
+    const base = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE);
+    let start = base.clone();
+    let end = base.clone();
 
     switch (viewMode) {
       case 'day':
@@ -93,29 +96,20 @@ export const ProviderAvailabilityPage: React.FC = () => {
         // Hourly view shows a single day
         break;
       case 'week':
-        start.setDate(start.getDate() - start.getDay());
-        end.setDate(end.getDate() + (6 - end.getDay()));
+        start = base.startOf('week');
+        end = base.endOf('week');
         break;
       case 'month':
-        start.setDate(1);
-        end.setMonth(end.getMonth() + 1);
-        end.setDate(0);
+        start = base.startOf('month');
+        end = base.endOf('month');
         break;
     }
 
-    // Use local date formatting to avoid UTC conversion issues
-    const formatLocalDate = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
     return {
-      start: formatLocalDate(start),
-      end: formatLocalDate(end),
-      startDate: start,
-      endDate: end,
+      start: start.format('YYYY-MM-DD'),
+      end: end.format('YYYY-MM-DD'),
+      startDate: start.toDate(),
+      endDate: end.toDate(),
     };
   }, [selectedDate, viewMode]);
 
@@ -182,12 +176,12 @@ export const ProviderAvailabilityPage: React.FC = () => {
       const availabilityMode = (provider as any).availabilityMode || 'unavailable';
 
       // Generate availability for each day in range
-      const current = new Date(dateRange.startDate);
-      const end = new Date(dateRange.endDate);
+      let current = dayjs.tz(dateRange.start, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+      const end = dayjs.tz(dateRange.end, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
 
-      while (current <= end) {
-        const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-        const dayOfWeek = current.getDay();
+      while (!current.isAfter(end, 'day')) {
+        const dateStr = current.format('YYYY-MM-DD');
+        const dayOfWeek = current.day();
 
         // Check if provider is on leave (leaves are stored on provider)
         const providerLeaves = (provider.leaves || []).filter((l: any) =>
@@ -223,12 +217,11 @@ export const ProviderAvailabilityPage: React.FC = () => {
         const scheds = (provider as any).scheduledUnavailabilities || [];
         const hasScheduledUnavailability = Array.isArray(scheds) && scheds.some((su: any) => {
           if (su.dayOfWeek !== dayOfWeek) return false;
-          const suStart = new Date(su.startDate + 'T00:00:00');
-          const currentDate = new Date(dateStr + 'T12:00:00');
-          if (currentDate < suStart) return false;
-          const suEndDate = new Date(suStart);
-          suEndDate.setDate(suEndDate.getDate() + (su.weeks * 7) - 1);
-          if (currentDate > suEndDate) return false;
+          const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+          const currentDate = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+          if (currentDate.isBefore(suStart)) return false;
+          const suEndDate = suStart.add(su.weeks * 7 - 1, 'day');
+          if (currentDate.isAfter(suEndDate)) return false;
           return true;
         });
 
@@ -246,7 +239,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
         availability.set(dateStr, status);
 
-        current.setDate(current.getDate() + 1);
+        current = current.add(1, 'day');
       }
 
       const domain = mapSpecialtyToDomain(provider.specialty);
@@ -288,7 +281,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
   // Compute available slots grouped by service type for the selected date
   const slotsByServiceType = useMemo(() => {
-    const todayStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+    const todayStr = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
 
     const result: Record<string, { groupedSlots: GroupedSlot[]; enrichedSlots: EnrichedSlot[]; providerCount: number }> = {};
 
@@ -317,52 +310,34 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
   // Navigation handlers
   const goToPrevious = () => {
-    const newDate = new Date(selectedDate);
-    switch (viewMode) {
-      case 'day':
-      case 'hourly':
-        newDate.setDate(newDate.getDate() - 1);
-        break;
-      case 'week':
-        newDate.setDate(newDate.getDate() - 7);
-        break;
-      case 'month':
-        newDate.setMonth(newDate.getMonth() - 1);
-        break;
-    }
-    setSelectedDate(newDate);
+    const newDate = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).subtract(
+      viewMode === 'month' ? 1 : viewMode === 'week' ? 7 : 1,
+      viewMode === 'month' ? 'month' : 'day'
+    );
+    setSelectedDate(newDate.toDate());
   };
 
   const goToNext = () => {
-    const newDate = new Date(selectedDate);
-    switch (viewMode) {
-      case 'day':
-      case 'hourly':
-        newDate.setDate(newDate.getDate() + 1);
-        break;
-      case 'week':
-        newDate.setDate(newDate.getDate() + 7);
-        break;
-      case 'month':
-        newDate.setMonth(newDate.getMonth() + 1);
-        break;
-    }
-    setSelectedDate(newDate);
+    const newDate = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).add(
+      viewMode === 'month' ? 1 : viewMode === 'week' ? 7 : 1,
+      viewMode === 'month' ? 'month' : 'day'
+    );
+    setSelectedDate(newDate.toDate());
   };
 
   const goToToday = () => {
-    setSelectedDate(new Date());
+    setSelectedDate(getMartiniqueNow().toDate());
   };
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
     const days: Date[] = [];
-    const current = new Date(dateRange.startDate);
-    const end = new Date(dateRange.endDate);
+    let current = dayjs.tz(dateRange.start, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    const end = dayjs.tz(dateRange.end, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
 
-    while (current <= end) {
-      days.push(new Date(current));
-      current.setDate(current.getDate() + 1);
+    while (!current.isAfter(end, 'day')) {
+      days.push(current.toDate());
+      current = current.add(1, 'day');
     }
 
     return days;
@@ -370,18 +345,18 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
   // Format date display
   const formatDateRange = () => {
-    const start = dateRange.startDate;
-    const end = dateRange.endDate;
+    const start = dayjs.tz(dateRange.start, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    const end = dayjs.tz(dateRange.end, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
 
     if (viewMode === 'day' || viewMode === 'hourly') {
-      return `${start.getDate()} ${monthNames[start.getMonth()]} ${start.getFullYear()}`;
+      return `${start.date()} ${monthNames[start.month()]} ${start.year()}`;
     }
 
-    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-      return `${start.getDate()} - ${end.getDate()} ${monthNames[start.getMonth()]} ${start.getFullYear()}`;
+    if (start.month() === end.month() && start.year() === end.year()) {
+      return `${start.date()} - ${end.date()} ${monthNames[start.month()]} ${start.year()}`;
     }
 
-    return `${start.getDate()} ${monthNames[start.getMonth()]} - ${end.getDate()} ${monthNames[end.getMonth()]} ${start.getFullYear()}`;
+    return `${start.date()} ${monthNames[start.month()]} - ${end.date()} ${monthNames[end.month()]} ${start.year()}`;
   };
 
   return (
@@ -571,8 +546,9 @@ export const ProviderAvailabilityPage: React.FC = () => {
                   {/* Provider Rows with Hourly Slots */}
                   <div className="divide-y divide-slate-100">
                     {filteredProviders.map((provider) => {
-                      const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-                      const dayOfWeek = selectedDate.getDay();
+                      const selectedDayjs = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE);
+                      const dateStr = selectedDayjs.format('YYYY-MM-DD');
+                      const dayOfWeek = selectedDayjs.day();
                       const dayStatus = getProviderStatus(provider, dateStr);
                       const isDayUnavailable = dayStatus === 'leave' || dayStatus === 'unavailable';
 
@@ -690,9 +666,9 @@ export const ProviderAvailabilityPage: React.FC = () => {
                       <span className="md:hidden">Prest.</span>
                     </div>
                     {calendarDays.map((day, index) => {
-                      const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-                      const now = new Date();
-                      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                      const dayDjs = dayjs.tz(day, MARTINIQUE_TIMEZONE);
+                      const dateStr = dayDjs.format('YYYY-MM-DD');
+                      const todayStr = getMartiniqueNow().format('YYYY-MM-DD');
                       const isToday = dateStr === todayStr;
                       
                       return (
@@ -702,9 +678,9 @@ export const ProviderAvailabilityPage: React.FC = () => {
                             isToday ? 'bg-brand-blue/10' : ''
                           }`}
                         >
-                          <div className="text-[10px] md:text-xs text-slate-500 uppercase">{weekDays[day.getDay()]}</div>
+                          <div className="text-[10px] md:text-xs text-slate-500 uppercase">{weekDays[dayDjs.day()]}</div>
                           <div className={`text-sm md:text-lg font-semibold ${isToday ? 'text-brand-blue' : 'text-slate-700'}`}>
-                            {day.getDate()}
+                            {dayDjs.date()}
                           </div>
                         </div>
                       );
@@ -736,7 +712,7 @@ export const ProviderAvailabilityPage: React.FC = () => {
 
                         {/* Day Cells */}
                         {calendarDays.map((day, dayIndex) => {
-                          const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+                          const dateStr = dayjs.tz(day, MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
                           const status = getProviderStatus(provider, dateStr);
                           const config = statusConfig[status];
                           const isAvailable = status !== 'leave' && status !== 'unavailable';

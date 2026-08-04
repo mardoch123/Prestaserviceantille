@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
+import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 
 dayjs.locale('fr');
 
@@ -105,7 +106,7 @@ const ProviderPortal: React.FC = () => {
 
   // Date selection state for calendar
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(dayjs());
+  const [currentMonth, setCurrentMonth] = useState(getMartiniqueNow());
   // Dashboard view mode
   const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar' | 'horizontal' | 'grid'>('overview');
   const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed' | 'cancelled'>('all');
@@ -306,14 +307,15 @@ const ProviderPortal: React.FC = () => {
       .filter(m => matchesServiceTypeFilterFromText((m as any)?.service, serviceTypeFilter))
       .filter(m => String((m as any)?.providerId || '') === String(provider.id))
       .filter(m => {
-        // Masquer les missions planifiées à plus de 20h de la date du jour
+        // Masquer les missions planifiées à plus de 48h de la date du jour
         if ((m as any)?.status !== 'planned') return true;
         const dateStr = (m as any)?.date && (m as any)?.startTime
           ? `${(m as any).date}T${(m as any).startTime}`
           : null;
         if (!dateStr) return true;
-        const hoursUntil = (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60);
-        return hoursUntil <= 20;
+        const missionTime = dayjs.tz(dateStr, MARTINIQUE_TIMEZONE);
+        const hoursUntil = missionTime.diff(getMartiniqueNow(), 'hour', true);
+        return hoursUntil <= 48;
       });
 
     return filtered;
@@ -353,7 +355,7 @@ const ProviderPortal: React.FC = () => {
   // Optimized filtered missions by date
   const filteredMissionsByDate = useMemo(() => {
     if (!selectedDate) return providerMissions.slice(0, 50);
-    const selectedDateStr = dayjs(selectedDate).format('YYYY-MM-DD');
+    const selectedDateStr = dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('YYYY-MM-DD');
     // Use all missions for date filtering, not just paginated
     return providerMissions.filter(m => m.date === selectedDateStr).slice(0, 50);
   }, [providerMissions, selectedDate]);
@@ -1058,11 +1060,11 @@ const ProviderPortal: React.FC = () => {
                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-emerald-100 text-sm font-medium">{selectedDate ? dayjs(selectedDate).format('dddd') : 'Toutes les missions'}</p>
+                            <p className="text-emerald-100 text-sm font-medium">{selectedDate ? dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('dddd') : 'Toutes les missions'}</p>
                             {selectedDate ? (
                               <>
-                                <h2 className="text-3xl font-bold">{dayjs(selectedDate).format('D')}</h2>
-                                <p className="text-emerald-100 text-sm">{dayjs(selectedDate).format('MMMM YYYY')}</p>
+                                <h2 className="text-3xl font-bold">{dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('D')}</h2>
+                                <p className="text-emerald-100 text-sm">{dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('MMMM YYYY')}</p>
                               </>
                             ) : (
                               <h2 className="text-2xl font-bold">{providerMissions.length} mission{providerMissions.length > 1 ? 's' : ''}</h2>
@@ -1087,7 +1089,7 @@ const ProviderPortal: React.FC = () => {
                               Toutes
                             </button>
                             <button 
-                              onClick={() => setSelectedDate(new Date())}
+                              onClick={() => setSelectedDate(getMartiniqueNow().toDate())}
                               className={`text-xs px-3 py-1.5 rounded-lg transition ${selectedDate ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'}`}
                             >
                               Aujourd'hui
@@ -1117,7 +1119,7 @@ const ProviderPortal: React.FC = () => {
                       <div className="hidden md:flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                         {calendarDays.map((day, idx) => {
                           const isSelected = day.isSame(selectedDate, 'day');
-                          const isToday = day.isSame(new Date(), 'day');
+                          const isToday = day.isSame(getMartiniqueNow(), 'day');
                           const dayMissions = providerMissions.filter(m => m.date === day.format('YYYY-MM-DD'));
                           const hasMissions = dayMissions.length > 0;
                           const isCurrentMonth = day.month() === currentMonth.month();
@@ -1241,7 +1243,7 @@ const ProviderPortal: React.FC = () => {
                               Toutes
                             </button>
                             <button 
-                              onClick={() => { setCurrentMonth(dayjs()); setSelectedDate(new Date()); }}
+                              onClick={() => { setCurrentMonth(getMartiniqueNow()); setSelectedDate(getMartiniqueNow().toDate()); }}
                               className={`px-4 py-2 rounded-lg text-sm font-medium transition ${selectedDate ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                             >
                               Aujourd'hui
@@ -1261,7 +1263,7 @@ const ProviderPortal: React.FC = () => {
                           <div className="grid grid-cols-7 gap-2">
                             {calendarDays.map((day, idx) => {
                               const isSelected = day.isSame(selectedDate, 'day');
-                              const isToday = day.isSame(new Date(), 'day');
+                              const isToday = day.isSame(getMartiniqueNow(), 'day');
                               const dayMissions = providerMissions.filter(m => m.date === day.format('YYYY-MM-DD'));
                               const hasMissions = dayMissions.length > 0;
                               const isCurrentMonth = day.month() === currentMonth.month();
@@ -1304,8 +1306,8 @@ const ProviderPortal: React.FC = () => {
 
                       {/* Recent Missions Cards - Only in overview mode, only today+tomorrow */}
                       {dashboardViewMode === 'overview' && (() => {
-                        const todayStr = dayjs().format('YYYY-MM-DD');
-                        const tomorrowStr = dayjs().add(1, 'day').format('YYYY-MM-DD');
+                        const todayStr = getMartiniqueNow().format('YYYY-MM-DD');
+                        const tomorrowStr = getMartiniqueNow().add(1, 'day').format('YYYY-MM-DD');
                         const nearMissions = providerMissions
                           .filter(m => (m.date === todayStr || m.date === tomorrowStr) && m.status !== 'cancelled' && m.status !== 'completed')
                           .slice(0, 4);
@@ -1335,10 +1337,10 @@ const ProviderPortal: React.FC = () => {
                                 {/* Date et Jour en premier */}
                                 <div className="flex items-center gap-2 mb-2">
                                   <span className="text-xs font-bold text-gray-600 uppercase">
-                                    {dayjs(m.date).format('dddd')}
+                                    {dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('dddd')}
                                   </span>
                                   <span className="text-xs text-gray-400">
-                                    {dayjs(m.date).format('D MMM')}
+                                    {dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('D MMM')}
                                   </span>
                                 </div>
                                 {/* Nom client */}
@@ -1527,7 +1529,7 @@ const ProviderPortal: React.FC = () => {
                           <div className="grid grid-cols-7 gap-2">
                             {calendarDays.map((day, idx) => {
                               const isSelected = day.isSame(selectedDate, 'day');
-                              const isToday = day.isSame(new Date(), 'day');
+                              const isToday = day.isSame(getMartiniqueNow(), 'day');
                               const dayMissions = providerMissions.filter(m => m.date === day.format('YYYY-MM-DD'));
                               const hasMissions = dayMissions.length > 0;
                               const isCurrentMonth = day.month() === currentMonth.month();
@@ -1577,7 +1579,7 @@ const ProviderPortal: React.FC = () => {
                         <div className="flex gap-2 overflow-x-auto pb-2">
                           {calendarDays.filter(d => d.month() === currentMonth.month()).map((day, idx) => {
                             const isSelected = day.isSame(selectedDate, 'day');
-                            const isToday = day.isSame(new Date(), 'day');
+                            const isToday = day.isSame(getMartiniqueNow(), 'day');
                             const hasMission = providerMissions.some(m => m.date === day.format('YYYY-MM-DD'));
                             return (
                               <button
@@ -1649,10 +1651,10 @@ const ProviderPortal: React.FC = () => {
                                   {/* Jour et Date en premier */}
                                   <div className="flex items-center gap-2 mb-2">
                                     <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-bold">
-                                      {dayjs(m.date).format('dddd')}
+                                      {dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('dddd')}
                                     </span>
                                     <span className="text-lg font-bold text-gray-800">
-                                      {dayjs(m.date).format('D MMMM YYYY')}
+                                      {dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('D MMMM YYYY')}
                                     </span>
                                   </div>
                                   {/* Nom complet client */}
