@@ -3830,7 +3830,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     }): Promise<ContactConflict[]> => {
         const email = normalizeEmailValue(input.email);
         const phoneDigits = normalizePhoneDigits(input.phone);
-        const phonePattern = phoneDigits ? digitsToFuzzyIlike(phoneDigits) : null;
         const conflicts: ContactConflict[] = [];
 
         if (email) {
@@ -3860,11 +3859,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
-        if (phonePattern) {
+        if (phoneDigits) {
+            // Recherche exacte par téléphone (même normalisation que pour l'email)
             const { data: cData2 } = await supabase
                 .from('clients')
                 .select('id,name,email,phone')
-                .ilike('phone', phonePattern)
+                .ilike('phone', phoneDigits)
                 .limit(5);
             if (Array.isArray(cData2)) {
                 cData2.forEach((c: any) => {
@@ -3876,7 +3876,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             const { data: pData2 } = await supabase
                 .from('providers')
                 .select('id,first_name,last_name,email,phone')
-                .ilike('phone', phonePattern)
+                .ilike('phone', phoneDigits)
                 .limit(5);
             if (Array.isArray(pData2)) {
                 pData2.forEach((p: any) => {

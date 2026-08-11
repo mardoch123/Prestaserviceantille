@@ -3929,6 +3929,10 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   // Multi-slot states for packs requiring multiple sessions
   const [multiSlots, setMultiSlots] = useState<Array<{ date: string; startTime: string; endTime: string }>>([]);
 
+  // Manual slot picker states (for multi-session packs when auto-gen is insufficient)
+  const [manualSlotWeekOffset, setManualSlotWeekOffset] = useState(0);
+  const [showManualPicker, setShowManualPicker] = useState(false);
+
   // Booking step wizard: 'pack' → 'time' → 'slots' (auto-gen) → 'confirm'
   const [bookingStep, setBookingStep] = useState<'pack' | 'time' | 'slots'>('pack');
 
@@ -4006,9 +4010,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
     const startMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
     const endMin = startMin + hoursPerSession * 60;
 
-    // Try next 14 days to find available slots
+    // Try next 300 days to find available slots
     const baseDate = dayjs.tz(firstDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
-    for (let d = 1; d <= 14 && generated.length < sessionCount - 1; d++) {
+    for (let d = 1; d <= 300 && generated.length < sessionCount - 1; d++) {
       const tryDate = baseDate.add(d, 'day');
       const dateStr = tryDate.format('YYYY-MM-DD');
 
@@ -4259,6 +4263,60 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
   const selectedPack = useMemo(() => {
     return availablePacks.find(p => p.id === selectedPackId) || null;
   }, [availablePacks, selectedPackId]);
+
+  // ─── Manual slot picker: compute available days/slots for a navigable week ───
+  const manualPickerDays = useMemo(() => {
+    if (!showManualPicker || !selectedPack) return [];
+    const now = getMartiniqueNow();
+    const mondayOffset = now.day() === 0 ? -6 : 1 - now.day();
+    const monday = now.add(mondayOffset + manualSlotWeekOffset * 7, 'day');
+    const hoursPerSession = getPackHoursPerSession(selectedPack);
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = monday.add(i, 'day');
+      const dateStr = d.format('YYYY-MM-DD');
+      const isPast = dateStr < todayStr;
+      const holidayName = getHolidayName(dateStr);
+      const isHolidayDay = !!holidayName;
+
+      let freeSlots: Array<{ startTime: string; endTime: string }> = [];
+      if (!isPast && !isHolidayDay) {
+        const daySlots = computeFreeSlotsUtil(dateStr, (providers || []).filter((p: any) => isProviderActive(p)), allMissions, hoursPerSession);
+        freeSlots = daySlots.filter(s => {
+          const slotDur = (timeToMinutes(s.endTime) - timeToMinutes(s.startTime)) / 60;
+          return slotDur >= hoursPerSession;
+        });
+      }
+
+      return {
+        date: dateStr,
+        dayOfWeek: d.day(),
+        dayOfMonth: d.date(),
+        month: d.month(),
+        isToday: dateStr === todayStr,
+        isPast,
+        isHoliday: isHolidayDay,
+        holidayName,
+        freeSlots,
+      };
+    });
+  }, [showManualPicker, manualSlotWeekOffset, selectedPack, providers, allMissions, todayStr]);
+
+  // Add a manually selected slot to multiSlots
+  const addManualSlot = (date: string, startTime: string, endTime: string) => {
+    if (!selectedPack) return;
+    const sessionCount = getPackSessionCount(selectedPack);
+    if (multiSlots.length >= sessionCount - 1) return;
+    const exists = multiSlots.some(s => s.date === date && s.startTime === startTime);
+    if (exists) return;
+    if (date === bookingSlot?.date && startTime === (customStartTime || bookingSlot?.startTime)) return;
+    setMultiSlots(prev => [...prev, { date, startTime, endTime }]);
+  };
+
+  // Remove a manually selected slot
+  const removeManualSlot = (index: number) => {
+    setMultiSlots(prev => prev.filter((_, i) => i !== index));
+  };
 
   // Durée du créneau sélectionné (en heures)
   const slotDuration = useMemo(() => {
@@ -5079,7 +5137,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                       <CheckCircle className="w-5 h-5 text-emerald-500" />
                     </div>
 
-                    {/* Auto-generated slots */}
+                    {/* Auto-generated + manually selected slots */}
                     {multiSlots.map((slot, idx) => (
                       <div key={idx} className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">{idx + 2}</div>
@@ -5095,18 +5153,102 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full font-bold">En attente</span>
                           );
                         })()}
+                        <button onClick={() => removeManualSlot(idx)} className="p-1 text-gray-400 hover:text-red-500 transition" title="Retirer ce créneau">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
 
-                    {/* Missing slots indicator */}
+                    {/* Missing slots — manual picker toggle */}
                     {multiSlots.length < getPackSessionCount(selectedPack) - 1 && (
-                      <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 text-center">
-                        <p className="text-xs text-orange-700 font-bold">
-                          {getPackSessionCount(selectedPack) - 1 - multiSlots.length} séance{getPackSessionCount(selectedPack) - 1 - multiSlots.length > 1 ? 's' : ''} non trouvée{getPackSessionCount(selectedPack) - 1 - multiSlots.length > 1 ? 's' : ''} dans les 14 prochains jours
-                        </p>
-                        <p className="text-[10px] text-orange-500 mt-1">
-                          Elles seront planifiées par notre équipe après validation.
-                        </p>
+                      <div className="space-y-3">
+                        <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-center">
+                          <p className="text-xs text-amber-800 font-bold">
+                            {getPackSessionCount(selectedPack) - 1 - multiSlots.length} séance{getPackSessionCount(selectedPack) - 1 - multiSlots.length > 1 ? 's' : ''} à planifier
+                          </p>
+                          <button
+                            onClick={() => { setShowManualPicker(v => !v); setManualSlotWeekOffset(0); }}
+                            className="mt-2 px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition flex items-center gap-2 mx-auto"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            {showManualPicker ? 'Masquer le calendrier' : 'Choisir manuellement un créneau'}
+                          </button>
+                        </div>
+
+                        {/* ─── Manual Slot Picker ─── */}
+                        {showManualPicker && (
+                          <div className="bg-white rounded-xl border-2 border-blue-200 p-4 space-y-3">
+                            {/* Week navigation */}
+                            <div className="flex items-center justify-between">
+                              <button onClick={() => setManualSlotWeekOffset(w => w - 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition">
+                                <ChevronLeft className="w-4 h-4" />
+                              </button>
+                              <span className="text-xs font-bold text-gray-700">
+                                {manualPickerDays[0]?.dayOfMonth} {MONTHS_SHORT[manualPickerDays[0]?.month || 0]} — {manualPickerDays[6]?.dayOfMonth} {MONTHS_SHORT[manualPickerDays[6]?.month || 0]} {manualPickerDays[6]?.dayOfMonth ? '' : ''}
+                              </span>
+                              <button onClick={() => setManualSlotWeekOffset(w => w + 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition">
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Days grid */}
+                            <div className="grid grid-cols-7 gap-1">
+                              {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+                                <div key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</div>
+                              ))}
+                            </div>
+
+                            {/* Day-by-day available slots */}
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                              {manualPickerDays.map((day) => {
+                                if (day.isPast || day.freeSlots.length === 0) return null;
+                                return (
+                                  <div key={day.date} className={`rounded-lg p-2.5 border ${day.isToday ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50'}`}>
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                      <span className={`text-xs font-bold ${day.isToday ? 'text-emerald-700' : 'text-gray-700'}`}>
+                                        {day.dayOfMonth} {MONTHS_SHORT[day.month]}
+                                      </span>
+                                      {day.isToday && <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Aujourd'hui</span>}
+                                      <span className="text-[10px] text-gray-400">{day.freeSlots.length} créneau{day.freeSlots.length > 1 ? 'x' : ''}</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {day.freeSlots.map((slot, si) => {
+                                        const isConflict = multiSlots.some(m => m.date === day.date && m.startTime === slot.startTime) ||
+                                          (day.date === bookingSlot?.date && slot.startTime === (customStartTime || bookingSlot?.startTime));
+                                        const isFull = multiSlots.length >= getPackSessionCount(selectedPack!) - 1;
+                                        return (
+                                          <button
+                                            key={si}
+                                            disabled={isConflict || isFull}
+                                            onClick={() => addManualSlot(day.date, slot.startTime, slot.endTime)}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                                              isConflict
+                                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                : isFull
+                                                ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                                : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
+                                            }`}
+                                          >
+                                            {slot.startTime}–{slot.endTime}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {/* If no days have slots in this week */}
+                              {manualPickerDays.every(d => d.isPast || d.freeSlots.length === 0) && (
+                                <div className="text-center py-4">
+                                  <p className="text-xs text-gray-400">Aucun créneau disponible cette semaine.</p>
+                                  <button onClick={() => setManualSlotWeekOffset(w => w + 1)} className="text-xs text-blue-500 font-bold hover:underline mt-1">
+                                    Semaine suivante →
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
