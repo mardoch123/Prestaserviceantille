@@ -28,6 +28,7 @@ import {
   timeToMinutes,
   isProviderOnLeave,
   isMenageSpecialty,
+  validateSlotsStrictly,
 } from '../utils/availabilityCalculator';
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
@@ -4424,6 +4425,38 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       toast.error(`Ce pack requiert des créneaux de ${hoursPerSession}h minimum. Le créneau sélectionné est de ${firstSlotDuration}h. Veuillez choisir un créneau adapté.`);
       return;
     }
+
+    // ─── VALIDATION STRICTE EN TEMPS RÉEL ───────────────────────────────────
+    // Re-vérifie la disponibilité réelle de TOUS les créneaux au moment de la confirmation.
+    // Cette validation inclut les missions réelles ET les devis envoyés non expirés (missions provisoires).
+    // Elle empêche catégoriquement toute réservation en conflit.
+    const allSlotsForValidation = [
+      { date: bookingSlot.date, startTime: finalStartTime, endTime: finalEndTime },
+      ...multiSlots
+    ];
+
+    const validationResult = validateSlotsStrictly(
+      allSlotsForValidation,
+      providers || [],
+      missions || [],
+      documents || []
+    );
+
+    if (!validationResult.isValid) {
+      const conflictDetails = validationResult.conflicts
+        .map(c => `${c.date} ${c.startTime}–${c.endTime} : ${c.reason}`)
+        .join('\n• ');
+      toast.error(
+        `Créneau(x) plus disponible(s) :\n• ${conflictDetails}\nVeuillez choisir un autre créneau.`,
+        8000
+      );
+      // Réinitialiser l'état de réservation pour permettre un nouveau choix
+      setBookingSlot(null);
+      setMultiSlots([]);
+      setBookingStep('pack');
+      return;
+    }
+    // ─── FIN VALIDATION ─────────────────────────────────────────────────────
 
     // Multi-session packs: warn if not all auto-generated slots found (remaining planned by admin)
     if (sessionCount > 1 && multiSlots.length === 0) {

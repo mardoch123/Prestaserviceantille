@@ -28,10 +28,10 @@ export interface TimeSlot {
 
 /** Mission minimale nécessaire au calcul (snake_case ou camelCase) */
 export interface MissionLike {
-  providerId?: string;
-  provider_id?: string;
-  provider2Id?: string;
-  provider2_id?: string;
+  providerId?: string | null;
+  provider_id?: string | null;
+  provider2Id?: string | null;
+  provider2_id?: string | null;
   date: string;           // YYYY-MM-DD
   start_time?: string;    // HH:mm
   startTime?: string;
@@ -849,4 +849,153 @@ export function groupSlotsByTime(slots: EnrichedSlot[]): GroupedSlot[] {
   }
 
   return Array.from(map.values()).sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+// ─── Validation stricte de créneaux ─────────────────────────────────────────
+
+export interface SlotValidationConflict {
+  date: string;
+  startTime: string;
+  endTime: string;
+  reason: string;
+}
+
+export interface SlotValidationResult {
+  isValid: boolean;
+  conflicts: SlotValidationConflict[];
+}
+
+/**
+ * Validation stricte en temps réel d'une liste de créneaux.
+ * Vérifie que chaque créneau dispose d'au moins un prestataire réellement libre,
+ * en tenant compte :
+ *   - des missions existantes (tous statuts sauf annulé)
+ *   - des missions provisoires (devis envoyés non expirés)
+ *   - des congés approuvés, indisponibilités programmées et ponctuelles
+ *   - des jours fériés Martinique
+ *   - de la règle max 2 prestations/jour/prestataire
+ *   - du buffer de trajet (TRAVEL_BUFFER_MIN)
+ *
+ * @param slots     Créneaux à valider [{ date, startTime, endTime }]
+ * @param providers Liste de tous les prestataires
+ * @param missions  Missions réelles (toutes)
+ * @param documents Documents (devis, factures…) pour extraire les missions provisoires
+ * @returns         Résultat de validation avec liste de conflits le cas échéant
+ */
+export function validateSlotsStrictly(
+  slots: Array<{ date: string; startTime: string; endTime: string }>,
+  providers: ProviderLike[],
+  missions: MissionLike[],
+  documents: any[]
+): SlotValidationResult {
+  const conflicts: SlotValidationConflict[] = [];
+
+  if (!slots || slots.length === 0) {
+    return { isValid: false, conflicts: [{ date: '', startTime: '', endTime: '', reason: 'Aucun créneau fourni.' }] };
+  }
+
+  // Combiner missions réelles (sauf annulées) + missions provisoires (devis envoyés non expirés)
+  const realMissions = (missions || []).filter(m => {
+    const status = normalizeMissionStatus(m.status);
+    return status !== 'cancelled';
+  }).map(m => ({
+    providerId: m.providerId ?? m.provider_id,
+    provider_id: m.provider_id ?? m.providerId,
+    provider2Id: (m as any).provider2Id ?? (m as any).provider2_id,
+    date: m.date,
+    start_time: m.start_time ?? m.startTime,
+    startTime: m.startTime ?? m.start_time,
+    end_time: m.end_time ?? m.endTime,
+    endTime: m.endTime ?? m.end_time,
+    status: m.status,
+  }));
+
+  const provisionalMissions = getProvisionalMissionsFromDocuments(documents || []);
+  const allMissionsForValidation = [...realMissions, ...provisionalMissions];
+
+  // Filtrer uniquement les prestataires actifs + spécialité Ménage
+  const eligibleProviders = (providers || [])
+    .filter(p => isProviderActive(p))
+    .filter(p => isMenageSpecialty(p.specialty || ''));
+
+  // Dédupliquer par ID
+  const seenIds = new Set<string>();
+  const uniqueProviders = eligibleProviders.filter(p => {
+    const pid = normalizeProviderId(p.id);
+    if (seenIds.has(pid)) return false;
+    seenIds.add(pid);
+    return true;
+  });
+
+  for (const slot of slots) {
+    if (!slot.date || !slot.startTime || !slot.endTime) {
+      conflicts.push({ date: slot.date || '', startTime: slot.startTime || '', endTime: slot.endTime || '', reason: 'Créneau incomplet.' });
+      continue;
+    }
+
+    // Jour férié Martinique → bloquant
+    if (isHoliday(slot.date)) {
+      conflicts.push({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime, reason: 'Jour férié.' });
+      continue;
+    }
+
+    // Date+heure passées → bloquant
+    const slotStartMin = timeToMinutes(slot.startTime);
+    const slotEndMin = timeToMinutes(slot.endTime);
+    const now = dayjs().tz(MARTINIQUE_TIMEZONE);
+    const slotDate = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+    if (slotDate.isBefore(now)) {
+      conflicts.push({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime, reason: 'Créneau dans le passé.' });
+      continue;
+    }
+
+    const dayOfWeek = getDayOfWeek(slot.date);
+
+    // Vérifier qu'au moins un prestataire est libre pour ce créneau
+    let hasFreeProvider = false;
+
+    for (const p of uniqueProviders) {
+      // Congé approuvé
+      if (isProviderOnLeave(p, slot.date)) continue;
+
+      // Heures de travail effectives
+      let workingHours = getProviderWorkingHours(p, dayOfWeek);
+      if (workingHours.length === 0) continue;
+
+      // Indisponibilités programmées multi-semaines
+      workingHours = filterHoursByScheduledUnavailabilities(p, slot.date, workingHours);
+      // Indisponibilités ponctuelles
+      workingHours = filterHoursByOneTimeUnavailabilities(p, slot.date, workingHours);
+      if (workingHours.length === 0) continue;
+
+      // Le prestataire doit couvrir TOUTES les heures du créneau
+      const startH = Math.floor(slotStartMin / 60);
+      const endH = Math.ceil(slotEndMin / 60);
+      let coversAll = true;
+      for (let h = startH; h < endH; h++) {
+        if (!workingHours.includes(h)) { coversAll = false; break; }
+      }
+      if (!coversAll) continue;
+
+      // Max 2 prestations/jour + chevauchement (via le moteur centralisé)
+      if (isProviderFreeDuring(p, slot.date, slotStartMin, slotEndMin, allMissionsForValidation)) {
+        hasFreeProvider = true;
+        break;
+      }
+    }
+
+    if (!hasFreeProvider) {
+      conflicts.push({
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        reason: 'Aucun prestataire disponible sur ce créneau.',
+      });
+    }
+  }
+
+  return {
+    isValid: conflicts.length === 0,
+    conflicts,
+  };
 }

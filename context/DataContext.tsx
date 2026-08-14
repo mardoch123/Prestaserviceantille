@@ -28,6 +28,7 @@ import {
 import { dataCache } from '../utils/dataCache';
 import { smartFetch } from '../utils/smartFetch';
 import { checkProviderMissionConflict } from '../modules/providerAvailability/client';
+import { validateSlotsStrictly, getProvisionalMissionsFromDocuments } from '../utils/availabilityCalculator';
 
 // --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://anciens.prestaservicesantilles.com/images/logo.png";
@@ -6085,6 +6086,40 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
         if (missionsToCreate.length > 0) {
+            // ─── VALIDATION ANTI-CONFLIT AVANT INSERTION ─────────────────────────
+            // Dernière vérification avant insertion en base : s'assurer que les créneaux
+            // ne sont pas devenus occupés entre la validation de signQuoteWithData et ici.
+            // Exclure le document courant des missions provisoires (il est déjà signé).
+            const docsForValidation = (documents || []).filter(d => d.id !== doc.id);
+            const slotsForCheck = missionsToCreate
+                .filter(m => m.date && m.start_time && m.end_time)
+                .map(m => ({ date: m.date, startTime: m.start_time, endTime: m.end_time }));
+
+            // Dédupliquer les créneaux identiques (récurrence)
+            const uniqueSlots = Array.from(
+                new Map(slotsForCheck.map(s => [`${s.date}|${s.startTime}|${s.endTime}`, s])).values()
+            );
+
+            const preInsertValidation = validateSlotsStrictly(
+                uniqueSlots,
+                providers || [],
+                missions || [],
+                docsForValidation
+            );
+
+            if (!preInsertValidation.isValid) {
+                const conflictDetails = preInsertValidation.conflicts
+                    .map(c => `${c.date} ${c.startTime}–${c.endTime}: ${c.reason}`)
+                    .join(' | ');
+                console.error(
+                    `[generateMissionsFromDocument] Blocage anti-conflit : ${conflictDetails}`
+                );
+                await addNotification('admin', 'alert', 'Génération Missions Bloquée',
+                    `Devis ${doc.ref}: Les créneaux sont devenus indisponibles lors de la génération automatique. Conflits : ${conflictDetails}`);
+                return; // Ne pas créer de données partielles
+            }
+            // ─── FIN VALIDATION ─────────────────────────────────────────────────
+
             const { error } = await supabase.from('missions').insert(missionsToCreate);
             if (!error) {
                 const createdMissions = missionsToCreate.map(m => ({
@@ -6414,111 +6449,47 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
-        // Concurrency Check: Check if any slot in the document is already taken by a PLANNED or CONFIRMED mission
+        // ─── CONCURRENCY CHECK STRICT (v2) ─────────────────────────────────────
+        // Vérifie que chaque créneau du devis dispose encore d'au moins un prestataire libre,
+        // en tenant compte des missions réelles ET des devis envoyés non expirés (sauf le devis en cours de signature).
+        // Cette validation remplace l'ancienne logique qui ne considérait QUE les missions en state,
+        // ignorant les missions provisoires des autres devis envoyés → cause du bug de surbooking.
         const docToSign = documents.find(d => d.id === id);
-        if (docToSign && docToSign.slotsData) {
-            const conflictingSlots = [];
-            const availableProvidersForSlots = [];
-            
-            const serviceType = String(docToSign.serviceType || '').toLowerCase();
+        if (docToSign && docToSign.slotsData && Array.isArray(docToSign.slotsData) && docToSign.slotsData.length > 0) {
+            // Exclure le devis en cours de signature des missions provisoires
+            // (sinon ses propres créneaux le bloqueraient)
+            const documentsWithoutCurrent = (documents || []).filter(d => d.id !== id);
 
-            // Analyser chaque créneau pour détecter les conflits et trouver des prestataires disponibles
-            for (const slot of docToSign.slotsData) {
-                if (!slot.date) continue;
-                
-                const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                
-                // Vérifier s'il y a des missions en conflit (même horaire)
-                const conflictingMissions = missions.filter(m => {
-                    if (m.status === 'cancelled' || !m.date) return false;
-                    const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                    const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                    return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
-                });
+            const slotValidation = validateSlotsStrictly(
+                docToSign.slotsData.map((s: any) => ({
+                    date: s.date || '',
+                    startTime: s.startTime || '',
+                    endTime: s.endTime || '',
+                })),
+                providers || [],
+                missions || [],
+                documentsWithoutCurrent
+            );
 
-                // Check 1: S'il n'y a pas de conflit, la signature passe (comme demandé).
-                if (conflictingMissions.length === 0) continue;
-
-                // Check 2: S'il y a conflit, vérifier la disponibilité des prestataires
-                // "S'il y a alors vérifier s'il y a encore plus de 2 prestataires qui font cette tâche"
-                // "dans le cas où les missions de l'autres ne sont encore assigné à un prestataire"
-                // "mais si les missions sont déjà assigné alors chercher un prestataire du domaine de disponible"
-                
-                // Logique simplifiée mais robuste :
-                // On cherche TOUS les prestataires qualifiés pour ce service
-                // On retire ceux qui sont occupés sur ce créneau (par une mission assignée)
-                // On vérifie s'il en reste au moins 1 (pour prendre CETTE mission)
-                
-                const qualifiedProviders = providers.filter(p => {
-                    if (p.status !== 'Active') return false;
-                    // Filter by service type if possible (assuming providers have 'services' array or similar)
-                    // If no service info on provider, assume they can do it or rely on manual assignment later.
-                    // For now, let's assume all active providers are candidates unless we have service data.
-                    // Ideally: return p.services.includes(serviceType);
-                    return true; 
-                });
-
-                // Prestataires occupés (assignés à une mission qui chevauche ce créneau)
-                const occupiedProviderIds = new Set<string>();
-                conflictingMissions.forEach(m => {
-                    if (m.providerId) occupiedProviderIds.add(m.providerId);
-                });
-
-                // Prestataires libres pour ce créneau
-                const freeProviders = qualifiedProviders.filter(p => !occupiedProviderIds.has(p.id));
-                
-                // Compter les missions concurrentes NON assignées (qui sont en concurrence pour ces prestataires libres)
-                const unassignedConflictingMissionsCount = conflictingMissions.filter(m => !m.providerId).length;
-
-                // Capacité requise : 1 (pour la nouvelle mission) + N (pour les autres missions non assignées)
-                const requiredCapacity = 1 + unassignedConflictingMissionsCount;
-
-                // Vérification stricte
-                if (freeProviders.length < requiredCapacity) {
-                    // Cas critique : pas assez de prestataires libres pour couvrir la demande totale (existante + nouvelle)
-                    conflictingSlots.push({
-                        slot,
-                        conflictingMissions,
-                        freeProvidersCount: freeProviders.length,
-                        requiredCapacity
-                    });
-                    
-                    availableProvidersForSlots.push({
-                        slot,
-                        availableProviders: [] // Aucun dispo car demande > offre
-                    });
-                } else {
-                     // On a assez de prestataires.
-                     // Optionnel : Si l'utilisateur voulait "plus de 2 prestataires" en buffer, on pourrait ajouter une condition ici.
-                     // Mais la demande critique est "sinon afficher un message d'erreur".
-                     // On considère que si on a la capacité, c'est bon.
-                     
-                     // On garde quand même une trace pour info si besoin
-                     availableProvidersForSlots.push({
-                        slot,
-                        availableProviders: freeProviders.map(p => `${p.firstName} ${p.lastName}`)
-                    });
-                }
-            }
-            
-            if (conflictingSlots.length > 0) {
-                // Aucun prestataire disponible pour au moins un créneau (capacité insuffisante)
-                const unavailableSlots = conflictingSlots.map(info => 
-                    `${info.slot.date} ${info.slot.startTime}-${info.slot.endTime}`
+            if (!slotValidation.isValid) {
+                const unavailableSlots = slotValidation.conflicts.map(c =>
+                    `${c.date} ${c.startTime}–${c.endTime}`
                 );
-                
-                await addNotification('client', 'alert', 'Conflit de Créneaux', 
+                const reasons = slotValidation.conflicts.map(c =>
+                    `${c.date} ${c.startTime}–${c.endTime} : ${c.reason}`
+                );
+
+                await addNotification('client', 'alert', 'Conflit de Créneaux',
                     `Impossible de valider le devis : plus aucun prestataire disponible pour les créneaux suivants : ${unavailableSlots.join(', ')}. ` +
                     `Veuillez contacter le secrétariat.`);
-                
-                await addNotification('admin', 'alert', 'Tentative Signature Bloquée - Saturation', 
-                    `Devis ${docToSign.ref}: Signature bloquée car capacité insuffisante pour les créneaux : ${unavailableSlots.join(', ')}`);
-                
-                // On lance une erreur spécifique que l'UI pourra attraper pour afficher la popup
+
+                await addNotification('admin', 'alert', 'Tentative Signature Bloquée - Saturation',
+                    `Devis ${docToSign.ref}: Signature bloquée car capacité insuffisante. Détails : ${reasons.join(' | ')}`);
+
                 throw new Error(`SATURATION_ERROR:Désolé mais nous n'avons plus personne de disponible pour le moment sur les créneaux suivants : ${unavailableSlots.join(', ')}`);
             }
         }
+        // ─── FIN CONCURRENCY CHECK ─────────────────────────────────────────────
 
         const now = getMartiniqueNowISO();
         console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);
