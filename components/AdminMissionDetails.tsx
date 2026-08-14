@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Calendar, Clock, FileText, MapPin, User, Camera, Video } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, FileText, MapPin, User, Users, Camera, Video } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
@@ -74,6 +74,13 @@ const AdminMissionDetails: React.FC = () => {
     return providers.find(p => String(p.id) === String(mission.providerId)) || null;
   }, [providers, mission?.providerId]);
 
+  const provider2 = useMemo(() => {
+    if (!mission?.provider2Id) return null;
+    return providers.find(p => String(p.id) === String(mission.provider2Id)) || null;
+  }, [providers, mission?.provider2Id]);
+
+  const hasBinome = !!mission?.provider2Id;
+
   const title = mission ? `Mission ${mission.clientName || ''}`.trim() : 'Détail mission';
 
   return (
@@ -96,6 +103,11 @@ const AdminMissionDetails: React.FC = () => {
                 {mission?.status ? (
                   <span className={`text-xs font-bold px-2 py-1 rounded-full border ${getStatusStyle(mission.status)}`}>
                     {String(mission.status).toUpperCase()}
+                  </span>
+                ) : null}
+                {hasBinome ? (
+                  <span className="text-xs font-bold px-2 py-1 rounded-full border bg-violet-100 text-violet-700 border-violet-200 flex items-center gap-1">
+                    <Users className="w-3 h-3" /> Binôme
                   </span>
                 ) : null}
               </div>
@@ -171,6 +183,9 @@ const AdminMissionDetails: React.FC = () => {
                       </p>
                       <p className="text-xs text-slate-600 mt-1">Service: {mission.service || '—'}</p>
                       <p className="text-xs text-slate-600">Prestataire: {mission.providerName || 'À assigner'}</p>
+                      {hasBinome && (
+                        <p className="text-xs text-violet-600 font-bold">2e prestataire: {mission.provider2Name || '—'}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -329,13 +344,30 @@ const AdminMissionDetails: React.FC = () => {
 
             <div className="lg:col-span-4 space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
-                <h3 className="text-sm font-bold text-slate-800">Prestataire</h3>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <User className="w-4 h-4 text-slate-500" />
+                  Prestataire principal
+                </h3>
                 <div className="mt-3 text-sm">
                   <p className="text-slate-700 font-bold">{mission.providerName || (provider ? `${provider.firstName} ${provider.lastName}` : 'À assigner')}</p>
                   <p className="text-xs text-slate-600 mt-1">{provider?.email || '—'}</p>
                   <p className="text-xs text-slate-600">{provider?.phone || '—'}</p>
                 </div>
               </div>
+
+              {hasBinome && (
+                <div className="bg-violet-50 border border-violet-200 rounded-2xl p-5">
+                  <h3 className="text-sm font-bold text-violet-800 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-violet-500" />
+                    2e prestataire (binôme)
+                  </h3>
+                  <div className="mt-3 text-sm">
+                    <p className="text-violet-900 font-bold">{mission.provider2Name || (provider2 ? `${provider2.firstName} ${provider2.lastName}` : '—')}</p>
+                    <p className="text-xs text-violet-700 mt-1">{provider2?.email || '—'}</p>
+                    <p className="text-xs text-violet-700">{provider2?.phone || '—'}</p>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
                 <h3 className="text-sm font-bold text-slate-800">Actions</h3>

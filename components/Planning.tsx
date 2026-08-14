@@ -252,13 +252,14 @@ const Planning: React.FC = () => {
           doc.text('Aucune prestation planifiée', 105, y, { align: 'center' });
       } else {
           allItems.forEach(item => {
-              const provider = item.providerName || 'À assigner';
+              const provider2Name = (item as any).provider2Name ? ` + ${(item as any).provider2Name}` : '';
+              const provider = (item.providerName || 'À assigner') + provider2Name;
               const slot = `${item.startTime} - ${item.endTime}`;
               const client = item.clientName || '';
               const service = item.service || (item.type === 'provisional' ? 'Devis' : '');
-              const status = item.type === 'provisional' ? 'En attente' : (item.status === 'completed' ? 'Terminé' : 'Planifié');
+              const status = item.type === 'provisional' ? 'En attente' : (item.status === 'completed' ? 'Terminé' : ((item as any).provider2Id ? 'Binôme' : 'Planifié'));
 
-              doc.text(provider.substring(0, 20), 15, y);
+              doc.text(provider.substring(0, 30), 15, y);
               doc.text(slot, 60, y);
               doc.text(client.substring(0, 25), 100, y);
               doc.text(service.substring(0, 15), 155, y);
@@ -338,7 +339,7 @@ const Planning: React.FC = () => {
               billingSignals.readyToInvoice.has(m.id) ? 'À facturer' : '-';
           return [
               m.date,
-              m.providerName || 'À assigner',
+              m.provider2Name ? `${m.providerName || 'À assigner'} + ${m.provider2Name}` : (m.providerName || 'À assigner'),
               m.startTime,
               m.endTime,
               m.duration?.toFixed(1) || '',
@@ -2328,7 +2329,7 @@ const Planning: React.FC = () => {
           `Client: ${client?.name || mission.clientName || '—'}`,
           `Téléphone client: ${client?.phone || '—'}`,
           `Adresse: ${fullAddress}`,
-          `Prestataire: ${mission.providerName || 'À assigner'}`,
+          `Prestataire: ${mission.providerName || 'À assigner'}${mission.provider2Name ? ` + ${mission.provider2Name} (binôme)` : ''}`,
           `Devis source: ${mission.sourceDocumentId || '—'}`
       ].join('\n');
 
@@ -2388,21 +2389,25 @@ const Planning: React.FC = () => {
   const getMissionPlanningStyle = (mission: Mission): { container: string; border: string; label: string; borderColor: string; statusCls: string } => {
       const isUnassigned = (!mission.providerId || mission.providerId === 'null') && mission.status !== 'cancelled';
       const isSignedFromQuote = mission.source === 'devis' && mission.status !== 'cancelled';
+      const hasBinome = !!mission.provider2Id;
 
       if (mission.status === 'completed') {
-          return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: 'Terminée', borderColor: '#22c55e', statusCls: 'bg-green-100 text-green-700' };
+          return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: hasBinome ? 'Binôme terminée' : 'Terminée', borderColor: '#22c55e', statusCls: 'bg-green-100 text-green-700' };
       }
       if (mission.status === 'cancelled') {
           return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée', borderColor: '#cbd5e1', statusCls: 'bg-slate-100 text-slate-500' };
       }
       if (mission.status === 'in_progress') {
-          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: 'En cours', borderColor: '#2563eb', statusCls: 'bg-blue-100 text-blue-700' };
+          return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: hasBinome ? 'Binôme en cours' : 'En cours', borderColor: '#2563eb', statusCls: 'bg-blue-100 text-blue-700' };
       }
       if (isUnassigned) {
           return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée', borderColor: '#ef4444', statusCls: 'bg-red-100 text-red-700' };
       }
       if (isSignedFromQuote) {
-          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: 'Devis signé', borderColor: '#a855f7', statusCls: 'bg-purple-100 text-purple-700' };
+          return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: hasBinome ? 'Binôme (devis signé)' : 'Devis signé', borderColor: '#a855f7', statusCls: 'bg-purple-100 text-purple-700' };
+      }
+      if (hasBinome) {
+          return { container: 'bg-violet-50 text-slate-800', border: 'border-violet-500', label: 'Binôme', borderColor: '#8b5cf6', statusCls: 'bg-violet-100 text-violet-700' };
       }
       return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée', borderColor: '#006699', statusCls: 'bg-blue-50 text-blue-700' };
   };
@@ -3426,6 +3431,16 @@ const Planning: React.FC = () => {
                                                 </button>
                                             ) : (
                                                 <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName}</p>
+                                            )}
+                                            {item.provider2Id && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { const p = providers.find(pr => pr.id === item.provider2Id); if (p) setSelectedProviderStats(p); }}
+                                                    className="text-[10px] font-bold text-violet-600 truncate hover:text-violet-800 hover:underline text-left"
+                                                    aria-label={`Voir les statistiques de ${item.provider2Name}`}
+                                                >
+                                                    + {item.provider2Name}
+                                                </button>
                                             )}
                                             {billingBadge && (
                                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-0.5 inline-block ${billingBadge.cls}`} role="status">{billingBadge.text}</span>
