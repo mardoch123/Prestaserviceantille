@@ -5895,6 +5895,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const finalId = doc.id && String(doc.id).trim() ? doc.id : generateUUID();
         const safeStatus = (typeof (doc as any).status === 'string' && String((doc as any).status).trim()) ? String((doc as any).status).trim() : 'pending';
         const initialRef = String((doc as any)?.ref || '').trim() || generateDocumentRef(String((doc as any)?.type || ''));
+        const nowISO = getMartiniqueNowISO();
         const dbDocData = {
             id: finalId,
             ref: initialRef,
@@ -5916,7 +5917,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             pack_id: doc.packId || null,
             reminder_sent: false,
             frequency: doc.frequency,
-            recurrence_end_date: doc.recurrenceEndDate
+            recurrence_end_date: doc.recurrenceEndDate,
+            created_at: nowISO
         };
 
         const tryInsertWithUniqueRef = async () => {
@@ -7866,6 +7868,20 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             ? `${totalTTC.toFixed(2)} € TTC (Crédit d'impôt -50% : reste à charge ${toPay.toFixed(2)} €)`
             : `${totalTTC.toFixed(2)} € TTC`;
 
+        // Safe date formatting to avoid "Invalid time value" RangeError
+        const safeDateToLocale = (dateVal: any, locale: string = 'fr-FR'): string => {
+            try {
+                if (!dateVal) return '';
+                const d = new Date(dateVal);
+                if (!Number.isFinite(d.getTime())) return '';
+                return d.toLocaleDateString(locale);
+            } catch {
+                return '';
+            }
+        };
+
+        const todayLocale = (() => { try { return new Date().toLocaleDateString('fr-FR'); } catch { return ''; } })();
+
         const replacements = {
             '{{CLIENT_NAME}}': client.name,
             '{{CLIENT_ADDRESS}}': client.address || 'Non spécifiée',
@@ -7875,11 +7891,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             '{{TOTAL_AMOUNT}}': totalAmountText,
             '{{SERVICE_TYPE}}': pack?.isSap ? 'SAP' : 'Non-SAP',
             '{{CONTRACT_LOCATION}}': 'La Trinité, Martinique',
-            '{{CONTRACT_DATE}}': new Date().toLocaleDateString('fr-FR'),
+            '{{CONTRACT_DATE}}': todayLocale,
             '{{CLIENT_SIGNATURE}}': quote.signatureData ? `<img src="${quote.signatureData}" style="max-width: 200px; max-height: 100px;" />` : '',
-            '{{CLIENT_SIGNATURE_DATE}}': quote.signatureDate ? new Date(quote.signatureDate).toLocaleDateString('fr-FR') : '',
+            '{{CLIENT_SIGNATURE_DATE}}': safeDateToLocale(quote.signatureDate),
             '{{ADMIN_SIGNATURE}}': COMPANY_SIGNATURE_URL ? `<img src="${COMPANY_SIGNATURE_URL}" style="max-width: 200px; max-height: 100px;" />` : '',
-            '{{ADMIN_SIGNATURE_DATE}}': new Date().toLocaleDateString('fr-FR')
+            '{{ADMIN_SIGNATURE_DATE}}': todayLocale
         };
 
         let contractContent = genericContract.content;
@@ -8089,7 +8105,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         return `<div class="signature-placeholder">En attente de signature</div>`;
                     }
                 })()}
-            ${contract.signedAt ? `<p><small>Signé le: ${new Date(contract.signedAt).toLocaleDateString('fr-FR')}</small></p>` : '<p><small><em>Non signé</em></small></p>'}
+            ${contract.signedAt ? `<p><small>Signé le: ${(() => { try { const d = new Date(contract.signedAt); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('fr-FR') : ''; } catch { return ''; } })()}</small></p>` : '<p><small><em>Non signé</em></small></p>'}
         </div>
         <div class="signature-box">
             <h3>Signature Prestataire</h3>

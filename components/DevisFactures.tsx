@@ -2205,39 +2205,44 @@ const DevisFactures: React.FC = () => {
 
             // GÉNÉRATION AUTOMATIQUE DU CONTRAT LORS DE L'ENVOI D'UN DEVIS
             if (isSendingQuoteNow) {
-                const client = clients.find(c => c.id === selectedClientId);
-                const pack = packs.find(p => p.id === selectedPackId);
+                try {
+                    const client = clients.find(c => c.id === selectedClientId);
+                    const pack = packs.find(p => p.id === selectedPackId);
 
-                if (client) {
-                    const contract = generateContractFromTemplate(docToPersist, client, pack);
+                    if (client) {
+                        const contract = generateContractFromTemplate(docToPersist, client, pack);
 
-                    if (contract) {
-                        // Rendre le contrat automatiquement validé et actif
-                        const validatedContract = {
-                            ...contract,
-                            status: 'active' as const,
-                            validationStatus: 'validated' as const,
-                            validatedAt: getMartiniqueNowISO(),
-                            validatedBy: currentUser?.id || 'system',
-                            validationDate: getMartiniqueToday(),
-                            clientSignatureUrl: docToPersist.signedAt ? 'auto-signed' : undefined,
-                            signedAt: docToPersist.signedAt || getMartiniqueNowISO()
-                        };
+                        if (contract) {
+                            // Rendre le contrat automatiquement validé et actif
+                            const validatedContract = {
+                                ...contract,
+                                status: 'active' as const,
+                                validationStatus: 'validated' as const,
+                                validatedAt: getMartiniqueNowISO(),
+                                validatedBy: currentUser?.id || 'system',
+                                validationDate: getMartiniqueToday(),
+                                clientSignatureUrl: docToPersist.signedAt ? 'auto-signed' : undefined,
+                                signedAt: docToPersist.signedAt || getMartiniqueNowISO()
+                            };
 
-                        await addContract(validatedContract);
+                            await addContract(validatedContract);
 
-                        // NOTIFICATION POUR LE CLIENT: Contrat généré et validé automatiquement
-                        await addNotification(
-                            'client',
-                            'success',
-                            'Contrat créé et validé',
-                            `Votre contrat a été automatiquement généré et validé pour le devis ${docToPersist.ref}. Vous pouvez le télécharger dans votre espace client.`,
-                            selectedClientId,
-                            `document:${docToPersist.id}`
-                        );
-                    } else {
-                            toast.error('Erreur lors de la génération du contrat.');
+                            // NOTIFICATION POUR LE CLIENT: Contrat généré et validé automatiquement
+                            await addNotification(
+                                'client',
+                                'success',
+                                'Contrat créé et validé',
+                                `Votre contrat a été automatiquement généré et validé pour le devis ${docToPersist.ref}. Vous pouvez le télécharger dans votre espace client.`,
+                                selectedClientId,
+                                `document:${docToPersist.id}`
+                            );
+                        } else {
+                                toast.error('Erreur lors de la génération du contrat.');
+                        }
                     }
+                } catch (contractErr: any) {
+                    console.warn('[DevisFactures] Contract generation/insert failed (non-blocking):', contractErr);
+                    // Non-blocking: le devis est déjà créé, le contrat est secondaire
                 }
             }
 
@@ -4359,15 +4364,23 @@ const DevisFactures: React.FC = () => {
                             )}
 
                             {/* Signature Information (if signed) */}
-                            {selectedDocument.status === 'signed' && selectedDocument.signatureDate && (
-                                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                                    <h4 className="font-bold text-green-800 mb-3">Informations de Signature</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-green-600">Date de signature : </span><span className="font-medium">{new Date(selectedDocument.signatureDate).toLocaleDateString()}</span></div>
-                                        <div><span className="text-green-600">Heure de signature : </span><span className="font-medium">{new Date(selectedDocument.signatureDate).toLocaleTimeString()}</span></div>
-                                    </div>
-                                </div>
-                            )}
+                            {selectedDocument.status === 'signed' && selectedDocument.signatureDate && (() => {
+                                try {
+                                    const sigDate = new Date(selectedDocument.signatureDate);
+                                    if (!Number.isFinite(sigDate.getTime())) return null;
+                                    return (
+                                        <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                                            <h4 className="font-bold text-green-800 mb-3">Informations de Signature</h4>
+                                            <div className="space-y-2 text-sm">
+                                                <div><span className="text-green-600">Date de signature : </span><span className="font-medium">{sigDate.toLocaleDateString()}</span></div>
+                                                <div><span className="text-green-600">Heure de signature : </span><span className="font-medium">{sigDate.toLocaleTimeString()}</span></div>
+                                            </div>
+                                        </div>
+                                    );
+                                } catch {
+                                    return null;
+                                }
+                            })()}
                         </div>
                     </div>
                 </div>
