@@ -247,7 +247,7 @@ const ClientPortal: React.FC = () => {
         });
     }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
 
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites' | 'parrainage'>('dashboard');
     const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar'>('overview');
     const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [messageInput, setMessageInput] = useState('');
@@ -1555,6 +1555,7 @@ const ClientPortal: React.FC = () => {
                     { id: 'docs', label: 'Documents', icon: FileText },
                     { id: 'messages', label: 'Messages', icon: MessageSquare },
                     { id: 'qr-scans', label: 'QR Code', icon: QrCode },
+                    { id: 'parrainage', label: 'Parrainage', icon: Gift },
                     { id: 'profile', label: 'Profil', icon: User },
                   ].map((item) => (
                     <button
@@ -1626,6 +1627,7 @@ const ClientPortal: React.FC = () => {
                         { id: 'docs', label: 'Devis & Factures', icon: FileText },
                         { id: 'messages', label: 'Messages', icon: MessageSquare },
                         { id: 'qr-scans', label: 'QR Code', icon: QrCode },
+                        { id: 'parrainage', label: 'Parrainage', icon: Gift },
                         { id: 'profile', label: 'Mon Profil', icon: User },
                       ].map((item) => (
                         <button
@@ -1669,6 +1671,115 @@ const ClientPortal: React.FC = () => {
                 <main className="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8 bg-gray-50/50">
                     {activeTab === 'qr-scans' && (
                         <ClientQRCode />
+                    )}
+                    {activeTab === 'parrainage' && (
+                        <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                            {/* Header */}
+                            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-6 text-white shadow-lg">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                                        <Gift className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold">Programme de Parrainage</h2>
+                                        <p className="text-white/80 text-sm">Invitez vos proches et bénéficiez de réductions</p>
+                                    </div>
+                                </div>
+                                <div className="bg-white/10 rounded-xl p-4 mt-4">
+                                    <p className="font-bold text-lg">20€ de réduction</p>
+                                    <p className="text-white/80 text-sm">pour vous ET votre filleul à chaque mission complétée</p>
+                                </div>
+                            </div>
+
+                            {/* Referral Link */}
+                            {isReferrer && referralLink ? (
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                                    <div className="flex items-center gap-2">
+                                        <Share2 className="w-5 h-5 text-purple-600" />
+                                        <h3 className="font-bold text-slate-800">Votre lien de parrainage</h3>
+                                    </div>
+                                    <p className="text-sm text-slate-500">Partagez ce lien pour que vos filleuls s'inscrivent automatiquement avec votre code.</p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            value={referralLink}
+                                            readOnly
+                                            className="flex-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-slate-50 focus:outline-none"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(referralLink);
+                                                    showToast('Lien copié !', 'success');
+                                                } catch {
+                                                    showToast('Impossible de copier', 'warning');
+                                                }
+                                            }}
+                                            className="bg-purple-600 text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-purple-700 transition flex items-center gap-2"
+                                        >
+                                            <Copy className="w-4 h-4" /> Copier
+                                        </button>
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(referralLink);
+                                                    showToast('Lien copié !', 'success');
+                                                } catch {
+                                                    showToast('Impossible de copier', 'warning');
+                                                }
+                                            }}
+                                            className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                                        >
+                                            <Share className="w-4 h-4" /> Copier le lien
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center">
+                                    <Share2 className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                                    <h3 className="font-bold text-slate-700 mb-2">Devenez parrain !</h3>
+                                    <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                                        Vous n'avez pas encore de code de parrainage. Contactez-nous pour participer au programme et profiter des avantages.
+                                    </p>
+                                    <button
+                                        onClick={() => setActiveTab('messages')}
+                                        className="mt-4 px-5 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition"
+                                    >
+                                        Nous contacter
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* How it works */}
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                                <h3 className="font-bold text-slate-800 mb-4">Comment ça marche ?</h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">1</div>
+                                        <div>
+                                            <p className="font-medium text-slate-700 text-sm">Partagez votre lien</p>
+                                            <p className="text-xs text-slate-500">Envoyez votre lien de parrainage à vos amis ou famille</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</div>
+                                        <div>
+                                            <p className="font-medium text-slate-700 text-sm">Votre filleul s'inscrit</p>
+                                            <p className="text-xs text-slate-500">Il crée son compte via votre lien et réserve sa première prestation</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">3</div>
+                                        <div>
+                                            <p className="font-medium text-slate-700 text-sm">Recevez vos réductions</p>
+                                            <p className="text-xs text-slate-500">Après la première mission complétée, vous recevez chacun 20€ de réduction</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     {activeTab === 'profile' && (
                         <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">

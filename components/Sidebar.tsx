@@ -201,11 +201,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           .select('mission_id');
         const missionIdsWithSav = (savMissions || []).map((r: any) => r.mission_id);
         
-        // Also get missions with satisfaction surveys
-        const { data: surveyMissions } = await supabase
-          .from('satisfaction_surveys')
-          .select('mission_id');
-        const missionIdsWithSurveys = (surveyMissions || []).map((s: any) => s.mission_id);
+        // Also get missions with satisfaction surveys (use RPC to bypass RLS anon restriction)
+        const { data: surveyMissionsData } = await supabase
+          .rpc('get_satisfaction_surveys');
+        const missionIdsWithSurveys = (surveyMissionsData || []).map((s: any) => s.mission_id).filter(Boolean);
         
         // Combine both lists
         const allMissionIdsToExclude = [...new Set([...missionIdsWithSav, ...missionIdsWithSurveys])];

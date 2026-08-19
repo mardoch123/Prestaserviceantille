@@ -162,6 +162,7 @@ const DevisFactures: React.FC = () => {
     const [isAdminSigning, setIsAdminSigning] = useState(false);
     const [isAdminSignDragOver, setIsAdminSignDragOver] = useState(false);
     const adminSignatureInputRef = useRef<HTMLInputElement | null>(null);
+    const [clientSignaturePreview, setClientSignaturePreview] = useState<string>('');
 
     const location = useLocation();
     const navigate = useNavigate();
@@ -1980,6 +1981,10 @@ const DevisFactures: React.FC = () => {
     setAdminSignDocumentId(docId);
     setAdminSignatureDataUrl('');
     setAdminSignatureFileName('');
+    // Detect client signature on this document
+    const docForSign = documents.find(d => d.id === docId);
+    const clientSig = (docForSign as any)?.signatureData || '';
+    setClientSignaturePreview(clientSig);
     setIsAdminSignModalOpen(true);
 };
 
@@ -1990,6 +1995,7 @@ const DevisFactures: React.FC = () => {
         setAdminSignatureDataUrl('');
         setAdminSignatureFileName('');
         setIsAdminSignDragOver(false);
+        setClientSignaturePreview('');
     };
 
     const handleAdminSignatureFile = async (file?: File) => {
@@ -4404,9 +4410,118 @@ const DevisFactures: React.FC = () => {
                         </div>
 
                         <div className="p-6 space-y-4">
-                            <div className="text-sm text-slate-600">
-                                Vous pouvez ajouter une image de signature (facultatif). Si vous ne mettez rien, le devis sera quand même marqué signé.
-                            </div>
+                            {/* Client signature detected — show options */}
+                            {clientSignaturePreview ? (
+                                <>
+                                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
+                                        <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="font-bold text-green-800 text-sm">Signature client détectée</p>
+                                            <p className="text-xs text-green-700 mt-0.5">Le client a déjà signé ce devis. Vous pouvez utiliser sa signature pour la contreseing ou en importer une nouvelle.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                                        <p className="text-[10px] uppercase font-bold text-slate-400 mb-2">Signature du client</p>
+                                        <img src={clientSignaturePreview} alt="Signature client" className="w-full max-h-32 object-contain" />
+                                    </div>
+
+                                    {!adminSignatureDataUrl ? (
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={() => {
+                                                    setAdminSignatureDataUrl(clientSignaturePreview);
+                                                    setAdminSignatureFileName('signature-client.png');
+                                                }}
+                                                className="flex-1 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition flex items-center justify-center gap-2"
+                                            >
+                                                <CheckCircle className="w-4 h-4" /> Utiliser cette signature
+                                            </button>
+                                            <button
+                                                onClick={() => adminSignatureInputRef.current?.click()}
+                                                className="flex-1 py-2.5 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center justify-center gap-2"
+                                            >
+                                                <UploadCloud className="w-4 h-4" /> Nouvelle signature
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <CheckCircle className="w-4 h-4 text-blue-600" />
+                                                    <span className="font-medium text-blue-800">Signature admin prête</span>
+                                                    <span className="text-xs text-blue-600">({adminSignatureFileName || 'signature-client.png'})</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setAdminSignatureDataUrl('');
+                                                        setAdminSignatureFileName('');
+                                                    }}
+                                                    className="text-xs text-blue-700 hover:text-blue-900 font-bold underline"
+                                                >
+                                                    Changer
+                                                </button>
+                                            </div>
+                                            <div className="bg-white border border-slate-200 rounded-lg p-2">
+                                                <img src={adminSignatureDataUrl} alt="Signature admin" className="w-full max-h-28 object-contain" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="text-sm text-slate-600">
+                                        Vous pouvez ajouter une image de signature (facultatif). Si vous ne mettez rien, le devis sera quand même marqué signé.
+                                    </div>
+
+                                    <div
+                                        onClick={() => adminSignatureInputRef.current?.click()}
+                                        onDragOver={(e) => {
+                                            e.preventDefault();
+                                            setIsAdminSignDragOver(true);
+                                        }}
+                                        onDragLeave={(e) => {
+                                            e.preventDefault();
+                                            setIsAdminSignDragOver(false);
+                                        }}
+                                        onDrop={(e) => {
+                                            e.preventDefault();
+                                            setIsAdminSignDragOver(false);
+                                            const file = e.dataTransfer.files?.[0];
+                                            handleAdminSignatureFile(file);
+                                        }}
+                                        className={`w-full rounded-xl border-2 border-dashed p-6 cursor-pointer transition ${isAdminSignDragOver ? 'border-brand-blue bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
+                                    >
+                                        {adminSignatureDataUrl ? (
+                                            <div className="space-y-3">
+                                                <div className="bg-white rounded-lg border border-slate-200 p-3">
+                                                    <img src={adminSignatureDataUrl} alt="Signature" className="w-full max-h-56 object-contain" />
+                                                </div>
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-slate-500 font-bold truncate">{adminSignatureFileName || 'signature'}</span>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setAdminSignatureDataUrl('');
+                                                            setAdminSignatureFileName('');
+                                                        }}
+                                                        className="text-red-600 hover:text-red-700 font-bold"
+                                                    >
+                                                        Retirer
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center text-center gap-2">
+                                                <UploadCloud className="w-10 h-10 text-slate-400" />
+                                                <div className="text-sm font-bold text-slate-700">Déposez une image ici ou cliquez pour choisir</div>
+                                                <div className="text-xs text-slate-500">PNG, JPG, WEBP…</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
 
                             <input
                                 ref={adminSignatureInputRef}
@@ -4415,53 +4530,6 @@ const DevisFactures: React.FC = () => {
                                 onChange={(e) => handleAdminSignatureFile(e.target.files?.[0])}
                                 className="hidden"
                             />
-
-                            <div
-                                onClick={() => adminSignatureInputRef.current?.click()}
-                                onDragOver={(e) => {
-                                    e.preventDefault();
-                                    setIsAdminSignDragOver(true);
-                                }}
-                                onDragLeave={(e) => {
-                                    e.preventDefault();
-                                    setIsAdminSignDragOver(false);
-                                }}
-                                onDrop={(e) => {
-                                    e.preventDefault();
-                                    setIsAdminSignDragOver(false);
-                                    const file = e.dataTransfer.files?.[0];
-                                    handleAdminSignatureFile(file);
-                                }}
-                                className={`w-full rounded-xl border-2 border-dashed p-6 cursor-pointer transition ${isAdminSignDragOver ? 'border-brand-blue bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
-                            >
-                                {adminSignatureDataUrl ? (
-                                    <div className="space-y-3">
-                                        <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                            <img src={adminSignatureDataUrl} alt="Signature" className="w-full max-h-56 object-contain" />
-                                        </div>
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-slate-500 font-bold truncate">{adminSignatureFileName || 'signature'}</span>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setAdminSignatureDataUrl('');
-                                                    setAdminSignatureFileName('');
-                                                }}
-                                                className="text-red-600 hover:text-red-700 font-bold"
-                                            >
-                                                Retirer
-                                            </button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center text-center gap-2">
-                                        <UploadCloud className="w-10 h-10 text-slate-400" />
-                                        <div className="text-sm font-bold text-slate-700">Déposez une image ici ou cliquez pour choisir</div>
-                                        <div className="text-xs text-slate-500">PNG, JPG, WEBP…</div>
-                                    </div>
-                                )}
-                            </div>
 
                             <div className="flex gap-3 pt-2">
                                 <button

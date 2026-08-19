@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { ArrowLeft, FileText, Eye, Printer, Send, CheckCircle, XCircle, Clock, Calendar, User, Building2, Euro, FileSignature } from 'lucide-react';
+import { ArrowLeft, FileText, Eye, Printer, Send, CheckCircle, XCircle, Clock, Calendar, User, Building2, Euro, FileSignature, UploadCloud } from 'lucide-react';
 import dayjs from 'dayjs';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
 import { supabase } from '../utils/supabaseClient';
@@ -21,6 +21,8 @@ const DocumentDetailPage: React.FC = () => {
   const [isSigning, setIsSigning] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [clientSignaturePreview, setClientSignaturePreview] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (id && documents.length > 0) {
@@ -142,6 +144,9 @@ const DocumentDetailPage: React.FC = () => {
         setDocument(docToSign);
       }
       
+      // Detect client signature
+      setClientSignaturePreview(docToSign.signatureData || '');
+      setSignatureData('');
       setIsSignModalOpen(true);
     }
   };
@@ -453,36 +458,110 @@ const DocumentDetailPage: React.FC = () => {
                 <p className="text-sm text-slate-500">Signez pour valider le devis</p>
               </div>
               <button 
-                onClick={() => setIsSignModalOpen(false)}
+                onClick={() => { setIsSignModalOpen(false); setClientSignaturePreview(''); }}
                 className="p-2 hover:bg-slate-100 rounded-full transition"
               >
                 <XCircle className="w-5 h-5 text-slate-500" />
               </button>
             </div>
             
-            <div className="p-6">
-              <div className="border-2 border-slate-300 rounded-lg bg-slate-50 mb-4 overflow-hidden">
-                <canvas
-                  ref={canvasRef}
-                  width={350}
-                  height={200}
-                  className="cursor-crosshair touch-none w-full"
-                  onMouseDown={startDrawing}
-                  onMouseMove={draw}
-                  onMouseUp={stopDrawing}
-                  onMouseLeave={stopDrawing}
-                  onTouchStart={startDrawing}
-                  onTouchMove={draw}
-                  onTouchEnd={stopDrawing}
-                />
-              </div>
-              
-              <div className="flex gap-2">
+            <div className="p-6 space-y-4">
+              {/* Client signature detected */}
+              {clientSignaturePreview ? (
+                <>
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-green-800 text-sm">Signature client détectée</p>
+                      <p className="text-xs text-green-700">Le client a déjà signé. Utilisez sa signature ou dessinez la vôtre.</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-xl p-3">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 mb-2">Signature du client</p>
+                    <img src={clientSignaturePreview} alt="Signature client" className="w-full max-h-28 object-contain" />
+                  </div>
+
+                  {!signatureData ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSignatureData(clientSignaturePreview)}
+                        className="flex-1 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition flex items-center justify-center gap-1.5"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" /> Utiliser
+                      </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 py-2 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center justify-center gap-1.5"
+                      >
+                        <UploadCloud className="w-3.5 h-3.5" /> Importer image
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                      <CheckCircle className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-800 flex-1">Signature prête</span>
+                      <button
+                        onClick={() => setSignatureData('')}
+                        className="text-xs text-blue-700 font-bold underline"
+                      >
+                        Changer
+                      </button>
+                    </div>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const reader = new FileReader();
+                        reader.onload = () => setSignatureData(reader.result as string);
+                        reader.readAsDataURL(file);
+                      } catch {
+                        alert('Erreur lors du chargement.');
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="border-2 border-slate-300 rounded-lg bg-slate-50 mb-4 overflow-hidden">
+                    <canvas
+                      ref={canvasRef}
+                      width={350}
+                      height={200}
+                      className="cursor-crosshair touch-none w-full"
+                      onMouseDown={startDrawing}
+                      onMouseMove={draw}
+                      onTouchStart={startDrawing}
+                      onTouchMove={draw}
+                      onTouchEnd={stopDrawing}
+                      onMouseLeave={stopDrawing}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={clearSignature}
+                      className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition"
+                    >
+                      Effacer
+                    </button>
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2 pt-2">
                 <button
-                  onClick={clearSignature}
+                  onClick={() => { setIsSignModalOpen(false); setClientSignaturePreview(''); }}
                   className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition"
                 >
-                  Effacer
+                  Annuler
                 </button>
                 <button
                   onClick={handleSignSubmit}
