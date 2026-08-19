@@ -6456,8 +6456,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         // en tenant compte des missions réelles ET des devis envoyés non expirés (sauf le devis en cours de signature).
         // Cette validation remplace l'ancienne logique qui ne considérait QUE les missions en state,
         // ignorant les missions provisoires des autres devis envoyés → cause du bug de surbooking.
+        // NOTE : Le check est bypassé pour la signature admin (l'admin peut forcer et gérer manuellement).
         const docToSign = documents.find(d => d.id === id);
-        if (docToSign && docToSign.slotsData && Array.isArray(docToSign.slotsData) && docToSign.slotsData.length > 0) {
+        if (signedBy !== 'admin' && docToSign && docToSign.slotsData && Array.isArray(docToSign.slotsData) && docToSign.slotsData.length > 0) {
             // Exclure le devis en cours de signature des missions provisoires
             // (sinon ses propres créneaux le bloqueraient)
             const documentsWithoutCurrent = (documents || []).filter(d => d.id !== id);
@@ -6492,6 +6493,24 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
         // ─── FIN CONCURRENCY CHECK ─────────────────────────────────────────────
+
+        // Admin bypass: avertir quand même si saturation détectée
+        if (signedBy === 'admin' && docToSign && docToSign.slotsData && Array.isArray(docToSign.slotsData) && docToSign.slotsData.length > 0) {
+            try {
+                const documentsWithoutCurrent = (documents || []).filter(d => d.id !== id);
+                const adminCheck = validateSlotsStrictly(
+                    docToSign.slotsData.map((s: any) => ({ date: s.date || '', startTime: s.startTime || '', endTime: s.endTime || '' })),
+                    providers || [],
+                    missions || [],
+                    documentsWithoutCurrent
+                );
+                if (!adminCheck.isValid) {
+                    const warnSlots = adminCheck.conflicts.map(c => `${c.date} ${c.startTime}–${c.endTime}`);
+                    await addNotification('admin', 'alert', 'Signature Admin - Saturation Détectée',
+                        `Devis ${docToSign.ref}: signé malgré saturation. Créneaux concernés : ${warnSlots.join(', ')}. Assignation manuelle requise.`);
+                }
+            } catch { /* best-effort */ }
+        }
 
         const now = getMartiniqueNowISO();
         console.log('Saving signature for quote:', id, 'signatureData length:', signatureData?.length);

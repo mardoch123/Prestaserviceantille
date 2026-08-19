@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Document, Contract, Pack, Client } from '../types';
 import QRCodeManager from './ScanPage';
@@ -33,6 +34,7 @@ import {
 import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
+import { getMyReferrerProfile, createReferrerLead } from '../modules/marketing/client';
 import { toast } from './mobile/Toast';
 import { 
     getMartiniqueNowISO,
@@ -97,10 +99,12 @@ import {
     Gift,
     TrendingUp,
     Sparkles,
+    RefreshCw,
     Users
 } from 'lucide-react';
 
 const ClientPortal: React.FC = () => {
+    const navigate = useNavigate();
     const {
         clients,
         documents,
@@ -369,6 +373,104 @@ const ClientPortal: React.FC = () => {
             setReferralCode('');
         }
     }, [currentUser?.id]);
+
+    // ─── Parrainage tab: autonomous referrer profile creation ───
+    const generateReferralCode = () => {
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let out = '';
+        for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+        return out;
+    };
+    const [parrainageLoading, setParrainageLoading] = useState(false);
+    const [parrainageProfile, setParrainageProfile] = useState<any>(null);
+    const [parrainageCreating, setParrainageCreating] = useState(false);
+    const [parrainageNewCode, setParrainageNewCode] = useState('');
+    const [parrainageError, setParrainageError] = useState<string | null>(null);
+    const [parrainageCreated, setParrainageCreated] = useState(false);
+
+    // Check referrer profile when parrainage tab is opened
+    useEffect(() => {
+        if (activeTab !== 'parrainage') return;
+        let mounted = true;
+        const check = async () => {
+            setParrainageLoading(true);
+            setParrainageError(null);
+            try {
+                const profile = await getMyReferrerProfile();
+                if (!mounted) return;
+                if (profile) {
+                    setParrainageProfile(profile);
+                    const code = String((profile as any).referral_code || '').trim();
+                    if (code) {
+                        setParrainageNewCode(code);
+                        try {
+                            localStorage.setItem('mkt_client_is_referrer', '1');
+                            localStorage.setItem('mkt_client_referral_code', code);
+                        } catch { /* ignore */ }
+                        setIsReferrer(true);
+                        setReferralCode(code);
+                    }
+                } else {
+                    setParrainageProfile(null);
+                    setParrainageNewCode(generateReferralCode());
+                }
+            } catch {
+                if (mounted) {
+                    setParrainageNewCode(generateReferralCode());
+                }
+            } finally {
+                if (mounted) setParrainageLoading(false);
+            }
+        };
+        check();
+        return () => { mounted = false; };
+    }, [activeTab, currentUser?.id]);
+
+    const handleCreateReferrerProfile = async () => {
+        if (parrainageCreating || !currentUser?.id) return;
+        setParrainageCreating(true);
+        setParrainageError(null);
+        try {
+            const code = String(parrainageNewCode || '').trim();
+            if (!code) {
+                setParrainageError('Code parrain requis.');
+                return;
+            }
+            // Pre-fill from client profile
+            const name = String(client?.name || currentUser?.name || '').trim() || null;
+            const email = String(client?.email || currentUser?.email || '').trim() || null;
+            const phone = String(client?.phone || '').trim() || null;
+
+            const res = await createReferrerLead({
+                referral_code: code,
+                full_name: name,
+                email,
+                phone,
+                auth_user_id: currentUser.id,
+                is_lambda: false,
+                pack_ultime6_threshold: 1000,
+            } as any);
+
+            if (!res) {
+                setParrainageError('Impossible de créer le profil parrain pour le moment.');
+                return;
+            }
+
+            // Update local state
+            setParrainageProfile(res);
+            try {
+                localStorage.setItem('mkt_client_is_referrer', '1');
+                localStorage.setItem('mkt_client_referral_code', code);
+            } catch { /* ignore */ }
+            setIsReferrer(true);
+            setReferralCode(code);
+            setParrainageCreated(true);
+        } catch (e: any) {
+            setParrainageError(e?.message || 'Erreur lors de la création.');
+        } finally {
+            setParrainageCreating(false);
+        }
+    };
 
     // Proactive Notifications - Send contextual notifications when client loads portal
     useEffect(() => {
@@ -1521,7 +1623,7 @@ const ClientPortal: React.FC = () => {
                   </button>
                   {showMobileUserMenu && (
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-1">
-                      <button onClick={() => { setShowShareModal(true); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                      <button onClick={() => { setActiveTab('parrainage'); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
                         <Share2 className="w-4 h-4" /> Parrainage
                       </button>
                       <button onClick={() => { setActiveTab('planning'); setShowMobileUserMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
@@ -1596,7 +1698,7 @@ const ClientPortal: React.FC = () => {
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 transition-transform group-hover:translate-y-0.5" />
                   <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right z-50 p-1">
-                    <button onClick={() => { setShowShareModal(true); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
+                    <button onClick={() => { setActiveTab('parrainage'); }} className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-gray-50 rounded-lg flex items-center gap-2">
                       <Share2 className="w-4 h-4" /> Parrainage
                     </button>
                     <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-2">
@@ -1647,7 +1749,7 @@ const ClientPortal: React.FC = () => {
                           <Wifi className={`w-5 h-5 ${isLive ? 'animate-pulse' : ''}`} /> Direct Vidéo
                           {isLive && <span className="absolute right-3 w-2 h-2 bg-green-400 rounded-full ring-2 ring-white animate-pulse"></span>}
                         </button>
-                        <button onClick={() => { setShowShareModal(true); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
+                        <button onClick={() => { setActiveTab('parrainage'); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
                           <Share2 className="w-5 h-5" /> Parrainage
                         </button>
                         <button onClick={() => { setActiveTab('planning'); setShowMobileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition">
@@ -1691,63 +1793,120 @@ const ClientPortal: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Referral Link */}
-                            {isReferrer && referralLink ? (
+                            {parrainageLoading ? (
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex items-center justify-center gap-3">
+                                    <Loader className="w-5 h-5 animate-spin text-purple-600" />
+                                    <span className="text-sm text-slate-600 font-medium">Vérification de votre profil parrain...</span>
+                                </div>
+                            ) : parrainageProfile || (isReferrer && referralCode) ? (
+                                /* ── Parrain existant ── */
+                                <>
+                                    {parrainageCreated && (
+                                        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-2">
+                                            <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="font-bold text-green-800 text-sm">Profil parrain créé avec succès !</p>
+                                                <p className="text-xs text-green-700 mt-0.5">Vous pouvez maintenant parrainer vos proches.</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                                        <div className="flex items-center gap-2">
+                                            <Gift className="w-5 h-5 text-purple-600" />
+                                            <h3 className="font-bold text-slate-800">Votre code parrain</h3>
+                                        </div>
+                                        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-center">
+                                            <span className="text-2xl font-extrabold tracking-widest text-purple-800">
+                                                {parrainageProfile?.referral_code || referralCode}
+                                            </span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input
+                                                value={referralLink || `${window.location.origin}/parrainage/inscription?code=${encodeURIComponent(parrainageProfile?.referral_code || referralCode)}`}
+                                                readOnly
+                                                className="flex-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-slate-50 focus:outline-none"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        const url = referralLink || `${window.location.origin}/parrainage/inscription?code=${encodeURIComponent(parrainageProfile?.referral_code || referralCode)}`;
+                                                        await navigator.clipboard.writeText(url);
+                                                        showToast('Lien copié !', 'success');
+                                                    } catch {
+                                                        showToast('Impossible de copier', 'warning');
+                                                    }
+                                                }}
+                                                className="bg-purple-600 text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-purple-700 transition flex items-center gap-2"
+                                            >
+                                                <Copy className="w-4 h-4" /> Copier
+                                            </button>
+                                        </div>
+                                        <div className="flex gap-3 pt-2">
+                                            <button
+                                                onClick={() => navigate('/parrainage/dashboard')}
+                                                className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                                            >
+                                                <TrendingUp className="w-4 h-4" /> Dashboard
+                                            </button>
+                                            <button
+                                                onClick={() => navigate('/parrainage/mes-points')}
+                                                className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                                            >
+                                                <Award className="w-4 h-4" /> Mes points
+                                            </button>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                /* ── Devenir parrain ── */
                                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
                                     <div className="flex items-center gap-2">
-                                        <Share2 className="w-5 h-5 text-purple-600" />
-                                        <h3 className="font-bold text-slate-800">Votre lien de parrainage</h3>
+                                        <Sparkles className="w-5 h-5 text-purple-600" />
+                                        <h3 className="font-bold text-slate-800">Devenez parrain</h3>
                                     </div>
-                                    <p className="text-sm text-slate-500">Partagez ce lien pour que vos filleuls s'inscrivent automatiquement avec votre code.</p>
-                                    <div className="flex gap-2">
-                                        <input
-                                            value={referralLink}
-                                            readOnly
-                                            className="flex-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-slate-50 focus:outline-none"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                try {
-                                                    await navigator.clipboard.writeText(referralLink);
-                                                    showToast('Lien copié !', 'success');
-                                                } catch {
-                                                    showToast('Impossible de copier', 'warning');
-                                                }
-                                            }}
-                                            className="bg-purple-600 text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-purple-700 transition flex items-center gap-2"
-                                        >
-                                            <Copy className="w-4 h-4" /> Copier
-                                        </button>
-                                    </div>
-                                    <div className="flex gap-3 pt-2">
-                                        <button
-                                            onClick={async () => {
-                                                try {
-                                                    await navigator.clipboard.writeText(referralLink);
-                                                    showToast('Lien copié !', 'success');
-                                                } catch {
-                                                    showToast('Impossible de copier', 'warning');
-                                                }
-                                            }}
-                                            className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition flex items-center justify-center gap-2"
-                                        >
-                                            <Share className="w-4 h-4" /> Copier le lien
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center">
-                                    <Share2 className="w-16 h-16 text-slate-200 mx-auto mb-4" />
-                                    <h3 className="font-bold text-slate-700 mb-2">Devenez parrain !</h3>
-                                    <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                                        Vous n'avez pas encore de code de parrainage. Contactez-nous pour participer au programme et profiter des avantages.
+                                    <p className="text-sm text-slate-500">
+                                        Créez votre code parrain en une clic et commencez à parrainer vos proches. Aucun besoin d'intervention manuelle.
                                     </p>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1">Votre code parrain</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                value={parrainageNewCode}
+                                                onChange={(e) => setParrainageNewCode(e.target.value.toUpperCase())}
+                                                className="flex-1 border border-slate-200 rounded-xl px-4 py-3 font-mono font-bold tracking-wider text-center text-lg"
+                                                placeholder="ABCDEFGH"
+                                                maxLength={8}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setParrainageNewCode(generateReferralCode())}
+                                                className="px-4 py-3 rounded-xl font-bold bg-slate-100 text-slate-800 hover:bg-slate-200 transition flex items-center gap-2"
+                                            >
+                                                <RefreshCw className="w-4 h-4" /> Générer
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {parrainageError && (
+                                        <div className="text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3">{parrainageError}</div>
+                                    )}
+
                                     <button
-                                        onClick={() => setActiveTab('messages')}
-                                        className="mt-4 px-5 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition"
+                                        onClick={handleCreateReferrerProfile}
+                                        disabled={parrainageCreating || !parrainageNewCode.trim()}
+                                        className="w-full bg-purple-600 text-white px-4 py-3 rounded-xl font-extrabold hover:bg-purple-700 disabled:opacity-60 transition flex items-center justify-center gap-2"
                                     >
-                                        Nous contacter
+                                        {parrainageCreating ? (
+                                            <>
+                                                <Loader className="w-4 h-4 animate-spin" /> Création...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Gift className="w-4 h-4" /> Créer mon profil parrain
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             )}
@@ -1759,21 +1918,21 @@ const ClientPortal: React.FC = () => {
                                     <div className="flex items-start gap-3">
                                         <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">1</div>
                                         <div>
-                                            <p className="font-medium text-slate-700 text-sm">Partagez votre lien</p>
-                                            <p className="text-xs text-slate-500">Envoyez votre lien de parrainage à vos amis ou famille</p>
+                                            <p className="font-medium text-slate-700 text-sm">Créez votre code</p>
+                                            <p className="text-xs text-slate-500">Générez votre code parrain unique ou personnalisez-le</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
                                         <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</div>
                                         <div>
-                                            <p className="font-medium text-slate-700 text-sm">Votre filleul s'inscrit</p>
-                                            <p className="text-xs text-slate-500">Il crée son compte via votre lien et réserve sa première prestation</p>
+                                            <p className="font-medium text-slate-700 text-sm">Partagez votre lien</p>
+                                            <p className="text-xs text-slate-500">Envoyez votre lien de parrainage à vos amis ou famille</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
                                         <div className="w-8 h-8 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm shrink-0">3</div>
                                         <div>
-                                            <p className="font-medium text-slate-700 text-sm">Recevez vos réductions</p>
+                                            <p className="font-medium text-slate-700 text-sm">Gagnez des réductions</p>
                                             <p className="text-xs text-slate-500">Après la première mission complétée, vous recevez chacun 20€ de réduction</p>
                                         </div>
                                     </div>
@@ -1923,7 +2082,7 @@ const ClientPortal: React.FC = () => {
                                                     <p className="text-xs text-slate-500">Recevez chacun 20€ de réduction !</p>
                                                 </div>
                                                 <button 
-                                                    onClick={() => setShowShareModal(true)}
+                                                    onClick={() => setActiveTab('parrainage')}
                                                     className="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition"
                                                 >
                                                     Inviter
@@ -2107,10 +2266,10 @@ const ClientPortal: React.FC = () => {
                                         <p className="text-white/80 text-sm">Invitez un ami et recevez chacun <span className="font-bold">20€ de réduction</span> !</p>
                                     </div>
                                     <button 
-                                        onClick={() => setShowShareModal(true)}
+                                        onClick={() => setActiveTab('parrainage')}
                                         className="bg-white text-purple-700 px-4 py-2 rounded-lg font-bold hover:bg-white/90 transition whitespace-nowrap"
                                     >
-                                        Partager
+                                        Parrainer
                                     </button>
                                 </div>
                             </div>
