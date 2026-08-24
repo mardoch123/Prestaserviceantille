@@ -1620,7 +1620,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             signatureDate: d.signature_date,
             recurrenceEndDate: d.recurrence_end_date,
             frequency: d.frequency,
-            packId: d.pack_id || d.packId
+            packId: d.pack_id || d.packId,
+            // Champs facturation fractionnée
+            splitIndex: d.split_index ?? d.splitIndex,
+            totalSplits: d.total_splits ?? d.totalSplits,
+            parentQuoteId: d.parent_quote_id || d.parentQuoteId,
+            coveredSessions: d.covered_sessions || d.coveredSessions,
+            totalSessions: d.total_sessions ?? d.totalSessions,
+            splitBillingConfig: d.split_billing_config || d.splitBillingConfig,
+            isRead: d.is_read ?? d.isRead,
+            linkedInvoiceId: d.linked_invoice_id || d.linkedInvoiceId,
         });
 
         console.log('[DocumentsSubscription] Setting up subscription for admin');
@@ -1713,7 +1722,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             signatureDate: d.signature_date,
             recurrenceEndDate: d.recurrence_end_date,
             frequency: d.frequency,
-            packId: d.pack_id || d.packId
+            packId: d.pack_id || d.packId,
+            // Champs facturation fractionnée
+            splitIndex: d.split_index ?? d.splitIndex,
+            totalSplits: d.total_splits ?? d.totalSplits,
+            parentQuoteId: d.parent_quote_id || d.parentQuoteId,
+            coveredSessions: d.covered_sessions || d.coveredSessions,
+            totalSessions: d.total_sessions ?? d.totalSessions,
+            splitBillingConfig: d.split_billing_config || d.splitBillingConfig,
+            isRead: d.is_read ?? d.isRead,
+            linkedInvoiceId: d.linked_invoice_id || d.linkedInvoiceId,
         });
 
         const filter = `client_id=eq.${clientId}`;
@@ -2380,6 +2398,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             packId: d.pack_id || d.packId,
                             serviceType: d.service_type || d.serviceType,
                             expirationDate,
+                            // Champs facturation fractionnée
+                            splitIndex: d.split_index ?? d.splitIndex,
+                            totalSplits: d.total_splits ?? d.totalSplits,
+                            parentQuoteId: d.parent_quote_id || d.parentQuoteId,
+                            coveredSessions: d.covered_sessions || d.coveredSessions,
+                            totalSessions: d.total_sessions ?? d.totalSessions,
+                            splitBillingConfig: d.split_billing_config || d.splitBillingConfig,
+                            isRead: d.is_read ?? d.isRead,
+                            linkedInvoiceId: d.linked_invoice_id || d.linkedInvoiceId,
                         };
                     });
                     setDocuments(mappedDocs);
