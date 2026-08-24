@@ -6467,11 +6467,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         for (const split of signatureSplits) {
             await generateSplitInvoice(quoteId, split.index, config);
         }
-
-        // Notification admin
-        await addNotification('admin', 'info', 'Facturation par Pack Initiée',
-            `Devis ${quote.ref}: ${signatureSplits.length} facture(s) générée(s) à la signature sur ${config.totalSplits} tranches.`,
-            undefined, `document:${quoteId}`);
+        // Note: chaque appel à generateSplitInvoice crée déjà sa propre notification
+        // avec le lien vers la facture générée (document:${invoiceId})
     };
 
     /**
@@ -6625,11 +6622,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 generatedCount++;
             }
         }
-
-        // Notifier la secrétaire des factures générées
-        if (generatedCount > 0) {
-            await notifyReadySplitInvoices(quoteId);
-        }
+        // Note: chaque appel à generateSplitInvoice crée déjà sa propre notification
+        // avec le lien vers la facture générée (document:${invoiceId})
     };
 
     /**
@@ -6885,10 +6879,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (generatedForQuote > 0) {
                 result.quotesProcessed++;
-                const quote = documents.find(d => d.id === quoteId);
-                await addNotification('admin', 'success', 'Facture Auto-Générée',
-                    `Devis ${quote?.ref || quoteId}: ${generatedForQuote} facture(s) générée(s) automatiquement.`,
-                    undefined, `document:${quoteId}`);
+                // La notification individuelle est déjà créée par generateSplitInvoice
+                // avec le lien vers la facture (document:${invoiceId})
             }
         }
 
