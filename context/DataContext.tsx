@@ -3042,7 +3042,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 signatureDate: d.signature_date,
                 recurrenceEndDate: d.recurrence_end_date,
                 packId: d.pack_id,
-                serviceType: d.service_type
+                serviceType: d.service_type,
+                // Champs facturation fractionnée
+                splitIndex: d.split_index ?? d.splitIndex,
+                totalSplits: d.total_splits ?? d.totalSplits,
+                parentQuoteId: d.parent_quote_id || d.parentQuoteId,
+                coveredSessions: d.covered_sessions || d.coveredSessions,
+                totalSessions: d.total_sessions ?? d.totalSessions,
+                splitBillingConfig: d.split_billing_config || d.splitBillingConfig,
+                isRead: d.is_read ?? d.isRead ?? false,
+                linkedInvoiceId: d.linked_invoice_id || d.linkedInvoiceId,
             } as any;
 
             setDocuments(prev => {

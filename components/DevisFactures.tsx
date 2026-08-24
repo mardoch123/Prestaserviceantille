@@ -4501,7 +4501,12 @@ const DevisFactures: React.FC = () => {
                                             <div className="space-y-2">
                                                 <p className="text-xs font-semibold text-indigo-700">Factures générées :</p>
                                                 {splitInvoices.map(inv => (
-                                                    <div key={inv.id} className="flex items-center justify-between bg-white rounded-lg p-2 border border-indigo-100">
+                                                    <div key={inv.id} 
+                                                        onClick={() => {
+                                                            setIsDetailModalOpen(false);
+                                                            navigate(`/admin/devis/${inv.id}`);
+                                                        }}
+                                                        className="flex items-center justify-between bg-white rounded-lg p-2 border border-indigo-100 cursor-pointer hover:bg-indigo-50 hover:border-indigo-200 transition-colors">
                                                         <div className="flex items-center gap-2">
                                                             <FileText className="w-4 h-4 text-indigo-500" />
                                                             <span className="text-sm font-medium text-slate-700">{inv.ref}</span>
