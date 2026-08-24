@@ -29,6 +29,18 @@ import { dataCache } from '../utils/dataCache';
 import { smartFetch } from '../utils/smartFetch';
 import { checkProviderMissionConflict } from '../modules/providerAvailability/client';
 import { validateSlotsStrictly, getProvisionalMissionsFromDocuments } from '../utils/availabilityCalculator';
+import { 
+    calculateSplitBillingConfig, 
+    isSplitReadyForInvoicing, 
+    getCompletedSessionsForQuote,
+    calculatePackBillingStats,
+    generateSplitInvoiceRef,
+    isEligibleForSplitBilling,
+    getAmountPerSession,
+    getReadySplitsForQuote,
+    formatSplitLabel
+} from '../utils/splitBilling';
+import type { SplitBillingConfig, SplitDetail, PackBillingStats } from '../types';
 
 // --- Assets & Constantes ---
 export const LOGO_NORMAL = "https://anciens.prestaservicesantilles.com/images/logo.png";
@@ -228,6 +240,36 @@ interface DataContextType {
     signQuoteAsAdmin: (id: string, signatureData?: string) => Promise<void>;
     refuseQuote: (id: string) => Promise<void>;
     requestInvoice: (docId: string) => Promise<void>;
+    
+    // === FONCTIONS POUR LA FACTURATION FRACTIONNÉE PAR PACK ===
+    // Génère les factures fractionnées pour un devis signé (à la signature)
+    generateSplitInvoicesAtSignature: (quoteId: string, preComputedConfig?: SplitBillingConfig) => Promise<void>;
+    // Génère une facture fractionnée pour une tranche spécifique
+    generateSplitInvoice: (quoteId: string, splitIndex: number, preComputedConfig?: SplitBillingConfig) => Promise<Document | null>;
+    // Vérifie et génère automatiquement les factures en attente après complétion de mission
+    checkAndGeneratePendingSplitInvoices: (quoteId: string) => Promise<void>;
+    // Récupère toutes les factures fractionnées liées à un devis
+    getSplitInvoicesForQuote: (quoteId: string) => Document[];
+    // Calcule les statistiques de facturation pour un pack
+    getPackBillingStats: (quoteId: string) => PackBillingStats | null;
+    // Calcule les statistiques pour tous les packs éligibles
+    getAllPackBillingStats: () => PackBillingStats[];
+    // Vérifie si un devis est éligible à la facturation fractionnée
+    isEligibleForSplitBilling: (quote: Document) => boolean;
+    // Configure la facturation fractionnée pour un devis (retourne la config)
+    configureSplitBilling: (quoteId: string, forceMode?: 'at_signature' | 'after_completion' | 'mixed') => Promise<SplitBillingConfig>;
+    // Marque une facture fractionnée comme consultée/lue
+    markSplitInvoiceRead: (invoiceId: string) => Promise<void>;
+    // Notifie la secrétaire des factures prêtes à générer pour un devis
+    notifyReadySplitInvoices: (quoteId: string) => Promise<void>;
+    // Compte les factures fractionnées non lues
+    getUnreadSplitInvoicesCount: () => number;
+    // Backfill : configure et génère les factures pour tous les devis signés des 6 derniers mois
+    backfillSplitBilling: () => Promise<{ configured: number; invoicesGenerated: number; errors: string[] }>;
+    // Rollback du backfill : supprime les factures générées par le backfill et réinitialise la config
+    rollbackBackfillSplitBilling: () => Promise<{ deletedInvoices: number; resetConfigs: number }>;
+    // Exécute la génération automatique des factures en attente (pour cron)
+    runAutoGenerateSplitInvoices: () => Promise<{ generated: number; quotesProcessed: number }>;
     refundTransaction: (ref: string, amount: number) => Promise<void>;
     generateMissionsFromDocument: (doc: Document) => Promise<void>;
 
@@ -565,6 +607,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             recurrenceEndDate: (data as any).recurrence_end_date,
             packId: (data as any).pack_id,
             serviceType: (data as any).service_type,
+            // Champs pour la facturation fractionnée
+            splitBillingConfig: (data as any).split_billing_config,
+            splitIndex: (data as any).split_index,
+            totalSplits: (data as any).total_splits,
+            parentQuoteId: (data as any).parent_quote_id,
+            coveredSessions: (data as any).covered_sessions,
+            totalSessions: (data as any).total_sessions,
+            isRead: (data as any).is_read ?? false,
         } as any;
 
         setDocuments(prev => {
@@ -874,6 +924,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             recurrenceEndDate: (data as any).recurrence_end_date,
             packId: (data as any).pack_id,
             serviceType: (data as any).service_type,
+            // Champs pour la facturation fractionnée
+            splitBillingConfig: (data as any).split_billing_config,
+            splitIndex: (data as any).split_index,
+            totalSplits: (data as any).total_splits,
+            parentQuoteId: (data as any).parent_quote_id,
+            coveredSessions: (data as any).covered_sessions,
+            totalSessions: (data as any).total_sessions,
+            isRead: (data as any).is_read ?? false,
         } as any;
 
         setDocuments(prev => prev.map(d => d.id === id ? { ...d, ...mapped } : d));
@@ -4416,6 +4474,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         setMissions(prev => prev.map(m => m.id === id ? { ...m, status: 'completed' } : m));
+
+        // === DÉCLENCHEMENT AUTOMATIQUE DE LA FACTURATION FRACTIONNÉE ===
+        // Après complétion d'une mission, vérifier si des factures fractionnées doivent être générées
+        const mission = missions.find(m => m.id === id);
+        if (mission?.sourceDocumentId) {
+            const quote = documents.find(d => d.id === mission.sourceDocumentId);
+            if (quote?.splitBillingConfig) {
+                // Vérifier et générer les factures en attente
+                try {
+                    await checkAndGeneratePendingSplitInvoices(quote.id);
+                } catch (e) {
+                    console.error('[completeMission] Error checking split invoices:', e);
+                }
+            }
+        }
     };
 
     const endMission = async (id: string, remark?: string, photos?: string[], video?: string) => {
@@ -6263,7 +6336,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             slotsData: (data as any).slots_data,
             reminderSent: (data as any).reminder_sent,
             recurrenceEndDate: (data as any).recurrence_end_date,
-            packId: (data as any).pack_id
+            packId: (data as any).pack_id,
+            // Champs pour la facturation fractionnée
+            splitBillingConfig: (data as any).split_billing_config,
+            splitIndex: (data as any).split_index,
+            totalSplits: (data as any).total_splits,
+            parentQuoteId: (data as any).parent_quote_id,
+            coveredSessions: (data as any).covered_sessions,
+            totalSessions: (data as any).total_sessions,
+            isRead: (data as any).is_read ?? false,
         } as any;
 
         setDocuments(prev => [...prev, mapped]);
@@ -6316,6 +6397,503 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         await addNotification('admin', 'success', 'Facture Auto-Générée', 
             `Devis ${quote.ref} converti en facture ${invoice.ref} (statut: payé).`, 
             undefined, `document:${invoiceId}`);
+    };
+
+    // === FONCTIONS POUR LA FACTURATION FRACTIONNÉE PAR PACK ===
+
+    /**
+     * Configure la facturation fractionnée pour un devis
+     * Calcule les tranches selon le nombre de sessions et le montant
+     */
+    const configureSplitBilling = async (quoteId: string, forceMode?: 'at_signature' | 'after_completion' | 'mixed') => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote) throw new Error('Devis non trouvé');
+        if (quote.type !== 'Devis') throw new Error('Ce document n\'est pas un devis');
+
+        // Calculer le nombre total de sessions
+        const totalSessions = quote.slotsData?.length || quote.quantity || 1;
+        const totalAmount = quote.totalTTC || 0;
+
+        // Calculer la configuration des tranches
+        const config = calculateSplitBillingConfig(totalSessions, totalAmount, forceMode);
+
+        // Mettre à jour le devis avec la configuration
+        await supabase
+            .from('documents')
+            .update({ 
+                split_billing_config: config,
+                total_sessions: totalSessions
+            })
+            .eq('id', quoteId);
+
+        // Mettre à jour le state local
+        setDocuments(prev => prev.map(d => d.id === quoteId ? { 
+            ...d, 
+            splitBillingConfig: config,
+            totalSessions 
+        } : d));
+
+        console.log('[configureSplitBilling] Configured split billing for quote:', quoteId, 'Config:', config);
+        // Retourner la config pour usage immédiat (évite le bug de closure stale)
+        return config;
+    };
+
+    /**
+     * Génère les factures fractionnées à la signature du devis
+     * Génère uniquement les tranches avec trigger = 'signature'
+     */
+    const generateSplitInvoicesAtSignature = async (quoteId: string, preComputedConfig?: SplitBillingConfig) => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote) throw new Error('Devis non trouvé');
+        if (quote.type !== 'Devis') throw new Error('Ce document n\'est pas un devis');
+        if (quote.status !== 'signed') throw new Error('Le devis doit être signé pour générer des factures');
+
+        // Utiliser la config pré-calculée (passée en paramètre) ou celle du devis
+        // Le paramètre preComputedConfig évite le bug de closure stale après configureSplitBilling
+        let config = preComputedConfig || quote.splitBillingConfig;
+        if (!config) {
+            config = await configureSplitBilling(quoteId);
+        }
+        if (!config) {
+            console.error('[generateSplitInvoicesAtSignature] Failed to obtain split billing config');
+            return;
+        }
+
+        console.log('[generateSplitInvoicesAtSignature] Using config for quote:', quoteId, 'totalSplits:', config.totalSplits);
+
+        // Générer les factures pour les tranches 'signature'
+        const signatureSplits = config.splits.filter((s: SplitDetail) => s.trigger === 'signature');
+        
+        for (const split of signatureSplits) {
+            await generateSplitInvoice(quoteId, split.index, config);
+        }
+
+        // Notification admin
+        await addNotification('admin', 'info', 'Facturation par Pack Initiée',
+            `Devis ${quote.ref}: ${signatureSplits.length} facture(s) générée(s) à la signature sur ${config.totalSplits} tranches.`,
+            undefined, `document:${quoteId}`);
+    };
+
+    /**
+     * Génère une facture fractionnée pour une tranche spécifique
+     */
+    const generateSplitInvoice = async (quoteId: string, splitIndex: number, preComputedConfig?: SplitBillingConfig): Promise<Document | null> => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote) throw new Error('Devis non trouvé');
+        
+        // Utiliser la config passée en paramètre (évite le bug de closure stale)
+        const config = preComputedConfig || quote.splitBillingConfig;
+        if (!config) throw new Error('Configuration de facturation fractionnée manquante');
+
+        const split = config.splits[splitIndex];
+        if (!split) throw new Error(`Tranche ${splitIndex} non trouvée`);
+        if (split.status === 'invoiced' || split.status === 'paid') {
+            console.log('[generateSplitInvoice] Split already invoiced:', splitIndex);
+            return null;
+        }
+
+        // Vérifier si la tranche est prête à être facturée
+        const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+        if (!isSplitReadyForInvoicing(split, completedSessions)) {
+            console.log('[generateSplitInvoice] Split not ready for invoicing:', splitIndex);
+            return null;
+        }
+
+        // Générer la référence de la facture fractionnée
+        const invoiceRef = generateSplitInvoiceRef(quote.ref, splitIndex, config.totalSplits);
+        const invoiceId = generateUUID();
+
+        // Calculer les montants pour cette tranche
+        const splitAmount = split.amount;
+        const splitAmountHT = splitAmount / (1 + (quote.tvaRate || 0) / 100);
+
+        // Créer la facture fractionnée
+        const invoice: Document = {
+            ...quote,
+            id: invoiceId,
+            ref: invoiceRef,
+            type: 'Facture',
+            status: 'pending',
+            date: getMartiniqueToday(),
+            totalTTC: splitAmount,
+            totalHT: splitAmountHT,
+            quantity: split.sessions.length,
+            description: `${quote.description} - Tranche ${splitIndex + 1}/${config.totalSplits} (Sessions ${split.sessions.join('-')})`,
+            // Champs spécifiques aux factures fractionnées
+            splitIndex: splitIndex,
+            totalSplits: config.totalSplits,
+            parentQuoteId: quoteId,
+            coveredSessions: split.sessions,
+            totalSessions: config.totalSessions,
+            linkedInvoiceId: quoteId // Lien vers le devis parent
+        };
+
+        // Insérer la facture en base
+        const dbInvoiceData = {
+            id: invoiceId,
+            ref: invoiceRef,
+            type: 'Facture',
+            status: 'pending',
+            date: getMartiniqueToday(),
+            client_id: quote.clientId,
+            client_name: quote.clientName,
+            category: quote.category,
+            description: invoice.description,
+            service_type: quote.serviceType,
+            unit_price: splitAmount,
+            quantity: split.sessions.length,
+            tva_rate: quote.tvaRate,
+            total_ht: splitAmountHT,
+            total_ttc: splitAmount,
+            tax_credit_enabled: quote.taxCreditEnabled,
+            linked_invoice_id: quoteId,
+            parent_quote_id: quoteId,
+            split_index: splitIndex,
+            total_splits: config.totalSplits,
+            covered_sessions: split.sessions,
+            total_sessions: config.totalSessions,
+            slots_data: quote.slotsData?.filter((_, idx) => split.sessions.includes(idx + 1)),
+            pack_id: quote.packId
+        };
+
+        const { error: insertError } = await supabase.from('documents').insert(dbInvoiceData);
+        if (insertError) {
+            console.error('[generateSplitInvoice] Error creating split invoice:', insertError);
+            throw insertError;
+        }
+
+        // Mettre à jour le state local
+        setDocuments(prev => [...prev, invoice]);
+
+        // Mettre à jour la configuration pour marquer la tranche comme facturée
+        const updatedConfig = { ...config };
+        updatedConfig.splits = updatedConfig.splits.map(s => 
+            s.index === splitIndex 
+                ? { ...s, status: 'invoiced' as const, invoiceId, invoicedAt: getMartiniqueNowISO() }
+                : s
+        );
+
+        await supabase
+            .from('documents')
+            .update({ split_billing_config: updatedConfig })
+            .eq('id', quoteId);
+
+        setDocuments(prev => prev.map(d => d.id === quoteId ? { ...d, splitBillingConfig: updatedConfig } : d));
+
+        console.log('[generateSplitInvoice] Split invoice created:', invoiceRef, 'for quote:', quoteId, 'split:', splitIndex);
+
+        // Notification admin
+        await addNotification('admin', 'success', 'Facture Fractionnée Générée',
+            `Facture ${invoiceRef} générée pour le devis ${quote.ref} - Tranche ${splitIndex + 1}/${config.totalSplits} (Sessions ${split.sessions.join(', ')}).`,
+            undefined, `document:${invoiceId}`);
+
+        // Envoyer la facture par email si le client a un email
+        const client = clients.find(c => c.id === quote.clientId);
+        if (client?.email) {
+            try {
+                await sendEmail(client.email, `Facture ${invoiceRef} - Tranche ${splitIndex + 1}/${config.totalSplits}`, 'invoice_created', {
+                    clientName: quote.clientName,
+                    invoiceRef: invoiceRef,
+                    amount: splitAmount.toFixed(2),
+                    splitInfo: `Tranche ${splitIndex + 1} sur ${config.totalSplits}`
+                });
+            } catch (e) {
+                console.warn('[generateSplitInvoice] Failed to send email:', e);
+            }
+        }
+
+        return invoice;
+    };
+
+    /**
+     * Vérifie et génère automatiquement les factures en attente après complétion de mission
+     */
+    const checkAndGeneratePendingSplitInvoices = async (quoteId: string) => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote || !quote.splitBillingConfig) return;
+
+        const config = quote.splitBillingConfig;
+        const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+
+        let generatedCount = 0;
+        // Vérifier chaque tranche en attente
+        for (const split of config.splits) {
+            if (split.status === 'pending' && isSplitReadyForInvoicing(split, completedSessions)) {
+                console.log('[checkAndGeneratePendingSplitInvoices] Generating invoice for split:', split.index);
+                // Passer la config explicitement pour éviter le bug de closure stale
+                await generateSplitInvoice(quoteId, split.index, config);
+                generatedCount++;
+            }
+        }
+
+        // Notifier la secrétaire des factures générées
+        if (generatedCount > 0) {
+            await notifyReadySplitInvoices(quoteId);
+        }
+    };
+
+    /**
+     * Récupère toutes les factures fractionnées liées à un devis
+     */
+    const getSplitInvoicesForQuote = (quoteId: string): Document[] => {
+        return documents.filter(d => 
+            d.type === 'Facture' && 
+            (d.parentQuoteId === quoteId || d.linkedInvoiceId === quoteId)
+        );
+    };
+
+    /**
+     * Calcule les statistiques de facturation pour un pack
+     */
+    const getPackBillingStats = (quoteId: string): PackBillingStats | null => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote || quote.type !== 'Devis') return null;
+
+        const splitInvoices = getSplitInvoicesForQuote(quoteId);
+        return calculatePackBillingStats(quote, splitInvoices, missions);
+    };
+
+    /**
+     * Calcule les statistiques pour tous les packs éligibles
+     */
+    const getAllPackBillingStats = (): PackBillingStats[] => {
+        // Inclure tous les devis signés qui ont une configuration de facturation fractionnée
+        // (y compris les packs d'1 séance qui ont été configurés automatiquement)
+        const eligibleQuotes = documents.filter(d => 
+            d.type === 'Devis' && 
+            d.status === 'signed' && 
+            (d.splitBillingConfig || 
+             (d.totalSessions || 0) >= 1 || 
+             (d.slotsData?.length || 0) >= 1 || 
+             (d.quantity || 1) >= 1)
+        );
+
+        return eligibleQuotes
+            .map(quote => calculatePackBillingStats(quote, getSplitInvoicesForQuote(quote.id), missions))
+            .filter((stats): stats is PackBillingStats => stats !== null);
+    };
+
+    /**
+     * Vérifie si un devis est éligible à la facturation fractionnée
+     */
+    const isEligibleForSplitBillingFn = (quote: Document): boolean => {
+        return isEligibleForSplitBilling(quote);
+    };
+
+    /**
+     * Marque une facture fractionnée comme consultée/lue
+     */
+    const markSplitInvoiceRead = async (invoiceId: string) => {
+        const doc = documents.find(d => d.id === invoiceId);
+        if (!doc || doc.type !== 'Facture' || !doc.parentQuoteId) return;
+        if (doc.isRead) return; // Déjà lue
+
+        await supabase
+            .from('documents')
+            .update({ is_read: true })
+            .eq('id', invoiceId);
+
+        setDocuments(prev => prev.map(d => d.id === invoiceId ? { ...d, isRead: true } : d));
+    };
+
+    /**
+     * Notifie la secrétaire des factures prêtes à générer pour un devis
+     */
+    const notifyReadySplitInvoices = async (quoteId: string) => {
+        const quote = documents.find(d => d.id === quoteId);
+        if (!quote || !quote.splitBillingConfig) return;
+
+        const readySplits = getReadySplitsForQuote(quote, missions);
+        if (readySplits.length === 0) return;
+
+        const sessionLabels = readySplits.map(s => 
+            formatSplitLabel(s, quote.splitBillingConfig!.totalSplits)
+        ).join(', ');
+
+        await addNotification(
+            'admin',
+            'alert',
+            `Facture(s) prête(s) - ${quote.ref}`,
+            `${readySplits.length} tranche(s) prête(s) à facturer pour ${quote.clientName} : ${sessionLabels}. Montant total : ${readySplits.reduce((sum, s) => sum + s.amount, 0).toFixed(2)} €`,
+            undefined,
+            `tab:invoices-split`
+        );
+    };
+
+    /**
+     * Compte les factures fractionnées non lues
+     */
+    const getUnreadSplitInvoicesCount = (): number => {
+        return documents.filter(d => 
+            d.type === 'Facture' && 
+            d.parentQuoteId && 
+            !d.isRead
+        ).length;
+    };
+
+    /**
+     * Backfill : configure et génère les factures pour tous les devis signés des 6 derniers mois
+     * Retourne le nombre de devis configurés, factures générées et erreurs
+     */
+    const backfillSplitBilling = async () => {
+        const result = { configured: 0, invoicesGenerated: 0, errors: [] as string[] };
+        const sixMonthsAgo = dayjs().subtract(6, 'month').toISOString();
+
+        // Trouver tous les devis signés des 6 derniers mois
+        const recentSignedQuotes = documents.filter(d => {
+            if (d.type !== 'Devis' || d.status !== 'signed') return false;
+            const sigDate = d.signatureDate || d.date;
+            if (!sigDate) return false;
+            try {
+                return new Date(sigDate).toISOString() >= sixMonthsAgo;
+            } catch { return false; }
+        });
+
+        console.log('[backfillSplitBilling] Processing', recentSignedQuotes.length, 'quotes from last 6 months');
+
+        for (const quote of recentSignedQuotes) {
+            try {
+                // Si pas de config, la créer
+                if (!quote.splitBillingConfig) {
+                    await configureSplitBilling(quote.id);
+                    result.configured++;
+                }
+
+                // Recharger le devis pour avoir la config à jour
+                const updatedQuote = documents.find(d => d.id === quote.id);
+                const config = updatedQuote?.splitBillingConfig || quote.splitBillingConfig;
+                if (!config) continue;
+
+                // Générer les factures pour les tranches 'signature' pas encore facturées
+                for (const split of config.splits) {
+                    if (split.status === 'pending' && split.trigger === 'signature') {
+                        await generateSplitInvoice(quote.id, split.index, config);
+                        result.invoicesGenerated++;
+                    }
+                }
+
+                // Vérifier aussi les tranches 'completion' prêtes
+                const completedSessions = getCompletedSessionsForQuote(quote.id, missions);
+                for (const split of config.splits) {
+                    if (split.status === 'pending' && isSplitReadyForInvoicing(split, completedSessions)) {
+                        await generateSplitInvoice(quote.id, split.index, config);
+                        result.invoicesGenerated++;
+                    }
+                }
+            } catch (e: any) {
+                const msg = `Devis ${quote.ref}: ${e.message || 'Erreur inconnue'}`;
+                console.error('[backfillSplitBilling] Error for quote:', quote.id, e);
+                result.errors.push(msg);
+            }
+        }
+
+        console.log('[backfillSplitBilling] Done:', result);
+
+        // Notification admin
+        await addNotification('admin', 'success', 'Backfill Facturation Terminé',
+            `${result.configured} pack(s) configuré(s), ${result.invoicesGenerated} facture(s) générée(s)${result.errors.length > 0 ? `, ${result.errors.length} erreur(s)` : ''}.`,
+            undefined, 'tab:invoices-split');
+
+        return result;
+    };
+
+    /**
+     * Rollback du backfill : supprime les factures fractionnées générées et réinitialise la config
+     */
+    const rollbackBackfillSplitBilling = async () => {
+        const result = { deletedInvoices: 0, resetConfigs: 0 };
+
+        // 1. Supprimer toutes les factures fractionnées (type 'Facture' avec parentQuoteId)
+        const splitInvoices = documents.filter(d => 
+            d.type === 'Facture' && d.parentQuoteId
+        );
+
+        for (const invoice of splitInvoices) {
+            await supabase.from('documents').delete().eq('id', invoice.id);
+            result.deletedInvoices++;
+        }
+        setDocuments(prev => prev.filter(d => !(d.type === 'Facture' && d.parentQuoteId)));
+
+        // 2. Réinitialiser la config splitBillingConfig de tous les devis
+        const quotesWithConfig = documents.filter(d => d.type === 'Devis' && d.splitBillingConfig);
+        for (const quote of quotesWithConfig) {
+            await supabase.from('documents').update({ split_billing_config: null }).eq('id', quote.id);
+            result.resetConfigs++;
+        }
+        setDocuments(prev => prev.map(d => d.type === 'Devis' ? { ...d, splitBillingConfig: undefined } : d));
+
+        console.log('[rollbackBackfillSplitBilling] Done:', result);
+
+        // Notification admin
+        await addNotification('admin', 'info', 'Rollback Facturation Fractionnée',
+            `${result.deletedInvoices} facture(s) supprimée(s), ${result.resetConfigs} devis réinitialisé(s).`,
+            undefined, 'tab:invoices-split');
+
+        return result;
+    };
+
+    /**
+     * Exécute la génération automatique des factures en attente (pour cron)
+     * Vérifie tous les devis signés avec splitBillingConfig et génère les factures prêtes
+     */
+    const runAutoGenerateSplitInvoices = async () => {
+        const result = { generated: 0, quotesProcessed: 0 };
+
+        // Stocker les configs pour éviter le bug de closure stale
+        const configMap = new Map<string, SplitBillingConfig>();
+
+        // 1. Récupérer les configs existantes
+        documents.filter(d => 
+            d.type === 'Devis' && d.status === 'signed' && d.splitBillingConfig
+        ).forEach(d => {
+            configMap.set(d.id, d.splitBillingConfig!);
+        });
+
+        // 2. Configurer les devis signés SANS config
+        const quotesWithoutConfig = documents.filter(d => 
+            d.type === 'Devis' && d.status === 'signed' && !d.splitBillingConfig &&
+            ((d.totalSessions || 0) >= 1 || (d.slotsData?.length || 0) >= 1 || (d.quantity || 1) >= 1)
+        );
+        for (const quote of quotesWithoutConfig) {
+            try {
+                const config = await configureSplitBilling(quote.id);
+                configMap.set(quote.id, config);
+                result.quotesProcessed++;
+            } catch (e) {
+                console.error('[runAutoGenerate] Failed to configure quote:', quote.id, e);
+            }
+        }
+
+        // 3. Générer les factures pour tous les devis avec config
+        for (const [quoteId, config] of configMap.entries()) {
+            if (!config || !config.splits) continue;
+
+            const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+            let generatedForQuote = 0;
+
+            for (const split of config.splits) {
+                if (split.status === 'pending' && isSplitReadyForInvoicing(split, completedSessions)) {
+                    try {
+                        await generateSplitInvoice(quoteId, split.index, config);
+                        result.generated++;
+                        generatedForQuote++;
+                    } catch (e) {
+                        console.error('[runAutoGenerate] Failed to generate invoice for split:', split.index, e);
+                    }
+                }
+            }
+
+            if (generatedForQuote > 0) {
+                result.quotesProcessed++;
+                const quote = documents.find(d => d.id === quoteId);
+                await addNotification('admin', 'success', 'Facture Auto-Générée',
+                    `Devis ${quote?.ref || quoteId}: ${generatedForQuote} facture(s) générée(s) automatiquement.`,
+                    undefined, `document:${quoteId}`);
+            }
+        }
+
+        console.log('[runAutoGenerateSplitInvoices] Done:', result);
+        return result;
     };
 
     const markInvoicePaid = async (id: string) => {
@@ -6638,8 +7216,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (quote && docToSign?.status !== 'signed') {
                 await generateMissionsFromDocument({ ...quote, status: 'signed' });
-                // Note: La conversion en facture se fait manuellement via le bouton "Convertir en facture"
-                // Le statut reste 'signed' jusqu'à conversion manuelle
+                
+                // === CONFIGURATION ET GÉNÉRATION AUTOMATIQUE DE LA FACTURATION FRACTIONNÉE ===
+                // Vérifier si le devis est éligible à la facturation fractionnée
+                // Éligible si : 1+ sessions ET (plusieurs sessions OU quantity > 1)
+                const totalSessions = quote.slotsData?.length || quote.quantity || 1;
+                if (totalSessions >= 1) {
+                    try {
+                        // Configurer la facturation fractionnée et récupérer la config directement
+                        const splitConfig = await configureSplitBilling(id);
+                        // Générer les factures à la signature (tranches avec trigger = 'signature')
+                        // On passe la config pour éviter le bug de closure stale
+                        await generateSplitInvoicesAtSignature(id, splitConfig);
+                    } catch (e) {
+                        console.error('[signQuoteWithData] Error configuring split billing:', e);
+                        // Ne pas bloquer la signature si la facturation fractionnée échoue
+                    }
+                }
+                // Note: La conversion en facture unique se fait manuellement via le bouton "Convertir en facture"
+                // pour les devis non éligibles à la facturation fractionnée
             }
         }
     };
@@ -8268,6 +8863,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              providers, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, updateLeaveStatus, resetProviderPassword,
  
              documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+             
+             // Facturation fractionnée par pack
+             generateSplitInvoicesAtSignature, generateSplitInvoice, checkAndGeneratePendingSplitInvoices, getSplitInvoicesForQuote, getPackBillingStats, getAllPackBillingStats, isEligibleForSplitBilling: isEligibleForSplitBillingFn, configureSplitBilling, markSplitInvoiceRead, notifyReadySplitInvoices, getUnreadSplitInvoicesCount, backfillSplitBilling, rollbackBackfillSplitBilling, runAutoGenerateSplitInvoices,
  
              packs, addPack, updatePack, deletePacks,
  

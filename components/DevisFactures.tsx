@@ -16,6 +16,8 @@ import { pdf } from '@react-pdf/renderer';
 import { SignedQuotePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { toast } from './mobile/Toast';
+import SplitInvoiceManagement from './SplitInvoiceManagement';
+import { Package } from 'lucide-react';
 
 // Helper safe pour convertir toute valeur en nombre fini (jamais undefined/NaN)
 const safeNum = (v: any): number => {
@@ -75,7 +77,7 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -109,6 +111,9 @@ const DevisFactures: React.FC = () => {
     const [isTypeColumnFilterOpen, setIsTypeColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
+    
+    // Vue active : 'documents' (liste classique) ou 'packs' (gestion facturation par pack)
+    const [activeView, setActiveView] = useState<'documents' | 'packs'>('documents');
 
     const PAGE_SIZE = 20;
     const [page, setPage] = useState(1);
@@ -2846,8 +2851,47 @@ const DevisFactures: React.FC = () => {
     ) : (
         <div className="p-4 md:p-8 h-full overflow-y-auto bg-white/40 relative">
 
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div><h2 className="text-3xl font-serif font-bold text-slate-800">Devis/Factures</h2><p className="text-sm text-slate-500 mt-1">Gestion commerciale et facturation</p></div>
+            </div>
+
+            {/* Onglets de navigation */}
+            <div className="flex items-center gap-2 mb-6 bg-white rounded-xl p-1.5 border border-slate-200 shadow-sm w-fit">
+                <button
+                    onClick={() => setActiveView('documents')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
+                        activeView === 'documents' 
+                            ? 'bg-brand-blue text-white shadow-md' 
+                            : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                >
+                    <FileText className="w-4 h-4" />
+                    Documents
+                </button>
+                <button
+                    onClick={() => setActiveView('packs')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
+                        activeView === 'packs' 
+                            ? 'bg-brand-blue text-white shadow-md' 
+                            : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                >
+                    <Package className="w-4 h-4" />
+                    Facturation par Pack
+                </button>
+            </div>
+
+            {/* Contenu de la vue active */}
+            {activeView === 'packs' ? (
+                <SplitInvoiceManagement 
+                    onNavigateToDocument={(docId) => {
+                        navigate(`/admin/devis/${docId}`);
+                        setTimeout(() => setActiveView('documents'), 100);
+                    }}
+                />
+            ) : (
+            <>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div ref={statusFilterRef} className="relative">
                     <button
                         type="button"
@@ -4354,20 +4398,146 @@ const DevisFactures: React.FC = () => {
                                 <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <h4 className="font-bold text-slate-800 mb-3">Créneaux d'Intervention Prévus</h4>
                                     <div className="space-y-2">
-                                        {selectedDocument.slotsData.map((slot: any, index: number) => (
-                                            <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
-                                                    <div>
-                                                        <div className="font-medium text-slate-700">{slot.date}</div>
-                                                        <div className="text-sm text-slate-500">{slot.startTime} - {slot.endTime} ({slot.duration}h)</div>
+                                        {selectedDocument.slotsData.map((slot: any, index: number) => {
+                                            // Pour les devis signés avec split billing, déterminer le statut de chaque session
+                                            const sessionNum = index + 1;
+                                            const splitConfig = selectedDocument.splitBillingConfig;
+                                            const coveringSplit = splitConfig?.splits.find((s: any) => s.sessions.includes(sessionNum));
+                                            const splitInvoices = selectedDocument.type === 'Devis' && selectedDocument.status === 'signed' 
+                                                ? getSplitInvoicesForQuote(selectedDocument.id) : [];
+                                            const coveringInvoice = coveringSplit?.invoiceId 
+                                                ? splitInvoices.find(inv => inv.id === coveringSplit.invoiceId) 
+                                                : null;
+                                            const relatedMission = missions.find(m => 
+                                                m.sourceDocumentId === selectedDocument.id && 
+                                                m.date === slot.date
+                                            );
+                                            const isMissionCompleted = relatedMission?.status === 'completed';
+                                            const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
+                                            
+                                            return (
+                                                <div key={index} className={`flex items-center justify-between p-3 rounded-lg border ${
+                                                    isInvoiced ? 'bg-blue-50 border-blue-200' :
+                                                    isMissionCompleted ? 'bg-emerald-50 border-emerald-200' :
+                                                    'bg-slate-50 border-slate-100'
+                                                }`}>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
+                                                            isInvoiced ? 'bg-blue-100 text-blue-700' :
+                                                            isMissionCompleted ? 'bg-emerald-100 text-emerald-700' :
+                                                            'text-slate-400 bg-slate-100'
+                                                        }`}>{index + 1}</span>
+                                                        <div>
+                                                            <div className="font-medium text-slate-700">{slot.date}</div>
+                                                            <div className="text-sm text-slate-500">{slot.startTime} - {slot.endTime} ({slot.duration}h)</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {isInvoiced && coveringInvoice ? (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">
+                                                                Facturée → {coveringInvoice.ref}
+                                                            </span>
+                                                        ) : isMissionCompleted ? (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
+                                                                Complétée
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-500">
+                                                                À venir
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
+
+                            {/* Split Billing Info — pour devis signés avec facturation fractionnée */}
+                            {selectedDocument.type === 'Devis' && selectedDocument.status === 'signed' && selectedDocument.splitBillingConfig && (() => {
+                                const billingStats = getPackBillingStats(selectedDocument.id);
+                                const splitInvoices = getSplitInvoicesForQuote(selectedDocument.id);
+                                const config = selectedDocument.splitBillingConfig;
+                                if (!billingStats) return null;
+                                
+                                return (
+                                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                                        <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                                            <CreditCard className="w-4 h-4" />
+                                            Facturation par Pack — {config.totalSplits} tranche{config.totalSplits > 1 ? 's' : ''}
+                                        </h4>
+                                        
+                                        {/* Résumé */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                                            <div className="bg-white rounded-lg p-3 text-center">
+                                                <p className="text-xs text-slate-500">Sessions</p>
+                                                <p className="text-lg font-bold text-slate-800">{billingStats.totalSessions}</p>
+                                            </div>
+                                            <div className="bg-white rounded-lg p-3 text-center">
+                                                <p className="text-xs text-slate-500">Facturées</p>
+                                                <p className="text-lg font-bold text-emerald-600">{billingStats.invoicedSessions}</p>
+                                            </div>
+                                            <div className="bg-white rounded-lg p-3 text-center">
+                                                <p className="text-xs text-slate-500">Restantes</p>
+                                                <p className="text-lg font-bold text-amber-600">{billingStats.remainingSessions}</p>
+                                            </div>
+                                            <div className="bg-white rounded-lg p-3 text-center">
+                                                <p className="text-xs text-slate-500">Progression</p>
+                                                <p className="text-lg font-bold text-brand-blue">{billingStats.billingProgress.toFixed(0)}%</p>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Barre de progression */}
+                                        <div className="w-full bg-indigo-100 rounded-full h-2 mb-4">
+                                            <div 
+                                                className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
+                                                style={{ width: `${billingStats.billingProgress}%` }}
+                                            />
+                                        </div>
+                                        
+                                        {/* Liste des factures fractionnées */}
+                                        {splitInvoices.length > 0 && (
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-semibold text-indigo-700">Factures générées :</p>
+                                                {splitInvoices.map(inv => (
+                                                    <div key={inv.id} className="flex items-center justify-between bg-white rounded-lg p-2 border border-indigo-100">
+                                                        <div className="flex items-center gap-2">
+                                                            <FileText className="w-4 h-4 text-indigo-500" />
+                                                            <span className="text-sm font-medium text-slate-700">{inv.ref}</span>
+                                                            <span className="text-xs text-slate-500">
+                                                                Session{inv.coveredSessions && inv.coveredSessions.length > 1 ? 's' : ''} {inv.coveredSessions?.join(', ')}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-bold text-slate-700">{inv.totalTTC?.toFixed(2)} €</span>
+                                                            <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                                                                inv.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                                            }`}>
+                                                                {inv.status === 'paid' ? 'Payée' : 'En attente'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Bouton vers la gestion des packs */}
+                                        <div className="mt-4 flex justify-end">
+                                            <button
+                                                onClick={() => {
+                                                    setIsDetailModalOpen(false);
+                                                    setActiveView('packs');
+                                                }}
+                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition"
+                                            >
+                                                <CreditCard className="w-3 h-3" />
+                                                Voir la facturation par pack
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Signature Information (if signed) */}
                             {selectedDocument.status === 'signed' && selectedDocument.signatureDate && (() => {
@@ -4708,6 +4878,8 @@ const DevisFactures: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            )}
+            </>
             )}
         </div>
     );

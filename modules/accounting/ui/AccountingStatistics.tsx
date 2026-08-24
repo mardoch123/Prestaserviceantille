@@ -31,7 +31,8 @@ import {
   Download,
   Printer,
   MapPin,
-  Briefcase
+  Briefcase,
+  Package
 } from 'lucide-react';
 import { useData } from '../../../context/DataContext';
 import { useAccountingAuth, formatTimeLeft } from '../useAccountingAuth';
@@ -760,7 +761,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtext, icon: Icon, 
 // Main Component
 const AccountingStatistics: React.FC = () => {
   const { isAuthenticated, authenticate, logout, error, sessionTimeLeft } = useAccountingAuth();
-  const { documents, missions, dataLoading, clients, updateMission, cancelMissionByClient, completeMission, currentUser } = useData();
+  const { documents, missions, dataLoading, clients, updateMission, cancelMissionByClient, completeMission, currentUser, getAllPackBillingStats, getSplitInvoicesForQuote } = useData();
   const navigate = useNavigate();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
 
@@ -776,6 +777,9 @@ const AccountingStatistics: React.FC = () => {
   const [missionModalTitle, setMissionModalTitle] = useState('');
   const [missionModalMissions, setMissionModalMissions] = useState<Mission[]>([]);
   const [missionModalStatus, setMissionModalStatus] = useState('');
+
+  // Pack billing statistics
+  const packBillingStats = useMemo(() => getAllPackBillingStats(), [documents, missions]);
 
   // Filter documents by time
   const filteredDocuments = useMemo(() => {
@@ -1423,6 +1427,126 @@ const AccountingStatistics: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ==== SECTION: FACTURATION PAR PACK (Prestations non facturées) ==== */}
+      {packBillingStats.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <Package className="w-5 h-5 text-purple-600" />
+            Facturation par Pack - Prestations non facturées
+          </h2>
+          
+          {/* Statistiques globales des packs */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-5 text-white shadow-lg">
+              <div className="flex items-center justify-between mb-2">
+                <Package className="w-8 h-8 opacity-80" />
+                <span className="text-2xl font-bold">{packBillingStats.length}</span>
+              </div>
+              <p className="text-sm opacity-90">Packs actifs</p>
+            </div>
+            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-5 text-white shadow-lg">
+              <div className="flex items-center justify-between mb-2">
+                <CheckCircle className="w-8 h-8 opacity-80" />
+                <span className="text-2xl font-bold">
+                  {packBillingStats.reduce((sum, s) => sum + s.invoicedSessions, 0)}
+                </span>
+              </div>
+              <p className="text-sm opacity-90">Sessions facturées</p>
+            </div>
+            <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-5 text-white shadow-lg">
+              <div className="flex items-center justify-between mb-2">
+                <Clock className="w-8 h-8 opacity-80" />
+                <span className="text-2xl font-bold">
+                  {packBillingStats.reduce((sum, s) => sum + s.remainingSessions, 0)}
+                </span>
+              </div>
+              <p className="text-sm opacity-90">Sessions restantes</p>
+            </div>
+            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-5 text-white shadow-lg">
+              <div className="flex items-center justify-between mb-2">
+                <DollarSign className="w-8 h-8 opacity-80" />
+                <span className="text-2xl font-bold">
+                  {packBillingStats.reduce((sum, s) => sum + s.remainingAmount, 0).toFixed(0)} €
+                </span>
+              </div>
+              <p className="text-sm opacity-90">Restant à facturer</p>
+            </div>
+          </div>
+
+          {/* Tableau détaillé par pack */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase">Devis / Client</th>
+                    <th className="text-center px-4 py-3 text-xs font-bold text-slate-600 uppercase">Sessions</th>
+                    <th className="text-center px-4 py-3 text-xs font-bold text-slate-600 uppercase">Progression</th>
+                    <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase">Montants</th>
+                    <th className="text-center px-4 py-3 text-xs font-bold text-slate-600 uppercase">Statut</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {packBillingStats.map((stats) => (
+                    <tr 
+                      key={stats.quoteId} 
+                      className="hover:bg-slate-50 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/admin/devis/${stats.quoteId}`)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-800">{stats.quoteRef}</div>
+                        <div className="text-sm text-slate-500">{stats.clientName}</div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="text-sm font-semibold text-slate-700">
+                          {stats.invoicedSessions} / {stats.totalSessions}
+                        </div>
+                        <div className="text-xs text-slate-500">{stats.completedMissions} missions réalisées</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full transition-all ${
+                                stats.billingStatus === 'completed' ? 'bg-emerald-500' :
+                                stats.billingStatus === 'in_progress' ? 'bg-brand-blue' :
+                                'bg-slate-300'
+                              }`}
+                              style={{ width: `${stats.billingProgress}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-slate-600 w-10 text-right">
+                            {stats.billingProgress.toFixed(0)}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="text-sm font-semibold text-slate-700">
+                          {stats.invoicedAmount.toFixed(2)} €
+                        </div>
+                        <div className="text-xs text-amber-600 font-medium">
+                          Reste: {stats.remainingAmount.toFixed(2)} €
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-1 text-xs font-bold rounded-full ${
+                          stats.billingStatus === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                          stats.billingStatus === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>
+                          {stats.billingStatus === 'completed' ? 'Terminé' :
+                           stats.billingStatus === 'in_progress' ? 'En cours' : 'Non démarré'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer Note */}
       <div className="mt-8 flex items-center justify-center gap-2 text-sm text-slate-400">

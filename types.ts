@@ -305,6 +305,86 @@ export interface Document {
     clientSignatureUrl?: string;
     signedAt?: string;
     packId?: string; // FK vers le pack associé
+
+    // === CHAMPS POUR LA FACTURATION FRACTIONNÉE PAR PACK ===
+    // Configuration de la facturation par tranches (définie à la signature du devis)
+    splitBillingConfig?: SplitBillingConfig;
+    // Index de la tranche pour les factures fractionnées (0 = première tranche)
+    splitIndex?: number;
+    // Nombre total de tranches pour ce devis
+    totalSplits?: number;
+    // ID du devis parent (pour les factures fractionnées)
+    parentQuoteId?: string;
+    // Séquences de sessions couvertes par cette tranche (ex: [1,2] pour sessions 1-2)
+    coveredSessions?: number[];
+    // Nombre total de sessions dans le devis/pack
+    totalSessions?: number;
+    // Indique si la facture a été consultée/lue (pour les factures fractionnées)
+    isRead?: boolean;
+}
+
+// Configuration de facturation par tranches pour un pack
+export interface SplitBillingConfig {
+    // Nombre total de sessions dans le pack
+    totalSessions: number;
+    // Nombre de sessions par tranche de facturation
+    sessionsPerSplit: number;
+    // Nombre total de tranches à générer
+    totalSplits: number;
+    // Mode de facturation: 'at_signature' (à la signature), 'after_completion' (après réalisation), 'mixed' (mixte)
+    billingMode: 'at_signature' | 'after_completion' | 'mixed';
+    // Répartition détaillée par tranche
+    splits: SplitDetail[];
+}
+
+// Détail d'une tranche de facturation
+export interface SplitDetail {
+    // Index de la tranche (0-based)
+    index: number;
+    // Sessions couvertes par cette tranche
+    sessions: number[];
+    // Statut de la tranche: 'pending' (en attente), 'ready' (prête à facturer), 'invoiced' (facturée), 'paid' (payée)
+    status: 'pending' | 'ready' | 'invoiced' | 'paid';
+    // ID de la facture générée pour cette tranche (si status = 'invoiced' ou 'paid')
+    invoiceId?: string;
+    // Date de génération de la facture
+    invoicedAt?: string;
+    // Montant de la tranche
+    amount: number;
+    // Déclencheur: 'signature' (à la signature), 'completion' (après X séances réalisées)
+    trigger: 'signature' | 'completion';
+    // Session déclencheuse (pour trigger = 'completion', c'est la dernière session du groupe)
+    triggerSession?: number;
+}
+
+// Statistiques de facturation par pack
+export interface PackBillingStats {
+    // ID du devis parent
+    quoteId: string;
+    // Référence du devis
+    quoteRef: string;
+    // Nom du client
+    clientName: string;
+    // Nombre total de sessions
+    totalSessions: number;
+    // Nombre de sessions déjà facturées
+    invoicedSessions: number;
+    // Nombre de sessions restantes à facturer
+    remainingSessions: number;
+    // Montant total du devis
+    totalAmount: number;
+    // Montant déjà facturé
+    invoicedAmount: number;
+    // Montant restant à facturer
+    remainingAmount: number;
+    // Pourcentage de facturation
+    billingProgress: number;
+    // Statut global: 'not_started', 'in_progress', 'completed'
+    billingStatus: 'not_started' | 'in_progress' | 'completed';
+    // Prochaine tranche à facturer (sessions)
+    nextSplitSessions?: number[];
+    // Nombre de missions complétées pour ce devis
+    completedMissions: number;
 }
 
 // Updated based on DB schema provided in prompt

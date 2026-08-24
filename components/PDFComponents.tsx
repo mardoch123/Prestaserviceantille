@@ -1422,6 +1422,181 @@ export const InvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
   </Document>
 );
 
+// Composant pour les factures fractionnées par pack
+export const SplitInvoicePDF = ({ doc, packs }: { doc: any, packs?: any[] }) => {
+  const splitLabel = doc.splitIndex !== undefined && doc.totalSplits
+    ? `Tranche ${doc.splitIndex + 1} / ${doc.totalSplits}`
+    : '';
+  const sessionsLabel = Array.isArray(doc.coveredSessions) && doc.coveredSessions.length > 0
+    ? `Session${doc.coveredSessions.length > 1 ? 's' : ''} ${doc.coveredSessions.join(', ')}`
+    : '';
+
+  return (
+    <Document>
+      <Page size="A4" style={styles.pageInvoice}>
+        <View style={[styles.header, styles.headerInvoice]}>
+          <View style={styles.headerInvoiceTopRow}>
+            {(() => {
+              const resolvedTvaRate = typeof doc.tvaRate === 'number' ? doc.tvaRate : (doc.tvaRate ? Number(doc.tvaRate) : 0);
+              const logo = doc.logoBase64 || ((resolvedTvaRate || 0) === 0 ? LOGO_SAP_BASE64 : LOGO_BASE64);
+              return logo && logo.startsWith('data:image/') ? (
+                <Image src={logo} style={styles.logoInvoice} />
+              ) : (
+                <View style={styles.logoPlaceholderInvoice}>
+                  <Text style={[styles.placeholderText, styles.placeholderTextInvoice]}>LOGO</Text>
+                </View>
+              );
+            })()}
+            <View style={styles.headerInvoiceInfoBlock}>
+              <Text style={[styles.title, styles.titleInvoice]}>FACTURE</Text>
+              <Text style={[styles.subtitle, styles.subtitleInvoice]}>
+                Presta Services Antilles - SIRET: 944 789 700 00019{"\n"}
+                Email : prestaservicesantilles@gmail.com
+              </Text>
+              <Text style={[styles.subtitle, styles.subtitleInvoice]}>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Bandeau facturation fractionnée */}
+        {(splitLabel || sessionsLabel) && (
+          <View style={{ margin: '12px 24px', padding: '10px 16px', backgroundColor: '#EEF2FF', borderRadius: 8, border: '1px solid #C7D2FE' }}>
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#4338CA', marginBottom: 2 }}>
+              Facturation par pack — {splitLabel}
+            </Text>
+            {sessionsLabel && (
+              <Text style={{ fontSize: 10, color: '#6366F1' }}>
+                {sessionsLabel} — Devis parent: {doc.parentQuoteRef || '—'}
+              </Text>
+            )}
+          </View>
+        )}
+
+        <View style={[styles.section, styles.sectionInvoice]}>
+          <View style={styles.twoColRow}>
+            <View style={styles.col48}>
+              <Text style={[styles.sectionTitleBrand, styles.sectionTitleBrandInvoice]}>Informations Client</Text>
+              <View style={[styles.card, styles.cardInvoice]}>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.label}>Nom:</Text>
+                  <Text style={styles.value}>{doc.clientName}</Text>
+                </View>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.label}>Email:</Text>
+                  <Text style={styles.value}>{doc.clientEmail}</Text>
+                </View>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.label}>Téléphone:</Text>
+                  <Text style={styles.value}>{doc.clientPhone}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.col48}>
+              <Text style={[styles.sectionTitleBrand, styles.sectionTitleBrandInvoice]}>Informations Facture</Text>
+              <View style={[styles.card, styles.cardTint, styles.cardInvoice]}>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.labelBrand}>Numéro:</Text>
+                  <Text style={styles.valueDark}>{doc.ref}</Text>
+                </View>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.labelBrand}>Émission:</Text>
+                  <Text style={styles.valueDark}>{formatPDFDate(doc.date)}</Text>
+                </View>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.labelBrand}>Échéance:</Text>
+                  <Text style={styles.valueDark}>{formatPDFDate(doc.dueDate)}</Text>
+                </View>
+                <View style={[styles.row, styles.rowInvoice]}>
+                  <Text style={styles.labelBrand}>Statut:</Text>
+                  <View style={[styles.statusBadge, styles.statusBadgeInvoice, doc.paid ? styles.paidBadge : styles.pendingBadge]}>
+                    <Text>{doc.paid ? 'PAYÉE' : 'EN ATTENTE'}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={[styles.section, styles.sectionInvoice]}>
+          <Text style={[styles.sectionTitleBrand, styles.sectionTitleBrandInvoice]}>Détails de la Facture</Text>
+          <View style={[styles.table, styles.tableInvoice]}>
+            <View style={[styles.tableRow, styles.tableHeader, styles.tableHeaderBrand]}>
+              <Text style={[styles.tableCell, styles.descriptionCell, styles.tableCellInvoice, styles.descriptionCellInvoice]}>Description</Text>
+              <Text style={[styles.tableCell, styles.tableCellInvoice]}>Qté</Text>
+              <Text style={[styles.tableCell, styles.tableCellInvoice]}>PU</Text>
+              <Text style={[styles.tableCell, styles.tableCellInvoice]}>Total</Text>
+            </View>
+            {doc.items?.map((item: any, index: number) => (
+              <View key={index} style={styles.tableRow}>
+                <Text style={[styles.tableCell, styles.descriptionCell, styles.tableCellInvoice, styles.descriptionCellInvoice]}>{cleanHTML(item.description || '')}</Text>
+                <Text style={[styles.tableCell, styles.tableCellInvoice]}>{item.quantity}</Text>
+                <Text style={[styles.tableCell, styles.tableCellInvoice]}>{item.unitPrice}€</Text>
+                <Text style={[styles.tableCell, styles.tableCellInvoice]}>{item.total}€</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={[styles.totalSection, styles.totalSectionInvoice]}>
+          {(() => {
+            const resolvedTvaRate = typeof doc.tvaRate === 'number' ? doc.tvaRate : (doc.tvaRate ? Number(doc.tvaRate) : 0);
+            const total = Number((doc as any).total || 0);
+            const creditActive = !!((doc as any).taxCreditEnabled || (doc as any).hasTaxCredit);
+            const creditAmount = creditActive ? total * 0.5 : 0;
+            const toPay = creditActive ? total - creditAmount : total;
+            return (
+              <View style={[styles.totalCard, styles.totalCardInvoice]}>
+                <View style={[styles.totalRow, styles.totalRowInvoice, styles.rowInvoice]}>
+                  <Text style={styles.label}>Sous-total:</Text>
+                  <Text style={styles.value}>{doc.subtotal}€</Text>
+                </View>
+                <View style={[styles.totalRow, styles.totalRowInvoice, styles.rowInvoice]}>
+                  <Text style={styles.label}>TVA ({resolvedTvaRate || 0}%):</Text>
+                  <Text style={styles.value}>{doc.tax}€</Text>
+                </View>
+                <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                  <Text style={styles.labelBrand}>Total:</Text>
+                  <Text>{total}€</Text>
+                </View>
+                {creditActive ? (
+                  <>
+                    <View style={[styles.totalRow, styles.totalRowInvoice, styles.rowInvoice]}>
+                      <Text style={styles.label}>Crédit d'impôt (50%):</Text>
+                      <Text style={styles.value}>-{creditAmount.toFixed(2)}€</Text>
+                    </View>
+                    <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                      <Text style={styles.labelBrand}>Total à payer:</Text>
+                      <Text>{toPay.toFixed(2)}€</Text>
+                    </View>
+                  </>
+                ) : (
+                  <View style={[styles.totalRow, styles.grandTotalBrand]}>
+                    <Text style={styles.labelBrand}>Total à payer:</Text>
+                    <Text>{total}€</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
+        </View>
+
+        {doc.paymentInfo && (
+          <View style={[styles.section, styles.sectionInvoice]}>
+            <Text style={styles.sectionTitleInvoice}>Informations de Paiement</Text>
+            <Text style={styles.value}>{cleanHTML(doc.paymentInfo || '')}</Text>
+          </View>
+        )}
+
+        <View style={[styles.footer, styles.footerInvoice]} fixed>
+          <Text>Presta Services Antilles - SIRET: 944 789 700 00019 - Email: prestaservicesantilles@gmail.com</Text>
+          <Text>Téléphone: +596696061594 - www.prestaservicesantilles.com</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+};
+
 // Composant pour le contrat
 export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
   <Document>

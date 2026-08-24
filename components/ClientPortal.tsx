@@ -31,7 +31,7 @@ import {
   isMenageSpecialty,
   validateSlotsStrictly,
 } from '../utils/availabilityCalculator';
-import { SignedQuotePDF, InvoicePDF, ContractPDF } from './PDFComponents';
+import { SignedQuotePDF, InvoicePDF, SplitInvoicePDF, ContractPDF } from './PDFComponents';
 import { pdf } from '@react-pdf/renderer';
 import { downloadHtmlAsPdf } from '../utils/htmlPdf';
 import { getMyReferrerProfile, createReferrerLead } from '../modules/marketing/client';
@@ -894,7 +894,9 @@ const ClientPortal: React.FC = () => {
             const refPart = sanitizeFilenamePart(doc?.ref || '');
 
             // Génération du PDF avec react-pdf
-            const blob = await pdf(<InvoicePDF doc={pdfData} packs={packs} />).toBlob();
+            const isSplitInvoice = doc.type === 'Facture' && doc.parentQuoteId;
+            const PdfComponent = isSplitInvoice ? SplitInvoicePDF : InvoicePDF;
+            const blob = await pdf(<PdfComponent doc={pdfData} packs={packs} />).toBlob();
             
             // Téléchargement du fichier
             const url = URL.createObjectURL(blob);

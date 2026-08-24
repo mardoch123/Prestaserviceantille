@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Calendar, CreditCard, MapPin, Package, User } from 'lucide-react';
+import { ArrowLeft, Calendar, CreditCard, MapPin, Package, User, Download } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useData } from '../context/DataContext';
 import type { Document } from '../types';
 import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { pdf } from '@react-pdf/renderer';
+import { InvoicePDF, SplitInvoicePDF } from './PDFComponents';
+import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 
 const formatEUR = (value: any) => {
   const v = Number(value);
@@ -46,6 +49,7 @@ const AdminDevisDetails: React.FC = () => {
   const { documents, clients, packs, getDocumentDetails } = useData();
   const [loading, setLoading] = useState(false);
   const [doc, setDoc] = useState<Document | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const id = String(devisId || '').trim();
@@ -65,6 +69,53 @@ const AdminDevisDetails: React.FC = () => {
   const pack = useMemo(() => (doc?.packId ? (packs.find(p => String(p.id) === String(doc.packId)) || null) : null), [packs, doc?.packId]);
   const parsed = useMemo(() => parseDescriptionMeta(doc?.description), [doc?.description]);
   const slots = useMemo(() => (Array.isArray((doc as any)?.slotsData) ? (doc as any).slotsData : []), [doc]);
+
+  const handleDownloadPdf = async () => {
+    if (!doc) return;
+    setDownloading(true);
+    try {
+      const client = doc.clientId ? clients.find(c => String(c.id) === String(doc.clientId)) : null;
+      const resolvedTvaRate = (() => {
+        const raw = (doc as any)?.tvaRate;
+        const n = typeof raw === 'number' ? raw : Number(raw);
+        return Number.isFinite(n) ? n : 0;
+      })();
+      const logoBase64 = resolvedTvaRate === 0 ? LOGO_SAP_BASE64 : LOGO_BASE64;
+      const packName = doc.packId ? (packs.find(p => String(p.id) === String(doc.packId))?.name || '') : '';
+      const parentQuote = (doc as any).parentQuoteId ? documents.find(d => d.id === (doc as any).parentQuoteId) : null;
+
+      const pdfData = {
+        ref: doc.ref, date: doc.date,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        paid: doc.status === 'paid', status: doc.status,
+        tvaRate: resolvedTvaRate, taxCreditEnabled: !!(doc.hasTaxCredit || doc.taxCreditEnabled),
+        clientName: client?.name || doc.clientName || '—',
+        clientEmail: client?.email || '', clientPhone: client?.phone || '',
+        companySignature: SIGNATURE_BASE64, companyStamp: STAMP_SIGNATURE_BASE64, logoBase64,
+        subtotal: doc.totalHT || 0,
+        tax: doc.totalTTC && doc.totalHT ? (doc.totalTTC - doc.totalHT) : 0,
+        total: doc.totalTTC || 0,
+        packId: doc.packId, packName,
+        splitIndex: (doc as any).splitIndex, totalSplits: (doc as any).totalSplits,
+        coveredSessions: (doc as any).coveredSessions, parentQuoteRef: parentQuote?.ref,
+        items: [{ description: packName || doc.description || 'Service standard', quantity: 1, unitPrice: doc.totalHT || 0, total: doc.totalHT || 0 }],
+        slotsData: (doc as any).slotsData || [],
+        paymentInfo: 'Paiement par virement bancaire ou chèque. Délai de paiement: 30 jours.'
+      };
+
+      const isSplitInvoice = doc.type === 'Facture' && (doc as any).parentQuoteId;
+      const PdfComponent = isSplitInvoice ? SplitInvoicePDF : InvoicePDF;
+      const blob = await pdf(<PdfComponent doc={pdfData} packs={packs as any} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const sanitize = (v: any) => String(v || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+      link.download = `${doc.type === 'Facture' ? 'Facture' : 'Devis'}_${sanitize(client?.name || doc.clientName || 'Client')}_${sanitize(doc.ref)}.pdf`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error('PDF download error:', e); }
+    finally { setDownloading(false); }
+  };
 
   const title = doc?.type ? `${doc.type} ${doc.ref || ''}`.trim() : 'Détail devis';
 
@@ -136,7 +187,12 @@ const AdminDevisDetails: React.FC = () => {
 
             <div className="lg:col-span-4 space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-5"><div className="flex items-center gap-2 mb-4"><CreditCard className="w-4 h-4 text-slate-500" /><h2 className="text-sm font-bold text-slate-800">Résumé</h2></div><div className="space-y-3"><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">Total HT</span><span className="text-slate-800 font-bold">{formatEUR(doc.totalHT)}</span></div><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">TVA</span><span className="text-slate-800 font-bold">{doc.tvaRate != null ? `${doc.tvaRate}%` : '—'}</span></div><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">Total TTC</span><span className="text-slate-900 font-bold text-lg">{formatEUR(doc.totalTTC)}</span></div><div className="h-px bg-slate-100 my-3" /><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">Crédit d’impôt</span><span className={`font-bold ${doc.taxCreditEnabled ? 'text-green-700' : 'text-slate-700'}`}>{doc.taxCreditEnabled ? 'Oui' : 'Non'}</span></div><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">Fréquence</span><span className="text-slate-800 font-bold">{(doc as any)?.frequency || '—'}</span></div><div className="flex items-center justify-between text-sm"><span className="text-slate-500 font-bold">Fin récurrence</span><span className="text-slate-800 font-bold">{(doc as any)?.recurrenceEndDate || '—'}</span></div></div></div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-5"><h3 className="text-sm font-bold text-slate-800">Actions</h3><div className="mt-3 flex flex-col gap-2"><button type="button" onClick={() => navigate('/invoices', { state: { documentId: doc.id, filter: 'devis' } })} className="w-full px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:opacity-95 transition">Ouvrir dans Devis/Factures</button><button type="button" onClick={() => navigate('/planning')} className="w-full px-4 py-2 rounded-xl bg-slate-100 text-slate-800 font-bold hover:bg-slate-200 transition">Aller au planning</button></div></div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5"><h3 className="text-sm font-bold text-slate-800">Actions</h3><div className="mt-3 flex flex-col gap-2">
+                <button type="button" onClick={handleDownloadPdf} disabled={downloading} className="w-full px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                  {downloading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+                  {downloading ? 'Génération...' : 'Télécharger PDF'}
+                </button>
+                <button type="button" onClick={() => navigate('/invoices', { state: { documentId: doc.id, filter: 'devis' } })} className="w-full px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:opacity-95 transition">Ouvrir dans Devis/Factures</button><button type="button" onClick={() => navigate('/planning')} className="w-full px-4 py-2 rounded-xl bg-slate-100 text-slate-800 font-bold hover:bg-slate-200 transition">Aller au planning</button></div></div>
             </div>
           </div>
         ) : null}

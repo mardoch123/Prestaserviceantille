@@ -22,7 +22,9 @@ import {
   Command,
   Sparkles,
   MapPin,
-  Eye
+  Eye,
+  CreditCard,
+  Circle
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -48,7 +50,7 @@ export const SearchEvents = {
 
 interface SearchResult {
   id: string;
-  type: 'client' | 'provider' | 'document' | 'mission' | 'pack' | 'campaign' | 'feature';
+  type: 'client' | 'provider' | 'document' | 'mission' | 'pack' | 'campaign' | 'feature' | 'split_invoice';
   title: string;
   subtitle: string;
   icon: React.ElementType;
@@ -214,6 +216,53 @@ export const GlobalSearchBar: React.FC = () => {
       }
     });
 
+    // Search split invoices (factures fractionnées) - enhanced search with keywords
+    const splitKeywords = ['facture', 'fac', 'tranche', 'fraction', 'pack', 'session'];
+    const isSplitSearch = splitKeywords.some(kw => q.includes(kw)) || /^\d+\s*(session|tranche)/.test(q);
+    
+    documents.forEach(doc => {
+      // Documents déjà traités ci-dessus, on ajoute ici les factures fractionnées
+      if (doc.type === 'Facture' && doc.parentQuoteId) {
+        const docRef = doc.ref || '';
+        const sessionInfo = doc.coveredSessions ? `Sessions ${doc.coveredSessions.join(', ')}` : '';
+        const splitInfo = doc.splitIndex !== undefined && doc.totalSplits ? `Tranche ${doc.splitIndex + 1}/${doc.totalSplits}` : '';
+        const isUnread = !doc.isRead;
+        
+        const searchableText = `${docRef} ${doc.clientName} ${sessionInfo} ${splitInfo} facture fractionnée tranche`.toLowerCase();
+        
+        if (searchableText.includes(q) || (isSplitSearch && doc.type === 'Facture')) {
+          results.push({
+            id: `split-inv-${doc.id}`,
+            type: 'split_invoice',
+            title: `${docRef} ${isUnread ? '★' : ''}`,
+            subtitle: `${doc.clientName} • ${splitInfo} • ${sessionInfo} • ${doc.totalTTC?.toFixed(2) || '0.00'} €${isUnread ? ' • NON LUE' : ''}`,
+            icon: CreditCard,
+            color: isUnread ? 'bg-indigo-500' : 'bg-cyan-500',
+            data: doc,
+            action: () => {
+              navigateToItem('/invoices', doc.id, 'document', doc);
+              setIsOpen(false);
+              setQuery('');
+            },
+            actions: [
+              { label: isUnread ? 'Marquer comme lue' : 'Voir', icon: isUnread ? Circle : Eye, action: () => {
+                navigateToItem('/invoices', doc.id, 'document', doc);
+                setIsOpen(false);
+                setQuery('');
+              }},
+              { label: 'Voir devis parent', icon: FileText, action: () => {
+                if (doc.parentQuoteId) {
+                  navigateToItem('/invoices', doc.parentQuoteId, 'document', null);
+                  setIsOpen(false);
+                  setQuery('');
+                }
+              }}
+            ]
+          });
+        }
+      }
+    });
+
     // Search missions - opens mission details with full info including location
     missions.forEach(mission => {
       const missionLocation = (mission as any).location || (mission as any).address || '';
@@ -289,6 +338,7 @@ export const GlobalSearchBar: React.FC = () => {
       { name: 'Prestataires', path: '/providers', icon: Briefcase, keyword: 'prestataire intervenant' },
       { name: 'Comptabilite', path: '/accounting', icon: CheckCircle, keyword: 'comptabilite stats chiffre affaire finances' },
       { name: 'Secretariat', path: '/secretariat', icon: Mail, keyword: 'secretariat packs contrats' },
+      { name: 'Factures par Pack', path: '/invoices', icon: CreditCard, keyword: 'factures pack tranche fractionnee split billing' },
       { name: 'Rapports', path: '/reports', icon: Clock, keyword: 'rapports missions compte rendu' }
     ];
 

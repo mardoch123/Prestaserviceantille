@@ -17,6 +17,10 @@
     {
       "path": "/api/cron/purge-device-tokens",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/auto-generate-split-invoices",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

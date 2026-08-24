@@ -46,7 +46,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, BellOff, Flag, Briefcase, FileText, FileSpreadsheet, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users, Clock, MessageCircle, Download, Printer } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, BellOff, Flag, Briefcase, FileText, FileSpreadsheet, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users, Clock, MessageCircle, Download, Printer, Package, CreditCard, ExternalLink, ArrowRight } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission, Provider } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -4596,34 +4596,160 @@ const Planning: React.FC = () => {
                     </div>
 
                     {/* Additional Information */}
-                    {selectedMissionDetails.source && (
-                        <div className="bg-purple-50 p-4 rounded-lg">
-                            <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
-                                <FileText className="w-4 h-4" /> Source
-                            </h4>
-                            <p className="text-sm">
-                                <span className="text-slate-500">Origine:</span>
-                                <span className="font-semibold ml-2">
-                                    {selectedMissionDetails.source === 'devis' ? 'Devis signé' : 'Création manuelle'}
-                                </span>
-                                {selectedMissionDetails.sourceDocumentId && (
-                                    <span className="text-xs text-slate-400 ml-2">
-                                        (ID: {selectedMissionDetails.sourceDocumentId})
+                    {selectedMissionDetails.sourceDocumentId && (() => {
+                        const parentQuote = documents.find(d => d.id === selectedMissionDetails.sourceDocumentId);
+                        if (!parentQuote) return (
+                            <div className="bg-purple-50 p-4 rounded-lg">
+                                <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                                    <FileText className="w-4 h-4" /> Source
+                                </h4>
+                                <p className="text-sm">
+                                    <span className="text-slate-500">Origine:</span>
+                                    <span className="font-semibold ml-2">
+                                        {selectedMissionDetails.source === 'devis' ? 'Devis signé' : 'Création manuelle'}
                                     </span>
-                                )}
-                            </p>
-                        </div>
-                    )}
+                                </p>
+                            </div>
+                        );
+                        
+                        // Récupérer toutes les missions du pack
+                        const packMissions = missions
+                            .filter(m => m.sourceDocumentId === parentQuote.id)
+                            .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+                        const splitConfig = parentQuote.splitBillingConfig;
+                        const currentSessionIndex = packMissions.findIndex(m => m.id === selectedMissionDetails.id);
+                        
+                        return (
+                            <div className="space-y-4">
+                                {/* Info Devis Parent */}
+                                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                                    <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                                        <Package className="w-4 h-4" /> Devis Parent — Pack
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div>
+                                            <span className="text-slate-500">Référence :</span>
+                                            <span className="font-semibold ml-2 text-indigo-700">{parentQuote.ref}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500">Client :</span>
+                                            <span className="font-semibold ml-2">{parentQuote.clientName || '—'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500">Montant total :</span>
+                                            <span className="font-semibold ml-2">{parentQuote.totalTTC?.toFixed(2) || '0.00'} €</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500">Sessions totales :</span>
+                                            <span className="font-semibold ml-2">{parentQuote.totalSessions || parentQuote.slotsData?.length || packMissions.length}</span>
+                                        </div>
+                                        {splitConfig && (
+                                            <>
+                                                <div>
+                                                    <span className="text-slate-500">Tranches :</span>
+                                                    <span className="font-semibold ml-2">{splitConfig.totalSplits}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-500">Mode :</span>
+                                                    <span className="font-semibold ml-2 text-xs">
+                                                        {splitConfig.billingMode === 'at_signature' ? 'À la signature' :
+                                                         splitConfig.billingMode === 'after_completion' ? 'Après complétion' : 'Mixte'}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                    {/* Session courante */}
+                                    {currentSessionIndex >= 0 && (
+                                        <div className="mt-3 pt-3 border-t border-indigo-200">
+                                            <span className="text-xs text-indigo-600 font-semibold">
+                                                Session {currentSessionIndex + 1} / {packMissions.length} du pack
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* Toutes les sessions du pack */}
+                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                    <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                                        <Calendar className="w-4 h-4" /> Toutes les Sessions ({packMissions.length})
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {packMissions.map((m, idx) => {
+                                            const sessionNum = idx + 1;
+                                            const isCurrentMission = m.id === selectedMissionDetails.id;
+                                            const isCompleted = m.status === 'completed';
+                                            const isInProgress = m.status === 'in_progress';
+                                            
+                                            // Trouver la tranche et la facture associée
+                                            const coveringSplit = splitConfig?.splits.find(s => s.sessions.includes(sessionNum));
+                                            const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
+                                            
+                                            return (
+                                                <div 
+                                                    key={m.id}
+                                                    className={`flex items-center justify-between p-2.5 rounded-lg border ${
+                                                        isCurrentMission ? 'bg-indigo-100 border-indigo-300 ring-1 ring-indigo-200' :
+                                                        isInvoiced ? 'bg-blue-50 border-blue-200' :
+                                                        isCompleted ? 'bg-emerald-50 border-emerald-200' :
+                                                        isInProgress ? 'bg-amber-50 border-amber-200' :
+                                                        'bg-white border-slate-200'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                            isCurrentMission ? 'bg-indigo-500 text-white' :
+                                                            isInvoiced ? 'bg-blue-100 text-blue-700' :
+                                                            isCompleted ? 'bg-emerald-100 text-emerald-700' :
+                                                            isInProgress ? 'bg-amber-100 text-amber-700' :
+                                                            'bg-slate-100 text-slate-500'
+                                                        }`}>
+                                                            {sessionNum}
+                                                        </span>
+                                                        <div>
+                                                            <div className="text-sm font-medium text-slate-700">
+                                                                {m.date ? dayjs.tz(m.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY') : '—'}
+                                                                <span className="text-xs text-slate-500 ml-1">{m.startTime}-{m.endTime}</span>
+                                                            </div>
+                                                            {m.providerName && (
+                                                                <div className="text-xs text-slate-500">{m.providerName}</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                                                        isCurrentMission ? 'bg-indigo-200 text-indigo-800' :
+                                                        isInvoiced ? 'bg-blue-100 text-blue-700' :
+                                                        isCompleted ? 'bg-emerald-100 text-emerald-700' :
+                                                        isInProgress ? 'bg-amber-100 text-amber-700' :
+                                                        'bg-slate-100 text-slate-500'
+                                                    }`}>
+                                                        {isCurrentMission ? '← Actuelle' :
+                                                         isInvoiced ? 'Facturée' :
+                                                         isCompleted ? 'Complétée' :
+                                                         isInProgress ? 'En cours' : 'À venir'}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 <div className="p-6 border-t border-slate-100 flex flex-col sm:flex-row sm:justify-end gap-3 shrink-0">
                     {selectedMissionDetails.sourceDocumentId && (
                         <button
-                            onClick={() => navigate('/invoices', { state: { documentId: selectedMissionDetails.sourceDocumentId, filter: 'devis' } })}
-                            className="w-full sm:w-auto px-6 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition flex items-center justify-center gap-2"
+                            onClick={() => {
+                                setIsDetailsModalOpen(false);
+                                setSelectedMissionDetails(null);
+                                navigate(`/admin/devis/${selectedMissionDetails.sourceDocumentId}`);
+                            }}
+                            className="w-full sm:w-auto px-6 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition flex items-center justify-center gap-2 border border-indigo-200"
                         >
-                            <FileText className="w-4 h-4" />
-                            <span className="text-sm text-slate-700">Voir le devis</span>
+                            <ExternalLink className="w-4 h-4" />
+                            <span className="text-sm text-indigo-700">Voir le devis {documents.find(d => d.id === selectedMissionDetails.sourceDocumentId)?.ref || ''}</span>
                         </button>
                     )}
                     <button
