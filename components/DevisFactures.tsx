@@ -2892,7 +2892,7 @@ const DevisFactures: React.FC = () => {
             ) : (
             <>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                <div ref={statusFilterRef} className="relative">
+                <div ref={statusFilterRef} className="relative" style={{zIndex: 60}}>
                     <button
                         type="button"
                         onClick={() => setIsStatusFilterOpen(v => !v)}
@@ -2907,7 +2907,7 @@ const DevisFactures: React.FC = () => {
                     </button>
 
                     {isStatusFilterOpen ? (
-                        <div className="absolute right-0 mt-2 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50">
+                        <div className="absolute left-0 mt-2 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-[100]">
                             <div className="flex items-center justify-between mb-2">
                                 <button
                                     type="button"
