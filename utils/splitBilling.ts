@@ -204,22 +204,45 @@ export function isSplitReadyForInvoicing(
 }
 
 /**
+ * Construit un Set de clés "date|startTime" des sessions annulées dans le slotsData du devis
+ */
+function getCancelledSlotKeys(quote: Document): Set<string> {
+    const cancelled = new Set<string>();
+    if (quote.slotsData && Array.isArray(quote.slotsData)) {
+        for (const slot of quote.slotsData) {
+            if (slot?.sessionStatus === 'cancelled' && slot.date && slot.startTime) {
+                cancelled.add(`${slot.date}|${slot.startTime}`);
+            }
+        }
+    }
+    return cancelled;
+}
+
+/**
  * Calcule le nombre de sessions complétées pour un devis donné
+ * Exclut les sessions marquées 'cancelled' dans le slotsData du devis
  * 
  * @param quoteId ID du devis
  * @param missions Liste de toutes les missions
+ * @param quote Le devis parent (optionnel, pour vérifier les slots annulés)
  * @returns Nombre de sessions complétées
  */
 export function getCompletedSessionsForQuote(
     quoteId: string,
-    missions: Mission[]
+    missions: Mission[],
+    quote?: Document
 ): number {
     const today = new Date().toISOString().split('T')[0];
     const quoteMissions = missions.filter(m => m.sourceDocumentId === quoteId);
+    const cancelledKeys = quote ? getCancelledSlotKeys(quote) : new Set<string>();
     // Compter comme complétées : missions status 'completed' + missions dont la date est passée (sauf annulées)
-    return quoteMissions.filter(m => 
-        m.status === 'completed' || (m.date <= today && m.status !== 'cancelled')
-    ).length;
+    // Exclure aussi les missions correspondant à des slots 'cancelled' dans le slotsData
+    return quoteMissions.filter(m => {
+        if (m.status === 'cancelled') return false;
+        const slotKey = `${m.date}|${m.startTime}`;
+        if (cancelledKeys.has(slotKey)) return false;
+        return m.status === 'completed' || m.date <= today;
+    }).length;
 }
 
 /**
@@ -238,10 +261,15 @@ export function calculatePackBillingStats(
     const totalSessions = quote.totalSessions || quote.slotsData?.length || 1;
     const today = new Date().toISOString().split('T')[0];
     const quoteMissions = missions.filter(m => m.sourceDocumentId === quote.id);
+    const cancelledKeys = getCancelledSlotKeys(quote);
     // Compter comme complétées : missions status 'completed' + missions dont la date est passée (sauf annulées)
-    const completedMissions = quoteMissions.filter(m => 
-        m.status === 'completed' || (m.date <= today && m.status !== 'cancelled')
-    ).length;
+    // Exclure les missions correspondant à des slots 'cancelled' dans le slotsData
+    const completedMissions = quoteMissions.filter(m => {
+        if (m.status === 'cancelled') return false;
+        const slotKey = `${m.date}|${m.startTime}`;
+        if (cancelledKeys.has(slotKey)) return false;
+        return m.status === 'completed' || m.date <= today;
+    }).length;
 
     // Calculer les sessions déjà facturées
     const invoicedSessions = splitInvoices.reduce((sum, inv) => {
@@ -323,7 +351,7 @@ export function isEligibleForSplitBilling(quote: Document): boolean {
     // 3. A au moins 1 session
     // 4. N'a pas déjà été converti en facture unique
     if (quote.type !== 'Devis') return false;
-    if (quote.status !== 'signed') return false;
+    if (quote.status !== 'signed' && quote.status !== 'to_invoice') return false;
     if (quote.linkedInvoiceId) return false; // Déjà converti
     
     const sessionCount = quote.totalSessions || quote.slotsData?.length || 0;
@@ -353,7 +381,7 @@ export function getReadySplitsForQuote(
     missions: Mission[]
 ): SplitDetail[] {
     if (!quote.splitBillingConfig) return [];
-    const completedSessions = getCompletedSessionsForQuote(quote.id, missions);
+    const completedSessions = getCompletedSessionsForQuote(quote.id, missions, quote);
     return quote.splitBillingConfig.splits.filter(s => 
         s.status === 'pending' && isSplitReadyForInvoicing(s, completedSessions)
     );

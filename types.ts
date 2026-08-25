@@ -287,11 +287,12 @@ export interface Document {
     taxCreditEnabled: boolean;
     hasTaxCredit?: boolean; // Champ pour indiquer si le crédit d'impôt est activé
 
-    status: 'signed' | 'sent' | 'validated' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected' | 'draft';
+    status: 'signed' | 'sent' | 'validated' | 'expired' | 'paid' | 'pending' | 'converted' | 'rejected' | 'draft' | 'to_invoice';
 
     linkedInvoiceId?: string; // Self-referencing FK for converting Quote -> Invoice
 
     // JSONB fields in Supabase
+    // Chaque slot dans slotsData peut contenir : { id, date, startTime, endTime, duration, sessionStatus?: 'planned' | 'cancelled' | 'invoiced' | 'to_invoice' }
     slotsData?: any[];
     frequency?: string;
     recurrenceEndDate?: string;

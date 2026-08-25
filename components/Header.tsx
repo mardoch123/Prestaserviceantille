@@ -22,7 +22,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
-  const { notifications, markNotificationRead, currentUser, logout, missions } = useData();
+  const { notifications, markNotificationRead, currentUser, logout, missions, documents } = useData();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const [showMobileUserMenu, setShowMobileUserMenu] = useState(false);
@@ -70,6 +70,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
     .slice()
     .sort((a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime());
   const unreadCount = adminNotifs.filter(n => !n.read).length;
+  const toInvoiceCount = documents.filter(d => d.type === 'Devis' && d.status === 'to_invoice').length;
 
   const handleRefresh = () => {
       window.location.reload();
@@ -170,6 +171,11 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                     <Bell className="w-5 h-5" />
                     {unreadCount > 0 && (<span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white animate-pulse"></span>)}
                 </button>
+                {toInvoiceCount > 0 && (
+                    <button onClick={() => navigate('/invoices', { state: { filter: 'to_invoice' } })} className="absolute -bottom-1 -right-1 min-w-[18px] h-[18px] px-1 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white shadow" title={`${toInvoiceCount} devis à facturer`}>
+                        {toInvoiceCount}
+                    </button>
+                )}
                 {showNotifications && (
                     <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-100 z-[9999] overflow-hidden md:right-0 md:left-auto left-0 right-0 md:w-80">
                         <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-slate-100 flex justify-between items-center">

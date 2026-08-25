@@ -273,6 +273,11 @@ interface DataContextType {
     refundTransaction: (ref: string, amount: number) => Promise<void>;
     generateMissionsFromDocument: (doc: Document) => Promise<void>;
 
+    // === GESTION STATUT SESSIONS (annulation individuelle) ===
+    toggleSessionStatus: (quoteId: string, sessionIndex: number, newStatus: 'planned' | 'cancelled') => Promise<void>;
+    // === DETECTION PRESTATIONS A FACTURER ===
+    checkSessionsToInvoice: () => Promise<{ checked: number; toInvoice: number }>;
+
     packs: Pack[];
     addPack: (pack: Pack) => Promise<string | null>; // Returns ID if success
     updatePack: (id: string, updates: Partial<Pack>) => Promise<void>;
@@ -2717,6 +2722,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             if (shouldShowLoader) setDataLoading(false);
         }
     };
+
+    // Appel initial de checkSessionsToInvoice après le premier chargement des données
+    const checkInvoiceDoneRef = useRef(false);
+    useEffect(() => {
+        if (hasLoadedOnceRef.current && !checkInvoiceDoneRef.current && documents.length > 0) {
+            checkInvoiceDoneRef.current = true;
+            checkSessionsToInvoice().catch(() => {});
+        }
+    }, [documents, dataLoading]);
 
     // Targeted refresh for providers/clients - only refresh visitScans and notifications
     // This avoids resetting all state and causing UI data loss
@@ -6526,7 +6540,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         // Vérifier si la tranche est prête à être facturée
-        const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+        const completedSessions = getCompletedSessionsForQuote(quoteId, missions, quote);
         if (!isSplitReadyForInvoicing(split, completedSessions)) {
             console.log('[generateSplitInvoice] Split not ready for invoicing:', splitIndex);
             return null;
@@ -6646,7 +6660,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!quote || !quote.splitBillingConfig) return;
 
         const config = quote.splitBillingConfig;
-        const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+        const completedSessions = getCompletedSessionsForQuote(quoteId, missions, quote);
 
         let generatedCount = 0;
         // Vérifier chaque tranche en attente
@@ -6803,7 +6817,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 }
 
                 // Vérifier aussi les tranches 'completion' prêtes
-                const completedSessions = getCompletedSessionsForQuote(quote.id, missions);
+                const completedSessions = getCompletedSessionsForQuote(quote.id, missions, quote);
                 for (const split of config.splits) {
                     if (split.status === 'pending' && isSplitReadyForInvoicing(split, completedSessions)) {
                         await generateSplitInvoice(quote.id, split.index, config);
@@ -6898,7 +6912,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         for (const [quoteId, config] of configMap.entries()) {
             if (!config || !config.splits) continue;
 
-            const completedSessions = getCompletedSessionsForQuote(quoteId, missions);
+            const quoteForSessions = documents.find(d => d.id === quoteId);
+            const completedSessions = getCompletedSessionsForQuote(quoteId, missions, quoteForSessions);
             let generatedForQuote = 0;
 
             for (const split of config.splits) {
@@ -6926,6 +6941,129 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     const markInvoicePaid = async (id: string) => {
         await updateDocumentStatus(id, 'paid');
+    };
+
+    // === GESTION STATUT SESSIONS (annulation individuelle) ===
+    const toggleSessionStatus = async (quoteId: string, sessionIndex: number, newStatus: 'planned' | 'cancelled') => {
+        const doc = documents.find(d => d.id === quoteId);
+        if (!doc || !doc.slotsData || !Array.isArray(doc.slotsData) || sessionIndex < 0 || sessionIndex >= doc.slotsData.length) {
+            console.warn('[toggleSessionStatus] Devis introuvable ou index invalide', quoteId, sessionIndex);
+            return;
+        }
+
+        const updatedSlots = [...doc.slotsData];
+        const slot = { ...updatedSlots[sessionIndex] };
+        const oldStatus = slot.sessionStatus || 'planned';
+        slot.sessionStatus = newStatus;
+        updatedSlots[sessionIndex] = slot;
+
+        // Mise à jour en DB
+        const { error } = await supabase
+            .from('documents')
+            .update({ slots_data: updatedSlots })
+            .eq('id', quoteId);
+
+        if (error) {
+            console.error('[toggleSessionStatus] Erreur DB:', error);
+            return;
+        }
+
+        // Mise à jour du state local
+        setDocuments(prev => prev.map(d => d.id === quoteId ? { ...d, slotsData: updatedSlots } : d));
+
+        // Si passage à 'cancelled', annuler la mission liée (si existante)
+        if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
+            const slotDate = slot.date;
+            const slotStart = slot.startTime;
+            // Trouver la mission correspondante par source_document_id + date + startTime
+            const linkedMission = missions.find(m =>
+                (m.sourceDocumentId || (m as any).source_document_id) === quoteId &&
+                m.date === slotDate &&
+                m.startTime === slotStart &&
+                m.status !== 'cancelled'
+            );
+            if (linkedMission) {
+                await supabase
+                    .from('missions')
+                    .update({ status: 'cancelled' })
+                    .eq('id', linkedMission.id);
+                setMissions(prev => prev.map(m => m.id === linkedMission.id ? { ...m, status: 'cancelled' as any } : m));
+            }
+        }
+
+        // Si rétablissement, on ne réactive pas automatiquement la mission (elle reste annulée)
+        // L'utilisateur devra la réassigner manuellement si besoin.
+
+        // Notification admin
+        const action = newStatus === 'cancelled' ? 'annulée' : 'rétablie';
+        await addNotification(
+            'admin',
+            'alert',
+            `Séance ${action}`,
+            `Séance du ${slot.date} à ${slot.startTime} du devis ${doc.ref} a été ${action}.`,
+            undefined,
+            `document:${quoteId}`
+        );
+    };
+
+    // === DETECTION PRESTATIONS A FACTURER ===
+    const checkSessionsToInvoice = async (): Promise<{ checked: number; toInvoice: number }> => {
+        const today = getMartiniqueToday();
+        let checked = 0;
+        let toInvoice = 0;
+
+        const signedQuotes = documents.filter(d =>
+            d.type === 'Devis' &&
+            d.status === 'signed' &&
+            d.slotsData && Array.isArray(d.slotsData) && d.slotsData.length > 0
+        );
+
+        for (const quote of signedQuotes) {
+            const slots = quote.slotsData!;
+            let quoteChanged = false;
+            const updatedSlots = [...slots];
+
+            for (let i = 0; i < updatedSlots.length; i++) {
+                const slot = { ...updatedSlots[i] };
+                const sessionStatus = slot.sessionStatus || 'planned';
+
+                // Si la date est passée ET la session n'est ni annulée ni déjà à facturer/facturée
+                if (slot.date && slot.date < today && sessionStatus !== 'cancelled' && sessionStatus !== 'invoiced' && sessionStatus !== 'to_invoice') {
+                    slot.sessionStatus = 'to_invoice';
+                    updatedSlots[i] = slot;
+                    quoteChanged = true;
+                    toInvoice++;
+                }
+                checked++;
+            }
+
+            if (quoteChanged) {
+                // Mise à jour DB du slotsData
+                await supabase
+                    .from('documents')
+                    .update({ slots_data: updatedSlots, status: 'to_invoice' })
+                    .eq('id', quote.id);
+
+                // Mise à jour state local
+                setDocuments(prev => prev.map(d =>
+                    d.id === quote.id ? { ...d, slotsData: updatedSlots, status: 'to_invoice' as any } : d
+                ));
+
+                // Notification admin
+                const countToInvoice = updatedSlots.filter((s: any) => s.sessionStatus === 'to_invoice').length;
+                await addNotification(
+                    'admin',
+                    'alert',
+                    'Prestation à facturer',
+                    `${countToInvoice} prestation(s) à facturer pour le devis ${quote.ref}`,
+                    undefined,
+                    `document:${quote.id}`
+                );
+            }
+        }
+
+        console.log('[checkSessionsToInvoice] Terminé:', { checked, toInvoice });
+        return { checked, toInvoice };
     };
 
     const sendDocumentReminder = async (id: string) => {
@@ -8890,7 +9028,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
  
              providers, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, updateLeaveStatus, resetProviderPassword,
  
-             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument,
+             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument, toggleSessionStatus, checkSessionsToInvoice,
              
              // Facturation fractionnée par pack
              generateSplitInvoicesAtSignature, generateSplitInvoice, checkAndGeneratePendingSplitInvoices, getSplitInvoicesForQuote, getPackBillingStats, getAllPackBillingStats, isEligibleForSplitBilling: isEligibleForSplitBillingFn, configureSplitBilling, markSplitInvoiceRead, notifyReadySplitInvoices, getUnreadSplitInvoicesCount, backfillSplitBilling, rollbackBackfillSplitBilling, runAutoGenerateSplitInvoices,

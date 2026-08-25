@@ -77,7 +77,7 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -92,6 +92,7 @@ const DevisFactures: React.FC = () => {
             { value: 'validated', label: 'Validés' },
             { value: 'pending', label: 'Factures en attente' },
             { value: 'paid', label: 'Factures payées' },
+            { value: 'to_invoice', label: 'À facturer' },
         ],
         []
     );
@@ -161,6 +162,7 @@ const DevisFactures: React.FC = () => {
     const [selectedDocument, setSelectedDocument] = useState<any>(null);
 
     const [isAdminSignModalOpen, setIsAdminSignModalOpen] = useState(false);
+    const [cancelSessionIdx, setCancelSessionIdx] = useState<number | null>(null);
     const [adminSignDocumentId, setAdminSignDocumentId] = useState<string | null>(null);
     const [adminSignatureDataUrl, setAdminSignatureDataUrl] = useState<string>('');
     const [adminSignatureFileName, setAdminSignatureFileName] = useState<string>('');
@@ -466,7 +468,15 @@ const DevisFactures: React.FC = () => {
         return next.toDate();
     };
 
-    const toHHMM = (d: Date): string => dayjs(d).tz(MARTINIQUE_TIMEZONE).format('HH:mm');
+    const toHHMM = (d: Date): string => {
+        if (!d || !Number.isFinite(d.getTime())) return '09:00';
+        return dayjs(d).tz(MARTINIQUE_TIMEZONE).format('HH:mm');
+    };
+
+    // Valide qu'une chaîne est une heure HH:MM correcte (évite les crashs input time)
+    const isValidTimeStr = (v: string): boolean => {
+        return !!v && /^\d{2}:\d{2}$/.test(v);
+    };
 
     // Valide qu'une chaîne est une date YYYY-MM-DD correcte (évite les crashs WebView Android)
     const isValidDateStr = (d: string): boolean => {
@@ -851,8 +861,11 @@ const DevisFactures: React.FC = () => {
         if (!raw || typeof raw !== 'object') return null;
         const id = String(raw.id || raw.slotId || raw.slot_id || `slot-${fallbackIndex}`);
         const date = String(raw.date || raw.day || raw.slotDate || raw.slot_date || '');
-        const startTime = String(raw.startTime || raw.start_time || raw.start || '09:00');
-        const endTime = String(raw.endTime || raw.end_time || raw.end || '11:00');
+        // Validation stricte du format HH:MM pour éviter "Invalid time value" sur les <input type="time">
+        const rawStart = String(raw.startTime || raw.start_time || raw.start || '09:00');
+        const rawEnd = String(raw.endTime || raw.end_time || raw.end || '11:00');
+        const startTime = isValidTimeStr(rawStart) ? rawStart : '09:00';
+        const endTime = isValidTimeStr(rawEnd) ? rawEnd : '11:00';
         const durationRaw = raw.duration ?? raw.hours ?? raw.totalHours;
         const duration = Number.isFinite(durationRaw) ? Number(durationRaw) : calculateDuration(startTime, endTime);
         if (!date) return null;
@@ -2900,12 +2913,66 @@ const DevisFactures: React.FC = () => {
 
             {/* Contenu de la vue active */}
             {activeView === 'packs' ? (
+                <>
+                {/* Section "Prestations à facturer" */}
+                {(() => {
+                    const toInvoiceDocs = documents.filter(d => d.type === 'Devis' && d.status === 'to_invoice');
+                    if (toInvoiceDocs.length === 0) return null;
+                    return (
+                        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                                    <h3 className="text-lg font-bold text-amber-800">Prestations à facturer ({toInvoiceDocs.length})</h3>
+                                </div>
+                                <button type="button" onClick={async () => { const r = await checkSessionsToInvoice(); toast.success(`${r.toInvoice} prestation(s) détectée(s) à facturer`); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 transition">Rafraîchir</button>
+                            </div>
+                            <div className="space-y-3">
+                                {toInvoiceDocs.map(doc => {
+                                    const toInvoiceSlots = (doc.slotsData || []).filter((s: any) => s.sessionStatus === 'to_invoice');
+                                    return (
+                                        <div key={doc.id} className="bg-white border border-amber-100 rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div>
+                                                    <span className="font-bold text-slate-800">{doc.ref}</span>
+                                                    <span className="text-sm text-slate-500 ml-2">{doc.clientName}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{toInvoiceSlots.length} séance{toInvoiceSlots.length > 1 ? 's' : ''}</span>
+                                                    <button type="button" onClick={() => { setSelectedDocument(doc); setIsDetailModalOpen(true); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Voir</button>
+                                                    <button type="button" onClick={async () => {
+                                                        try {
+                                                            await convertQuoteToInvoice(doc.id);
+                                                            toast.success(`Devis ${doc.ref} converti en facture`);
+                                                        } catch (e: any) {
+                                                            toast.error('Erreur de facturation: ' + (e.message || 'inconnue'));
+                                                        }
+                                                    }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-600 text-white hover:bg-green-700 transition flex items-center gap-1">
+                                                        <CreditCard className="w-3 h-3" /> Facturer
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {toInvoiceSlots.map((s: any, i: number) => (
+                                                    <span key={i} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded">
+                                                        {s.date} {s.startTime}-{s.endTime} ({s.duration}h)
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
                 <SplitInvoiceManagement 
                     onNavigateToDocument={(docId) => {
                         navigate(`/admin/devis/${docId}`);
                         setTimeout(() => setActiveView('documents'), 100);
                     }}
                 />
+                </>
             ) : (
             <>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -3091,6 +3158,7 @@ const DevisFactures: React.FC = () => {
                                                             ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
                                                             ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
                                                             ${doc.status === 'validated' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                            ${doc.status === 'to_invoice' ? 'bg-amber-100 text-amber-800 border-amber-200' : ''}
                                                         }`}
                                                     />
                                                 )}
@@ -3504,6 +3572,7 @@ const DevisFactures: React.FC = () => {
                                                                 ${doc.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
                                                                 ${doc.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-100' : ''}
                                                                 ${doc.status === 'validated' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                                ${doc.status === 'to_invoice' ? 'bg-amber-100 text-amber-800 border-amber-200' : ''}
                                                             }`}
                                                         />
                                                     )}
@@ -3864,7 +3933,7 @@ const DevisFactures: React.FC = () => {
                                                                                 type="time"
                                                                                 className="p-2 border border-slate-200 rounded text-sm"
                                                                                 min={getMinStartTimeForSlot(slot.date)}
-                                                                                value={slot.startTime}
+                                                                                value={isValidTimeStr(slot.startTime) ? slot.startTime : '09:00'}
                                                                                 onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })}
                                                                                 onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })}
                                                                             />
@@ -3875,7 +3944,7 @@ const DevisFactures: React.FC = () => {
                                                                                 type="time"
                                                                                 className="p-2 border border-slate-200 rounded text-sm"
                                                                                 min={getMinStartTimeForSlot(slot.date)}
-                                                                                value={slot.endTime}
+                                                                                value={isValidTimeStr(slot.endTime) ? slot.endTime : '11:00'}
                                                                                 onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })}
                                                                                 onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })}
                                                                             />
@@ -4040,9 +4109,9 @@ const DevisFactures: React.FC = () => {
                                                                     )}
                                                                     <input type="date" className="flex-1 p-2 border rounded bg-white text-sm min-w-[110px]" min={getTodayMartiniqueStr()} value={isValidDateStr(slot.date) ? slot.date : getTodayMartiniqueStr()} onChange={(e) => updateSlot(index, 'date', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'date', e.target.value, { validate: true })} />
                                                                     <div className="flex items-center gap-1">
-                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.startTime} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
+                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={isValidTimeStr(slot.startTime) ? slot.startTime : '09:00'} onChange={(e) => updateSlot(index, 'startTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'startTime', e.target.value, { validate: true })} />
                                                                         <span className="text-slate-400 text-xs">à</span>
-                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={slot.endTime} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
+                                                                        <input type="time" className="p-2 border rounded bg-white text-sm w-20 text-center" min={getMinStartTimeForSlot(slot.date)} value={isValidTimeStr(slot.endTime) ? slot.endTime : '11:00'} onChange={(e) => updateSlot(index, 'endTime', e.target.value, { validate: false })} onBlur={(e) => updateSlot(index, 'endTime', e.target.value, { validate: true })} />
                                                                     </div>
                                                                     <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded w-12 text-center">{slot.duration}h</span>
                                                                     <button
@@ -4420,7 +4489,7 @@ const DevisFactures: React.FC = () => {
                                             const sessionNum = index + 1;
                                             const splitConfig = selectedDocument.splitBillingConfig;
                                             const coveringSplit = splitConfig?.splits.find((s: any) => s.sessions.includes(sessionNum));
-                                            const splitInvoices = selectedDocument.type === 'Devis' && selectedDocument.status === 'signed' 
+                                            const splitInvoices = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice')
                                                 ? getSplitInvoicesForQuote(selectedDocument.id) : [];
                                             const coveringInvoice = coveringSplit?.invoiceId 
                                                 ? splitInvoices.find(inv => inv.id === coveringSplit.invoiceId) 
@@ -4431,15 +4500,24 @@ const DevisFactures: React.FC = () => {
                                             );
                                             const isMissionCompleted = relatedMission?.status === 'completed';
                                             const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
+                                            // Statut de session depuis slotsData
+                                            const sessionStatus = slot.sessionStatus || 'planned';
+                                            const isSessionCancelled = sessionStatus === 'cancelled';
+                                            const isSessionToInvoice = sessionStatus === 'to_invoice';
+                                            const isSignedQuote = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice');
                                             
                                             return (
                                                 <div key={index} className={`flex items-center justify-between p-3 rounded-lg border ${
+                                                    isSessionCancelled ? 'bg-red-50 border-red-200 opacity-60' :
+                                                    isSessionToInvoice ? 'bg-amber-50 border-amber-200' :
                                                     isInvoiced ? 'bg-blue-50 border-blue-200' :
                                                     isMissionCompleted ? 'bg-emerald-50 border-emerald-200' :
                                                     'bg-slate-50 border-slate-100'
                                                 }`}>
                                                     <div className="flex items-center gap-3">
                                                         <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
+                                                            isSessionCancelled ? 'bg-red-100 text-red-700' :
+                                                            isSessionToInvoice ? 'bg-amber-100 text-amber-700' :
                                                             isInvoiced ? 'bg-blue-100 text-blue-700' :
                                                             isMissionCompleted ? 'bg-emerald-100 text-emerald-700' :
                                                             'text-slate-400 bg-slate-100'
@@ -4450,7 +4528,11 @@ const DevisFactures: React.FC = () => {
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        {isInvoiced && coveringInvoice ? (
+                                                        {isSessionCancelled ? (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-700">Annulée</span>
+                                                        ) : isSessionToInvoice ? (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-700">À facturer</span>
+                                                        ) : isInvoiced && coveringInvoice ? (
                                                             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">
                                                                 Facturée → {coveringInvoice.ref}
                                                             </span>
@@ -4462,6 +4544,19 @@ const DevisFactures: React.FC = () => {
                                                             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-500">
                                                                 À venir
                                                             </span>
+                                                        )}
+                                                        {/* Bouton annulation/rétablissement pour devis signés */}
+                                                        {isSignedQuote && !isInvoiced && (
+                                                            cancelSessionIdx === index ? (
+                                                                <div className="flex items-center gap-1">
+                                                                    <button type="button" onClick={() => { toggleSessionStatus(selectedDocument.id, index, isSessionCancelled ? 'planned' : 'cancelled'); setCancelSessionIdx(null); setSelectedDocument(null); }} className="px-2 py-0.5 rounded text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition">Confirmer</button>
+                                                                    <button type="button" onClick={() => setCancelSessionIdx(null)} className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition">Non</button>
+                                                                </div>
+                                                            ) : (
+                                                                <button type="button" onClick={() => setCancelSessionIdx(index)} className={`px-2 py-0.5 rounded text-xs font-bold transition ${isSessionCancelled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`} title={isSessionCancelled ? 'Rétablir cette séance' : 'Marquer non réalisée'}>
+                                                                    {isSessionCancelled ? 'Rétablir' : 'Annuler'}
+                                                                </button>
+                                                            )
                                                         )}
                                                     </div>
                                                 </div>

@@ -1024,11 +1024,26 @@ const Planning: React.FC = () => {
       const today = getMartiniqueToday();
       const oneMonthAgo = dayjs.tz(today, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).subtract(30, 'day').format('YYYY-MM-DD');
       
+      // Construire un Set des clés "docId|date|startTime" des sessions annulées dans les slotsData
+      const cancelledSlotKeys = new Set<string>();
+      documents.forEach(d => {
+          if (d.slotsData && Array.isArray(d.slotsData)) {
+              for (const slot of d.slotsData) {
+                  if (slot?.sessionStatus === 'cancelled' && slot.date && slot.startTime) {
+                      cancelledSlotKeys.add(`${d.id}|${slot.date}|${slot.startTime}`);
+                  }
+              }
+          }
+      });
+
       const byDoc = new Map<string, typeof missions>();
       missions.forEach(m => {
           if (!m.sourceDocumentId) return;
           // Exclure les missions de plus de 1 mois (la facturation n'est plus pertinente)
           if (m.date && m.date < oneMonthAgo) return;
+          // Exclure les missions liées à des sessions annulées dans le slotsData
+          const slotKey = `${m.sourceDocumentId}|${m.date}|${m.startTime}`;
+          if (cancelledSlotKeys.has(slotKey)) return;
           const group = byDoc.get(m.sourceDocumentId) ?? [];
           group.push(m);
           byDoc.set(m.sourceDocumentId, group);
@@ -1064,7 +1079,10 @@ const Planning: React.FC = () => {
           }
       });
 
-      return { readyToInvoice, readyToInvoiceDocs, ultimatePackComplete, ultimatePackDocs };
+      // Devis avec sessions à facturer (statut 'to_invoice')
+      const toInvoiceDocs = documents.filter(d => d.type === 'Devis' && d.status === 'to_invoice');
+
+      return { readyToInvoice, readyToInvoiceDocs, ultimatePackComplete, ultimatePackDocs, toInvoiceDocs };
   }, [missions, documents]);
 
   const shownPackToastRef = useRef<Set<string>>(new Set());

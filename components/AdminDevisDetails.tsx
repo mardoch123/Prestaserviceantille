@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Calendar, CreditCard, MapPin, Package, User, Download } from 'lucide-react';
+import { ArrowLeft, Calendar, CreditCard, MapPin, Package, User, Download, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useData } from '../context/DataContext';
 import type { Document } from '../types';
@@ -19,6 +19,7 @@ const getStatusStyle = (status?: string) => {
   const s = String(status || '').toLowerCase();
   if (s === 'paid') return 'bg-green-100 text-green-700 border-green-200';
   if (s === 'signed' || s === 'validated') return 'bg-blue-100 text-blue-700 border-blue-200';
+  if (s === 'to_invoice') return 'bg-amber-100 text-amber-700 border-amber-200';
   if (s === 'sent') return 'bg-amber-100 text-amber-700 border-amber-200';
   if (s === 'expired' || s === 'rejected') return 'bg-red-100 text-red-700 border-red-200';
   return 'bg-slate-100 text-slate-700 border-slate-200';
@@ -46,10 +47,11 @@ const parseDescriptionMeta = (description?: string) => {
 const AdminDevisDetails: React.FC = () => {
   const navigate = useNavigate();
   const { devisId } = useParams();
-  const { documents, clients, packs, getDocumentDetails } = useData();
+  const { documents, clients, packs, getDocumentDetails, toggleSessionStatus } = useData();
   const [loading, setLoading] = useState(false);
   const [doc, setDoc] = useState<Document | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [confirmCancelIdx, setConfirmCancelIdx] = useState<number | null>(null);
 
   useEffect(() => {
     const id = String(devisId || '').trim();
@@ -177,7 +179,44 @@ const AdminDevisDetails: React.FC = () => {
                   </div>
 
                   {slots.length > 0 ? (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden"><div className="bg-slate-50 px-4 py-3 border-b border-slate-200"><p className="text-xs font-bold text-slate-700">Créneaux planifiés</p></div><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-xs text-slate-500 bg-white"><tr><th className="text-left px-4 py-3 font-bold">Date</th><th className="text-left px-4 py-3 font-bold">Début</th><th className="text-left px-4 py-3 font-bold">Fin</th><th className="text-left px-4 py-3 font-bold">Durée</th></tr></thead><tbody>{slots.map((s: any, idx: number) => (<tr key={idx} className="border-t border-slate-100"><td className="px-4 py-3 text-slate-700 font-bold">{s?.date ? dayjs.tz(String(s.date), 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY') : '—'}</td><td className="px-4 py-3 text-slate-700">{s?.startTime || '—'}</td><td className="px-4 py-3 text-slate-700">{s?.endTime || '—'}</td><td className="px-4 py-3 text-slate-700">{Number.isFinite(Number(s?.duration)) ? `${Number(s.duration).toFixed(2)}h` : '—'}</td></tr>))}</tbody></table></div></div>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden"><div className="bg-slate-50 px-4 py-3 border-b border-slate-200"><p className="text-xs font-bold text-slate-700">Créneaux planifiés</p></div><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-xs text-slate-500 bg-white"><tr><th className="text-left px-4 py-3 font-bold">Date</th><th className="text-left px-4 py-3 font-bold">Début</th><th className="text-left px-4 py-3 font-bold">Fin</th><th className="text-left px-4 py-3 font-bold">Durée</th><th className="text-left px-4 py-3 font-bold">Statut</th>{doc.status === 'signed' ? <th className="text-left px-4 py-3 font-bold">Action</th> : null}</tr></thead><tbody>{slots.map((s: any, idx: number) => {
+                      const sessionStatus = s?.sessionStatus || 'planned';
+                      const isCancelled = sessionStatus === 'cancelled';
+                      const isInvoiced = sessionStatus === 'invoiced';
+                      const isToInvoice = sessionStatus === 'to_invoice';
+                      const statusBadge = isCancelled
+                        ? 'bg-red-100 text-red-700 border-red-200'
+                        : isInvoiced
+                        ? 'bg-green-100 text-green-700 border-green-200'
+                        : isToInvoice
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : 'bg-blue-100 text-blue-700 border-blue-200';
+                      const statusLabel = isCancelled ? 'Annulée' : isInvoiced ? 'Facturée' : isToInvoice ? 'À facturer' : 'Planifiée';
+                      return (
+                        <tr key={idx} className={`border-t border-slate-100 ${isCancelled ? 'bg-red-50/50 opacity-60' : ''}`}>
+                          <td className="px-4 py-3 text-slate-700 font-bold">{s?.date ? dayjs.tz(String(s.date), 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY') : '—'}</td>
+                          <td className="px-4 py-3 text-slate-700">{s?.startTime || '—'}</td>
+                          <td className="px-4 py-3 text-slate-700">{s?.endTime || '—'}</td>
+                          <td className="px-4 py-3 text-slate-700">{Number.isFinite(Number(s?.duration)) ? `${Number(s.duration).toFixed(2)}h` : '—'}</td>
+                          <td className="px-4 py-3"><span className={`text-xs font-bold px-2 py-1 rounded-full border ${statusBadge}`}>{statusLabel}</span></td>
+                          {doc.status === 'signed' ? (
+                            <td className="px-4 py-3">
+                              {confirmCancelIdx === idx ? (
+                                <div className="flex items-center gap-1">
+                                  <button type="button" onClick={() => { toggleSessionStatus(doc.id, idx, isCancelled ? 'planned' : 'cancelled'); setConfirmCancelIdx(null); }} className="px-2 py-1 rounded text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition" title="Confirmer">Confirmer</button>
+                                  <button type="button" onClick={() => setConfirmCancelIdx(null)} className="px-2 py-1 rounded text-xs font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition" title="Annuler">Non</button>
+                                </div>
+                              ) : (
+                                <button type="button" onClick={() => setConfirmCancelIdx(idx)} className={`px-2 py-1 rounded text-xs font-bold transition flex items-center gap-1 ${isCancelled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`} title={isCancelled ? 'Rétablir' : 'Marquer non réalisée'}>
+                                  {isCancelled ? <RotateCcw className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                  {isCancelled ? 'Rétablir' : 'Annuler'}
+                                </button>
+                              )}
+                            </td>
+                          ) : null}
+                        </tr>
+                      );
+                    })}</tbody></table></div></div>
                   ) : (
                     <div className="text-xs text-slate-400 italic">Aucun créneau enregistré sur ce devis.</div>
                   )}
