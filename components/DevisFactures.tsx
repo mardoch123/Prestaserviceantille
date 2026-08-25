@@ -837,9 +837,10 @@ const DevisFactures: React.FC = () => {
     };
 
     const calculateDuration = (start: string, end: string): number => {
-        if (!start || !end) return 0;
+        if (!start || !end || !start.includes(':') || !end.includes(':')) return 0;
         const [h1, m1] = start.split(':').map(Number);
         const [h2, m2] = end.split(':').map(Number);
+        if (!Number.isFinite(h1) || !Number.isFinite(m1) || !Number.isFinite(h2) || !Number.isFinite(m2)) return 0;
         const date1 = new Date(0, 0, 0, h1, m1);
         const date2 = new Date(0, 0, 0, h2, m2);
         const diffMs = date2.getTime() - date1.getTime();
@@ -870,10 +871,16 @@ const DevisFactures: React.FC = () => {
         if (!time || !time.includes(':')) return '09:00';
         const [h, m] = time.split(':').map(Number);
         if (!Number.isFinite(h) || !Number.isFinite(m)) return '09:00';
+        // Protection contre NaN, Infinity, -Infinity sur hoursToAdd
+        if (!Number.isFinite(hoursToAdd)) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
         const date = new Date(0, 0, 0, h, m);
         date.setHours(date.getHours() + Math.floor(hoursToAdd));
-        date.setMinutes(date.getMinutes() + (hoursToAdd % 1) * 60);
-        return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        date.setMinutes(date.getMinutes() + Math.round((hoursToAdd % 1) * 60));
+        const resultH = date.getHours();
+        const resultM = date.getMinutes();
+        // Sécurité supplémentaire : vérifier que le résultat est valide
+        if (!Number.isFinite(resultH) || !Number.isFinite(resultM)) return '09:00';
+        return `${resultH.toString().padStart(2, '0')}:${resultM.toString().padStart(2, '0')}`;
     };
 
     useEffect(() => {
@@ -962,8 +969,8 @@ const DevisFactures: React.FC = () => {
                 duration: 6
             });
         } else if (pack.name.includes("personnalisé")) {
-            const days = packSpecificConfig.customDays || 1;
-            const totalHours = packSpecificConfig.customTotalHours || 2;
+            const days = Math.max(1, Math.abs(Math.trunc(packSpecificConfig.customDays || 1)));
+            const totalHours = Math.max(1, Math.abs(packSpecificConfig.customTotalHours || 2));
             const hoursPerDay = totalHours / days;
 
             for (let i = 0; i < days; i++) {
@@ -1163,8 +1170,8 @@ const DevisFactures: React.FC = () => {
         } else if (isPackUltime6Name(pack.name)) {
             sessions.push({ duration: 6, startTime: '09:00', endTime: '15:00' });
         } else if (pack.name.includes("personnalisé")) {
-            const days = packSpecificConfig.customDays || 1;
-            const totalHours = packSpecificConfig.customTotalHours || 2;
+            const days = Math.max(1, Math.abs(Math.trunc(packSpecificConfig.customDays || 1)));
+            const totalHours = Math.max(1, Math.abs(packSpecificConfig.customTotalHours || 2));
             const hoursPerDay = totalHours / days;
             for (let i = 0; i < days; i++) {
                 sessions.push({
@@ -1299,6 +1306,11 @@ const DevisFactures: React.FC = () => {
 
         // Protection WebView Android : ne jamais accepter une date vide ou invalide
         if (field === 'date' && !isValidDateStr(value)) {
+            return;
+        }
+
+        // Protection : ne jamais accepter une heure vide ou malformée
+        if ((field === 'startTime' || field === 'endTime') && (!value || !/^\d{2}:\d{2}$/.test(value))) {
             return;
         }
 
@@ -1515,10 +1527,10 @@ const DevisFactures: React.FC = () => {
         const lastSlot = interventionSlots[interventionSlots.length - 1];
         let newDate = getMartiniqueToday();
         if (lastSlot) {
-            newDate = dayjs
-                .tz(lastSlot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE)
-                .add(1, 'day')
-                .format('YYYY-MM-DD');
+            const parsed = dayjs.tz(lastSlot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            if (parsed.isValid()) {
+                newDate = parsed.add(1, 'day').format('YYYY-MM-DD');
+            }
         }
 
         // Définir la durée par défaut selon le pack
@@ -1540,6 +1552,11 @@ const DevisFactures: React.FC = () => {
             if (pack && isPackUltime6Name(pack.name)) {
                 defaultDuration = 6;
             }
+        }
+
+        // Sécurité : toujours s'assurer que la durée est un nombre fini et positif
+        if (!Number.isFinite(defaultDuration) || defaultDuration <= 0) {
+            defaultDuration = 2;
         }
 
         setInterventionSlots([...interventionSlots, {
