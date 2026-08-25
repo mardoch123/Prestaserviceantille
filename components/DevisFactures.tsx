@@ -2939,7 +2939,7 @@ const DevisFactures: React.FC = () => {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{toInvoiceSlots.length} séance{toInvoiceSlots.length > 1 ? 's' : ''}</span>
-                                                    <button type="button" onClick={() => { setSelectedDocument(doc); setIsDetailModalOpen(true); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Voir</button>
+                                                    <button type="button" onClick={() => navigate(`/admin/devis/${doc.id}`)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Voir</button>
                                                     <button type="button" onClick={async () => {
                                                         try {
                                                             await convertQuoteToInvoice(doc.id);
