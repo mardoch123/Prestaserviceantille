@@ -3,6 +3,7 @@ import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import { supabase } from '../utils/supabaseClient';
 import PageLoader from './PageLoader';
+import Pagination from './Pagination';
 import UploadProgressManager from './UploadProgressManager';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
@@ -110,6 +111,9 @@ const ProviderPortal: React.FC = () => {
   // Dashboard view mode
   const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar' | 'horizontal' | 'grid'>('overview');
   const [missionFilter, setMissionFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed' | 'cancelled'>('all');
+  const [missionTablePage, setMissionTablePage] = useState(1);
+  const MISSION_TABLE_PAGE_SIZE = 10;
+  useEffect(() => { setMissionTablePage(1); }, [missionFilter]);
   const [selectedDayMissions, setSelectedDayMissions] = useState<Mission[] | null>(null);
   const [missionDetailsModal, setMissionDetailsModal] = useState<Mission | null>(null);
 
@@ -1419,10 +1423,11 @@ const ProviderPortal: React.FC = () => {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                              {providerMissions
-                                .filter(m => missionFilter === 'all' || m.status === missionFilter)
-                                .slice(0, 10)
-                                .map((m) => {
+                              {(() => {
+                                const filtered = providerMissions.filter(m => missionFilter === 'all' || m.status === missionFilter);
+                                const start = (missionTablePage - 1) * MISSION_TABLE_PAGE_SIZE;
+                                const paged = filtered.slice(start, start + MISSION_TABLE_PAGE_SIZE);
+                                return paged.map((m) => {
                                   const statusConfig = {
                                     planned: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Planifiée' },
                                     in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'En cours' },
@@ -1459,10 +1464,17 @@ const ProviderPortal: React.FC = () => {
                                       </td>
                                     </tr>
                                   );
-                                })}
+                                });
+                              })()}
                             </tbody>
                           </table>
                         </div>
+                        <Pagination
+                          page={missionTablePage}
+                          pageSize={MISSION_TABLE_PAGE_SIZE}
+                          total={providerMissions.filter(m => missionFilter === 'all' || m.status === missionFilter).length}
+                          onPageChange={setMissionTablePage}
+                        />
                         
                         {providerMissions.filter(m => missionFilter === 'all' || m.status === missionFilter).length === 0 && (
                           <div className="p-8 text-center text-gray-400">

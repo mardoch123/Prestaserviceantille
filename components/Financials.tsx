@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import Pagination from './Pagination';
 import { 
   Euro, 
   Filter, 
@@ -14,9 +15,12 @@ import {
   CheckCircle
 } from 'lucide-react';
 
+const PAGE_SIZE = 15;
+
 const Financials: React.FC = () => {
   const { documents, refundTransaction, markInvoicePaid, serviceTypeFilter } = useData();
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [page, setPage] = useState(1);
   const location = useLocation();
 
   useEffect(() => {
@@ -52,6 +56,14 @@ const Financials: React.FC = () => {
     
     return transactions.filter(t => t.status === filterStatus && t.type === 'income');
   }, [filterStatus, documents, serviceTypeFilter]);
+
+  // Pagination
+  const paginatedTransactions = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredTransactions.slice(start, start + PAGE_SIZE);
+  }, [filteredTransactions, page]);
+
+  useEffect(() => { setPage(1); }, [filterStatus]);
 
   const handleRefund = (ref: string, amount: number) => {
       const confirm = window.confirm(`Rembourser ${amount}€ pour la facture ${ref} ? Cela créera un avoir comptable.`);
@@ -112,7 +124,7 @@ const Financials: React.FC = () => {
                     {filteredTransactions.length === 0 ? (
                         <tr><td colSpan={7} className="text-center p-8 text-slate-400">Aucune transaction enregistrée.</td></tr>
                     ) : (
-                        filteredTransactions.map(t => (
+                        paginatedTransactions.map(t => (
                             <tr key={t.id} className="hover:bg-cream-50 transition-colors group">
                                 <td className="px-6 py-4 font-mono text-slate-500">{t.date}</td>
                                 <td className="px-6 py-4 font-bold text-slate-700 flex items-center gap-2">
@@ -162,6 +174,12 @@ const Financials: React.FC = () => {
                 </tbody>
             </table>
          </div>
+         <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filteredTransactions.length}
+            onPageChange={setPage}
+         />
       </div>
     </div>
   );

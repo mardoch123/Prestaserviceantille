@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import PageLoader from './PageLoader';
+import Pagination from './Pagination';
 import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import dayjs from 'dayjs';
 import {
@@ -265,6 +266,12 @@ const Secretariat: React.FC = () => {
     const contractEditorRef = useRef<HTMLDivElement | null>(null);
     const [useRichContractEditor, setUseRichContractEditor] = useState(true);
 
+    // Pagination State
+    const QUOTES_PAGE_SIZE = 15;
+    const EXPENSES_PAGE_SIZE = 15;
+    const [quotesPage, setQuotesPage] = useState(1);
+    const [expensesPage, setExpensesPage] = useState(1);
+
     // Selection State for Packs
     const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
@@ -358,6 +365,14 @@ const Secretariat: React.FC = () => {
             );
         });
     }, [secretariatQuotes, quoteFilters.search, quoteFilters.status, quoteFilters.startDate, quoteFilters.endDate]);
+
+    // Quotes pagination
+    const paginatedSecretariatQuotes = useMemo(() => {
+        const start = (quotesPage - 1) * QUOTES_PAGE_SIZE;
+        return filteredSecretariatQuotes.slice(start, start + QUOTES_PAGE_SIZE);
+    }, [filteredSecretariatQuotes, quotesPage]);
+
+    useEffect(() => { setQuotesPage(1); }, [quoteFilters.search, quoteFilters.status, quoteFilters.startDate, quoteFilters.endDate]);
 
     const toggleQuoteSelection = (id: string) => {
         setSelectedQuoteIds(prev => {
@@ -691,6 +706,14 @@ const Secretariat: React.FC = () => {
             return true;
         });
     }, [expenses, expenseFilters]);
+
+    // Expenses pagination
+    const paginatedExpenses = useMemo(() => {
+        const start = (expensesPage - 1) * EXPENSES_PAGE_SIZE;
+        return filteredExpenses.slice(start, start + EXPENSES_PAGE_SIZE);
+    }, [filteredExpenses, expensesPage]);
+
+    useEffect(() => { setExpensesPage(1); }, [expenseFilters.startDate, expenseFilters.endDate, expenseFilters.category, expenseFilters.minAmount, expenseFilters.maxAmount]);
 
     // Contract filtering logic
     const filteredContracts = useMemo(() => {
@@ -2169,7 +2192,7 @@ const Secretariat: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
-                                    {filteredSecretariatQuotes.map((doc: any) => (
+                                    {paginatedSecretariatQuotes.map((doc: any) => (
                                         <tr key={doc.id} className={selectedQuoteIds.has(String(doc.id)) ? 'bg-blue-50' : ''}>
                                             <td className="px-4 py-3">
                                                 <button
@@ -2228,6 +2251,12 @@ const Secretariat: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+                        <Pagination
+                            page={quotesPage}
+                            pageSize={QUOTES_PAGE_SIZE}
+                            total={filteredSecretariatQuotes.length}
+                            onPageChange={setQuotesPage}
+                        />
                     </div>
                 )}
 
@@ -2561,7 +2590,7 @@ const Secretariat: React.FC = () => {
                                     {filteredExpenses.length === 0 ? (
                                         <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucune dépense trouvée avec ces filtres.</td></tr>
                                     ) : (
-                                        filteredExpenses.map((expense) => (
+                                        paginatedExpenses.map((expense) => (
                                             <tr key={expense.id} className="hover:bg-slate-50 group">
                                                 <td className="px-4 py-4 text-slate-600 whitespace-nowrap">{expense.date}</td>
                                                 <td className="px-4 py-4 font-bold text-slate-700">{expense.description}</td>
@@ -2584,6 +2613,12 @@ const Secretariat: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+                        <Pagination
+                            page={expensesPage}
+                            pageSize={EXPENSES_PAGE_SIZE}
+                            total={filteredExpenses.length}
+                            onPageChange={setExpensesPage}
+                        />
                     </div>
                 )}
 
