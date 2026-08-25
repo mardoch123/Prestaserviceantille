@@ -7009,12 +7009,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // === DETECTION PRESTATIONS A FACTURER ===
     const checkSessionsToInvoice = async (): Promise<{ checked: number; toInvoice: number }> => {
         const today = getMartiniqueToday();
+        // Ne considérer que les séances à partir du 1er du mois en cours (ignorer les anciennes)
+        const firstOfCurrentMonth = dayjs().tz(MARTINIQUE_TIMEZONE).startOf('month').format('YYYY-MM-DD');
         let checked = 0;
         let toInvoice = 0;
 
         const signedQuotes = documents.filter(d =>
             d.type === 'Devis' &&
-            d.status === 'signed' &&
+            (d.status === 'signed' || d.status === 'to_invoice') &&
             d.slotsData && Array.isArray(d.slotsData) && d.slotsData.length > 0
         );
 
@@ -7027,8 +7029,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 const slot = { ...updatedSlots[i] };
                 const sessionStatus = slot.sessionStatus || 'planned';
 
-                // Si la date est passée ET la session n'est ni annulée ni déjà à facturer/facturée
-                if (slot.date && slot.date < today && sessionStatus !== 'cancelled' && sessionStatus !== 'invoiced' && sessionStatus !== 'to_invoice') {
+                // Nettoyage : réinitialiser les anciennes séances to_invoice avant le 1er du mois
+                if (sessionStatus === 'to_invoice' && slot.date && slot.date < firstOfCurrentMonth) {
+                    slot.sessionStatus = 'planned';
+                    updatedSlots[i] = slot;
+                    quoteChanged = true;
+                    continue;
+                }
+
+                // Si la date est dans le mois en cours ET passée ET la session n'est ni annulée ni déjà à facturer/facturée
+                if (slot.date && slot.date >= firstOfCurrentMonth && slot.date < today && sessionStatus !== 'cancelled' && sessionStatus !== 'invoiced' && sessionStatus !== 'to_invoice') {
                     slot.sessionStatus = 'to_invoice';
                     updatedSlots[i] = slot;
                     quoteChanged = true;
@@ -7038,27 +7048,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             if (quoteChanged) {
+                // Déterminer le nouveau statut du devis
+                const hasToInvoice = updatedSlots.some((s: any) => s.sessionStatus === 'to_invoice');
+                const newDocStatus = hasToInvoice ? 'to_invoice' : 'signed';
+
                 // Mise à jour DB du slotsData
                 await supabase
                     .from('documents')
-                    .update({ slots_data: updatedSlots, status: 'to_invoice' })
+                    .update({ slots_data: updatedSlots, status: newDocStatus })
                     .eq('id', quote.id);
 
                 // Mise à jour state local
                 setDocuments(prev => prev.map(d =>
-                    d.id === quote.id ? { ...d, slotsData: updatedSlots, status: 'to_invoice' as any } : d
+                    d.id === quote.id ? { ...d, slotsData: updatedSlots, status: newDocStatus as any } : d
                 ));
 
-                // Notification admin
-                const countToInvoice = updatedSlots.filter((s: any) => s.sessionStatus === 'to_invoice').length;
-                await addNotification(
-                    'admin',
-                    'alert',
-                    'Prestation à facturer',
-                    `${countToInvoice} prestation(s) à facturer pour le devis ${quote.ref}`,
-                    undefined,
-                    `document:${quote.id}`
-                );
+                // Notification admin (seulement s'il reste des prestations à facturer)
+                if (hasToInvoice) {
+                    const countToInvoice = updatedSlots.filter((s: any) => s.sessionStatus === 'to_invoice').length;
+                    await addNotification(
+                        'admin',
+                        'alert',
+                        'Prestation à facturer',
+                        `${countToInvoice} prestation(s) à facturer pour le devis ${quote.ref}`,
+                        undefined,
+                        `document:${quote.id}`
+                    );
+                }
             }
         }
 
