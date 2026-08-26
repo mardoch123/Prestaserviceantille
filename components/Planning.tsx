@@ -4572,17 +4572,25 @@ const Planning: React.FC = () => {
                             <div>
                                 <span className="text-slate-500">Statut:</span>
                                 <p className="font-semibold">
-                                    <span className={`px-2 py-1 rounded text-xs ${
-                                        selectedMissionDetails.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                        selectedMissionDetails.status === 'planned' ? 'bg-orange-100 text-orange-700' :
-                                        selectedMissionDetails.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                        'bg-gray-100 text-gray-700'
-                                    }`}>
-                                        {selectedMissionDetails.status === 'completed' ? 'Terminée' :
-                                         selectedMissionDetails.status === 'planned' ? 'Planifiée' :
-                                         selectedMissionDetails.status === 'in_progress' ? 'En cours' :
-                                         selectedMissionDetails.status}
-                                    </span>
+                                    {(() => {
+                                        const missionDatePassed = selectedMissionDetails.date ? selectedMissionDetails.date < getMartiniqueToday() : false;
+                                        const isRealized = missionDatePassed && selectedMissionDetails.status === 'planned';
+                                        return (
+                                            <span className={`px-2 py-1 rounded text-xs ${
+                                                selectedMissionDetails.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                                isRealized ? 'bg-emerald-100 text-emerald-700' :
+                                                selectedMissionDetails.status === 'planned' ? 'bg-orange-100 text-orange-700' :
+                                                selectedMissionDetails.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                                'bg-gray-100 text-gray-700'
+                                            }`}>
+                                                {selectedMissionDetails.status === 'completed' ? 'Terminée' :
+                                                 isRealized ? 'Réalisée' :
+                                                 selectedMissionDetails.status === 'planned' ? 'Planifiée' :
+                                                 selectedMissionDetails.status === 'in_progress' ? 'En cours' :
+                                                 selectedMissionDetails.status}
+                                            </span>
+                                        );
+                                    })()}
                                 </p>
                             </div>
                         </div>
@@ -4698,6 +4706,8 @@ const Planning: React.FC = () => {
                                             const isCurrentMission = m.id === selectedMissionDetails.id;
                                             const isCompleted = m.status === 'completed';
                                             const isInProgress = m.status === 'in_progress';
+                                            const missionDatePassed = m.date ? m.date < getMartiniqueToday() : false;
+                                            const isRealized = missionDatePassed && m.status === 'planned';
                                             
                                             // Trouver la tranche et la facture associée
                                             const coveringSplit = splitConfig?.splits.find(s => s.sessions.includes(sessionNum));
@@ -4711,6 +4721,7 @@ const Planning: React.FC = () => {
                                                         isInvoiced ? 'bg-blue-50 border-blue-200' :
                                                         isCompleted ? 'bg-emerald-50 border-emerald-200' :
                                                         isInProgress ? 'bg-amber-50 border-amber-200' :
+                                                        isRealized ? 'bg-emerald-50 border-emerald-200' :
                                                         'bg-white border-slate-200'
                                                     }`}
                                                 >
@@ -4720,6 +4731,7 @@ const Planning: React.FC = () => {
                                                             isInvoiced ? 'bg-blue-100 text-blue-700' :
                                                             isCompleted ? 'bg-emerald-100 text-emerald-700' :
                                                             isInProgress ? 'bg-amber-100 text-amber-700' :
+                                                            isRealized ? 'bg-emerald-100 text-emerald-700' :
                                                             'bg-slate-100 text-slate-500'
                                                         }`}>
                                                             {sessionNum}
@@ -4739,12 +4751,14 @@ const Planning: React.FC = () => {
                                                         isInvoiced ? 'bg-blue-100 text-blue-700' :
                                                         isCompleted ? 'bg-emerald-100 text-emerald-700' :
                                                         isInProgress ? 'bg-amber-100 text-amber-700' :
+                                                        isRealized ? 'bg-emerald-100 text-emerald-700' :
                                                         'bg-slate-100 text-slate-500'
                                                     }`}>
                                                         {isCurrentMission ? '← Actuelle' :
                                                          isInvoiced ? 'Facturée' :
                                                          isCompleted ? 'Complétée' :
-                                                         isInProgress ? 'En cours' : 'À venir'}
+                                                         isInProgress ? 'En cours' :
+                                                         isRealized ? 'Réalisée' : 'À venir'}
                                                     </span>
                                                 </div>
                                             );

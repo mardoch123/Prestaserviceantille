@@ -40,7 +40,7 @@ import type { Document, PackBillingStats, SplitDetail, Mission } from '../types'
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { MARTINIQUE_TIMEZONE } from '../src/utils/martiniqueTime';
+import { MARTINIQUE_TIMEZONE, getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF, SplitInvoicePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
@@ -910,8 +910,8 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
                                                     {Array.from({ length: totalSessions }, (_, idx) => {
                                                         const sessionNum = idx + 1;
                                                         const mission = packMissions[idx] || null;
-                                                        const today = dayjs().format('YYYY-MM-DD');
-                                                        const isPastDate = mission?.date ? mission.date <= today : false;
+                                                        const today = getMartiniqueToday();
+                                                        const isPastDate = mission?.date ? mission.date < today : false;
                                                         const isCompleted = mission?.status === 'completed' || (isPastDate && mission?.status !== 'cancelled');
                                                         const isPlanned = !!mission && !isCompleted && mission.status !== 'cancelled';
                                                         const isFuture = !mission;

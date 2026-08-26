@@ -4505,6 +4505,10 @@ const DevisFactures: React.FC = () => {
                                             const isSessionCancelled = sessionStatus === 'cancelled';
                                             const isSessionToInvoice = sessionStatus === 'to_invoice';
                                             const isSignedQuote = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice');
+                                            // Statut calculé : si la date est passée et pas annulée → Réalisée
+                                            const todayStr = getMartiniqueToday();
+                                            const isDatePassed = slot.date ? slot.date < todayStr : false;
+                                            const isRealized = isDatePassed && !isSessionCancelled && !isInvoiced && !isSessionToInvoice && !isMissionCompleted;
                                             
                                             return (
                                                 <div key={index} className={`flex items-center justify-between p-3 rounded-lg border ${
@@ -4512,6 +4516,7 @@ const DevisFactures: React.FC = () => {
                                                     isSessionToInvoice ? 'bg-amber-50 border-amber-200' :
                                                     isInvoiced ? 'bg-blue-50 border-blue-200' :
                                                     isMissionCompleted ? 'bg-emerald-50 border-emerald-200' :
+                                                    isRealized ? 'bg-emerald-50 border-emerald-200' :
                                                     'bg-slate-50 border-slate-100'
                                                 }`}>
                                                     <div className="flex items-center gap-3">
@@ -4520,6 +4525,7 @@ const DevisFactures: React.FC = () => {
                                                             isSessionToInvoice ? 'bg-amber-100 text-amber-700' :
                                                             isInvoiced ? 'bg-blue-100 text-blue-700' :
                                                             isMissionCompleted ? 'bg-emerald-100 text-emerald-700' :
+                                                            isRealized ? 'bg-emerald-100 text-emerald-700' :
                                                             'text-slate-400 bg-slate-100'
                                                         }`}>{index + 1}</span>
                                                         <div>
@@ -4539,6 +4545,10 @@ const DevisFactures: React.FC = () => {
                                                         ) : isMissionCompleted ? (
                                                             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
                                                                 Complétée
+                                                            </span>
+                                                        ) : isRealized ? (
+                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
+                                                                Réalisée
                                                             </span>
                                                         ) : (
                                                             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-500">

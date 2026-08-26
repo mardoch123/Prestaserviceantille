@@ -60,6 +60,7 @@ import {
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
 import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 dayjs.locale('fr');
 
@@ -1428,13 +1429,15 @@ const ProviderPortal: React.FC = () => {
                                 const start = (missionTablePage - 1) * MISSION_TABLE_PAGE_SIZE;
                                 const paged = filtered.slice(start, start + MISSION_TABLE_PAGE_SIZE);
                                 return paged.map((m) => {
+                                  const todayStr = getMartiniqueToday();
+                                  const displayStatus = (m.status === 'planned' && m.date && m.date < todayStr) ? 'completed' : m.status;
                                   const statusConfig = {
                                     planned: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Planifiée' },
                                     in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'En cours' },
-                                    completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Terminée' },
+                                    completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Réalisée' },
                                     cancelled: { bg: 'bg-red-100', text: 'text-red-700', label: 'Annulée' }
                                   };
-                                  const status = statusConfig[m.status as keyof typeof statusConfig] || statusConfig.planned;
+                                  const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.planned;
                                   
                                   return (
                                     <tr key={m.id} className="hover:bg-gray-50 transition">
@@ -1647,13 +1650,15 @@ const ProviderPortal: React.FC = () => {
                             : undefined;
                           const client = clientById || clientByName;
 
+                          const todayStr = getMartiniqueToday();
+                          const displayStatus = (m.status === 'planned' && m.date && m.date < todayStr) ? 'completed' : m.status;
                           const statusConfig = {
                             planned: { bg: 'from-amber-400 to-orange-500', text: 'Planifiée', icon: Clock },
                             in_progress: { bg: 'from-blue-400 to-indigo-500', text: 'En cours', icon: Wifi },
-                            completed: { bg: 'from-emerald-400 to-teal-500', text: 'Terminée', icon: CheckCircle },
+                            completed: { bg: 'from-emerald-400 to-teal-500', text: 'Réalisée', icon: CheckCircle },
                             cancelled: { bg: 'from-red-400 to-rose-500', text: 'Annulée', icon: X }
                           };
-                          const status = statusConfig[m.status as keyof typeof statusConfig] || statusConfig.planned;
+                          const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.planned;
 
                           return (
                             <div key={m.id} className="bg-white/90 backdrop-blur-xl rounded-3xl p-5 border border-white/50 shadow-lg shadow-gray-100/50 transition-all hover:shadow-xl">
@@ -2200,13 +2205,15 @@ const ProviderPortal: React.FC = () => {
                   : undefined;
                 const client = clientById || clientByName;
 
+                const todayStr = getMartiniqueToday();
+                const displayStatus = (m.status === 'planned' && m.date && m.date < todayStr) ? 'completed' : m.status;
                 const statusConfig = {
                   planned: { bg: 'from-amber-400 to-orange-500', text: 'Planifiée', icon: Clock },
                   in_progress: { bg: 'from-blue-400 to-indigo-500', text: 'En cours', icon: Wifi },
-                  completed: { bg: 'from-emerald-400 to-teal-500', text: 'Terminée', icon: CheckCircle },
+                  completed: { bg: 'from-emerald-400 to-teal-500', text: 'Réalisée', icon: CheckCircle },
                   cancelled: { bg: 'from-red-400 to-rose-500', text: 'Annulée', icon: X }
                 };
-                const status = statusConfig[m.status as keyof typeof statusConfig] || statusConfig.planned;
+                const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.planned;
 
                 return (
                   <div key={m.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition">
@@ -2290,13 +2297,15 @@ const ProviderPortal: React.FC = () => {
                 : undefined;
               const client = clientById || clientByName;
 
+              const todayStr = getMartiniqueToday();
+              const displayStatus = (m.status === 'planned' && m.date && m.date < todayStr) ? 'completed' : m.status;
               const statusConfig = {
                 planned: { bg: 'from-amber-400 to-orange-500', text: 'Planifiée', icon: Clock },
                 in_progress: { bg: 'from-blue-400 to-indigo-500', text: 'En cours', icon: Wifi },
-                completed: { bg: 'from-emerald-400 to-teal-500', text: 'Terminée', icon: CheckCircle },
+                completed: { bg: 'from-emerald-400 to-teal-500', text: 'Réalisée', icon: CheckCircle },
                 cancelled: { bg: 'from-red-400 to-rose-500', text: 'Annulée', icon: X }
               };
-              const status = statusConfig[m.status as keyof typeof statusConfig] || statusConfig.planned;
+              const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.planned;
 
               return (
                 <>

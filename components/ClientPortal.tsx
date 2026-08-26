@@ -2594,8 +2594,11 @@ const ClientPortal: React.FC = () => {
                                 ) : (
                                     filteredClientMissions.map(m => {
                                         const cancelable = canCancelMission(m);
+                                        const todayStr = getMartiniqueToday();
+                                        const isRealized = m.status === 'planned' && m.date && m.date < todayStr;
+                                        const effectiveStatus = isRealized ? 'completed' : m.status;
                                         return (
-                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${m.status === 'cancelled' ? 'border-red-400 opacity-60' : m.status === 'completed' ? 'border-green-500' : 'border-emerald-500'}`}>
+                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${effectiveStatus === 'cancelled' ? 'border-red-400 opacity-60' : effectiveStatus === 'completed' ? 'border-green-500' : 'border-emerald-500'}`}>
                                                 <div className="flex-1 w-full">
                                                     {/* Header: Date + Jour en premier */}
                                                     <div className="flex items-center gap-2 mb-2">
@@ -2605,9 +2608,9 @@ const ClientPortal: React.FC = () => {
                                                         <span className="text-lg font-bold text-gray-800">
                                                             {dayjs(m.date).format('D MMMM YYYY')}
                                                         </span>
-                                                        {m.status === 'completed' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Terminé</span>}
-                                                        {m.status === 'cancelled' && <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-bold">Annulé</span>}
-                                                        {m.status === 'planned' && <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">Prévu</span>}
+                                                        {effectiveStatus === 'completed' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Réalisée</span>}
+                                                        {effectiveStatus === 'cancelled' && <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-bold">Annulé</span>}
+                                                        {effectiveStatus === 'planned' && <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">Prévu</span>}
                                                     </div>
                                                     
                                                     {/* Prestataire en premier */}

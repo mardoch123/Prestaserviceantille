@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { useData } from '../context/DataContext';
 import type { Document } from '../types';
 import { MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
+import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF, SplitInvoicePDF } from './PDFComponents';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
@@ -184,14 +185,19 @@ const AdminDevisDetails: React.FC = () => {
                       const isCancelled = sessionStatus === 'cancelled';
                       const isInvoiced = sessionStatus === 'invoiced';
                       const isToInvoice = sessionStatus === 'to_invoice';
+                      const today = getMartiniqueToday();
+                      const isDatePassed = s?.date ? s.date < today : false;
+                      const isRealized = isDatePassed && !isCancelled && !isInvoiced && !isToInvoice;
                       const statusBadge = isCancelled
                         ? 'bg-red-100 text-red-700 border-red-200'
                         : isInvoiced
                         ? 'bg-green-100 text-green-700 border-green-200'
                         : isToInvoice
                         ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : isRealized
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
                         : 'bg-blue-100 text-blue-700 border-blue-200';
-                      const statusLabel = isCancelled ? 'Annulée' : isInvoiced ? 'Facturée' : isToInvoice ? 'À facturer' : 'Planifiée';
+                      const statusLabel = isCancelled ? 'Annulée' : isInvoiced ? 'Facturée' : isToInvoice ? 'À facturer' : isRealized ? 'Réalisée' : 'Planifiée';
                       return (
                         <tr key={idx} className={`border-t border-slate-100 ${isCancelled ? 'bg-red-50/50 opacity-60' : ''}`}>
                           <td className="px-4 py-3 text-slate-700 font-bold">{s?.date ? dayjs.tz(String(s.date), 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM/YYYY') : '—'}</td>
