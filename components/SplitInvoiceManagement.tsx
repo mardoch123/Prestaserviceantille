@@ -922,7 +922,7 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
                                                             ? splitInvoices.find(inv => inv.id === coveringSplit.invoiceId)
                                                             : null;
 
-                                                        // Statut : facturée (vert) | réalisée non facturée (orange) | à venir (bleu)
+                                                        // Statut : facturée (vert) | à facturer (ambre) | planifiée (orange) | à venir (bleu)
                                                         const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
                                                         const sessionState: 'invoiced' | 'completed' | 'planned' | 'future' =
                                                             isInvoiced ? 'invoiced' :
@@ -931,7 +931,7 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
 
                                                         const stateColors = {
                                                             invoiced: { bg: 'bg-emerald-50', border: 'border-emerald-300', circle: 'bg-emerald-500 text-white', badge: 'bg-emerald-100 text-emerald-700' },
-                                                            completed: { bg: 'bg-orange-50', border: 'border-orange-300', circle: 'bg-orange-500 text-white', badge: 'bg-orange-100 text-orange-700' },
+                                                            completed: { bg: 'bg-amber-50', border: 'border-amber-300', circle: 'bg-amber-500 text-white', badge: 'bg-amber-100 text-amber-700' },
                                                             planned: { bg: 'bg-orange-50', border: 'border-orange-200', circle: 'bg-orange-400 text-white', badge: 'bg-orange-100 text-orange-600' },
                                                             future: { bg: 'bg-blue-50', border: 'border-blue-200', circle: 'bg-blue-400 text-white', badge: 'bg-blue-100 text-blue-700' },
                                                         };
@@ -939,7 +939,7 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
 
                                                         const badgeLabel = {
                                                             invoiced: '✓ Facturée',
-                                                            completed: '◐ Réalisée (non facturée)',
+                                                            completed: '⚡ À facturer',
                                                             planned: '◐ Planifiée',
                                                             future: '○ À venir',
                                                         };
