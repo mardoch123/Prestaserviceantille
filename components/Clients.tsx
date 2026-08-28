@@ -6,6 +6,7 @@ import EnhancedLoader from './EnhancedLoader';
 import type { Client, Mission } from '../types';
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 import SearchableSelect from './SearchableSelect';
+import ListingFilterBar from './ListingFilterBar';
 import Pagination from './Pagination';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { createReferralValidated } from '../modules/marketing/referralClient';
@@ -177,6 +178,16 @@ const Clients: React.FC = () => {
 
   const [sortOption, setSortOption] = useState<'since_desc' | 'alpha_asc' | 'alpha_desc' | 'last_intervention_desc' | 'next_intervention_asc'>('since_desc');
   const [activityFilter, setActivityFilter] = useState<'all' | 'has_order' | 'pending_quote' | 'inactive_3m' | 'has_loyalty'>('all');
+
+  // Dérivation tri pour ListingFilterBar
+  const clientsSortKey = useMemo(() => {
+    if (sortOption === 'since_desc') return 'date';
+    if (sortOption.startsWith('alpha')) return 'alpha';
+    if (sortOption.startsWith('last')) return 'last_intervention';
+    if (sortOption.startsWith('next')) return 'next_intervention';
+    return 'date';
+  }, [sortOption]);
+  const clientsSortDir: 'asc' | 'desc' = sortOption.endsWith('_asc') ? 'asc' : 'desc';
 
   // Responsive filter state
   const [showFilters, setShowFilters] = useState(false);
@@ -886,85 +897,75 @@ Lien de connexion : https://presta-antilles.app/login`);
         </button>
       </div>
 
-      {/* Filtres - Responsive collapsible */}
-      <div className={`${showFilters ? 'block' : 'hidden'} md:block mb-6`}>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-          <div className="flex flex-wrap gap-3">
-            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[180px]">
-              <Filter className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
-              >
-                <option value="all">Tous les clients</option>
-                <option value="active">Clients Actifs</option>
-                <option value="new">Nouveaux Clients</option>
-                <option value="prospect">Prospects</option>
-              </select>
-            </div>
-            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[180px]">
-              <MapPin className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
-              <select
-                value={cityFilter}
-                onChange={(e) => setCityFilter(e.target.value)}
-                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
-              >
-                <option value="">Toutes les villes</option>
-                {martiniqueDepartments.map(dept => (
-                  <option key={dept} value={dept}>{dept}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[200px]">
-              <Clock className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
-              <select
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value as any)}
-                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
-              >
-                <option value="since_desc">Inscription (récent)</option>
-                <option value="alpha_asc">Nom (A → Z)</option>
-                <option value="alpha_desc">Nom (Z → A)</option>
-                <option value="last_intervention_desc">Dernière intervention</option>
-                <option value="next_intervention_asc">Prochaine intervention</option>
-              </select>
-            </div>
-            <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 min-w-[210px]">
-              <ShoppingBag className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
-              <select
-                value={activityFilter}
-                onChange={(e) => setActivityFilter(e.target.value as any)}
-                className="bg-transparent text-sm font-medium text-slate-700 outline-none w-full"
-              >
-                <option value="all">Toute activité</option>
-                <option value="has_order">A passé une commande</option>
-                <option value="pending_quote">Devis en attente de signature</option>
-                <option value="inactive_3m">Sans commande (aucun devis signé)</option>
-                <option value="has_loyalty">Fidélisés (2+ devis signés)</option>
-              </select>
-            </div>
-            {(filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc' || activityFilter !== 'all') && (
-              <button 
-                onClick={() => { setFilterStatus('all'); setCityFilter(''); setSortOption('since_desc'); setActivityFilter('all'); }}
-                className="flex items-center gap-1 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition"
-              >
-                <X className="w-4 h-4" /> Réinitialiser
-              </button>
-            )}
-          </div>
-        </div>
+      {/* ListingFilterBar — Filtres, tri et recherche */}
+      <div className="mb-6">
+        <ListingFilterBar
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Rechercher par nom, ville..."
+          sortOptions={[
+            { value: 'date', label: 'Inscription' },
+            { value: 'alpha', label: 'Nom' },
+            { value: 'last_intervention', label: 'Dernière intervention' },
+            { value: 'next_intervention', label: 'Prochaine intervention' },
+          ]}
+          sortValue={clientsSortKey}
+          onSortChange={(v) => {
+            const dir = clientsSortDir;
+            if (v === 'date') setSortOption('since_desc');
+            else if (v === 'alpha') setSortOption(dir === 'asc' ? 'alpha_asc' : 'alpha_desc');
+            else if (v === 'last_intervention') setSortOption('last_intervention_desc');
+            else if (v === 'next_intervention') setSortOption('next_intervention_asc');
+          }}
+          sortDirection={clientsSortDir}
+          onSortDirectionToggle={() => {
+            const newDir = clientsSortDir === 'asc' ? 'desc' : 'asc';
+            if (clientsSortKey === 'alpha') setSortOption(newDir === 'asc' ? 'alpha_asc' : 'alpha_desc');
+          }}
+          filters={[
+            {
+              key: 'status',
+              label: 'Statut',
+              placeholder: 'Tous les clients',
+              options: [
+                { value: 'active', label: 'Clients Actifs' },
+                { value: 'new', label: 'Nouveaux Clients' },
+                { value: 'prospect', label: 'Prospects' },
+              ],
+            },
+            {
+              key: 'city',
+              label: 'Ville',
+              placeholder: 'Toutes les villes',
+              options: martiniqueDepartments.map(d => ({ value: d, label: d })),
+            },
+            {
+              key: 'activity',
+              label: 'Activité',
+              placeholder: 'Toute activité',
+              options: [
+                { value: 'has_order', label: 'A passé une commande' },
+                { value: 'pending_quote', label: 'Devis en attente' },
+                { value: 'inactive_3m', label: 'Sans commande' },
+                { value: 'has_loyalty', label: 'Fidélisés' },
+              ],
+            },
+          ]}
+          filterValues={{ status: filterStatus, city: cityFilter, activity: activityFilter }}
+          onFilterChange={(key, value) => {
+            if (key === 'status') setFilterStatus(value as string);
+            if (key === 'city') setCityFilter(value as string);
+            if (key === 'activity') setActivityFilter(value as any);
+          }}
+          filteredCount={columnFilteredClients.length}
+          totalCount={clients.length}
+          entityLabel="client(s)"
+          onReset={() => { setFilterStatus('all'); setCityFilter(''); setSortOption('since_desc'); setActivityFilter('all'); setSearchQuery(''); }}
+          hasActiveFilters={filterStatus !== 'all' || cityFilter !== '' || sortOption !== 'since_desc' || activityFilter !== 'all' || searchQuery !== ''}
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-         <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-cream-50/50">
-            <div className="relative flex-1 w-full max-w-md">
-                <input type="text" placeholder="Rechercher par nom, ville..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all"/>
-                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-            </div>
-            <div className="text-sm text-slate-500 whitespace-nowrap"><strong>{columnFilteredClients.length}</strong> client(s)</div>
-         </div>
-
          <div className="overflow-x-auto">
             <table className="w-full text-sm text-left hidden md:table">
                 <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 border-b border-slate-100">

@@ -5,6 +5,8 @@ import { useData } from '../context/DataContext';
 import type { Mission } from '../types';
 import PageLoader from './PageLoader';
 import Pagination from './Pagination';
+import ListingFilterBar from './ListingFilterBar';
+import SearchableSelect from './SearchableSelect';
 import dayjs from 'dayjs';
 import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { 
@@ -100,6 +102,7 @@ const Providers: React.FC = () => {
   const [selectedProviderDetailsId, setSelectedProviderDetailsId] = useState<string | null>(null);
 
   const [isNonInterventionDetailsOpen, setIsNonInterventionDetailsOpen] = useState(false);
+  const [suDayOfWeek, setSuDayOfWeek] = useState('1');
   const [nonInterventionProviderId, setNonInterventionProviderId] = useState<string | null>(null);
 
   const selectedNonInterventionProvider = useMemo(() => {
@@ -597,57 +600,58 @@ Lien de connexion : https://presta-antilles.app/login`);
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      {/* ListingFilterBar — Filtres, tri et recherche */}
+      <div className="mb-4">
+        <ListingFilterBar
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Nom, spécialité..."
+          sortOptions={[
+            { value: 'inscription', label: 'Inscription' },
+            { value: 'name', label: 'Nom' },
+            { value: 'hours', label: 'Heures' },
+            { value: 'status', label: 'Statut' },
+            { value: 'planned_missions', label: 'Missions planifiées' },
+          ]}
+          sortValue={sortKey}
+          onSortChange={(v) => setSortKey(v as any)}
+          sortDirection={sortDirection}
+          onSortDirectionToggle={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+          filters={[
+            {
+              key: 'status',
+              label: 'Statut',
+              placeholder: 'Tous',
+              options: [
+                { value: 'active', label: 'Actifs' },
+                { value: 'passive', label: 'Passifs' },
+                { value: 'inactive', label: 'Inactifs' },
+              ],
+            },
+          ]}
+          filterValues={{ status: filterStatus }}
+          onFilterChange={(key, value) => {
+            if (key === 'status') setFilterStatus(value as string);
+          }}
+          filteredCount={sortedProviders.length}
+          totalCount={providers.length}
+          entityLabel="prestataire(s)"
+          onReset={() => { setFilterStatus('all'); setSearchQuery(''); setSortKey('inscription'); setSortDirection('desc'); }}
+          hasActiveFilters={filterStatus !== 'all' || searchQuery !== '' || sortKey !== 'inscription' || sortDirection !== 'desc'}
+        />
+      </div>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
         <div>
           <h2 className="text-3xl font-serif font-bold text-slate-800">Prestataires</h2>
           <p className="text-sm text-slate-500 mt-1">Suivi des équipes et heures travaillées</p>
         </div>
-        
         <div className="flex gap-4 flex-wrap">
             {selectedIds.size > 0 && (
                <button onClick={confirmBulkDelete} className="bg-red-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-red-600 transition animate-in fade-in">
                    <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
                </button>
             )}
-
-           <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-            <span className="text-xs font-bold text-slate-500 ml-2 mr-2">Trier</span>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as any)}
-              className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
-              title="Trier par"
-            >
-              <option value="inscription">Inscription</option>
-              <option value="name">Nom</option>
-              <option value="hours">Heures</option>
-              <option value="status">Statut</option>
-              <option value="planned_missions">Missions planifiées</option>
-            </select>
-            <select
-              value={sortDirection}
-              onChange={(e) => setSortDirection(e.target.value as any)}
-              className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
-              title="Sens de tri"
-            >
-              <option value="desc">↓</option>
-              <option value="asc">↑</option>
-            </select>
-          </div>
-
-           <div className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 p-1">
-            <Filter className="w-4 h-4 text-slate-400 ml-2 mr-2" />
-            <select 
-                value={filterStatus} 
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
-            >
-                <option value="all">Tous</option>
-                <option value="active">Actifs</option>
-                <option value="passive">Passifs</option>
-                <option value="inactive">Inactifs</option>
-            </select>
-          </div>
           <button 
             onClick={openCreateModal}
             className="bg-brand-blue text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm hover:bg-teal-700 transition"
@@ -658,19 +662,6 @@ Lien de connexion : https://presta-antilles.app/login`);
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-cream-50/50">
-            <h3 className="font-bold text-slate-700">Liste des intervenants</h3>
-            <div className="relative w-64">
-                <input 
-                    type="text" 
-                    placeholder="Nom, spécialité..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                />
-                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-            </div>
-         </div>
 
          <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -947,16 +938,12 @@ Lien de connexion : https://presta-antilles.app/login`);
                     
                     <div>
                          <label className="block text-sm font-bold text-slate-700 mb-1">Spécialité</label>
-                         <select 
-                            name="specialty"
+                         <SearchableSelect
+                            options={PROVIDER_SPECIALTIES.map(s => ({ value: s, label: s }))}
                             value={formData.specialty}
-                            onChange={handleInputChange}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                         >
-                             {PROVIDER_SPECIALTIES.map(specialty => (
-                                 <option key={specialty} value={specialty}>{specialty}</option>
-                             ))}
-                         </select>
+                            onChange={(value) => handleInputChange({ target: { name: 'specialty', value } } as React.ChangeEvent<HTMLSelectElement>)}
+                            triggerClassName="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                         />
                     </div>
 
                     <div>
@@ -1245,14 +1232,12 @@ Lien de connexion : https://presta-antilles.app/login`);
                                 {/* Jour */}
                                 <div>
                                     <label className="block text-xs font-bold text-slate-600 mb-1">Jour</label>
-                                    <select
-                                        id="su-dayOfWeek"
-                                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                                    >
-                                        {NON_INTERVENTION_DAY_OPTIONS.map(d => (
-                                            <option key={d.value} value={d.value}>{d.label}</option>
-                                        ))}
-                                    </select>
+                                    <SearchableSelect
+                                        options={NON_INTERVENTION_DAY_OPTIONS.map(d => ({ value: String(d.value), label: d.label }))}
+                                        value={suDayOfWeek}
+                                        onChange={setSuDayOfWeek}
+                                        triggerClassName="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                                    />
                                 </div>
                                 {/* Heure début */}
                                 <div>
@@ -1300,7 +1285,7 @@ Lien de connexion : https://presta-antilles.app/login`);
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const dayOfWeek = parseInt((document.getElementById('su-dayOfWeek') as HTMLSelectElement)?.value || '1', 10);
+                                    const dayOfWeek = parseInt(suDayOfWeek || '1', 10);
                                     const startTime = (document.getElementById('su-startTime') as HTMLInputElement)?.value || '08:00';
                                     const endTime = (document.getElementById('su-endTime') as HTMLInputElement)?.value || '12:00';
                                     const startDate = (document.getElementById('su-startDate') as HTMLInputElement)?.value || getMartiniqueNow().format('YYYY-MM-DD');
@@ -1483,16 +1468,16 @@ Lien de connexion : https://presta-antilles.app/login`);
                     {isEditMode && (
                         <div>
                              <label className="block text-sm font-bold text-slate-700 mb-1">Statut</label>
-                             <select 
-                                name="status"
+                             <SearchableSelect
+                                options={[
+                                    { value: 'Active', label: 'Actif' },
+                                    { value: 'Passive', label: 'Passif' },
+                                    { value: 'Inactive', label: 'Inactif' },
+                                ]}
                                 value={formData.status}
-                                onChange={handleInputChange}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
-                             >
-                                 <option value="Active">Actif</option>
-                                 <option value="Passive">Passif</option>
-                                 <option value="Inactive">Inactif</option>
-                             </select>
+                                onChange={(value) => handleInputChange({ target: { name: 'status', value } } as React.ChangeEvent<HTMLSelectElement>)}
+                                triggerClassName="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                             />
                         </div>
                     )}
 

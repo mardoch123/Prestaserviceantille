@@ -55,6 +55,7 @@ import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '
 import SearchableSelect from './SearchableSelect';
 import { matchesServiceTypeFilterFromText } from '../utils/serviceTypes';
 import { getHolidayName } from '../utils/holidays';
+import { getEffectiveStatus, getStatusBadgeClasses, getStatusLabel } from '../utils/statusHelpers';
 
 // Mobile features integration
 import { useHaptic } from '../hooks/useHaptic';
@@ -4043,20 +4044,19 @@ const Planning: React.FC = () => {
 
                      <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">Service</label>
-                        <select
-                            required
-                            name="service"
+                        <SearchableSelect
+                            options={[
+                                { value: 'Ménage', label: 'Ménage' },
+                                { value: 'Jardinage', label: 'Jardinage' },
+                                { value: 'Bricolage', label: 'Bricolage' },
+                                { value: 'Autre', label: 'Autre' },
+                                { value: 'Personnalisé', label: 'Personnalisé' },
+                            ]}
                             value={missionForm.service}
-                            onChange={handleFormChange}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none"
-                        >
-                            <option value="">Sélectionner un service...</option>
-                            <option value="Ménage">Ménage</option>
-                            <option value="Jardinage">Jardinage</option>
-                            <option value="Bricolage">Bricolage</option>
-                            <option value="Autre">Autre</option>
-                            <option value="Personnalisé">Personnalisé</option>
-                        </select>
+                            onChange={(value) => setMissionForm(prev => ({ ...prev, service: value }))}
+                            placeholder="Sélectionner un service..."
+                            triggerClassName="p-0"
+                        />
                     </div>
                     
                     {/* Recurrence Section */}
@@ -4243,26 +4243,24 @@ const Planning: React.FC = () => {
                                     </span>
                                 )}
                             </label>
-                            <select 
-                                className="w-full p-3 bg-white border border-slate-300 rounded-lg outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
+                            <SearchableSelect
+                                options={[
+                                    { value: '', label: 'Sélectionner dans la liste...' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie (toujours disponible)' },
+                                    ...providers.map(p => {
+                                        const dateStr = missionToAssign?.date || '';
+                                        const startTime = missionToAssign?.startTime || '00:00';
+                                        const endTime = missionToAssign?.endTime || '23:59';
+                                        const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
+                                        return { value: p.id, label, disabled: isDisabled };
+                                    })
+                                ]}
                                 value={assignProviderId}
-                                onChange={(e) => setAssignProviderId(e.target.value)}
+                                onChange={(value) => setAssignProviderId(value)}
+                                placeholder="Sélectionner dans la liste..."
                                 disabled={isSubmitting}
-                            >
-                                <option value="">Sélectionner dans la liste...</option>
-                                <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie (toujours disponible)</option>
-                                {providers.map(p => {
-                                    const dateStr = missionToAssign?.date || '';
-                                    const startTime = missionToAssign?.startTime || '00:00';
-                                    const endTime = missionToAssign?.endTime || '23:59';
-                                    const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
-                                    return (
-                                        <option key={p.id} value={p.id} disabled={isDisabled} className={isDisabled ? 'text-slate-400' : ''}>
-                                            {label}
-                                        </option>
-                                    )
-                                })}
-                            </select>
+                                usePortal={true}
+                            />
                             {assignIsOvertime && assignProviderId && assignProviderId !== EXTERNAL_PROVIDER_ID && missionToAssign?.date && (
                                 <div className="mt-1.5 flex items-center gap-1.5">
                                     <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
@@ -4289,26 +4287,24 @@ const Planning: React.FC = () => {
                                     </span>
                                 )}
                             </label>
-                            <select 
-                                className="w-full p-3 bg-violet-50 border border-violet-300 rounded-lg outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                            <SearchableSelect
+                                options={[
+                                    { value: '', label: 'Aucun (prestataire seul)' },
+                                    { value: EXTERNAL_PROVIDER_ID, label: '🔵 EDWARD Sylvie' },
+                                    ...providers.filter(p => p.id !== assignProviderId).map(p => {
+                                        const dateStr = missionToAssign?.date || '';
+                                        const startTime = missionToAssign?.startTime || '00:00';
+                                        const endTime = missionToAssign?.endTime || '23:59';
+                                        const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
+                                        return { value: p.id, label, disabled: isDisabled };
+                                    })
+                                ]}
                                 value={assignSecondProviderSelect}
-                                onChange={(e) => setAssignSecondProviderSelect(e.target.value)}
+                                onChange={(value) => setAssignSecondProviderSelect(value)}
+                                placeholder="Aucun (prestataire seul)"
                                 disabled={isSubmitting}
-                            >
-                                <option value="">Aucun (prestataire seul)</option>
-                                <option value={EXTERNAL_PROVIDER_ID}>🔵 EDWARD Sylvie</option>
-                                {providers.filter(p => p.id !== assignProviderId).map(p => {
-                                    const dateStr = missionToAssign?.date || '';
-                                    const startTime = missionToAssign?.startTime || '00:00';
-                                    const endTime = missionToAssign?.endTime || '23:59';
-                                    const { label, disabled: isDisabled } = getProviderSelectLabel(p, dateStr, startTime, endTime, !!assignIsOvertime);
-                                    return (
-                                        <option key={p.id} value={p.id} disabled={isDisabled} className={isDisabled ? 'text-slate-400' : ''}>
-                                            {label}
-                                        </option>
-                                    )
-                                })}
-                            </select>
+                                usePortal={true}
+                            />
                             {assignIsOvertime && assignSecondProviderSelect && assignSecondProviderSelect !== EXTERNAL_PROVIDER_ID && missionToAssign?.date && (
                                 <div className="mt-1.5 flex items-center gap-1.5">
                                     <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
@@ -4573,21 +4569,10 @@ const Planning: React.FC = () => {
                                 <span className="text-slate-500">Statut:</span>
                                 <p className="font-semibold">
                                     {(() => {
-                                        const missionDatePassed = selectedMissionDetails.date ? selectedMissionDetails.date < getMartiniqueToday() : false;
-                                        const isRealized = missionDatePassed && selectedMissionDetails.status === 'planned';
+                                        const effStatus = getEffectiveStatus(selectedMissionDetails);
                                         return (
-                                            <span className={`px-2 py-1 rounded text-xs ${
-                                                selectedMissionDetails.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                                isRealized ? 'bg-emerald-100 text-emerald-700' :
-                                                selectedMissionDetails.status === 'planned' ? 'bg-orange-100 text-orange-700' :
-                                                selectedMissionDetails.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                                'bg-gray-100 text-gray-700'
-                                            }`}>
-                                                {selectedMissionDetails.status === 'completed' ? 'Terminée' :
-                                                 isRealized ? 'Réalisée' :
-                                                 selectedMissionDetails.status === 'planned' ? 'Planifiée' :
-                                                 selectedMissionDetails.status === 'in_progress' ? 'En cours' :
-                                                 selectedMissionDetails.status}
+                                            <span className={getStatusBadgeClasses(effStatus)}>
+                                                {getStatusLabel(effStatus)}
                                             </span>
                                         );
                                     })()}
@@ -4704,10 +4689,9 @@ const Planning: React.FC = () => {
                                         {packMissions.map((m, idx) => {
                                             const sessionNum = idx + 1;
                                             const isCurrentMission = m.id === selectedMissionDetails.id;
-                                            const isCompleted = m.status === 'completed';
+                                            const isCompleted = getEffectiveStatus(m) === 'completed';
                                             const isInProgress = m.status === 'in_progress';
-                                            const missionDatePassed = m.date ? m.date < getMartiniqueToday() : false;
-                                            const isRealized = missionDatePassed && m.status === 'planned';
+                                            const isRealized = false; // désormais géré par getEffectiveStatus
                                             
                                             // Trouver la tranche et la facture associée
                                             const coveringSplit = splitConfig?.splits.find(s => s.sessions.includes(sessionNum));
@@ -4914,16 +4898,17 @@ const Planning: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-1">Statut</label>
-                                <select
+                                <SearchableSelect
+                                    options={[
+                                        { value: 'planned', label: 'Planifiée' },
+                                        { value: 'in_progress', label: 'En cours' },
+                                        { value: 'completed', label: 'Terminée' },
+                                        { value: 'cancelled', label: 'Annulée' },
+                                    ]}
                                     value={editMissionForm.status}
-                                    onChange={(e) => setEditMissionForm(prev => ({ ...prev, status: e.target.value as Mission['status'] }))}
-                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none font-bold"
-                                >
-                                    <option value="planned">Planifiée</option>
-                                    <option value="in_progress">En cours</option>
-                                    <option value="completed">Terminée</option>
-                                    <option value="cancelled">Annulée</option>
-                                </select>
+                                    onChange={(value) => setEditMissionForm(prev => ({ ...prev, status: value as Mission['status'] }))}
+                                    triggerClassName="font-bold"
+                                />
                             </div>
                         </div>
 
@@ -4952,19 +4937,18 @@ const Planning: React.FC = () => {
 
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">Service</label>
-                            <select
-                                required
+                            <SearchableSelect
+                                options={[
+                                    { value: 'Ménage', label: 'Ménage' },
+                                    { value: 'Jardinage', label: 'Jardinage' },
+                                    { value: 'Bricolage', label: 'Bricolage' },
+                                    { value: 'Autre', label: 'Autre' },
+                                    { value: 'Personnalisé', label: 'Personnalisé' },
+                                ]}
                                 value={editMissionForm.service}
-                                onChange={(e) => setEditMissionForm(prev => ({ ...prev, service: e.target.value }))}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-brand-blue outline-none"
-                            >
-                                <option value="">Sélectionner un service...</option>
-                                <option value="Ménage">Ménage</option>
-                                <option value="Jardinage">Jardinage</option>
-                                <option value="Bricolage">Bricolage</option>
-                                <option value="Autre">Autre</option>
-                                <option value="Personnalisé">Personnalisé</option>
-                            </select>
+                                onChange={(value) => setEditMissionForm(prev => ({ ...prev, service: value }))}
+                                placeholder="Sélectionner un service..."
+                            />
                         </div>
                     </div>
 

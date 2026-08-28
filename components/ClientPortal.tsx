@@ -11,6 +11,9 @@ import { SafeImage, LogoImage } from './SafeImage';
 import { getServiceTypeFromText } from '../utils/serviceTypes';
 import { isHoliday, getHolidayName } from '../utils/holidays';
 import { isPackSerenity } from '../lib/utils';
+import { getEffectiveStatus, getStatusBadgeClasses, getStatusBorderClass, getStatusLabel, MISSION_STATUS_ORDER } from '../utils/statusHelpers';
+import ListingFilterBar from './ListingFilterBar';
+import SearchableSelect from './SearchableSelect';
 import {
   computeFreeSlots as computeFreeSlotsUtil,
   getProvisionalMissionsFromDocuments,
@@ -162,6 +165,8 @@ const ClientPortal: React.FC = () => {
     const [planningStatusFilter, setPlanningStatusFilter] = useState<string>('all');
     const [planningSearch, setPlanningSearch] = useState<string>('');
     const [planningDateFilter, setPlanningDateFilter] = useState<string>('all');
+    const [planningSortKey, setPlanningSortKey] = useState<'date_desc' | 'date_asc' | 'status' | 'alpha'>('date_desc');
+    const [planningSortDirection, setPlanningSortDirection] = useState<'asc' | 'desc'>('desc');
     const [selectedChangeRequestId, setSelectedChangeRequestId] = useState<string | null>(null);
     const [isChangeRequestModalOpen, setIsChangeRequestModalOpen] = useState(false);
     const [isRespondingRequest, setIsRespondingRequest] = useState(false);
@@ -228,28 +233,51 @@ const ClientPortal: React.FC = () => {
             .sort((a: any, b: any) => new Date((b as any).created_at || b.date).getTime() - new Date((a as any).created_at || a.date).getTime());
     }, [clientDocs, documentFilter, documentStatusFilter, documentSearch]);
 
-    // Filter planning missions
+    // Filter & sort planning missions
     const filteredClientMissions = useMemo(() => {
-        return clientMissions.filter(m => {
-            const matchesStatus = planningStatusFilter === 'all' || m.status === planningStatusFilter;
-            const matchesSearch = planningSearch === '' ||
-                m.service.toLowerCase().includes(planningSearch.toLowerCase()) ||
-                (m.providerName && m.providerName.toLowerCase().includes(planningSearch.toLowerCase())) ||
+        const today = getMartiniqueToday();
+        const query = planningSearch.toLowerCase();
+
+        // 1. Filter
+        let result = clientMissions.filter(m => {
+            const effStatus = getEffectiveStatus(m);
+            const matchesStatus = planningStatusFilter === 'all' || effStatus === planningStatusFilter;
+            const matchesSearch = query === '' ||
+                m.service.toLowerCase().includes(query) ||
+                (m.providerName && m.providerName.toLowerCase().includes(query)) ||
                 m.date.includes(planningSearch);
 
-            const today = getMartiniqueToday();
             let matchesDate = true;
-
             if (planningDateFilter === 'upcoming') {
                 matchesDate = m.date >= today;
             } else if (planningDateFilter === 'past') {
                 matchesDate = m.date < today;
             }
-            // 'all' means no date filtering
 
             return matchesStatus && matchesSearch && matchesDate;
         });
-    }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter]);
+
+        // 2. Sort
+        const dir = planningSortDirection === 'asc' ? 1 : -1;
+        result = result.slice().sort((a, b) => {
+            if (planningSortKey === 'date_desc' || planningSortKey === 'date_asc') {
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                return (dateA - dateB) * (planningSortKey === 'date_asc' ? 1 : -1);
+            }
+            if (planningSortKey === 'status') {
+                const orderA = MISSION_STATUS_ORDER[getEffectiveStatus(a)] ?? 99;
+                const orderB = MISSION_STATUS_ORDER[getEffectiveStatus(b)] ?? 99;
+                return (orderA - orderB) * dir;
+            }
+            if (planningSortKey === 'alpha') {
+                return (a.service || '').localeCompare(b.service || '') * dir;
+            }
+            return 0;
+        });
+
+        return result;
+    }, [clientMissions, planningStatusFilter, planningSearch, planningDateFilter, planningSortKey, planningSortDirection]);
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'planning' | 'docs' | 'messages' | 'live' | 'profile' | 'qr-scans' | 'disponibilites' | 'parrainage'>('dashboard');
     const [dashboardViewMode, setDashboardViewMode] = useState<'overview' | 'calendar'>('overview');
@@ -2515,105 +2543,99 @@ const ClientPortal: React.FC = () => {
                                 )}
                             </div>
 
-                            {/* Filtres du planning */}
-                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                                    {/* Recherche */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Recherche</label>
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                            <input
-                                                type="text"
-                                                placeholder="Service, intervenant..."
-                                                value={planningSearch}
-                                                onChange={(e) => setPlanningSearch(e.target.value)}
-                                                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Filtre par statut */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Statut</label>
-                                        <select
-                                            value={planningStatusFilter}
-                                            onChange={(e) => setPlanningStatusFilter(e.target.value)}
-                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
-                                        >
-                                            <option value="all">Tous les statuts</option>
-                                            <option value="planned">Prévues</option>
-                                            <option value="in_progress">En cours</option>
-                                            <option value="completed">Terminées</option>
-                                            <option value="cancelled">Annulées</option>
-                                        </select>
-                                    </div>
-
-                                    {/* Filtre par date */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Période</label>
-                                        <select
-                                            value={planningDateFilter}
-                                            onChange={(e) => setPlanningDateFilter(e.target.value)}
-                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
-                                        >
-                                            <option value="all">Toutes les dates</option>
-                                            <option value="upcoming">À venir</option>
-                                            <option value="past">Passées</option>
-                                        </select>
-                                    </div>
-
-                                    {/* Bouton de réinitialisation */}
-                                    <div className="flex items-end">
-                                        <button
-                                            onClick={() => {
-                                                setPlanningStatusFilter('all');
-                                                setPlanningSearch('');
-                                                setPlanningDateFilter('all');
-                                            }}
-                                            className="w-full px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm font-medium flex items-center justify-center gap-2"
-                                        >
-                                            <RotateCcw className="w-4 h-4" />
-                                            Réinitialiser
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Nombre de résultats */}
-                                <div className="mt-3 text-xs text-slate-500">
-                                    {filteredClientMissions.length} mission{filteredClientMissions.length > 1 ? 's' : ''} trouvée{filteredClientMissions.length > 1 ? 's' : ''}
-                                </div>
-                            </div>
+                            {/* Filtres du planning — ListingFilterBar */}
+                            <ListingFilterBar
+                                searchValue={planningSearch}
+                                onSearchChange={setPlanningSearch}
+                                searchPlaceholder="Service, intervenant..."
+                                sortOptions={[
+                                    { value: 'date_desc', label: 'Plus récent d\'abord' },
+                                    { value: 'date_asc', label: 'Plus ancien d\'abord' },
+                                    { value: 'status', label: 'Statut' },
+                                    { value: 'alpha', label: 'Alphabétique' },
+                                ]}
+                                sortValue={planningSortKey}
+                                onSortChange={(v) => setPlanningSortKey(v as any)}
+                                sortDirection={planningSortDirection}
+                                onSortDirectionToggle={() => setPlanningSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+                                filters={[
+                                    {
+                                        key: 'status',
+                                        label: 'Statut',
+                                        placeholder: 'Tous les statuts',
+                                        options: [
+                                            { value: 'planned', label: 'Planifiée' },
+                                            { value: 'in_progress', label: 'En cours' },
+                                            { value: 'completed', label: 'Terminée' },
+                                            { value: 'cancelled', label: 'Annulée' },
+                                        ],
+                                    },
+                                    {
+                                        key: 'period',
+                                        label: 'Période',
+                                        placeholder: 'Toutes les dates',
+                                        options: [
+                                            { value: 'upcoming', label: 'À venir' },
+                                            { value: 'past', label: 'Passées' },
+                                        ],
+                                    },
+                                ]}
+                                filterValues={{ status: planningStatusFilter, period: planningDateFilter }}
+                                onFilterChange={(key, value) => {
+                                    if (key === 'status') setPlanningStatusFilter(value as string);
+                                    if (key === 'period') setPlanningDateFilter(value as string);
+                                }}
+                                filteredCount={filteredClientMissions.length}
+                                totalCount={clientMissions.length}
+                                entityLabel="mission(s)"
+                                onReset={() => {
+                                    setPlanningStatusFilter('all');
+                                    setPlanningSearch('');
+                                    setPlanningDateFilter('all');
+                                }}
+                                hasActiveFilters={planningStatusFilter !== 'all' || planningSearch !== '' || planningDateFilter !== 'all'}
+                            />
 
                             <div className="space-y-4">
                                 {filteredClientMissions.length === 0 ? (
                                     <div className="text-center py-10">
                                         <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                                        <p className="text-slate-400">Aucune mission trouvée.</p>
+                                        <p className="text-slate-400">
+                                            {clientMissions.length === 0
+                                                ? 'Aucun rendez-vous à venir.'
+                                                : 'Aucune mission trouvée pour ces filtres.'}
+                                        </p>
+                                        {clientMissions.length > 0 && (
+                                            <button
+                                                onClick={() => { setPlanningStatusFilter('all'); setPlanningSearch(''); setPlanningDateFilter('all'); }}
+                                                className="mt-3 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm font-medium"
+                                            >
+                                                Réinitialiser les filtres
+                                            </button>
+                                        )}
                                     </div>
                                 ) : (
                                     filteredClientMissions.map(m => {
                                         const cancelable = canCancelMission(m);
-                                        const todayStr = getMartiniqueToday();
-                                        const isRealized = m.status === 'planned' && m.date && m.date < todayStr;
-                                        const effectiveStatus = isRealized ? 'completed' : m.status;
+                                        const effStatus = getEffectiveStatus(m);
+                                        const borderClass = getStatusBorderClass(effStatus);
                                         return (
-                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${effectiveStatus === 'cancelled' ? 'border-red-400 opacity-60' : effectiveStatus === 'completed' ? 'border-green-500' : 'border-emerald-500'}`}>
+                                            <div key={m.id} className={`bg-white p-4 sm:p-6 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${effStatus === 'cancelled' ? 'opacity-60' : ''} ${borderClass}`}>
                                                 <div className="flex-1 w-full">
-                                                    {/* Header: Date + Jour en premier */}
-                                                    <div className="flex items-center gap-2 mb-2">
+                                                    {/* Header: Date + Jour + statut */}
+                                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                                                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-bold">
                                                             {dayjs(m.date).format('dddd')}
                                                         </span>
                                                         <span className="text-lg font-bold text-gray-800">
                                                             {dayjs(m.date).format('D MMMM YYYY')}
                                                         </span>
-                                                        {effectiveStatus === 'completed' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Réalisée</span>}
-                                                        {effectiveStatus === 'cancelled' && <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-bold">Annulé</span>}
-                                                        {effectiveStatus === 'planned' && <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">Prévu</span>}
+                                                        <span className={getStatusBadgeClasses(effStatus)}>
+                                                            {getStatusLabel(effStatus)}
+                                                        </span>
                                                     </div>
                                                     
-                                                    {/* Prestataire en premier */}
+                                                    {/* Prestataire */}
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
                                                             {(m.providerName || 'P').charAt(0)}
@@ -2642,7 +2664,7 @@ const ClientPortal: React.FC = () => {
 
                                                 </div>
                                                 <div className="flex flex-col gap-2 items-end w-full md:w-auto">
-                                                    {m.status === 'planned' && (
+                                                    {effStatus === 'planned' && (
                                                         <>
                                                             {cancelable ? (
                                                                 <button
@@ -2665,7 +2687,6 @@ const ClientPortal: React.FC = () => {
                                         );
                                     })
                                 )}
-                                {clientMissions.length === 0 && <p className="text-center text-slate-400 py-10">Aucun rendez-vous à venir.</p>}
                             </div>
                         </div>
                     )}
@@ -2734,33 +2755,35 @@ const ClientPortal: React.FC = () => {
                                     {/* Filtre par type */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Type</label>
-                                        <select
+                                        <SearchableSelect
                                             value={documentFilter}
-                                            onChange={(e) => setDocumentFilter(e.target.value)}
-                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
-                                        >
-                                            <option value="all">Tous les types</option>
-                                            <option value="Devis">Devis</option>
-                                            <option value="Facture">Factures</option>
-                                        </select>
+                                            onChange={setDocumentFilter}
+                                            options={[
+                                                { value: 'all', label: 'Tous les types' },
+                                                { value: 'Devis', label: 'Devis' },
+                                                { value: 'Facture', label: 'Factures' },
+                                            ]}
+                                            triggerClassName="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                                        />
                                     </div>
 
                                     {/* Filtre par statut */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Statut</label>
-                                        <select
+                                        <SearchableSelect
                                             value={documentStatusFilter}
-                                            onChange={(e) => setDocumentStatusFilter(e.target.value)}
-                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
-                                        >
-                                            <option value="all">Tous les statuts</option>
-                                            <option value="sent">À signer</option>
-                                            <option value="signed">Signé</option>
-                                            <option value="paid">Payé</option>
-                                            <option value="pending">À régler</option>
-                                            <option value="converted">Facturé</option>
-                                            <option value="rejected">Refusé</option>
-                                        </select>
+                                            onChange={setDocumentStatusFilter}
+                                            options={[
+                                                { value: 'all', label: 'Tous les statuts' },
+                                                { value: 'sent', label: 'À signer' },
+                                                { value: 'signed', label: 'Signé' },
+                                                { value: 'paid', label: 'Payé' },
+                                                { value: 'pending', label: 'À régler' },
+                                                { value: 'converted', label: 'Facturé' },
+                                                { value: 'rejected', label: 'Refusé' },
+                                            ]}
+                                            triggerClassName="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                                        />
                                     </div>
 
                                     {/* Bouton de réinitialisation */}

@@ -18,6 +18,7 @@ import {
   Square
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../../../utils/supabaseClient';
+import ListingFilterBar from '../../../components/ListingFilterBar';
 import type { CustomerServiceRequest, CustomerServiceRequestStatus } from '../types';
 import { 
   getCustomerServiceRequests, 
@@ -47,6 +48,8 @@ const AdminServiceRequestsPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<CustomerServiceRequestStatus | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState<'date_desc' | 'date_asc' | 'client'>('date_desc');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [deleting, setDeleting] = useState(false);
   const [markingSeen, setMarkingSeen] = useState(false);
 
@@ -91,7 +94,7 @@ const AdminServiceRequestsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
-  // Filter and search
+  // Filter, search and sort
   const filteredRequests = useMemo(() => {
     let result = requests;
     
@@ -104,9 +107,18 @@ const AdminServiceRequestsPage: React.FC = () => {
         (r.packName && r.packName.toLowerCase().includes(query))
       );
     }
+
+    // Sort
+    if (sortKey === 'date_desc' || sortKey === 'date_asc') {
+      result = [...result].sort((a, b) => sortKey === 'date_desc'
+        ? new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        : new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+    } else if (sortKey === 'client') {
+      result = [...result].sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
+    }
     
     return result;
-  }, [requests, searchQuery]);
+  }, [requests, searchQuery, sortKey]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE);
@@ -215,60 +227,73 @@ const AdminServiceRequestsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters and Actions */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        {/* Status Filter */}
-        <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-1">
-          {(['all', 'pending', 'validated', 'rejected', 'cancelled'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                statusFilter === status
-                  ? 'bg-brand-blue text-white'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {status === 'all' ? 'Tous' : statusLabelFr[status as CustomerServiceRequestStatus]}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Rechercher client, service, pack..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-sm"
-          />
-        </div>
-
-        {/* Bulk Actions */}
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-600">{selectedIds.size} sélectionné(s)</span>
-            <button
-              onClick={handleMarkAsSeen}
-              disabled={markingSeen}
-              className="px-3 py-2 bg-brand-blue text-white rounded-xl text-xs font-bold hover:bg-teal-700 disabled:opacity-60 flex items-center gap-2"
-            >
-              {markingSeen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-              Marquer comme vu
-            </button>
-            <button
-              onClick={handleDeleteSelected}
-              disabled={deleting}
-              className="px-3 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 disabled:opacity-60 flex items-center gap-2"
-            >
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-              Supprimer
-            </button>
-          </div>
-        )}
+      {/* ListingFilterBar — Filtres, tri et recherche */}
+      <div className="mb-4">
+        <ListingFilterBar
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Client, service, pack..."
+          sortOptions={[
+            { value: 'date_desc', label: 'Date récente' },
+            { value: 'date_asc', label: 'Date ancienne' },
+            { value: 'client', label: 'Client A-Z' },
+          ]}
+          sortValue={sortKey}
+          onSortChange={(v) => setSortKey(v as any)}
+          sortDirection={sortDirection}
+          onSortDirectionToggle={() => setSortDirection((d: 'asc' | 'desc') => d === 'asc' ? 'desc' : 'asc')}
+          filters={[
+            {
+              key: 'status',
+              label: 'Statut',
+              placeholder: 'Tous',
+              options: [
+                { value: 'pending', label: 'En attente' },
+                { value: 'validated', label: 'Validée' },
+                { value: 'rejected', label: 'Rejetée' },
+                { value: 'cancelled', label: 'Annulée' },
+              ],
+            },
+          ]}
+          filterValues={{ status: statusFilter }}
+          onFilterChange={(key, value) => {
+            if (key === 'status') setStatusFilter(value as CustomerServiceRequestStatus | 'all');
+          }}
+          filteredCount={filteredRequests.length}
+          totalCount={requests.length}
+          entityLabel="demande(s)"
+          onReset={() => {
+            setSearchQuery('');
+            setStatusFilter('all');
+            setSortKey('date_desc');
+            setSortDirection('desc');
+          }}
+          hasActiveFilters={searchQuery !== '' || statusFilter !== 'all' || sortKey !== 'date_desc'}
+        />
       </div>
+
+      {/* Bulk Actions */}
+      {selectedIds.size > 0 && (
+        <div className="mb-4 flex items-center gap-3 bg-white rounded-xl border border-slate-200 p-3">
+          <span className="text-sm text-slate-600">{selectedIds.size} sélectionné(s)</span>
+          <button
+            onClick={handleMarkAsSeen}
+            disabled={markingSeen}
+            className="px-3 py-2 bg-brand-blue text-white rounded-xl text-xs font-bold hover:bg-teal-700 disabled:opacity-60 flex items-center gap-2"
+          >
+            {markingSeen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+            Marquer comme vu
+          </button>
+          <button
+            onClick={handleDeleteSelected}
+            disabled={deleting}
+            className="px-3 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 disabled:opacity-60 flex items-center gap-2"
+          >
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Supprimer
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">

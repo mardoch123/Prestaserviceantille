@@ -65,6 +65,8 @@ import {
   uploadSurveyImage,
 } from '../client';
 import { useData } from '../../../context/DataContext';
+import ListingFilterBar from '../../../components/ListingFilterBar';
+import SearchableSelect from '../../../components/SearchableSelect';
 import { Mission } from '../../../types';
 
 // Statut et labels
@@ -148,6 +150,8 @@ const SAVPage: React.FC = () => {
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [sortKey, setSortKey] = useState<'date_desc' | 'date_asc' | 'priority' | 'client'>('date_desc');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
   // Vue active - 'missions' devient la vue par défaut
   const [activeView, setActiveView] = useState<'list' | 'stats' | 'missions' | 'sav-records'>('missions');
@@ -188,7 +192,7 @@ const SAVPage: React.FC = () => {
     }
   };
 
-  // Filtrage
+  // Filtrage + tri
   const filteredRecords = useMemo(() => {
     let result = savRecords;
     
@@ -201,9 +205,25 @@ const SAVPage: React.FC = () => {
         r.investigatorName.toLowerCase().includes(query)
       );
     }
+
+    // Tri
+    const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    if (sortKey === 'date_desc' || sortKey === 'date_asc') {
+      result = [...result].sort((a, b) => sortKey === 'date_desc'
+        ? new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        : new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+    } else if (sortKey === 'priority') {
+      result = [...result].sort((a, b) => {
+        const pa = PRIORITY_ORDER[a.priority] ?? 5;
+        const pb = PRIORITY_ORDER[b.priority] ?? 5;
+        return pa - pb;
+      });
+    } else if (sortKey === 'client') {
+      result = [...result].sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
+    }
     
     return result;
-  }, [savRecords, searchQuery]);
+  }, [savRecords, searchQuery, sortKey]);
 
   // Pagination
   const paginatedRecords = useMemo(() => {
@@ -382,6 +402,10 @@ const SAVPage: React.FC = () => {
             setShowFilters={setShowFilters}
             filters={filters}
             setFilters={setFilters}
+            sortKey={sortKey}
+            setSortKey={setSortKey}
+            sortDirection={sortDirection}
+            setSortDirection={setSortDirection}
             currentPage={currentPage}
             setCurrentPage={setCurrentPage}
             totalPages={totalPages}
@@ -469,6 +493,10 @@ const SAVRecordsView: React.FC<{
   setShowFilters: (s: boolean) => void;
   filters: SAVFilters;
   setFilters: (f: SAVFilters) => void;
+  sortKey: string;
+  setSortKey: (k: any) => void;
+  sortDirection: 'asc' | 'desc';
+  setSortDirection: (d: 'asc' | 'desc' | ((prev: 'asc' | 'desc') => 'asc' | 'desc')) => void;
   currentPage: number;
   setCurrentPage: (p: number) => void;
   totalPages: number;
@@ -476,6 +504,7 @@ const SAVRecordsView: React.FC<{
   onStatusChange: (id: string, status: SAVRecord['status']) => void;
   onDelete?: () => void;
 }> = ({
+  records,
   savRecords,
   searchQuery,
   setSearchQuery,
@@ -483,6 +512,10 @@ const SAVRecordsView: React.FC<{
   setShowFilters,
   filters,
   setFilters,
+  sortKey,
+  setSortKey,
+  sortDirection,
+  setSortDirection,
   currentPage,
   setCurrentPage,
   totalPages,
@@ -583,82 +616,81 @@ const SAVRecordsView: React.FC<{
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-        <div className="flex items-center gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Rechercher par client, pack, enquêteur..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-          
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
-              showFilters
-                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            <span className="font-medium">Filtres</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
-        
-        {showFilters && (
-          <div className="mt-4 pt-4 border-t border-slate-200 grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-              <select
-                value={filters.type}
-                onChange={(e) => setFilters({ ...filters, type: e.target.value as SAVFilterType })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="all">Tous les types</option>
-                <option value="satisfaction_survey">Enquête de satisfaction</option>
-                <option value="complaint">Réclamation</option>
-                <option value="incident">Incident</option>
-                <option value="follow_up">Suivi</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Statut</label>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value as SAVFilterStatus })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="all">Tous les statuts</option>
-                <option value="pending">En attente</option>
-                <option value="in_progress">En cours</option>
-                <option value="completed">Terminé</option>
-                <option value="cancelled">Annulé</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Priorité</label>
-              <select
-                value={filters.priority}
-                onChange={(e) => setFilters({ ...filters, priority: e.target.value as SAVFilterPriority })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="all">Toutes les priorités</option>
-                <option value="low">Basse</option>
-                <option value="medium">Moyenne</option>
-                <option value="high">Haute</option>
-                <option value="urgent">Urgente</option>
-              </select>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ListingFilterBar — Recherche, filtres et tri */}
+      <ListingFilterBar
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Client, pack, enquêteur..."
+        sortOptions={[
+          { value: 'date_desc', label: 'Date récente' },
+          { value: 'date_asc', label: 'Date ancienne' },
+          { value: 'priority', label: 'Priorité' },
+          { value: 'client', label: 'Client A-Z' },
+        ]}
+        sortValue={sortKey}
+        onSortChange={(v) => setSortKey(v as any)}
+        sortDirection={sortDirection}
+        onSortDirectionToggle={() => setSortDirection((d: 'asc' | 'desc') => d === 'asc' ? 'desc' : 'asc')}
+        filters={[
+          {
+            key: 'type',
+            label: 'Type',
+            placeholder: 'Tous',
+            options: [
+              { value: 'satisfaction_survey', label: 'Enquête de satisfaction' },
+              { value: 'complaint', label: 'Réclamation' },
+              { value: 'incident', label: 'Incident' },
+              { value: 'follow_up', label: 'Suivi' },
+            ],
+          },
+          {
+            key: 'status',
+            label: 'Statut',
+            placeholder: 'Tous',
+            options: [
+              { value: 'pending', label: 'En attente' },
+              { value: 'in_progress', label: 'En cours' },
+              { value: 'completed', label: 'Terminé' },
+              { value: 'cancelled', label: 'Annulé' },
+            ],
+          },
+          {
+            key: 'priority',
+            label: 'Priorité',
+            placeholder: 'Toutes',
+            options: [
+              { value: 'low', label: 'Basse' },
+              { value: 'medium', label: 'Moyenne' },
+              { value: 'high', label: 'Haute' },
+              { value: 'urgent', label: 'Urgente' },
+            ],
+          },
+        ]}
+        filterValues={{
+          type: filters.type,
+          status: filters.status,
+          priority: filters.priority,
+        }}
+        onFilterChange={(key, value) => {
+          setFilters({ ...filters, [key]: value });
+        }}
+        filteredCount={records.length}
+        totalCount={savRecords.length}
+        entityLabel="enregistrement(s)"
+        onReset={() => {
+          setSearchQuery('');
+          setFilters({ type: 'all', status: 'all', priority: 'all' });
+          setSortKey('date_desc');
+          setSortDirection('desc');
+        }}
+        hasActiveFilters={
+          searchQuery !== '' ||
+          filters.type !== 'all' ||
+          filters.status !== 'all' ||
+          filters.priority !== 'all' ||
+          sortKey !== 'date_desc'
+        }
+      />
 
       {/* Bulk Actions Bar */}
       {hasSelection && (
@@ -1241,31 +1273,31 @@ const MissionsWithoutSAVView: React.FC<{
             
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Type de service</label>
-              <select
+              <SearchableSelect
                 value={missionFilters.serviceType}
-                onChange={(e) => setMissionFilters({ ...missionFilters, serviceType: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="all">Tous les services</option>
-                <option value="ménage">Ménage</option>
-                <option value="bricolage">Bricolage</option>
-                <option value="autre">Autre</option>
-              </select>
+                onChange={(value) => setMissionFilters({ ...missionFilters, serviceType: value })}
+                options={[
+                  { value: 'all', label: 'Tous les services' },
+                  { value: 'ménage', label: 'Ménage' },
+                  { value: 'bricolage', label: 'Bricolage' },
+                  { value: 'autre', label: 'Autre' },
+                ]}
+                triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Enquêteur</label>
-              <select
+              <SearchableSelect
                 value={missionFilters.investigator}
-                onChange={(e) => setMissionFilters({ ...missionFilters, investigator: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="all">Tous les enquêteurs</option>
-                {investigatorOptions.map(name => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-                <option value="Autre">Autre</option>
-              </select>
+                onChange={(value) => setMissionFilters({ ...missionFilters, investigator: value })}
+                options={[
+                  { value: 'all', label: 'Tous les enquêteurs' },
+                  ...investigatorOptions.map(name => ({ value: name, label: name })),
+                  { value: 'Autre', label: 'Autre' },
+                ]}
+                triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              />
             </div>
           </div>
         )}
@@ -1550,47 +1582,48 @@ const CreateSAVModal: React.FC<{
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Mission</label>
-            <select
+            <SearchableSelect
               value={selectedMissionId}
-              onChange={(e) => setSelectedMissionId(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              required
-            >
-              <option value="">Sélectionner une mission</option>
-              {missions.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.client_name} - {new Date(m.date).toLocaleDateString('fr-FR')} - {m.service}
-                </option>
-              ))}
-            </select>
+              onChange={setSelectedMissionId}
+              options={[
+                { value: '', label: 'Sélectionner une mission', disabled: true },
+                ...missions.map((m) => ({
+                  value: m.id,
+                  label: `${m.client_name} - ${new Date(m.date).toLocaleDateString('fr-FR')} - ${m.service}`,
+                })),
+              ]}
+              triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            />
           </div>
           
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-            <select
+            <SearchableSelect
               value={savType}
-              onChange={(e) => setSavType(e.target.value as CreateSAVInput['savType'])}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="satisfaction_survey">Enquête de satisfaction</option>
-              <option value="complaint">Réclamation</option>
-              <option value="incident">Incident</option>
-              <option value="follow_up">Suivi</option>
-            </select>
+              onChange={(value) => setSavType(value as CreateSAVInput['savType'])}
+              options={[
+                { value: 'satisfaction_survey', label: 'Enquête de satisfaction' },
+                { value: 'complaint', label: 'Réclamation' },
+                { value: 'incident', label: 'Incident' },
+                { value: 'follow_up', label: 'Suivi' },
+              ]}
+              triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            />
           </div>
           
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Priorité</label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as CreateSAVInput['priority'])}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="low">Basse</option>
-              <option value="medium">Moyenne</option>
-              <option value="high">Haute</option>
-              <option value="urgent">Urgente</option>
-            </select>
+            <SearchableSelect
+              value={priority || 'medium'}
+              onChange={(value) => { if (value) setPriority(value as CreateSAVInput['priority']); }}
+              options={[
+                { value: 'low', label: 'Basse' },
+                { value: 'medium', label: 'Moyenne' },
+                { value: 'high', label: 'Haute' },
+                { value: 'urgent', label: 'Urgente' },
+              ]}
+              triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            />
           </div>
           
           <div>
@@ -1849,24 +1882,23 @@ const SatisfactionSurveyModal: React.FC<{
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Nom de l'enquêteur
                 </label>
-                <select
+                <SearchableSelect
                   value={isCustomInvestigator ? 'Autre' : investigatorName}
-                  onChange={(e) => {
-                    if (e.target.value === 'Autre') {
+                  onChange={(value) => {
+                    if (value === 'Autre') {
                       setIsCustomInvestigator(true);
                       setInvestigatorName(customInvestigator || '');
                     } else {
                       setIsCustomInvestigator(false);
-                      setInvestigatorName(e.target.value);
+                      setInvestigatorName(value);
                     }
                   }}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 mb-2"
-                >
-                  {investigatorOptions.map(name => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                  <option value="Autre">Autre</option>
-                </select>
+                  options={[
+                    ...investigatorOptions.map(name => ({ value: name, label: name })),
+                    { value: 'Autre', label: 'Autre' },
+                  ]}
+                  triggerClassName="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm mb-2"
+                />
                 
                 {isCustomInvestigator && (
                   <input

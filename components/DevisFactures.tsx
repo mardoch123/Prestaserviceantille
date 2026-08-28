@@ -9,6 +9,7 @@ import { type ServiceTypeFilter } from '../utils/serviceTypes';
 import { Mission, Document, Contract } from '../types';
 import SearchableSelect from './SearchableSelect';
 import Pagination from './Pagination';
+import ListingFilterBar from './ListingFilterBar';
 import { getMartiniqueNowISO, getMartiniqueToday } from '../src/utils/martiniqueTime';
 import { getMartiniqueNow as getMartiniqueNowDayjs, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartinique';
 import { supabase } from '../utils/supabaseClient';
@@ -98,7 +99,6 @@ const DevisFactures: React.FC = () => {
     );
 
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() => STATUS_OPTIONS.map(s => s.value));
-    const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
     const [isStatusColumnFilterOpen, setIsStatusColumnFilterOpen] = useState(false);
 
     const TYPE_OPTIONS = useMemo(
@@ -111,6 +111,7 @@ const DevisFactures: React.FC = () => {
     const [selectedTypes, setSelectedTypes] = useState<string[]>(() => ['Devis']);
     const [isTypeColumnFilterOpen, setIsTypeColumnFilterOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortKey, setSortKey] = useState<'status' | 'date' | 'ref'>('status');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Tri par ordre de création (desc = plus récent d'abord)
     
     // Vue active : 'documents' (liste classique) ou 'packs' (gestion facturation par pack)
@@ -119,7 +120,6 @@ const DevisFactures: React.FC = () => {
     const PAGE_SIZE = 20;
     const [page, setPage] = useState(1);
 
-    const statusFilterRef = useRef<HTMLDivElement | null>(null);
     const statusColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
     const typeColumnFilterRef = useRef<HTMLTableCellElement | null>(null);
 
@@ -127,11 +127,6 @@ const DevisFactures: React.FC = () => {
         const onMouseDown = (e: MouseEvent) => {
             const target = e.target as Node | null;
             if (!target) return;
-
-            if (isStatusFilterOpen) {
-                const root = statusFilterRef.current;
-                if (root && !root.contains(target)) setIsStatusFilterOpen(false);
-            }
 
             if (isStatusColumnFilterOpen) {
                 const root = statusColumnFilterRef.current;
@@ -146,7 +141,7 @@ const DevisFactures: React.FC = () => {
 
         document.addEventListener('mousedown', onMouseDown);
         return () => document.removeEventListener('mousedown', onMouseDown);
-    }, [isStatusFilterOpen, isStatusColumnFilterOpen, isTypeColumnFilterOpen]);
+    }, [isStatusColumnFilterOpen, isTypeColumnFilterOpen]);
 
     // Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -2598,32 +2593,44 @@ const DevisFactures: React.FC = () => {
             docs = docs.filter(doc => doc.clientName.toLowerCase().includes(query) || doc.ref.toLowerCase().includes(query));
         }
         
-        // Tri prioritaire : devis envoyés > signés > autres > brouillons
-        // Puis par date à l'intérieur de chaque groupe
+        // Tri
         const STATUS_PRIORITY: Record<string, number> = {
-            'sent': 0,      // Devis envoyés en premier
-            'signed': 1,    // Devis signés ensuite
+            'sent': 0,
+            'signed': 1,
             'validated': 2,
             'converted': 3,
             'pending': 4,
             'paid': 5,
             'expired': 6,
             'rejected': 7,
-            'draft': 8,     // Brouillons en dernier
+            'draft': 8,
         };
 
-        docs.sort((a, b) => {
-            const priorityA = STATUS_PRIORITY[String(a.status || '').toLowerCase()] ?? 5;
-            const priorityB = STATUS_PRIORITY[String(b.status || '').toLowerCase()] ?? 5;
-            if (priorityA !== priorityB) return priorityA - priorityB;
-            // À priorité égale, tri par date
-            const dateA = new Date(a.date).getTime();
-            const dateB = new Date(b.date).getTime();
-            return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-        });
+        if (sortKey === 'status') {
+            docs.sort((a, b) => {
+                const priorityA = STATUS_PRIORITY[String(a.status || '').toLowerCase()] ?? 5;
+                const priorityB = STATUS_PRIORITY[String(b.status || '').toLowerCase()] ?? 5;
+                if (priorityA !== priorityB) return priorityA - priorityB;
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+            });
+        } else if (sortKey === 'date') {
+            docs.sort((a, b) => {
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+            });
+        } else if (sortKey === 'ref') {
+            docs.sort((a, b) => {
+                const refA = (a.ref || '').toLowerCase();
+                const refB = (b.ref || '').toLowerCase();
+                return sortOrder === 'asc' ? refA.localeCompare(refB) : refB.localeCompare(refA);
+            });
+        }
         
         return docs;
-    }, [selectedStatuses, selectedTypes, searchQuery, allDocs, sortOrder, serviceTypeFilter]);
+    }, [selectedStatuses, selectedTypes, searchQuery, allDocs, sortKey, sortOrder, serviceTypeFilter]);
 
     // Filtres par colonne (tableau)
     const [columnFilters, setColumnFilters] = useState({
@@ -2975,89 +2982,79 @@ const DevisFactures: React.FC = () => {
                 </>
             ) : (
             <>
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-                <div ref={statusFilterRef} className="relative" style={{zIndex: 60}}>
-                    <button
-                        type="button"
-                        onClick={() => setIsStatusFilterOpen(v => !v)}
-                        className="flex items-center bg-white rounded-lg shadow-sm border border-beige-200 px-3 py-2 hover:bg-slate-50"
-                    >
-                        <Filter className="w-4 h-4 text-slate-400 mr-2" />
-                        <span className="text-sm font-bold text-slate-700">Statuts</span>
-                        <span className="ml-2 text-xs text-slate-500">
-                            {selectedStatuses.length === STATUS_OPTIONS.length ? 'Tous' : `${selectedStatuses.length}/${STATUS_OPTIONS.length}`}
-                        </span>
-                        {isStatusFilterOpen ? <ChevronUp className="w-4 h-4 text-slate-400 ml-2" /> : <ChevronDown className="w-4 h-4 text-slate-400 ml-2" />}
-                    </button>
-
-                    {isStatusFilterOpen ? (
-                        <div className="absolute left-0 mt-2 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-[100]">
-                            <div className="flex items-center justify-between mb-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedStatuses(STATUS_OPTIONS.map(s => s.value))}
-                                    className="text-xs font-bold text-brand-blue hover:underline"
-                                >
-                                    Tout cocher
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedStatuses([])}
-                                    className="text-xs font-bold text-slate-500 hover:underline"
-                                >
-                                    Tout décocher
-                                </button>
-                            </div>
-
-                            <div className="space-y-2">
-                                {STATUS_OPTIONS.map(opt => {
-                                    const checked = selectedStatuses.includes(opt.value);
-                                    return (
-                                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer select-none">
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                onChange={() => {
-                                                    setSelectedStatuses(prev => {
-                                                        if (prev.includes(opt.value)) {
-                                                            return prev.filter(v => v !== opt.value);
-                                                        }
-                                                        return [...prev, opt.value];
-                                                    });
-                                                }}
-                                                className="h-4 w-4"
-                                            />
-                                            <span className="text-sm text-slate-700">{opt.label}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
-
-                            {selectedStatuses.length === 0 ? (
-                                <div className="mt-3 text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg p-2">
-                                    Aucun statut sélectionné: aucun document ne sera affiché.
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-                </div>
+            {/* ListingFilterBar — Filtres, tri et recherche */}
+            <div className="mb-6">
+                <ListingFilterBar
+                    searchValue={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    searchPlaceholder="Référence, client..."
+                    sortOptions={[
+                        { value: 'status', label: 'Statut' },
+                        { value: 'date', label: 'Date' },
+                        { value: 'ref', label: 'Référence' },
+                    ]}
+                    sortValue={sortKey}
+                    onSortChange={(v) => setSortKey(v as 'status' | 'date' | 'ref')}
+                    sortDirection={sortOrder}
+                    onSortDirectionToggle={() => setSortOrder(d => d === 'asc' ? 'desc' : 'asc')}
+                    filters={[
+                        {
+                            key: 'status',
+                            label: 'Statut',
+                            multiple: true,
+                            placeholder: 'Tous',
+                            options: STATUS_OPTIONS,
+                        },
+                        {
+                            key: 'type',
+                            label: 'Type',
+                            multiple: true,
+                            placeholder: 'Tous',
+                            options: TYPE_OPTIONS,
+                        },
+                    ]}
+                    filterValues={{
+                        status: selectedStatuses,
+                        type: selectedTypes,
+                    }}
+                    onFilterChange={(key, value) => {
+                        if (key === 'status') setSelectedStatuses(value as string[]);
+                        if (key === 'type') setSelectedTypes(value as string[]);
+                    }}
+                    filteredCount={filteredDocs.length}
+                    totalCount={allDocs.length}
+                    entityLabel="document(s)"
+                    onReset={() => {
+                        setSelectedStatuses(STATUS_OPTIONS.map(s => s.value));
+                        setSelectedTypes(['Devis']);
+                        setSearchQuery('');
+                        setSortKey('status');
+                        setSortOrder('desc');
+                    }}
+                    hasActiveFilters={
+                        selectedStatuses.length !== STATUS_OPTIONS.length ||
+                        (selectedTypes.length === 1 && selectedTypes[0] === 'Devis') ||
+                        searchQuery !== '' ||
+                        sortKey !== 'status' ||
+                        sortOrder !== 'desc'
+                    }
+                />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-                <div className="lg:col-span-1 flex gap-4">
-                    {selectedIds.size > 0 ? (
-                        <button onClick={confirmBulkDelete} className="flex-1 flex flex-col items-center justify-center p-6 bg-red-100 rounded-lg hover:bg-red-200 transition border border-red-200 shadow-sm group animate-in fade-in">
-                            <Trash2 className="w-5 h-5 text-red-600 mb-2" /><span className="text-sm font-bold text-red-700">Supprimer ({selectedIds.size})</span>
-                        </button>
-                    ) : (
-                        <>
-                            <button onClick={() => openModal('devis')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-blue mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer devis</span></button>
-                            <button onClick={() => openModal('facture')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-orange mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer facture</span></button>
-                        </>
-                    )}
-                </div>
-                <div className="lg:col-span-2 bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center">
-                    <Search className="w-5 h-5 text-slate-400 mr-3" /><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Rechercher..." className="flex-1 bg-transparent outline-none text-sm" />
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-3 flex gap-4">
+                        {selectedIds.size > 0 ? (
+                            <button onClick={confirmBulkDelete} className="flex-1 flex flex-col items-center justify-center p-6 bg-red-100 rounded-lg hover:bg-red-200 transition border border-red-200 shadow-sm group animate-in fade-in">
+                                <Trash2 className="w-5 h-5 text-red-600 mb-2" /><span className="text-sm font-bold text-red-700">Supprimer ({selectedIds.size})</span>
+                            </button>
+                        ) : (
+                            <>
+                                <button onClick={() => openModal('devis')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-blue mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer devis</span></button>
+                                <button onClick={() => openModal('facture')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-orange mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer facture</span></button>
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -3175,86 +3172,33 @@ const DevisFactures: React.FC = () => {
 
                                     {/* Actions */}
                                     <div className="pt-2 border-t border-slate-100">
-                                        <select
-                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50"
-                                            defaultValue=""
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => {
-                                                const action = String(e.target.value || '');
+                                        <SearchableSelect
+                                            options={[
+                                                ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? [{ value: 'download_quote_pdf', label: 'Télécharger devis (PDF)' }] : []),
+                                                ...(!isLocalDraftDocId(doc.id) ? [{ value: 'download', label: 'Télécharger' }] : [{ value: 'edit', label: "Continuer l'édition" }]),
+                                                ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? [{ value: 'download_contract', label: 'Télécharger contrat' }] : []),
+                                                ...(!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? [{ value: 'send_email', label: 'Envoyer par email' }] : []),
+                                                ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? [{ value: 'renew', label: 'Renouveler devis' }] : []),
+                                                ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? [{ value: 'admin_sign', label: 'Signer (admin)' }] : []),
+                                                ...(!isLocalDraftDocId(doc.id) ? [{ value: 'duplicate', label: 'Dupliquer' }] : []),
+                                                { value: 'delete', label: 'Supprimer' },
+                                            ]}
+                                            value=""
+                                            onChange={(action) => {
                                                 if (!action) return;
-                                                e.currentTarget.value = '';
-
-                                                if (action === 'renew') {
-                                                    void renewExpiredQuote(doc);
-                                                    return;
-                                                }
-                                                if (action === 'admin_sign') {
-                                                    openAdminSignModal(doc.id, doc.status);
-                                                    return;
-                                                }
-                                                if (action === 'download_quote_pdf') {
-                                                    void handleDownloadQuotePdf(doc);
-                                                    return;
-                                                }
-                                                if (action === 'download_contract') {
-                                                    handleDownloadContract(doc);
-                                                    return;
-                                                }
-                                                if (action === 'download') {
-                                                    window.open(`/documents/${doc.ref}`, '_blank');
-                                                    return;
-                                                }
-                                                if (action === 'send_email') {
-                                                    void handleSendEmail(doc as any);
-                                                    return;
-                                                }
-                                                if (action === 'convert') {
-                                                    void handleConversion(doc.id);
-                                                    return;
-                                                }
-                                                if (action === 'duplicate') {
-                                                    void handleDuplicate(doc.id, doc.ref);
-                                                    return;
-                                                }
-                                                if (action === 'delete') {
-                                                    confirmDelete(doc.id, doc.ref);
-                                                    return;
-                                                }
+                                                if (action === 'renew') { void renewExpiredQuote(doc); return; }
+                                                if (action === 'admin_sign') { openAdminSignModal(doc.id, doc.status); return; }
+                                                if (action === 'download_quote_pdf') { void handleDownloadQuotePdf(doc); return; }
+                                                if (action === 'download_contract') { handleDownloadContract(doc); return; }
+                                                if (action === 'download') { window.open(`/documents/${doc.ref}`, '_blank'); return; }
+                                                if (action === 'send_email') { void handleSendEmail(doc as any); return; }
+                                                if (action === 'convert') { void handleConversion(doc.id); return; }
+                                                if (action === 'duplicate') { void handleDuplicate(doc.id, doc.ref); return; }
+                                                if (action === 'delete') { confirmDelete(doc.id, doc.ref); return; }
                                             }}
-                                        >
-                                            <option value="" disabled>
-                                                Actions
-                                            </option>
-
-                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? (
-                                                <option value="download_quote_pdf">Télécharger devis (PDF)</option>
-                                            ) : null}
-
-                                            {!isLocalDraftDocId(doc.id) ? (
-                                                <option value="download">Télécharger</option>
-                                            ) : (
-                                                <option value="edit">Continuer l'édition</option>
-                                            )}
-
-                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? (
-                                                <option value="download_contract">Télécharger contrat</option>
-                                            ) : null}
-
-                                            {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? (
-                                                <option value="send_email">Envoyer par email</option>
-                                            ) : null}
-
-                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? (
-                                                <option value="renew">Renouveler devis</option>
-                                            ) : null}
-
-                                            {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
-                                                <option value="admin_sign">Signer (admin)</option>
-                                            ) : null}
-
-                                            {!isLocalDraftDocId(doc.id) ? <option value="duplicate">Dupliquer</option> : null}
-                                            <option value="delete">Supprimer</option>
-                                        </select>
+                                            placeholder="Actions"
+                                            triggerClassName="text-xs font-bold"
+                                        />
                                     </div>
                                 </div>
                             ))
@@ -3588,113 +3532,39 @@ const DevisFactures: React.FC = () => {
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                                            <select
-                                                className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50"
-                                                defaultValue=""
-                                                onClick={(e) => e.stopPropagation()}
-                                                onChange={(e) => {
-                                                    const action = String(e.target.value || '');
+                                            <SearchableSelect
+                                                options={[
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? [{ value: 'download_quote_pdf', label: 'Télécharger devis (PDF)' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) ? [{ value: 'download', label: 'Télécharger' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? [{ value: 'download_contract', label: 'Télécharger contrat' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? [{ value: 'send_email', label: 'Envoyer par email' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'paid' ? [{ value: 'convert', label: 'Convertir' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.status === 'pending' && doc.type === 'Facture' ? [{ value: 'mark_paid', label: 'Encaisser' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' ? [{ value: 'reminder', label: 'Relance (maintenant)' }, { value: 'signature_reminder', label: 'Rappel signature' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? [{ value: 'renew', label: 'Renouveler devis' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? [{ value: 'admin_sign', label: 'Signer (admin)' }] : []),
+                                                    ...(!isLocalDraftDocId(doc.id) ? [{ value: 'duplicate', label: 'Dupliquer' }] : []),
+                                                    { value: 'delete', label: 'Supprimer' },
+                                                ]}
+                                                value=""
+                                                onChange={(action) => {
                                                     if (!action) return;
-
-                                                    // Reset selection back to placeholder
-                                                    e.currentTarget.value = '';
-
-                                                    if (action === 'renew') {
-                                                        void renewExpiredQuote(doc);
-                                                        return;
-                                                    }
-                                                    if (action === 'admin_sign') {
-                                                        openAdminSignModal(doc.id, doc.status);
-                                                        return;
-                                                    }
-                                                    if (action === 'download_quote_pdf') {
-                                                        void handleDownloadQuotePdf(doc);
-                                                        return;
-                                                    }
-                                                    if (action === 'download_contract') {
-                                                        handleDownloadContract(doc);
-                                                        return;
-                                                    }
-                                                    if (action === 'download') {
-                                                        window.open(`/documents/${doc.ref}`, '_blank');
-                                                        return;
-                                                    }
-                                                    if (action === 'send_email') {
-                                                        void handleSendEmail(doc as any);
-                                                        return;
-                                                    }
-                                                    if (action === 'convert') {
-                                                        void handleConversion(doc.id);
-                                                        return;
-                                                    }
-                                                    if (action === 'mark_paid') {
-                                                        void handleMarkPaid(doc.id);
-                                                        return;
-                                                    }
-                                                    if (action === 'reminder') {
-                                                        void handleManualReminder(doc.id);
-                                                        return;
-                                                    }
-                                                    if (action === 'signature_reminder') {
-                                                        void handleManualSignatureReminder(doc.id);
-                                                        return;
-                                                    }
-                                                    if (action === 'duplicate') {
-                                                        void handleDuplicate(doc.id, doc.ref);
-                                                        return;
-                                                    }
-                                                    if (action === 'delete') {
-                                                        confirmDelete(doc.id, doc.ref);
-                                                        return;
-                                                    }
+                                                    if (action === 'renew') { void renewExpiredQuote(doc); return; }
+                                                    if (action === 'admin_sign') { openAdminSignModal(doc.id, doc.status); return; }
+                                                    if (action === 'download_quote_pdf') { void handleDownloadQuotePdf(doc); return; }
+                                                    if (action === 'download_contract') { handleDownloadContract(doc); return; }
+                                                    if (action === 'download') { window.open(`/documents/${doc.ref}`, '_blank'); return; }
+                                                    if (action === 'send_email') { void handleSendEmail(doc as any); return; }
+                                                    if (action === 'convert') { void handleConversion(doc.id); return; }
+                                                    if (action === 'mark_paid') { void handleMarkPaid(doc.id); return; }
+                                                    if (action === 'reminder') { void handleManualReminder(doc.id); return; }
+                                                    if (action === 'signature_reminder') { void handleManualSignatureReminder(doc.id); return; }
+                                                    if (action === 'duplicate') { void handleDuplicate(doc.id, doc.ref); return; }
+                                                    if (action === 'delete') { confirmDelete(doc.id, doc.ref); return; }
                                                 }}
-                                            >
-                                                <option value="" disabled>
-                                                    Actions
-                                                </option>
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' ? (
-                                                    <option value="download_quote_pdf">Télécharger devis (PDF)</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) ? (
-                                                    <option value="download">Télécharger</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'signed' || doc.status === 'paid' || doc.status === 'converted') ? (
-                                                    <option value="download_contract">Télécharger contrat</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && (doc.type === 'Facture' || doc.status === 'converted') ? (
-                                                    <option value="send_email">Envoyer par email</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'paid' ? (
-                                                    <option value="convert">Convertir</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.status === 'pending' && doc.type === 'Facture' ? (
-                                                    <option value="mark_paid">Encaisser</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'sent' ? (
-                                                    <>
-                                                        <option value="reminder">Relance (maintenant)</option>
-                                                        <option value="signature_reminder">Rappel signature</option>
-                                                    </>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && doc.status === 'expired' ? (
-                                                    <option value="renew">Renouveler devis</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) && doc.type === 'Devis' && (doc.status === 'sent' || doc.status === 'expired') && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? (
-                                                    <option value="admin_sign">Signer (admin)</option>
-                                                ) : null}
-
-                                                {!isLocalDraftDocId(doc.id) ? <option value="duplicate">Dupliquer</option> : null}
-                                                <option value="delete">Supprimer</option>
-                                            </select>
+                                                placeholder="Actions"
+                                                triggerClassName="text-xs font-bold"
+                                            />
                                         </td>
                                     </tr>
                                 ))
@@ -4016,17 +3886,18 @@ const DevisFactures: React.FC = () => {
                                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4 space-y-4 animate-in fade-in">
                                                 <div className="flex justify-between items-center">
                                                     <label className="text-sm font-bold text-slate-700">Fréquence :</label>
-                                                    <select
-                                                        className="p-2 border rounded-lg bg-white text-sm font-bold"
+                                                    <SearchableSelect
+                                                        options={[
+                                                            { value: '4j_3h', label: '4 jours x 3 heures' },
+                                                            { value: '3j_4h', label: '3 jours x 4 heures' },
+                                                        ]}
                                                         value={packSpecificConfig.frequencyChoice || "4j_3h"}
-                                                        onChange={(e) => {
-                                                            setPackSpecificConfig({ ...packSpecificConfig, frequencyChoice: e.target.value });
+                                                        onChange={(value) => {
+                                                            setPackSpecificConfig({ ...packSpecificConfig, frequencyChoice: value });
                                                             markDraftDirty();
                                                         }}
-                                                    >
-                                                        <option value="4j_3h">4 jours x 3 heures</option>
-                                                        <option value="3j_4h">3 jours x 4 heures</option>
-                                                    </select>
+                                                        triggerClassName="p-2 border rounded-lg bg-white text-sm font-bold"
+                                                    />
                                                 </div>
                                                 <p className="text-xs text-blue-600">Le pack Tranquility compte 12 heures ajustables.</p>
                                                 <button onClick={generateInterventionSlotsWithAvailability} className="w-full bg-blue-600 text-white py-2 rounded font-bold text-xs hover:bg-blue-700">
@@ -4254,18 +4125,19 @@ const DevisFactures: React.FC = () => {
                                         <div className="flex justify-between"><span>Total HT : </span><span>{serviceType === 'custom' ? safeNum(calculateCustomTotal()).toFixed(2) : safeNum(totalHT).toFixed(2)} €</span></div>
                                         <div className="flex justify-between items-center">
                                             <span>TVA : </span>
-                                            <select
-                                                className="bg-slate-50 border rounded p-1 text-xs font-bold text-slate-700 outline-none focus:border-brand-blue"
-                                                value={tvaRate}
-                                                onChange={(e) => {
-                                                    setTvaRate(Number(e.target.value) as any);
+                                            <SearchableSelect
+                                                options={[
+                                                    { value: '0', label: '0%' },
+                                                    { value: '2.1', label: '2.1% (Particulier)' },
+                                                    { value: '8.5', label: '8.5% (Professionnel)' },
+                                                ]}
+                                                value={String(tvaRate)}
+                                                onChange={(value) => {
+                                                    setTvaRate(Number(value) as any);
                                                     markDraftDirty();
                                                 }}
-                                            >
-                                                <option value={0}>0%</option>
-                                                <option value={2.1}>2.1% (Particulier)</option>
-                                                <option value={8.5}>8.5% (Professionnel)</option>
-                                            </select>
+                                                triggerClassName="bg-slate-50 border rounded p-1 text-xs font-bold text-slate-700"
+                                            />
                                         </div>
                                         <div className="flex justify-between text-slate-500 text-xs"><span>Montant TVA : </span><span>{safeNum((serviceType === 'custom' ? calculateCustomTotal() : totalHT) * (tvaRate / 100)).toFixed(2)} €</span></div>
                                     </div>
