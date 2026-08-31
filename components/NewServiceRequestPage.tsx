@@ -215,7 +215,7 @@ const NewServiceRequestPage: React.FC = () => {
     if (!slotStart.isValid() || !slotEnd.isValid()) return [];
 
     const conflictingMissions = missions.filter(m => {
-      if (m.status === 'cancelled' || !m.date) return false;
+      if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
       const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
       if (!mStart.isValid() || !mEnd.isValid()) return false;

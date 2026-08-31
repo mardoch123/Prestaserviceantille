@@ -288,7 +288,7 @@ const DevisFactures: React.FC = () => {
         if (!slotStart.isValid() || !slotEnd.isValid()) return [];
 
         const conflictingMissions = missions.filter(m => {
-            if (m.status === 'cancelled' || !m.date) return false;
+            if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
             const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             if (!mStart.isValid() || !mEnd.isValid()) return false;
@@ -1000,11 +1000,13 @@ const DevisFactures: React.FC = () => {
 
         const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
         const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+        if (!slotStart.isValid() || !slotEnd.isValid()) return false;
 
         const conflictingMissions = missions.filter(m => {
-            if (m.status === 'cancelled' || !m.date) return false;
+            if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
             const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            if (!mStart.isValid() || !mEnd.isValid()) return false;
             return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
         });
 
@@ -1128,9 +1130,10 @@ const DevisFactures: React.FC = () => {
 
         // 2. Identifier les missions concurrentes (même créneau)
         const conflictingMissions = missions.filter(m => {
-            if (m.status === 'cancelled' || !m.date) return false;
+            if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
             const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            if (!mStart.isValid() || !mEnd.isValid()) return false;
             return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
         });
 
@@ -1665,12 +1668,14 @@ const DevisFactures: React.FC = () => {
 
             const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            if (!slotStart.isValid() || !slotEnd.isValid()) continue;
 
             // Vérifier les missions existantes pour ce créneau
             const conflictingMissions = missions.filter(m => {
-                if (m.status === 'cancelled' || !m.date) return false;
+                if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
                 const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                 const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                if (!mStart.isValid() || !mEnd.isValid()) return false;
                 return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
             });
 

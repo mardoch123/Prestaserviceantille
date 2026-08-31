@@ -1296,8 +1296,10 @@ const Planning: React.FC = () => {
           // Criterion 3: No overlap with existing missions
           const hasOverlap = missions.some(m => {
               if (m.status === 'cancelled' || m.date !== targetDate || m.providerId !== p.id) return false;
+              if (!m.startTime || !m.endTime) return false;
               const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
               const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+              if (!mStart.isValid() || !mEnd.isValid()) return false;
               const sStart = dayjs.tz(`${targetDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
               const sEnd = dayjs.tz(`${targetDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
               return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
@@ -1689,8 +1691,10 @@ const Planning: React.FC = () => {
               if (provider && !isOvertimeMode && !isExternalProvider) {
                   const hasOverlap = missions.some(m => {
                       if (m.status === 'cancelled' || m.date !== dateStr || m.providerId !== provider.id) return false;
+                      if (!m.startTime || !m.endTime) return false;
                       const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      if (!mStart.isValid() || !mEnd.isValid()) return false;
                       const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
@@ -1707,8 +1711,10 @@ const Planning: React.FC = () => {
                       const mP1 = m.providerId === provider2.id;
                       const mP2 = m.provider2Id === provider2.id;
                       if (!mP1 && !mP2) return false;
+                      if (!m.startTime || !m.endTime) return false;
                       const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+                      if (!mStart.isValid() || !mEnd.isValid()) return false;
                       const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
                       return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
@@ -1879,13 +1885,14 @@ const Planning: React.FC = () => {
 
       // Check for conflicts with existing missions (as provider1 OR provider2)
       const conflictingMissions = missions.filter(m => {
-          if (m.status === 'cancelled' || !m.date) return false;
+          if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
           const matchesP1 = m.providerId === providerId;
           const matchesP2 = m.provider2Id === providerId;
           if (!matchesP1 && !matchesP2) return false;
           if (excludeMissionId && m.id === excludeMissionId) return false;
           const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
           const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+          if (!mStart.isValid() || !mEnd.isValid()) return false;
           const slotStart = dayjs.tz(`${dateStr} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
           const slotEnd = dayjs.tz(`${dateStr} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
           return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
