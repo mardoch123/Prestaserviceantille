@@ -46,7 +46,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import PageLoader from './PageLoader';
 import dayjs from 'dayjs';
-import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, BellOff, Flag, Briefcase, FileText, FileSpreadsheet, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users, Clock, MessageCircle, Download, Printer, Package, CreditCard, ExternalLink, ArrowRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, CheckCircle, User, AlertCircle, Search, Mail, Repeat, Trash2, CheckSquare, Square, AlertTriangle, Loader2, Calendar, Bell, BellOff, Flag, Briefcase, FileText, FileSpreadsheet, RotateCcw, SlidersHorizontal, Copy as CopyIcon, Users, Clock, MessageCircle, Download, Printer, Package, CreditCard, ExternalLink, ArrowRight } from 'lucide-react';
 import { useData } from '../context/DataContext'; 
 import { Mission, Provider } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -78,7 +78,7 @@ const EXTERNAL_PROVIDER: Provider = {
 };
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings, resyncMissionsFromDocument, syncAllSignedQuotesMissions } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -384,11 +384,11 @@ const Planning: React.FC = () => {
   }, [customDateRange, startDate, endDate, weekStart, weekEnd]);
 
   const colDates = useMemo(() => {
-      const base = Array.from({ length: 7 }, () => '');
+      const base = Array.from({ length: 6 }, () => '');
       if (!rangeStartStr || !rangeEndStr) return base;
 
       if (!customDateRange) {
-          return [0, 1, 2, 3, 4, 5, 6].map(i => weekStart.add(i, 'day').format('YYYY-MM-DD'));
+          return [0, 1, 2, 3, 4, 5].map(i => weekStart.add(i, 'day').format('YYYY-MM-DD'));
       }
 
       const start = dayjs.tz(rangeStartStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
@@ -398,11 +398,11 @@ const Planning: React.FC = () => {
       while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
           const dateStr = cursor.format('YYYY-MM-DD');
           const dow = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
-          const col = dow === 0 ? 6 : dow - 1; // 0..5 = Lun..Sam, 6 = Dim
+          const col = dow === 0 ? 5 : dow - 1;
           if (!byCol.has(col)) byCol.set(col, dateStr);
           cursor = cursor.add(1, 'day');
       }
-      return [0, 1, 2, 3, 4, 5, 6].map(i => byCol.get(i) || '');
+      return [0, 1, 2, 3, 4, 5].map(i => byCol.get(i) || '');
   }, [customDateRange, rangeStartStr, rangeEndStr, weekStart]);
 
   useEffect(() => {
@@ -598,7 +598,7 @@ const Planning: React.FC = () => {
   }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   const filteredProvisionalMissions = useMemo(() => {
-      let startStr: string, endStr: string;
+      let startStr, endStr;
       
       if (customDateRange && startDate && endDate) {
           startStr = startDate;
@@ -608,18 +608,10 @@ const Planning: React.FC = () => {
           endStr = weekEnd.format('YYYY-MM-DD');
       }
 
-      // Build a set of existing non-cancelled missions in state to avoid displaying duplicates
-      const existingMissionKeys = new Set<string>();
-      (missions || []).forEach(m => {
-          if (m.date && m.startTime && m.status !== 'cancelled') {
-              existingMissionKeys.add(`${m.sourceDocumentId || (m as any).source_document_id || ''}|${m.date}|${m.startTime}`);
-              existingMissionKeys.add(`${m.clientId || (m as any).client_id || ''}|${m.date}|${m.startTime}`);
-          }
-      });
-
       const provisional = (documents || [])
           .filter(d => d.type === 'Devis')
-          .filter(d => d.status !== 'rejected')
+          .filter(d => d.status === 'sent')
+          .filter(d => !isQuoteExpired(d))
           .filter(d => {
               if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
               const category = String((d as any)?.category || '').trim().toLowerCase();
@@ -627,46 +619,23 @@ const Planning: React.FC = () => {
               if (serviceTypeFilter === 'Personnalisé') return persisted === 'Personnalisé' || category === 'custom';
               return persisted === serviceTypeFilter;
           })
-          .flatMap(d => {
-              const rawSlots = Array.isArray(d.slotsData) ? d.slotsData : Array.isArray((d as any).slots_data) ? (d as any).slots_data : [];
-              return rawSlots.map((slot: any, index: number) => {
-                  const slotDate = String(slot?.date || '').trim();
-                  const slotStartTime = String(slot?.startTime || '').trim();
-                  const slotEndTime = String(slot?.endTime || '').trim();
-                  if (!slotDate || !slotStartTime) return null;
-                  if (slot?.sessionStatus === 'cancelled') return null;
-
-                  // If a mission already exists in state for this document + slot date + start time, don't duplicate
-                  const docKey = `${d.id}|${slotDate}|${slotStartTime}`;
-                  const clientKey = `${d.clientId}|${slotDate}|${slotStartTime}`;
-                  if (existingMissionKeys.has(docKey) || existingMissionKeys.has(clientKey)) {
-                      return null;
-                  }
-
-                  const duration = typeof slot?.duration === 'number' && slot.duration > 0
-                      ? slot.duration
-                      : calculateDuration(slotDate, slotStartTime, slotDate, slotEndTime) || 0;
-
-                  return {
-                      id: `provisional-${d.id}-${index}-${slotDate}-${slotStartTime}`,
-                      date: slotDate,
-                      startTime: slotStartTime,
-                      endTime: slotEndTime || '—',
-                      duration,
-                      service: d.description || 'Prestation devis',
-                      clientId: d.clientId,
-                      clientName: d.clientName,
-                      providerId: null,
-                      providerName: 'À assigner',
-                      status: 'planned' as const,
-                      sourceDocumentId: d.id,
-                      quoteStatus: d.status,
-                      quoteRef: d.ref,
-                      isProvisional: true
-                  };
-              }).filter(Boolean);
-          })
-          .filter((item: any) => item.date >= startStr && item.date <= endStr);
+          .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
+          .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
+              id: `provisional-${d.id}-${index}-${slot?.date || 'no-date'}-${slot?.startTime || 'no-start'}`,
+              date: slot?.date,
+              startTime: slot?.startTime,
+              endTime: slot?.endTime,
+              duration: typeof slot?.duration === 'number' ? slot.duration : 0,
+              service: d.description || 'Devis',
+              clientId: d.clientId,
+              clientName: d.clientName,
+              providerId: null,
+              providerName: 'À assigner',
+              status: 'planned' as const,
+              sourceDocumentId: d.id
+          })))
+          .filter(item => !!item.date)
+          .filter(item => item.date >= startStr && item.date <= endStr);
 
       let fProvisional = provisional;
 
@@ -687,13 +656,12 @@ const Planning: React.FC = () => {
           fProvisional = fProvisional.filter(item =>
               item.clientName.toLowerCase().includes(query) ||
               item.providerName.toLowerCase().includes(query) ||
-              (item.quoteRef && item.quoteRef.toLowerCase().includes(query)) ||
               item.date.includes(query)
           );
       }
 
       return fProvisional;
-  }, [documents, missions, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
+  }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   useEffect(() => {
       if (!planningLoading) return;
@@ -776,12 +744,22 @@ const Planning: React.FC = () => {
           .filter(m => String((m as any)?.status || '') !== 'cancelled')
           .reduce((acc, m: any) => acc + computeDuration(m.date, m.startTime, m.endTime, m.duration), 0);
 
-      const provisionalHours = (filteredProvisionalMissions || [])
-          .filter((item: any) => String(item?.date || '') === statsDate)
+      const provisionalHours = (documents || [])
+          .filter((d: any) => d?.type === 'Devis')
+          .filter((d: any) => d?.status === 'sent')
+          .filter((d: any) => !isQuoteExpired(d))
+          .filter((d: any) => Array.isArray(d?.slotsData) && d.slotsData.length > 0)
+          .flatMap((d: any) => (d.slotsData || []).map((slot: any) => ({
+              date: slot?.date,
+              startTime: slot?.startTime,
+              endTime: slot?.endTime,
+              duration: slot?.duration
+          })))
+          .filter((s: any) => String(s?.date || '') === statsDate)
           .reduce((acc: number, s: any) => acc + computeDuration(s.date, s.startTime, s.endTime, s.duration), 0);
 
       return Number((missionsHours + provisionalHours).toFixed(2));
-  }, [missions, filteredProvisionalMissions, statsDate]);
+  }, [missions, documents, statsDate, isQuoteExpired]);
 
   const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);
@@ -3308,8 +3286,8 @@ const Planning: React.FC = () => {
 
                 {/* Desktop calendar view */}
                 <div className="hidden md:block min-w-[900px]">
-                    <div className="grid grid-cols-7 border-b border-slate-200 text-center font-bold py-2">
-                        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((d, idx) => {
+                    <div className="grid grid-cols-6 border-b border-slate-200 text-center font-bold py-2">
+                        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map((d, idx) => {
                             const dateStr = colDates[idx] || '';
                             const isSelected = dateStr && dateStr === statsDate;
                             const dayStatus = dateStr ? dayFillStatus.get(dateStr) : null;
@@ -3324,7 +3302,7 @@ const Planning: React.FC = () => {
                                     type="button"
                                     onClick={() => dateStr && setFocusedDate(dateStr)}
                                     disabled={!dateStr}
-                                    className={`px-1.5 py-1 rounded-md mx-1 transition ${isSelected ? 'bg-brand-blue text-white' : 'text-slate-800 hover:opacity-90'} ${!dateStr ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    className={`px-2 py-1 rounded-md mx-2 transition ${isSelected ? 'bg-brand-blue text-white' : 'text-slate-800 hover:opacity-90'} ${!dateStr ? 'opacity-40 cursor-not-allowed' : ''}`}
                                     style={isSelected ? undefined : { backgroundColor: headerBg }}
                                     title={tooltipText}
                                     aria-label={tooltipText}
@@ -3339,8 +3317,8 @@ const Planning: React.FC = () => {
                             );
                         })}
                     </div>
-                    <div className="grid grid-cols-7 flex-1 min-h-[400px] min-h-0">
-                     {[0,1,2,3,4,5,6].map(colIndex => {
+                    <div className="grid grid-cols-6 flex-1 min-h-[400px] min-h-0">
+                     {[0,1,2,3,4,5].map(colIndex => {
                         const colDateStr = colDates[colIndex] || '';
                         const colDayStatus = colDateStr ? dayFillStatus.get(colDateStr) : null;
                         const colBg = colDayStatus?.bgColor ? colDayStatus.bgColor + '66' : 'rgba(248,250,252,0.5)';
@@ -3394,7 +3372,7 @@ const Planning: React.FC = () => {
                             )}
                             {/* Reminders for this day */}
                             {filteredReminders
-                                .filter(r => r.date === colDateStr && !r.completed)
+                                .filter(r => getDayIndex(r.date) === colIndex && !r.completed)
                                 .map(r => (
                                     <div key={r.id} className="bg-yellow-100 border-l-4 border-yellow-400 p-2 rounded shadow-sm text-xs relative group animate-in zoom-in duration-200">
                                         <div className="flex justify-between items-start">
@@ -3406,40 +3384,28 @@ const Planning: React.FC = () => {
                                 ))
                             }
 
-                            {/* Missions for this day (Provisional / Quote sessions) */}
+                            {/* Missions for this day */}
                             {filteredProvisionalMissions
-                                .filter(item => item.date === colDateStr)
-                                .map(item => {
-                                    const isSigned = item.quoteStatus === 'signed';
-                                    const isValidated = item.quoteStatus === 'validated';
-                                    const isToInvoice = item.quoteStatus === 'to_invoice';
-                                    const isDraft = item.quoteStatus === 'draft';
-                                    const cardBg = isSigned ? 'bg-amber-50 border-amber-500' : isValidated ? 'bg-sky-50 border-sky-500' : isToInvoice ? 'bg-indigo-50 border-indigo-500' : isDraft ? 'bg-slate-100 border-slate-400' : 'bg-orange-50 border-orange-500';
-                                    const badgeBg = isSigned ? 'bg-amber-200 text-amber-900' : isValidated ? 'bg-sky-200 text-sky-900' : isToInvoice ? 'bg-indigo-200 text-indigo-900' : isDraft ? 'bg-slate-200 text-slate-800' : 'bg-orange-200 text-orange-900';
-                                    const badgeLabel = isSigned ? 'Devis signé' : isValidated ? 'Devis validé' : isToInvoice ? 'À facturer' : isDraft ? 'Brouillon' : 'Devis envoyé';
-
-                                    return (
-                                        <div
-                                            key={item.id}
-                                            className={`p-2 rounded text-xs cursor-pointer hover:scale-[1.02] transition border-l-4 relative group shadow-sm ${cardBg}`}
-                                            onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                        >
-                                            <div className="flex justify-between items-start gap-1">
-                                                <p className="font-bold text-slate-900 truncate flex-1">{item.clientName}</p>
-                                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded shrink-0 ${badgeBg}`}>
-                                                    {badgeLabel}
-                                                </span>
-                                            </div>
-                                            <p className="text-[10px] font-semibold text-slate-700 mt-0.5">{item.startTime}-{item.endTime} {item.duration ? `(${item.duration}h)` : ''}</p>
-                                            <p className="text-[10px] font-bold text-amber-800 truncate">{item.providerName || 'À assigner'}</p>
-                                            <p className="text-[10px] text-slate-600 truncate">{item.service || 'Devis'}</p>
-                                            {item.quoteRef && <p className="text-[9px] text-slate-500 font-mono truncate">Réf: {item.quoteRef}</p>}
+                                .filter(item => getDayIndex(item.date) === colIndex)
+                                .map(item => (
+                                    <div
+                                        key={item.id}
+                                        className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
+                                        onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                    >
+                                        <div className="flex justify-between">
+                                            <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
+                                            <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
-                                    );
-                                })
+                                        <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
+                                        <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
+                                        <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
+                                    </div>
+                                ))
                             }
                             {filteredMissions
-                                .filter(item => item.date === colDateStr)
+                                .filter(item => getDayIndex(item.date) === colIndex)
                                 .filter(item => item.status !== 'cancelled')
                                 .map(item => {
                                     const style = getMissionPlanningStyle(item);
@@ -4445,11 +4411,10 @@ const Planning: React.FC = () => {
 
       {isProvisionalDetailsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[85vh]">
-                <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[68vh]">
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
                     <div>
-                        <h3 className="text-lg font-serif font-bold text-slate-800">Séance du Devis</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">Prestation issue d'un devis client</p>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">Détails (En attente)</h3>
                     </div>
                     <button
                         onClick={() => {
@@ -4461,91 +4426,24 @@ const Planning: React.FC = () => {
                         <X className="w-5 h-5 text-slate-500" />
                     </button>
                 </div>
-                <div className="p-5 overflow-y-auto flex-1 space-y-4">
-                    {(() => {
-                        const qStatus = selectedProvisionalDetails?.quoteStatus;
-                        const isSigned = qStatus === 'signed';
-                        const isValidated = qStatus === 'validated';
-                        const isToInvoice = qStatus === 'to_invoice';
-                        const isDraft = qStatus === 'draft';
-                        const badgeBg = isSigned ? 'bg-amber-100 text-amber-800 border-amber-300' : isValidated ? 'bg-sky-100 text-sky-800 border-sky-300' : isToInvoice ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : isDraft ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-orange-100 text-orange-800 border-orange-300';
-                        const badgeLabel = isSigned ? 'Devis signé (Non assignée)' : isValidated ? 'Devis validé (En attente signature)' : isToInvoice ? 'Devis à facturer' : isDraft ? 'Brouillon devis' : 'Devis envoyé au client';
+                <div className="p-6 overflow-y-auto flex-1 min-h-0">
+                    <p className="text-sm font-bold text-orange-700">En attente de validation par le client</p>
 
-                        return (
-                            <div className={`p-3 rounded-xl border flex items-center justify-between ${badgeBg}`}>
-                                <span className="text-xs font-bold">{badgeLabel}</span>
-                                {selectedProvisionalDetails?.quoteRef && (
-                                    <span className="text-xs font-mono font-bold">{selectedProvisionalDetails.quoteRef}</span>
-                                )}
-                            </div>
-                        );
-                    })()}
-
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm space-y-2.5">
-                        <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                            <span className="text-xs text-slate-500">Client</span>
-                            <span className="font-bold text-slate-900">{selectedProvisionalDetails?.clientName || '—'}</span>
+                    <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="text-slate-500">Client</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.clientName || '—'}</div>
+                            <div className="text-slate-500">Date</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.date || '—'}</div>
+                            <div className="text-slate-500">Horaire</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.startTime || '—'} - {selectedProvisionalDetails?.endTime || '—'}</div>
+                            <div className="text-slate-500">Prestataire</div>
+                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.providerName || 'À assigner'}</div>
+                            <div className="text-slate-500">Service</div>
+                            <div className="font-bold text-brand-blue">{selectedProvisionalDetails?.service || 'Devis'}</div>
+                            <div className="text-slate-500">Devis</div>
+                            <div className="font-bold text-slate-800 text-xs">{selectedProvisionalDetails?.sourceDocumentId || '—'}</div>
                         </div>
-                        <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                            <span className="text-xs text-slate-500">Date</span>
-                            <span className="font-bold text-slate-900">
-                                {selectedProvisionalDetails?.date ? dayjs.tz(selectedProvisionalDetails.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).locale('fr').format('dddd D MMMM YYYY') : '—'}
-                            </span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                            <span className="text-xs text-slate-500">Horaire</span>
-                            <span className="font-bold text-slate-900">
-                                {selectedProvisionalDetails?.startTime || '—'} à {selectedProvisionalDetails?.endTime || '—'} {selectedProvisionalDetails?.duration ? `(${selectedProvisionalDetails.duration}h)` : ''}
-                            </span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                            <span className="text-xs text-slate-500">Prestataire</span>
-                            <span className="font-bold text-amber-700">{selectedProvisionalDetails?.providerName || 'À assigner'}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                            <span className="text-xs text-slate-500">Service</span>
-                            <span className="font-bold text-brand-blue">{selectedProvisionalDetails?.service || 'Devis'}</span>
-                        </div>
-                        {selectedProvisionalDetails?.sourceDocumentId && (
-                            <div className="flex justify-between items-center py-1">
-                                <span className="text-xs text-slate-500">ID Devis</span>
-                                <span className="font-mono text-xs text-slate-600 truncate max-w-[180px]">{selectedProvisionalDetails.sourceDocumentId}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="pt-2 flex flex-col gap-2">
-                        {selectedProvisionalDetails?.sourceDocumentId && (
-                            <button
-                                type="button"
-                                onClick={async () => {
-                                    if (resyncMissionsFromDocument && selectedProvisionalDetails?.sourceDocumentId) {
-                                        try {
-                                            const res = await resyncMissionsFromDocument(selectedProvisionalDetails.sourceDocumentId);
-                                            toast.success(`${res.created} mission(s) créée(s) / ${res.alreadyExist} déjà planifiée(s)`);
-                                            setIsProvisionalDetailsModalOpen(false);
-                                            setSelectedProvisionalDetails(null);
-                                        } catch (err: any) {
-                                            toast.error(err?.message || 'Erreur lors de la synchronisation');
-                                        }
-                                    }
-                                }}
-                                className="w-full py-2.5 bg-brand-blue text-white rounded-xl font-bold text-xs hover:opacity-90 transition flex items-center justify-center gap-2 shadow-sm"
-                            >
-                                <RefreshCw className="w-4 h-4" /> Synchroniser vers Planning réel
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setIsProvisionalDetailsModalOpen(false);
-                                setSelectedProvisionalDetails(null);
-                                navigate('/invoices');
-                            }}
-                            className="w-full py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold text-xs transition"
-                        >
-                            Ouvrir la section Devis & Factures
-                        </button>
                     </div>
                 </div>
             </div>
