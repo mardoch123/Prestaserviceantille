@@ -3848,35 +3848,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
-        let missionData: any = null;
-
         if (error) {
-            // Si contrainte UNIQUE en base, on récupère la mission existante
+            // Si contrainte UNIQUE en base, on l'ignore pour permettre les missions multiples même créneau
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
             if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                console.warn('[addMission] Doublon détecté, récupération existante:', mission.clientName, mission.date, mission.startTime);
-                // Récupérer la mission existante en base
-                const { data: existingData } = await supabase
-                    .from('missions')
-                    .select('*')
-                    .eq('client_id', dbData.client_id)
-                    .eq('date', dbData.date)
-                    .eq('start_time', dbData.start_time)
-                    .limit(1);
-                if (existingData && existingData.length > 0) {
-                    missionData = existingData[0];
-                }
+                // On laisse passer : on récupère la mission via un select
+                console.warn('[addMission] Doublon détecté mais autorisé:', mission.clientName, mission.date, mission.startTime);
             } else {
                 console.error("Error adding mission:", error);
                 throw error;
             }
-        } else if (data && data.length > 0) {
-            missionData = data[0];
         }
 
-        if (missionData) {
-            const m = missionData;
+        if (data) {
+            const m = data[0];
             const newMission: Mission = {
                 ...m,
                 dayIndex: getDayIndexFromDate(m.date),
@@ -6421,51 +6407,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     providerName: m.provider_name
                 }));
                 setMissions(prev => [...prev, ...createdMissions]);
-            }
-        }
-
-        // ─── ÉTAPE 4 : Récupérer les missions en conflit et les ajouter au state ───
-        // Les missions en conflit existent en base mais ne sont pas dans le state → invisibles
-        if (alreadyExist > 0 && doc.clientId) {
-            const slotDates = validSlots.map((s: any) => s.date);
-            const uniqueDates = [...new Set(slotDates)];
-            const minDate = uniqueDates.sort()[0];
-            const maxDate = uniqueDates.sort().reverse()[0];
-
-            const { data: conflictMissions } = await supabase
-                .from('missions')
-                .select('*')
-                .eq('client_id', doc.clientId)
-                .gte('date', minDate)
-                .lte('date', maxDate);
-
-            if (conflictMissions && conflictMissions.length > 0) {
-                const currentIds = new Set((successfullyCreated || []).map((m: any) => m.id));
-                const toAdd = conflictMissions
-                    .filter((m: any) => !currentIds.has(m.id))
-                    .map((m: any) => ({
-                        ...m,
-                        dayIndex: getDayIndexFromDate(m.date),
-                        startTime: m.start_time,
-                        endTime: m.end_time,
-                        clientId: m.client_id,
-                        clientName: m.client_name,
-                        providerId: m.provider_id,
-                        providerName: m.provider_name,
-                        provider2Id: m.provider2_id || null,
-                        provider2Name: m.provider2_name || null,
-                        sourceDocumentId: m.source_document_id,
-                        isOvertime: m.is_overtime || false,
-                        status: m.status || 'planned'
-                    }));
-                if (toAdd.length > 0) {
-                    console.log(`[resyncMissionsFromDocument] Ajout de ${toAdd.length} missions conflictuelles au state`);
-                    setMissions(prev => {
-                        const prevIds = new Set(prev.map(m => m.id));
-                        const newOnes = toAdd.filter(m => !prevIds.has(m.id));
-                        return [...prev, ...newOnes];
-                    });
-                }
             }
         }
 
