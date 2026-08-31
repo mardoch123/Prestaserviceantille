@@ -1748,9 +1748,6 @@ const Planning: React.FC = () => {
 
           toast.success(count > 1 ? `${count} missions planifiées !` : 'Mission ajoutée avec succès !');
           buttonPress();
-          
-          // Refresh data to get real IDs from DB for the newly created missions
-          if (refreshData) await refreshData();
 
           setIsModalOpen(false);
           setMissionForm(initialFormState); // Reset form cleanly
@@ -1793,8 +1790,6 @@ const Planning: React.FC = () => {
               status: 'planned',
               color: 'gray'
           });
-
-          if (refreshData) await refreshData();
 
           toast.success('Prestation ajoutée !');
           buttonPress();

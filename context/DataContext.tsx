@@ -3848,21 +3848,35 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
+        let missionData: any = null;
+
         if (error) {
-            // Si contrainte UNIQUE en base, on l'ignore pour permettre les missions multiples même créneau
+            // Si contrainte UNIQUE en base, on récupère la mission existante
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
             if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                // On laisse passer : on récupère la mission via un select
-                console.warn('[addMission] Doublon détecté mais autorisé:', mission.clientName, mission.date, mission.startTime);
+                console.warn('[addMission] Doublon détecté, récupération existante:', mission.clientName, mission.date, mission.startTime);
+                // Récupérer la mission existante en base
+                const { data: existingData } = await supabase
+                    .from('missions')
+                    .select('*')
+                    .eq('client_id', dbData.client_id)
+                    .eq('date', dbData.date)
+                    .eq('start_time', dbData.start_time)
+                    .limit(1);
+                if (existingData && existingData.length > 0) {
+                    missionData = existingData[0];
+                }
             } else {
                 console.error("Error adding mission:", error);
                 throw error;
             }
+        } else if (data && data.length > 0) {
+            missionData = data[0];
         }
 
-        if (data) {
-            const m = data[0];
+        if (missionData) {
+            const m = missionData;
             const newMission: Mission = {
                 ...m,
                 dayIndex: getDayIndexFromDate(m.date),
