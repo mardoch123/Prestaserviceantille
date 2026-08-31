@@ -1639,6 +1639,7 @@ const DevisFactures: React.FC = () => {
     };
 
     // Vérification des disponibilités des prestataires — retourne la liste de TOUS les créneaux sans disponibilité
+    // Utilise getAvailableProvidersForSlot (la MÊME fonction que l'affichage UI) pour garantir une cohérence totale
     const checkProviderAvailability = (): { isValid: boolean; unavailableSlots: InterventionSlot[] } => {
         if (interventionSlots.length === 0) {
             return { isValid: true, unavailableSlots: [] };
@@ -1646,88 +1647,9 @@ const DevisFactures: React.FC = () => {
 
         const unavailableSlots: InterventionSlot[] = [];
 
-        // Vérifier chaque créneau planifié
         for (const slot of interventionSlots) {
             if (!slot.date) continue;
-
-            const slotStart = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-            const slotEnd = dayjs.tz(`${slot.date} ${slot.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-            if (!slotStart.isValid() || !slotEnd.isValid()) continue;
-
-            // Vérifier les missions existantes pour ce créneau
-            const conflictingMissions = missions.filter(m => {
-                if (m.status === 'cancelled' || !m.date || !m.startTime || !m.endTime) return false;
-                const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                if (!mStart.isValid() || !mEnd.isValid()) return false;
-                return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
-            });
-
-            // Compter les prestataires disponibles pour ce créneau
-            const availableProviders = providers.filter(provider => {
-                // Vérifier si le prestataire est actif (utiliser status !== 'Inactive' et !== 'Passive')
-                const isActive = provider.status === 'Active';
-                if (!isActive) {
-                    console.log(`Provider ${provider.firstName} ${provider.lastName} is not active: ${provider.status}`);
-                    return false;
-                }
-
-                const day = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
-                const nonWorkingDays = (provider as any)?.nonInterventionDays;
-                if (Array.isArray(nonWorkingDays) && nonWorkingDays.includes(day)) {
-                    console.log(`Provider ${provider.firstName} ${provider.lastName} non working day: ${day}`);
-                    return false;
-                }
-
-                const hourRanges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
-                    ? (provider as any).nonInterventionHours[day]
-                    : undefined;
-                if (Array.isArray(hourRanges) && hourRanges.length > 0) {
-                    const s = String(slot.startTime || '').slice(0, 5);
-                    const e = String(slot.endTime || '').slice(0, 5);
-                    const blocked = hourRanges.some((r: any) => {
-                        const rStart = String(r?.start || '').slice(0, 5);
-                        const rEnd = String(r?.end || '').slice(0, 5);
-                        if (!rStart || !rEnd) return false;
-                        return s < rEnd && e > rStart;
-                    });
-                    if (blocked) {
-                        console.log(`Provider ${provider.firstName} ${provider.lastName} non working hours: ${s}-${e}`);
-                        return false;
-                    }
-                }
-
-                // Vérifier si le prestataire a des congés à cette date
-                const hasLeave = provider.leaves && provider.leaves.some(leave => {
-                    const startTime = (leave as any)?.startTime ? String((leave as any).startTime).slice(0, 5) : '00:00';
-                    const endTime = (leave as any)?.endTime ? String((leave as any).endTime).slice(0, 5) : '23:59';
-
-                    const leaveStart = dayjs.tz(`${leave.startDate} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                    const leaveEnd = dayjs.tz(`${leave.endDate} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                    if (!leaveStart.isValid() || !leaveEnd.isValid()) return false;
-
-                    return slotStart.valueOf() < leaveEnd.valueOf() && slotEnd.valueOf() > leaveStart.valueOf();
-                });
-
-                if (hasLeave) {
-                    console.log(`Provider ${provider.firstName} ${provider.lastName} has leave on ${slot.date}`);
-                    return false;
-                }
-
-                // Vérifier si le prestataire a déjà des missions à ce créneau
-                const hasConflict = conflictingMissions.some(m => m.providerId === provider.id);
-                if (hasConflict) {
-                    console.log(`Provider ${provider.firstName} ${provider.lastName} has conflict mission`);
-                    return false;
-                }
-
-                console.log(`Provider ${provider.firstName} ${provider.lastName} is AVAILABLE`);
-                return true;
-            });
-
-            console.log(`Total providers: ${providers.length}, Available providers: ${availableProviders.length}`);
-
-            // Si aucun prestataire disponible pour ce créneau, l'ajouter à la liste
+            const availableProviders = getAvailableProvidersForSlot(slot);
             if (availableProviders.length === 0) {
                 unavailableSlots.push(slot);
             }
@@ -4878,7 +4800,7 @@ const DevisFactures: React.FC = () => {
 
                         <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
                             <p className="text-sm text-amber-800">
-                                <strong>Aucun prestataire disponible</strong> pour {unavailableSlotsAtSubmit.length} créneau{unavailableSlotsAtSubmit.length > 1 ? 'x' : ''} horaire{unavailableSlotsAtSubmit.length > 1 ? 's' : ''} avec la spécialité requise.
+                                <strong>Aucun prestataire disponible</strong> pour {unavailableSlotsAtSubmit.length} créneau{unavailableSlotsAtSubmit.length > 1 ? 'x' : ''} horaire{unavailableSlotsAtSubmit.length > 1 ? 's' : ''} (sur {interventionSlots.length} créneau{interventionSlots.length > 1 ? 'x' : ''} vérifié{interventionSlots.length > 1 ? 's' : ''}).
                             </p>
                             <p className="text-xs text-amber-700">
                                 Type de service : <strong>{serviceCategory || 'Non spécifié'}</strong>
@@ -4887,11 +4809,14 @@ const DevisFactures: React.FC = () => {
                             <div className="space-y-2">
                                 {unavailableSlotsAtSubmit.map((slot, idx) => (
                                     <div key={slot.id || idx} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
-                                        <div className="font-semibold text-amber-900">
-                                            Date : {slot.date}
+                                        <div className="flex justify-between items-center">
+                                            <div className="font-semibold text-amber-900">
+                                                Date : {slot.date}
+                                            </div>
+                                            <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">0 dispo</span>
                                         </div>
                                         <div className="text-amber-800">
-                                            Horaire : {slot.startTime} - {slot.endTime}
+                                            Horaire : {slot.startTime} - {slot.endTime} ({safeNum(slot.duration).toFixed(1)}h)
                                         </div>
                                     </div>
                                 ))}
