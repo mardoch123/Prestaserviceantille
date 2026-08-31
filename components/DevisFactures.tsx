@@ -1699,10 +1699,28 @@ const DevisFactures: React.FC = () => {
         setIsResyncing(true);
         try {
             const result = await resyncMissionsFromDocument(selectedDocument.id);
-            if (result.blocked.length > 0 && result.created === 0) {
+            const isRealError = result.blocked.length > 0 && result.blocked[0]?.startsWith('Erreur');
+
+            if (isRealError) {
+                // Erreur technique (DB, fetch, etc.)
                 toast.error(`Blocage : ${result.blocked.join(', ')}`);
+            } else if (result.created > 0 && result.blocked.length > 0) {
+                // Succès partiel : certaines créées, d'autres en conflit
+                toast.success(`${result.created} séance${result.created > 1 ? 's' : ''} créée${result.created > 1 ? 's' : ''} dans le planning.`);
+                // Afficher les conflits en warning
+                const conflictMsg = result.blocked.length <= 3
+                    ? result.blocked.join(' | ')
+                    : `${result.blocked.slice(0, 3).join(' | ')} ... et ${result.blocked.length - 3} autre(s)`;
+                setTimeout(() => toast.warning(`${result.blocked.length} créneau${result.blocked.length > 1 ? 'x' : ''} déjà existant${result.blocked.length > 1 ? 's' : ''} : ${conflictMsg}`), 500);
             } else if (result.created > 0) {
-                toast.success(`Synchronisation complète : ${result.created} séance${result.created > 1 ? 's' : ''} recréée${result.created > 1 ? 's' : ''} dans le planning.`);
+                // Succès total
+                toast.success(`Synchronisation réussie : ${result.created} séance${result.created > 1 ? 's' : ''} créée${result.created > 1 ? 's' : ''} dans le planning.`);
+            } else if (result.blocked.length > 0) {
+                // Tous les créneaux sont en conflit
+                const conflictMsg = result.blocked.length <= 3
+                    ? result.blocked.join(' | ')
+                    : `${result.blocked.slice(0, 3).join(' | ')} ... et ${result.blocked.length - 3} autre(s)`;
+                toast.warning(`Tous les créneaux existent déjà. Conflits : ${conflictMsg}`);
             } else {
                 toast.info(`Aucune séance valide à synchroniser pour ce devis.`);
             }
