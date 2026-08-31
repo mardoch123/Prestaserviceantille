@@ -437,8 +437,9 @@ const Planning: React.FC = () => {
           startStr = startDate;
           endStr = endDate;
       } else {
+          // Charger 4 semaines à l'avance pour que les missions futures soient visibles
           startStr = weekStart.format('YYYY-MM-DD');
-          endStr = weekEnd.format('YYYY-MM-DD');
+          endStr = weekStart.add(27, 'day').format('YYYY-MM-DD');
       }
       if (!startStr || !endStr) return;
       const key = `${startStr}_${endStr}`;
@@ -497,7 +498,7 @@ const Planning: React.FC = () => {
           endStr = endDate;
       } else {
           startStr = weekStart.format('YYYY-MM-DD');
-          endStr = weekEnd.format('YYYY-MM-DD');
+          endStr = weekStart.add(27, 'day').format('YYYY-MM-DD');
       }
       if (!startStr || !endStr) return;
 
@@ -699,7 +700,7 @@ const Planning: React.FC = () => {
           // Force reload the current range
           if (loadMissionsForRange) {
               const startStr = weekStart.format('YYYY-MM-DD');
-              const endStr = weekEnd.format('YYYY-MM-DD');
+              const endStr = weekStart.add(27, 'day').format('YYYY-MM-DD');
               loadMissionsForRange(startStr, endStr).then(() => {
                   console.log('[Planning] Safety reload completed');
                   // Reset the flag after 5 seconds to allow future reloads if needed
