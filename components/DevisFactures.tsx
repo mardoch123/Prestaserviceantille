@@ -1702,9 +1702,9 @@ const DevisFactures: React.FC = () => {
             if (result.blocked.length > 0 && result.created === 0) {
                 toast.error(`Blocage : ${result.blocked.join(', ')}`);
             } else if (result.created > 0) {
-                toast.success(`Synchronisation réussie : ${result.created} séance${result.created > 1 ? 's' : ''} créée${result.created > 1 ? 's' : ''} dans le planning. (${result.alreadyExist} déjà présente${result.alreadyExist > 1 ? 's' : ''})`);
+                toast.success(`Synchronisation complète : ${result.created} séance${result.created > 1 ? 's' : ''} recréée${result.created > 1 ? 's' : ''} dans le planning.`);
             } else {
-                toast.info(`Toutes les séances sont déjà synchronisées (${result.alreadyExist}/${result.total}).`);
+                toast.info(`Aucune séance valide à synchroniser pour ce devis.`);
             }
         } catch (e: any) {
             console.error('[handleResyncPlanning] Erreur:', e);

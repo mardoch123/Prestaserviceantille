@@ -6266,7 +6266,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     // === RESYNC MISSIONS FROM DOCUMENT ===
-    // Crée les missions manquantes pour un devis déjà validé/signé, sans doublon
+    // Supprime TOUTES les missions existantes pour ce devis, puis les recrée proprement.
+    // Garantie : après resync, les missions sont en base ET dans le state → visibles dans le planning.
     const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }> => {
         const doc = documents.find(d => d.id === docId);
         if (!doc) return { created: 0, alreadyExist: 0, total: 0, blocked: ['Document introuvable'] };
@@ -6274,74 +6275,58 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return { created: 0, alreadyExist: 0, total: 0, blocked: ['Aucun créneau défini dans ce devis'] };
         }
 
-        // Récupérer les missions existantes pour ce document (en state + en base)
-        const existingInState = missions.filter((m: any) =>
-            (m.sourceDocumentId || m.source_document_id) === docId && m.status !== 'cancelled'
+        // Compter les créneaux valides (non annulés) du devis
+        const validSlots = doc.slotsData.filter((s: any) =>
+            s.date && s.startTime && s.endTime && s.sessionStatus !== 'cancelled'
         );
+        const cancelledCount = doc.slotsData.length - validSlots.length;
 
-        const { data: existingInDb } = await supabase
+        if (validSlots.length === 0) {
+            return { created: 0, alreadyExist: cancelledCount, total: doc.slotsData.length, blocked: ['Aucun créneau valide à synchroniser'] };
+        }
+
+        // ─── ÉTAPE 1 : Supprimer TOUTES les missions existantes pour ce document en base ───
+        const { error: deleteError } = await supabase
             .from('missions')
-            .select('id, date, start_time')
-            .eq('source_document_id', docId)
-            .neq('status', 'cancelled');
+            .delete()
+            .eq('source_document_id', docId);
 
-        // Construire un Set des créneaux déjà couverts (date|startTime)
-        const coveredSlotKeys = new Set<string>();
-        existingInState.forEach(m => {
-            if (m.date && m.startTime) coveredSlotKeys.add(`${m.date}|${m.startTime}`);
-        });
-        (existingInDb || []).forEach(m => {
-            if (m.date && m.start_time) coveredSlotKeys.add(`${m.date}|${m.start_time}`);
-        });
-
-        // Déterminer les créneaux manquants
-        const slotsToCreate: any[] = [];
-        let alreadyExist = 0;
-        const blocked: string[] = [];
-
-        for (const slot of doc.slotsData) {
-            if (!slot.date || !slot.startTime || !slot.endTime) continue;
-            const key = `${slot.date}|${slot.startTime}`;
-            if (coveredSlotKeys.has(key)) {
-                alreadyExist++;
-                continue;
-            }
-            // Vérifier si la session n'est pas annulée
-            if (slot.sessionStatus === 'cancelled') {
-                alreadyExist++;
-                continue;
-            }
-            slotsToCreate.push({
-                id: generateUUID(),
-                date: slot.date,
-                start_time: slot.startTime,
-                end_time: slot.endTime,
-                duration: slot.duration,
-                client_id: doc.clientId,
-                client_name: doc.clientName,
-                service: doc.description,
-                provider_id: null,
-                provider_name: 'À assigner',
-                status: 'planned',
-                color: 'gray',
-                source: 'devis',
-                source_document_id: docId
-            });
+        if (deleteError) {
+            console.error('[resyncMissionsFromDocument] Erreur delete:', deleteError);
+            return { created: 0, alreadyExist: 0, total: doc.slotsData.length, blocked: ['Erreur suppression anciennes missions : ' + deleteError.message] };
         }
 
-        if (slotsToCreate.length === 0) {
-            return { created: 0, alreadyExist, total: doc.slotsData.length, blocked: [] };
+        // Retirer du state local les anciennes missions liées à ce document
+        setMissions(prev => prev.filter((m: any) =>
+            (m.sourceDocumentId || m.source_document_id) !== docId
+        ));
+
+        // ─── ÉTAPE 2 : Recréer toutes les missions valides ───
+        const missionsToInsert = validSlots.map((slot: any) => ({
+            id: generateUUID(),
+            date: slot.date,
+            start_time: slot.startTime,
+            end_time: slot.endTime,
+            duration: slot.duration,
+            client_id: doc.clientId,
+            client_name: doc.clientName,
+            service: doc.description,
+            provider_id: null,
+            provider_name: 'À assigner',
+            status: 'planned',
+            color: 'gray',
+            source: 'devis',
+            source_document_id: docId
+        }));
+
+        const { error: insertError } = await supabase.from('missions').insert(missionsToInsert);
+        if (insertError) {
+            console.error('[resyncMissionsFromDocument] Erreur insert:', insertError);
+            return { created: 0, alreadyExist: 0, total: doc.slotsData.length, blocked: ['Erreur création missions : ' + insertError.message] };
         }
 
-        // Insertion en base
-        const { error } = await supabase.from('missions').insert(slotsToCreate);
-        if (error) {
-            console.error('[resyncMissionsFromDocument] Erreur insert:', error);
-            return { created: 0, alreadyExist, total: doc.slotsData.length, blocked: [error.message || 'Erreur DB'] };
-        }
-
-        // Ajout au state local
-        const createdMissions = slotsToCreate.map(m => ({
+        // Ajouter au state local
+        const createdMissions = missionsToInsert.map((m: any) => ({
             ...m,
             dayIndex: getDayIndexFromDate(m.date),
             startTime: m.start_time,
@@ -6353,11 +6338,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }));
         setMissions(prev => [...prev, ...createdMissions]);
 
+        console.log(`[resyncMissionsFromDocument] Resync complet pour ${doc.ref}: ${missionsToInsert.length} missions recréées, ${cancelledCount} annulées ignorées`);
+
         return {
-            created: slotsToCreate.length,
-            alreadyExist,
+            created: missionsToInsert.length,
+            alreadyExist: cancelledCount,
             total: doc.slotsData.length,
-            blocked
+            blocked: []
         };
     };
 
