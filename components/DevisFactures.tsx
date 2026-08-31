@@ -280,6 +280,11 @@ const DevisFactures: React.FC = () => {
         value: string;
     } | null>(null);
 
+    // State for validation modal at submit time — liste de tous les créneaux sans disponibilité
+    const [isNoProviderValidationOpen, setIsNoProviderValidationOpen] = useState(false);
+    const [unavailableSlotsAtSubmit, setUnavailableSlotsAtSubmit] = useState<InterventionSlot[]>([]);
+    const pendingSubmitModeRef = React.useRef<'send' | 'validate_only' | undefined>(undefined);
+
     const getAvailableProvidersForSlot = (slot: InterventionSlot): any[] => {
         if (!slot?.date) return [];
 
@@ -1291,6 +1296,13 @@ const DevisFactures: React.FC = () => {
         toast.warning('Créneau modifié mais aucun prestataire disponible pour ce type de service.');
     };
 
+    // Force submit du devis en bypassant la vérification de disponibilité (appelé depuis le modal de validation)
+    const doSubmitForce = async () => {
+        const mode = pendingSubmitModeRef.current;
+        pendingSubmitModeRef.current = undefined;
+        await handleSuccess(mode, { skipAvailabilityCheck: true });
+    };
+
     // Check if slot has available provider before updating
     const checkSlotAvailabilityBeforeUpdate = (index: number, field: keyof InterventionSlot, value: string): boolean => {
         const currentSlot = interventionSlots[index];
@@ -1353,40 +1365,10 @@ const DevisFactures: React.FC = () => {
         if (field === 'startTime') {
             // Garder la durée constante si possible, décaler l'heure de fin
             const end = addHoursToTime(value, currentSlot.duration);
-            
-            // Check provider availability before updating
-            if (shouldValidate && !checkSlotAvailabilityBeforeUpdate(index, field, value)) {
-                setNoProviderWarningData({
-                    slotIndex: index,
-                    date: currentSlot.date,
-                    startTime: value,
-                    endTime: end,
-                    field,
-                    value
-                });
-                setIsNoProviderWarningOpen(true);
-                return;
-            }
-            
             newSlots[index] = { ...currentSlot, startTime: value, endTime: end };
         } else if (field === 'endTime') {
             // Recalculer la durée
             const dur = calculateDuration(currentSlot.startTime, value);
-            
-            // Check provider availability before updating
-            if (shouldValidate && !checkSlotAvailabilityBeforeUpdate(index, field, value)) {
-                setNoProviderWarningData({
-                    slotIndex: index,
-                    date: currentSlot.date,
-                    startTime: currentSlot.startTime,
-                    endTime: value,
-                    field,
-                    value
-                });
-                setIsNoProviderWarningOpen(true);
-                return;
-            }
-            
             newSlots[index] = { ...currentSlot, endTime: value, duration: dur };
 
             // Vérifier si cette modification respecte les contraintes du pack
@@ -1656,11 +1638,13 @@ const DevisFactures: React.FC = () => {
         return { isValid: true, message: '' };
     };
 
-    // Vérification des disponibilités des prestataires
-    const checkProviderAvailability = (): { isValid: boolean; message: string } => {
+    // Vérification des disponibilités des prestataires — retourne la liste de TOUS les créneaux sans disponibilité
+    const checkProviderAvailability = (): { isValid: boolean; unavailableSlots: InterventionSlot[] } => {
         if (interventionSlots.length === 0) {
-            return { isValid: true, message: '' };
+            return { isValid: true, unavailableSlots: [] };
         }
+
+        const unavailableSlots: InterventionSlot[] = [];
 
         // Vérifier chaque créneau planifié
         for (const slot of interventionSlots) {
@@ -1743,19 +1727,13 @@ const DevisFactures: React.FC = () => {
 
             console.log(`Total providers: ${providers.length}, Available providers: ${availableProviders.length}`);
 
-            // S'il y a au moins un prestataire disponible, accepter la prestation
-            if (availableProviders.length > 0) {
-                return { isValid: true, message: '' };
+            // Si aucun prestataire disponible pour ce créneau, l'ajouter à la liste
+            if (availableProviders.length === 0) {
+                unavailableSlots.push(slot);
             }
-
-            // S'il n'y a aucun prestataire disponible pour ce créneau
-            return {
-                isValid: false,
-                message: `Aucun prestataire disponible pour le créneau du ${slot.date} de ${slot.startTime} à ${slot.endTime}. (${providers.length} prestataires au total, ${availableProviders.length} disponibles). Veuillez choisir d'autres dates.`
-            };
         }
 
-        return { isValid: true, message: '' };
+        return { isValid: unavailableSlots.length === 0, unavailableSlots };
     };
 
     const handleDownloadContract = (doc: Document) => {
@@ -2068,7 +2046,7 @@ const DevisFactures: React.FC = () => {
         }
     };
 
-    const handleSuccess = async (mode?: 'send' | 'validate_only') => {
+    const handleSuccess = async (mode?: 'send' | 'validate_only', options?: { skipAvailabilityCheck?: boolean }) => {
         setIsSubmitting(true);
         try {
             const existingDoc = editingDocumentId ? (documents || []).find((d: any) => String(d?.id || '') === String(editingDocumentId || '')) : null;
@@ -2102,12 +2080,16 @@ const DevisFactures: React.FC = () => {
                     toast.success(validation.message);
                 }
 
-                // Vérification des disponibilités des prestataires
-                const availabilityCheck = checkProviderAvailability();
-                if (!availabilityCheck.isValid) {
-                    toast.warning(availabilityCheck.message);
-                    setIsSubmitting(false);
-                    return;
+                // Vérification des disponibilités des prestataires (sauf si continuation forcée)
+                if (!options?.skipAvailabilityCheck) {
+                    const availabilityCheck = checkProviderAvailability();
+                    if (!availabilityCheck.isValid) {
+                        setUnavailableSlotsAtSubmit(availabilityCheck.unavailableSlots);
+                        pendingSubmitModeRef.current = mode;
+                        setIsNoProviderValidationOpen(true);
+                        setIsSubmitting(false);
+                        return;
+                    }
                 }
 
                 // Validation stricte date/heure (Martinique):
@@ -4875,6 +4857,66 @@ const DevisFactures: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleForceContinueSlot}
+                                className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold transition"
+                            >
+                                Continuer de force
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Modal de validation — créneaux sans disponibilité (affiché à la validation du devis) */}
+            {isNoProviderValidationOpen && unavailableSlotsAtSubmit.length > 0 && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-slate-100 bg-amber-50">
+                            <div className="flex items-center gap-3">
+                                <AlertTriangle className="w-6 h-6 text-amber-600" />
+                                <h3 className="text-lg font-bold text-slate-800">Attention — Créneaux sans disponibilité</h3>
+                            </div>
+                        </div>
+
+                        <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                            <p className="text-sm text-amber-800">
+                                <strong>Aucun prestataire disponible</strong> pour {unavailableSlotsAtSubmit.length} créneau{unavailableSlotsAtSubmit.length > 1 ? 'x' : ''} horaire{unavailableSlotsAtSubmit.length > 1 ? 's' : ''} avec la spécialité requise.
+                            </p>
+                            <p className="text-xs text-amber-700">
+                                Type de service : <strong>{serviceCategory || 'Non spécifié'}</strong>
+                            </p>
+
+                            <div className="space-y-2">
+                                {unavailableSlotsAtSubmit.map((slot, idx) => (
+                                    <div key={slot.id || idx} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                                        <div className="font-semibold text-amber-900">
+                                            Date : {slot.date}
+                                        </div>
+                                        <div className="text-amber-800">
+                                            Horaire : {slot.startTime} - {slot.endTime}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <p className="text-sm text-slate-600">
+                                Vous pouvez :
+                            </p>
+                            <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
+                                <li>Revenir à une date/heure où des prestataires sont disponibles</li>
+                                <li>Continuer quand même (le{unavailableSlotsAtSubmit.length > 1 ? 's' : ''} créneau{unavailableSlotsAtSubmit.length > 1 ? 'x' : ''} sera{unavailableSlotsAtSubmit.length > 1 ? 'ont' : 'a'} marqué{unavailableSlotsAtSubmit.length > 1 ? 's' : ''} comme sans disponibilité)</li>
+                            </ul>
+                        </div>
+
+                        <div className="p-6 border-t border-slate-100 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => { setIsNoProviderValidationOpen(false); setUnavailableSlotsAtSubmit([]); }}
+                                className="flex-1 py-3 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition"
+                            >
+                                Revenir en arrière
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setIsNoProviderValidationOpen(false); setUnavailableSlotsAtSubmit([]); void doSubmitForce(); }}
                                 className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold transition"
                             >
                                 Continuer de force
