@@ -88,7 +88,7 @@ function generateUUID() {
 }
 
 const Planning: React.FC = () => {
-  const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
+  const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, clearAllMissionsCache, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
   const { buttonPress, success, error: hapticError } = useHaptic();
 
@@ -458,9 +458,9 @@ const Planning: React.FC = () => {
       const run = async () => {
           try {
               setPlanningLoading(true);
-              setPlanningProgress(5);
+              setPlanningProgress(15);
               if (loadMissionsForRange) {
-                  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 12000));
+                  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
                   const result = await Promise.race([
                       loadMissionsForRange(startStr, endStr, (p) => {
                           if (active) setPlanningProgress(p);
@@ -468,14 +468,8 @@ const Planning: React.FC = () => {
                       timeoutPromise
                   ]);
                   if (result === 'timeout') {
-                      if (active) {
-                          setPlanningProgress(100);
-                          toast.warning('Chargement prolongé, le planning continue en arrière-plan.');
-                      }
                       pendingRangeRef.current = '';
-                      return;
-                  }
-                  if (result === true) {
+                  } else if (result === true) {
                       lastRangeRef.current = key;
                   } else {
                       pendingRangeRef.current = '';
@@ -484,9 +478,7 @@ const Planning: React.FC = () => {
               if (active) setPlanningProgress(100);
           } finally {
               if (active) {
-                  setTimeout(() => {
-                      if (active) setPlanningLoading(false);
-                  }, 300);
+                  setPlanningLoading(false);
               }
               pendingRangeRef.current = '';
           }
@@ -701,18 +693,12 @@ const Planning: React.FC = () => {
 
   useEffect(() => {
       if (!planningLoading) return;
-      const hasContent = filteredMissions.length > 0 || filteredProvisionalMissions.length > 0 || filteredReminders.length > 0;
-      if (hasContent) {
-          setPlanningProgress(100);
-          setPlanningLoading(false);
-          return;
-      }
       const timeoutId = setTimeout(() => {
           setPlanningProgress(100);
           setPlanningLoading(false);
-      }, 15000);
+      }, 500);
       return () => clearTimeout(timeoutId);
-  }, [planningLoading, filteredMissions.length, filteredProvisionalMissions.length, filteredReminders.length]);
+  }, [planningLoading]);
 
   // --- SAFETY: Auto-reload when missions disappear unexpectedly ---
   const lastMissionsCountRef = useRef(missions.length);
@@ -2792,6 +2778,19 @@ const Planning: React.FC = () => {
                   <ChevronRight className="w-4 h-4" />
               </button>
           </div>
+          <button
+              type="button"
+              onClick={async () => {
+                  clearAllMissionsCache();
+                  toast.success('Cache vidé ! Rechargement...');
+                  if (refreshData) await refreshData();
+              }}
+              className="w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 text-amber-600 transition"
+              title="Vider le cache"
+              aria-label="Vider le cache"
+          >
+              <RotateCcw className="w-4 h-4" />
+          </button>
           <button onClick={() => setShowMobileFilters(v => !v)} className={`w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 transition ${showMobileFilters ? 'text-brand-blue' : 'text-slate-700'}`} title={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'} aria-label={showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}>
               <SlidersHorizontal className="w-4 h-4" />
           </button>
@@ -2844,6 +2843,26 @@ const Planning: React.FC = () => {
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Bouton Vider Cache */}
+          <button
+            type="button"
+            onClick={async () => {
+              clearAllMissionsCache();
+              toast.success('Cache local vidé ! Rechargement des données...');
+              if (refreshData) await refreshData();
+              const startStr = weekStart.format('YYYY-MM-DD');
+              const endStr = weekEnd.format('YYYY-MM-DD');
+              if (loadMissionsForRange) {
+                await loadMissionsForRange(startStr, endStr);
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-amber-600 transition flex items-center gap-1 text-xs font-bold shadow-sm"
+            title="Nettoyer le cache local et recharger"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+            <span>Vider cache</span>
+          </button>
 
           {/* Séparateur */}
           <div className="w-px h-6 bg-slate-200" />
@@ -3128,25 +3147,11 @@ const Planning: React.FC = () => {
        {/* Main Grid */}
        <div className="flex-1 min-h-0 flex flex-col gap-4 lg:flex-row lg:gap-6 relative">
             {planningLoading && (
-                <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-xl border border-slate-200">
-                    <div className="flex flex-col items-center gap-4 p-6 bg-white rounded-2xl shadow-xl border border-slate-100 max-w-sm w-full mx-4">
-                        <div className="w-full animate-pulse space-y-3">
-                            <div className="h-6 bg-slate-200 rounded w-2/3 mx-auto" />
-                            <div className="h-4 bg-slate-200 rounded w-3/4 mx-auto" />
-                        </div>
-                        <div className="w-full space-y-2 text-center">
-                            <h3 className="text-lg font-bold text-slate-800">Chargement du planning</h3>
-                            <p className="text-sm text-slate-500 italic min-h-[1.25rem]">{encouragementMessages[encouragementIndex]}</p>
-                            
-                            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden mt-2">
-                                <div
-                                    className="bg-brand-blue h-2 rounded-full transition-all duration-300"
-                                    style={{ width: `${Math.min(100, Math.max(0, Math.round(planningProgress)))}%` }}
-                                />
-                            </div>
-                            <div className="text-xs font-bold text-slate-400 text-right">{Math.min(100, Math.max(0, Math.round(planningProgress)))}%</div>
-                        </div>
-                    </div>
+                <div className="absolute top-0 left-0 right-0 z-30 h-1 bg-amber-100/50 overflow-hidden pointer-events-none rounded-t-xl">
+                    <div
+                        className="bg-brand-blue h-full transition-all duration-300 animate-pulse"
+                        style={{ width: `${Math.min(100, Math.max(15, Math.round(planningProgress)))}%` }}
+                    />
                 </div>
             )}
 
@@ -3156,12 +3161,12 @@ const Planning: React.FC = () => {
                     {/* Day strip — horizontal scrollable week */}
                     <div className="shrink-0 bg-white border-b border-slate-200 px-2 py-2">
                         <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
-                            {mobilePlanningDays.map(({ dateStr, missionsForDate }) => {
+                            {mobilePlanningDays.map(({ dateStr, missionsForDate, provisionalForDate }) => {
                                 const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
                                 const isSelected = dateStr === statsDate;
                                 const isToday = dateStr === getMartiniqueToday();
                                 const dayStatus = dayFillStatus.get(dateStr);
-                                const count = missionsForDate.length;
+                                const count = missionsForDate.length + (provisionalForDate?.length || 0);
                                 const holidayName = getHolidayName(dateStr);
                                 const isHoliday = !!holidayName;
                                 return (
@@ -3228,7 +3233,7 @@ const Planning: React.FC = () => {
                             const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
                             const dayStatus = dayFillStatus.get(dateStr);
                             const allItems = [...missionsForDate].sort((a: any, b: any) => (a.startTime || '').localeCompare(b.startTime || ''));
-                            const totalHours = allItems.reduce((acc: number, m: any) => acc + (m.duration || 0), 0);
+                            const totalHours = allItems.reduce((acc: number, m: any) => acc + (m.duration || 0), 0) + (provisionalForDate || []).reduce((acc: number, p: any) => acc + (p.duration || 0), 0);
 
                             return (
                                 <div className="pb-4">
@@ -3239,7 +3244,7 @@ const Planning: React.FC = () => {
                                                 {d.format('dddd D MMMM')}
                                             </h3>
                                             <p className="text-[11px] text-slate-500 mt-0.5">
-                                                {allItems.length} prestation{allItems.length !== 1 ? 's' : ''} · {totalHours.toFixed(1)}h
+                                                {allItems.length + (provisionalForDate?.length || 0)} prestation{allItems.length + (provisionalForDate?.length || 0) !== 1 ? 's' : ''} · {totalHours.toFixed(1)}h
                                                 {dayStatus && ` · ${dayStatus.plannedHours.toFixed(1)}/${dayStatus.capacityHours.toFixed(0)}h`}
                                             </p>
                                         </div>
@@ -3248,15 +3253,20 @@ const Planning: React.FC = () => {
                                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                                     dayStatus.status === 'clos' ? 'bg-teal-100 text-teal-700' :
                                                     dayStatus.status === 'full' ? 'bg-orange-100 text-orange-700' :
-                                                    'bg-yellow-100 text-yellow-700'
+                                                    dayStatus.status === 'busy' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-green-100 text-green-700'
                                                 }`}>
-                                                    {dayStatus.status === 'clos' ? 'Clos' : dayStatus.status === 'full' ? 'Complet' : 'Chargé'}
+                                                    {dayStatus.status === 'clos' ? 'Clos' : dayStatus.status === 'full' ? 'Complet' : dayStatus.status === 'busy' ? 'Occupé' : 'Normal'}
                                                 </span>
                                             )}
                                             <button
                                                 type="button"
                                                 onClick={() => toggleCloseDay(dateStr)}
-                                                className="text-[10px] text-slate-400 hover:text-teal-600 px-1.5 py-0.5 rounded border border-slate-200 hover:border-teal-300 transition"
+                                                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition ${
+                                                    closedDays.has(dateStr)
+                                                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                                }`}
                                             >
                                                 {closedDays.has(dateStr) ? '↩ Ouvrir' : '🔒 Clore'}
                                             </button>
@@ -3275,22 +3285,24 @@ const Planning: React.FC = () => {
                                             </div>
                                         ))}
 
-                                        {/* Provisional missions */}
+                                        {/* Provisional / Quote missions */}
                                         {provisionalForDate.map((item: any) => (
                                             <div
                                                 key={item.id}
-                                                className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
+                                                className={`${item.isSignedQuote ? 'bg-blue-50/90 border border-blue-200' : 'bg-orange-50/90 border border-orange-200'} rounded-xl p-3 cursor-pointer hover:opacity-95 active:scale-[0.98] transition flex items-center gap-3 shadow-sm`}
                                                 onClick={(e) => handleProvisionalMissionClick(item, e)}
                                             >
                                                 <div className="shrink-0 w-12 text-center">
-                                                    <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0,5)}</div>
-                                                    <div className="text-[10px] text-orange-500">{item.endTime?.slice(0,5)}</div>
+                                                    <div className={`text-xs font-bold ${item.isSignedQuote ? 'text-blue-800' : 'text-orange-700'}`}>{item.startTime?.slice(0,5)}</div>
+                                                    <div className={`text-[10px] ${item.isSignedQuote ? 'text-blue-600' : 'text-orange-500'}`}>{item.endTime?.slice(0,5)}</div>
                                                 </div>
-                                                <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
-                                                    <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
-                                                    <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
+                                                <div className={`flex-1 min-w-0 border-l-2 pl-2.5 ${item.isSignedQuote ? 'border-blue-400' : 'border-orange-300'}`}>
+                                                    <p className={`font-bold text-xs truncate ${item.isSignedQuote ? 'text-blue-900' : 'text-orange-900'}`}>{item.clientName}</p>
+                                                    <p className={`text-[10px] truncate ${item.isSignedQuote ? 'text-blue-700' : 'text-orange-700'}`}>{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
                                                 </div>
-                                                <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
+                                                <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${item.isSignedQuote ? 'bg-blue-600 text-white' : 'bg-orange-200 text-orange-800'}`}>
+                                                    {item.isSignedQuote ? 'Devis signé' : 'En attente'}
+                                                </span>
                                             </div>
                                         ))}
 
@@ -3494,17 +3506,21 @@ const Planning: React.FC = () => {
                                 .map(item => (
                                     <div
                                         key={item.id}
-                                        className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
+                                        className={`${item.isSignedQuote ? 'bg-blue-50/90 border-l-4 border-blue-600 text-blue-900 shadow-sm' : 'bg-orange-100/90 border-l-4 border-orange-500 text-orange-900'} p-2 rounded-lg text-xs cursor-pointer hover:scale-105 transition relative group`}
                                         onClick={(e) => handleProvisionalMissionClick(item, e)}
                                     >
-                                        <div className="flex justify-between">
-                                            <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
-                                            <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
+                                        <div className="flex justify-between items-start">
+                                            <p className="font-bold pr-2 truncate">{item.clientName}</p>
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.isSignedQuote ? 'bg-blue-600 text-white' : 'bg-orange-200 text-orange-800'}`}>
+                                                {item.isSignedQuote ? 'Devis signé' : 'En attente'}
+                                            </span>
                                         </div>
-                                        <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
-                                        <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
-                                        <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
-                                        <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
+                                        <p className="text-[10px] font-medium opacity-90 mt-0.5">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[10px] font-bold truncate mt-0.5">{item.providerName || 'À assigner'}</p>
+                                        <p className="text-[10px] opacity-75 truncate">{item.service || 'Devis'}</p>
+                                        <p className={`text-[9px] font-bold mt-1 ${item.isSignedQuote ? 'text-blue-700' : 'text-orange-700 italic'}`}>
+                                            {item.isSignedQuote ? '• À assigner (Cliquer)' : '• En attente client'}
+                                        </p>
                                     </div>
                                 ))
                             }

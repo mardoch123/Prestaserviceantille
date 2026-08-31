@@ -378,6 +378,7 @@ interface DataContextType {
     requestMissionReschedule: (missionId: string, newDate: string, newStartTime: string, newEndTime: string) => Promise<void>;
     respondToMissionReschedule: (requestId: string, decision: 'approved' | 'rejected') => Promise<void>;
     loadMissionsForRange: (start: string, end: string, onProgress?: (progress: number) => void) => Promise<boolean>;
+    clearAllMissionsCache: () => void;
     getMissionDetails: (id: string) => Promise<Mission | null>;
     getDocumentDetails: (id: string) => Promise<Document | null>;
 
@@ -2794,6 +2795,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    const clearAllMissionsCache = () => {
+        try {
+            const keysToRemove: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && (k.startsWith('presta_missions_cache') || k.startsWith('planning_') || k.startsWith('missions_') || k.startsWith('cache_'))) {
+                    keysToRemove.push(k);
+                }
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.clear();
+            }
+            console.log(`[clearAllMissionsCache] ${keysToRemove.length} clés de cache nettoyées.`);
+        } catch (e) {
+            console.warn('[clearAllMissionsCache] Erreur nettoyage cache', e);
+        }
+    };
+
     const loadMissionsForRange = async (start: string, end: string, onProgress?: (progress: number) => void) => {
         if (isDemoMode) return false;
         if (!isSupabaseConfigured) return false;
@@ -2802,8 +2822,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!startStr || !endStr) return false;
         const missionSelect = '*';
         const pageSize = 500;
-        const pageTimeout = 12000;
-        const totalTimeout = 30000;
+        const pageTimeout = 4000;
+        const totalTimeout = 6000;
         let page = 0;
         let all: any[] = [];
         const startTime = Date.now();
@@ -9136,6 +9156,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              requestMissionReschedule,
             respondToMissionReschedule,
             loadMissionsForRange,
+            clearAllMissionsCache,
             getMissionDetails,
             getDocumentDetails,
 
