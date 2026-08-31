@@ -3290,24 +3290,22 @@ const Planning: React.FC = () => {
                                             </div>
                                         ))}
 
-                                        {/* Provisional / Quote missions */}
+                                        {/* Provisional missions */}
                                         {provisionalForDate.map((item: any) => (
                                             <div
                                                 key={item.id}
-                                                className={`${item.isSignedQuote ? 'bg-blue-50/90 border border-blue-200' : 'bg-orange-50/90 border border-orange-200'} rounded-xl p-3 cursor-pointer hover:opacity-95 active:scale-[0.98] transition flex items-center gap-3 shadow-sm`}
+                                                className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
                                                 onClick={(e) => handleProvisionalMissionClick(item, e)}
                                             >
                                                 <div className="shrink-0 w-12 text-center">
-                                                    <div className={`text-xs font-bold ${item.isSignedQuote ? 'text-blue-800' : 'text-orange-700'}`}>{item.startTime?.slice(0,5)}</div>
-                                                    <div className={`text-[10px] ${item.isSignedQuote ? 'text-blue-600' : 'text-orange-500'}`}>{item.endTime?.slice(0,5)}</div>
+                                                    <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0,5)}</div>
+                                                    <div className="text-[10px] text-orange-500">{item.endTime?.slice(0,5)}</div>
                                                 </div>
-                                                <div className={`flex-1 min-w-0 border-l-2 pl-2.5 ${item.isSignedQuote ? 'border-blue-400' : 'border-orange-300'}`}>
-                                                    <p className={`font-bold text-xs truncate ${item.isSignedQuote ? 'text-blue-900' : 'text-orange-900'}`}>{item.clientName}</p>
-                                                    <p className={`text-[10px] truncate ${item.isSignedQuote ? 'text-blue-700' : 'text-orange-700'}`}>{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
+                                                <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
+                                                    <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
+                                                    <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
                                                 </div>
-                                                <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${item.isSignedQuote ? 'bg-blue-600 text-white' : 'bg-orange-200 text-orange-800'}`}>
-                                                    {item.isSignedQuote ? 'Devis signé' : 'En attente'}
-                                                </span>
+                                                <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
                                             </div>
                                         ))}
 
@@ -3511,21 +3509,17 @@ const Planning: React.FC = () => {
                                 .map((item: any) => (
                                     <div
                                         key={item.id}
-                                        className={`${item.isSignedQuote ? 'bg-blue-50/90 border-l-4 border-blue-600 text-blue-900 shadow-sm' : 'bg-orange-100/90 border-l-4 border-orange-500 text-orange-900'} p-2 rounded-lg text-xs cursor-pointer hover:scale-105 transition relative group`}
+                                        className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
                                         onClick={(e) => handleProvisionalMissionClick(item, e)}
                                     >
-                                        <div className="flex justify-between items-start">
-                                            <p className="font-bold pr-2 truncate">{item.clientName}</p>
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.isSignedQuote ? 'bg-blue-600 text-white' : 'bg-orange-200 text-orange-800'}`}>
-                                                {item.isSignedQuote ? 'Devis signé' : 'En attente'}
-                                            </span>
+                                        <div className="flex justify-between">
+                                            <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
+                                            <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
                                         </div>
-                                        <p className="text-[10px] font-medium opacity-90 mt-0.5">{item.startTime}-{item.endTime}</p>
-                                        <p className="text-[10px] font-bold truncate mt-0.5">{item.providerName || 'À assigner'}</p>
-                                        <p className="text-[10px] opacity-75 truncate">{item.service || 'Devis'}</p>
-                                        <p className={`text-[9px] font-bold mt-1 ${item.isSignedQuote ? 'text-blue-700' : 'text-orange-700 italic'}`}>
-                                            {item.isSignedQuote ? '• À assigner (Cliquer)' : '• En attente client'}
-                                        </p>
+                                        <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
+                                        <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
+                                        <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
+                                        <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
                                     </div>
                                 ))
                             }
