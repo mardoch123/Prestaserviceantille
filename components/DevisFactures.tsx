@@ -78,7 +78,8 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice, resyncMissionsFromDocument } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice, resyncMissionsFromDocument, syncAllSignedQuotesMissions } = useData();
+    const [isSyncingAllQuotes, setIsSyncingAllQuotes] = useState(false);
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -3001,6 +3002,26 @@ const DevisFactures: React.FC = () => {
                             <>
                                 <button onClick={() => openModal('devis')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-blue mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer devis</span></button>
                                 <button onClick={() => openModal('facture')} className="flex-1 flex flex-col items-center justify-center p-6 bg-cream-100 rounded-lg hover:bg-cream-200 transition border border-beige-200 shadow-sm group"><Plus className="w-5 h-5 text-brand-orange mb-2 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold text-slate-700">Créer facture</span></button>
+                                <button 
+                                    onClick={async () => {
+                                        if (isSyncingAllQuotes) return;
+                                        setIsSyncingAllQuotes(true);
+                                        try {
+                                            const res = await syncAllSignedQuotesMissions();
+                                            toast.success(`${res.totalCreated} mission(s) créée(s) pour ${res.totalQuotes} devis éligibles`);
+                                        } catch (err: any) {
+                                            toast.error(err?.message || 'Erreur lors de la synchronisation globale');
+                                        } finally {
+                                            setIsSyncingAllQuotes(false);
+                                        }
+                                    }}
+                                    disabled={isSyncingAllQuotes}
+                                    className="flex-1 flex flex-col items-center justify-center p-6 bg-amber-50 rounded-lg hover:bg-amber-100 transition border border-amber-200 shadow-sm group disabled:opacity-50"
+                                    title="Synchroniser toutes les séances des devis vers le planning"
+                                >
+                                    <RefreshCw className={`w-5 h-5 text-amber-600 mb-2 group-hover:scale-110 transition-transform ${isSyncingAllQuotes ? 'animate-spin' : ''}`} />
+                                    <span className="text-sm font-bold text-amber-800">Sync Planning</span>
+                                </button>
                             </>
                         )}
                     </div>
@@ -3399,20 +3420,35 @@ const DevisFactures: React.FC = () => {
                                                     return undefined;
                                                 })();
 
+                                                const docSlots = Array.isArray(doc.slotsData) ? doc.slotsData : Array.isArray((doc as any).slots_data) ? (doc as any).slots_data : [];
                                                 if (pack) {
                                                     return (
                                                         <div className="flex flex-col gap-1">
-                                                            <span className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 shadow-sm">
+                                                            <span className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 shadow-sm w-fit">
                                                                 {pack.name}
                                                             </span>
                                                             <span className="text-xs text-slate-500 font-medium">
                                                                 {pack.priceTTC}€ TTC
                                                             </span>
+                                                            {docSlots.length > 0 && (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full w-fit">
+                                                                    <Calendar className="w-3 h-3" /> {docSlots.length} séance(s)
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     );
                                                 }
 
-                                                return <span className="text-slate-400 text-xs font-medium italic">Personnalisé</span>;
+                                                return (
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="text-slate-700 text-xs font-medium">{doc.description || 'Personnalisé'}</span>
+                                                        {docSlots.length > 0 && (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full w-fit">
+                                                                <Calendar className="w-3 h-3" /> {docSlots.length} séance(s)
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
                                             })()}
                                         </td>
                                         <td className="px-6 py-4 text-right font-bold cursor-pointer hover:text-brand-blue transition-colors" onClick={() => openDetailModal(doc)}>{safeNum(doc.totalTTC).toFixed(2)} €</td>
@@ -4318,101 +4354,148 @@ const DevisFactures: React.FC = () => {
                             </div>
 
                             {/* Intervention Slots (if available) */}
-                            {selectedDocument.slotsData && selectedDocument.slotsData.length > 0 && (
-                                <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                    <h4 className="font-bold text-slate-800 mb-3">Créneaux d'Intervention Prévus</h4>
-                                    <div className="space-y-2">
-                                        {selectedDocument.slotsData.map((slot: any, index: number) => {
-                                            // Pour les devis signés avec split billing, déterminer le statut de chaque session
-                                            const sessionNum = index + 1;
-                                            const splitConfig = selectedDocument.splitBillingConfig;
-                                            const coveringSplit = splitConfig?.splits.find((s: any) => s.sessions.includes(sessionNum));
-                                            const splitInvoices = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice')
-                                                ? getSplitInvoicesForQuote(selectedDocument.id) : [];
-                                            const coveringInvoice = coveringSplit?.invoiceId 
-                                                ? splitInvoices.find(inv => inv.id === coveringSplit.invoiceId) 
-                                                : null;
-                                            const relatedMission = missions.find(m => 
-                                                m.sourceDocumentId === selectedDocument.id && 
-                                                m.date === slot.date
-                                            );
-                                            const isMissionCompleted = relatedMission?.status === 'completed';
-                                            const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
-                                            // Statut de session depuis slotsData
-                                            const sessionStatus = slot.sessionStatus || 'planned';
-                                            const isSessionCancelled = sessionStatus === 'cancelled';
-                                            const isSessionToInvoice = sessionStatus === 'to_invoice';
-                                            const isSignedQuote = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice');
-                                            // Statut calculé : si la date est passée et pas annulée → Réalisée
-                                            const todayStr = getMartiniqueToday();
-                                            const isDatePassed = slot.date ? slot.date < todayStr : false;
-                                            const isRealized = isDatePassed && !isSessionCancelled && !isInvoiced && !isSessionToInvoice && !isMissionCompleted;
-                                            
-                                            return (
-                                                <div key={index} className={`flex items-center justify-between p-3 rounded-lg border ${
-                                                    isSessionCancelled ? 'bg-red-50 border-red-200 opacity-60' :
-                                                    isSessionToInvoice ? 'bg-amber-50 border-amber-200' :
-                                                    isInvoiced ? 'bg-blue-50 border-blue-200' :
-                                                    isMissionCompleted ? 'bg-emerald-50 border-emerald-200' :
-                                                    isRealized ? 'bg-emerald-50 border-emerald-200' :
-                                                    'bg-slate-50 border-slate-100'
-                                                }`}>
-                                                    <div className="flex items-center gap-3">
-                                                        <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
-                                                            isSessionCancelled ? 'bg-red-100 text-red-700' :
-                                                            isSessionToInvoice ? 'bg-amber-100 text-amber-700' :
-                                                            isInvoiced ? 'bg-blue-100 text-blue-700' :
-                                                            isMissionCompleted ? 'bg-emerald-100 text-emerald-700' :
-                                                            isRealized ? 'bg-emerald-100 text-emerald-700' :
-                                                            'text-slate-400 bg-slate-100'
-                                                        }`}>{index + 1}</span>
-                                                        <div>
-                                                            <div className="font-medium text-slate-700">{slot.date}</div>
-                                                            <div className="text-sm text-slate-500">{slot.startTime} - {slot.endTime} ({slot.duration}h)</div>
+                            {(() => {
+                                const rawSlots = Array.isArray(selectedDocument.slotsData)
+                                    ? selectedDocument.slotsData
+                                    : Array.isArray((selectedDocument as any).slots_data)
+                                    ? (selectedDocument as any).slots_data
+                                    : [];
+                                if (rawSlots.length === 0) return null;
+
+                                const sortedSlots = [...rawSlots].sort((a: any, b: any) => {
+                                    const cmpDate = String(a?.date || '').localeCompare(String(b?.date || ''));
+                                    if (cmpDate !== 0) return cmpDate;
+                                    return String(a?.startTime || '').localeCompare(String(b?.startTime || ''));
+                                });
+
+                                const totalHours = sortedSlots.reduce((acc: number, s: any) => acc + (Number(s?.duration) || 0), 0);
+
+                                return (
+                                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 text-sm">Séances & Créneaux Prévus</h4>
+                                                <p className="text-xs text-slate-500">{sortedSlots.length} séance(s) au total · {totalHours.toFixed(1)}h</p>
+                                            </div>
+                                            {selectedDocument.type === 'Devis' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        try {
+                                                            const res = await resyncMissionsFromDocument(selectedDocument.id);
+                                                            toast.success(`${res.created} mission(s) ajoutée(s) au planning`);
+                                                        } catch (err: any) {
+                                                            toast.error(err?.message || 'Erreur synchronisation');
+                                                        }
+                                                    }}
+                                                    className="px-2.5 py-1 text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg transition flex items-center gap-1.5"
+                                                    title="Synchroniser vers le planning"
+                                                >
+                                                    <RefreshCw className="w-3 h-3" /> Sync Planning
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {sortedSlots.map((slot: any, index: number) => {
+                                                const sessionNum = index + 1;
+                                                const splitConfig = selectedDocument.splitBillingConfig;
+                                                const coveringSplit = splitConfig?.splits.find((s: any) => s.sessions.includes(sessionNum));
+                                                const splitInvoices = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice')
+                                                    ? getSplitInvoicesForQuote(selectedDocument.id) : [];
+                                                const coveringInvoice = coveringSplit?.invoiceId 
+                                                    ? splitInvoices.find(inv => inv.id === coveringSplit.invoiceId) 
+                                                    : null;
+                                                const relatedMission = missions.find(m => 
+                                                    (m.sourceDocumentId === selectedDocument.id || (m as any).source_document_id === selectedDocument.id) && 
+                                                    m.date === slot.date &&
+                                                    m.startTime === slot.startTime &&
+                                                    m.status !== 'cancelled'
+                                                );
+                                                const isMissionCompleted = relatedMission?.status === 'completed';
+                                                const isInvoiced = coveringSplit?.status === 'invoiced' || coveringSplit?.status === 'paid';
+                                                const sessionStatus = slot.sessionStatus || 'planned';
+                                                const isSessionCancelled = sessionStatus === 'cancelled';
+                                                const isSessionToInvoice = sessionStatus === 'to_invoice';
+                                                const isSignedQuote = selectedDocument.type === 'Devis' && (selectedDocument.status === 'signed' || selectedDocument.status === 'to_invoice');
+                                                const todayStr = getMartiniqueToday();
+                                                const isDatePassed = slot.date ? slot.date < todayStr : false;
+                                                const isRealized = isDatePassed && !isSessionCancelled && !isInvoiced && !isSessionToInvoice && !isMissionCompleted;
+                                                
+                                                const formattedDate = slot.date
+                                                    ? dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).locale('fr').format('dddd D MMMM YYYY')
+                                                    : 'Date non définie';
+
+                                                return (
+                                                    <div key={index} className={`flex items-center justify-between p-3 rounded-lg border ${
+                                                        isSessionCancelled ? 'bg-red-50 border-red-200 opacity-60' :
+                                                        isSessionToInvoice ? 'bg-amber-50 border-amber-200' :
+                                                        isInvoiced ? 'bg-blue-50 border-blue-200' :
+                                                        isMissionCompleted ? 'bg-emerald-50 border-emerald-200' :
+                                                        isRealized ? 'bg-emerald-50 border-emerald-200' :
+                                                        'bg-slate-50 border-slate-100'
+                                                    }`}>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className={`text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center ${
+                                                                isSessionCancelled ? 'bg-red-100 text-red-700' :
+                                                                isSessionToInvoice ? 'bg-amber-100 text-amber-700' :
+                                                                isInvoiced ? 'bg-blue-100 text-blue-700' :
+                                                                isMissionCompleted ? 'bg-emerald-100 text-emerald-700' :
+                                                                isRealized ? 'bg-emerald-100 text-emerald-700' :
+                                                                'text-slate-500 bg-slate-200'
+                                                            }`}>{sessionNum}</span>
+                                                            <div>
+                                                                <div className="font-bold text-slate-800 text-xs capitalize">{formattedDate}</div>
+                                                                <div className="text-xs text-slate-500 mt-0.5">
+                                                                    {slot.startTime} - {slot.endTime} {slot.duration ? `(${slot.duration}h)` : ''}
+                                                                    {relatedMission?.providerName && relatedMission.providerName !== 'À assigner' && (
+                                                                        <span className="ml-2 font-semibold text-teal-700">· {relatedMission.providerName}</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            {isSessionCancelled ? (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-700">Annulée</span>
+                                                            ) : isSessionToInvoice ? (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-700">À facturer</span>
+                                                            ) : isInvoiced && coveringInvoice ? (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">
+                                                                    Facturée → {coveringInvoice.ref}
+                                                                </span>
+                                                            ) : isMissionCompleted ? (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
+                                                                    Complétée
+                                                                </span>
+                                                            ) : isRealized ? (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
+                                                                    Réalisée
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                                                    Planifiée
+                                                                </span>
+                                                            )}
+                                                            {isSignedQuote && !isInvoiced && (
+                                                                cancelSessionIdx === index ? (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <button type="button" onClick={() => { toggleSessionStatus(selectedDocument.id, index, isSessionCancelled ? 'planned' : 'cancelled'); setCancelSessionIdx(null); setSelectedDocument(null); }} className="px-2 py-0.5 rounded text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition">Confirmer</button>
+                                                                        <button type="button" onClick={() => setCancelSessionIdx(null)} className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition">Non</button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <button type="button" onClick={() => setCancelSessionIdx(index)} className={`px-2 py-0.5 rounded text-xs font-bold transition ${isSessionCancelled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`} title={isSessionCancelled ? 'Rétablir cette séance' : 'Marquer non réalisée'}>
+                                                                        {isSessionCancelled ? 'Rétablir' : 'Annuler'}
+                                                                    </button>
+                                                                )
+                                                            )}
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {isSessionCancelled ? (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-700">Annulée</span>
-                                                        ) : isSessionToInvoice ? (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-700">À facturer</span>
-                                                        ) : isInvoiced && coveringInvoice ? (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">
-                                                                Facturée → {coveringInvoice.ref}
-                                                            </span>
-                                                        ) : isMissionCompleted ? (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
-                                                                Complétée
-                                                            </span>
-                                                        ) : isRealized ? (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">
-                                                                Réalisée
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-500">
-                                                                À venir
-                                                            </span>
-                                                        )}
-                                                        {/* Bouton annulation/rétablissement pour devis signés */}
-                                                        {isSignedQuote && !isInvoiced && (
-                                                            cancelSessionIdx === index ? (
-                                                                <div className="flex items-center gap-1">
-                                                                    <button type="button" onClick={() => { toggleSessionStatus(selectedDocument.id, index, isSessionCancelled ? 'planned' : 'cancelled'); setCancelSessionIdx(null); setSelectedDocument(null); }} className="px-2 py-0.5 rounded text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition">Confirmer</button>
-                                                                    <button type="button" onClick={() => setCancelSessionIdx(null)} className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition">Non</button>
-                                                                </div>
-                                                            ) : (
-                                                                <button type="button" onClick={() => setCancelSessionIdx(index)} className={`px-2 py-0.5 rounded text-xs font-bold transition ${isSessionCancelled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`} title={isSessionCancelled ? 'Rétablir cette séance' : 'Marquer non réalisée'}>
-                                                                    {isSessionCancelled ? 'Rétablir' : 'Annuler'}
-                                                                </button>
-                                                            )
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Split Billing Info — pour devis signés avec facturation fractionnée */}
                             {selectedDocument.type === 'Devis' && selectedDocument.status === 'signed' && selectedDocument.splitBillingConfig && (() => {
