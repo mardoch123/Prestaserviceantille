@@ -6424,6 +6424,51 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
+        // ─── ÉTAPE 4 : Récupérer les missions en conflit et les ajouter au state ───
+        // Les missions en conflit existent en base mais ne sont pas dans le state → invisibles
+        if (alreadyExist > 0 && doc.clientId) {
+            const slotDates = validSlots.map((s: any) => s.date);
+            const uniqueDates = [...new Set(slotDates)];
+            const minDate = uniqueDates.sort()[0];
+            const maxDate = uniqueDates.sort().reverse()[0];
+
+            const { data: conflictMissions } = await supabase
+                .from('missions')
+                .select('*')
+                .eq('client_id', doc.clientId)
+                .gte('date', minDate)
+                .lte('date', maxDate);
+
+            if (conflictMissions && conflictMissions.length > 0) {
+                const currentIds = new Set((successfullyCreated || []).map((m: any) => m.id));
+                const toAdd = conflictMissions
+                    .filter((m: any) => !currentIds.has(m.id))
+                    .map((m: any) => ({
+                        ...m,
+                        dayIndex: getDayIndexFromDate(m.date),
+                        startTime: m.start_time,
+                        endTime: m.end_time,
+                        clientId: m.client_id,
+                        clientName: m.client_name,
+                        providerId: m.provider_id,
+                        providerName: m.provider_name,
+                        provider2Id: m.provider2_id || null,
+                        provider2Name: m.provider2_name || null,
+                        sourceDocumentId: m.source_document_id,
+                        isOvertime: m.is_overtime || false,
+                        status: m.status || 'planned'
+                    }));
+                if (toAdd.length > 0) {
+                    console.log(`[resyncMissionsFromDocument] Ajout de ${toAdd.length} missions conflictuelles au state`);
+                    setMissions(prev => {
+                        const prevIds = new Set(prev.map(m => m.id));
+                        const newOnes = toAdd.filter(m => !prevIds.has(m.id));
+                        return [...prev, ...newOnes];
+                    });
+                }
+            }
+        }
+
         console.log(`[resyncMissionsFromDocument] Resync ${doc.ref}: ${createdCount} créées, ${alreadyExist} conflits total, ${conflicts.length} détaillés`);
 
         return {
