@@ -120,12 +120,16 @@ const Planning: React.FC = () => {
 
   const isQuoteExpired = (doc: any): boolean => {
       if (!doc) return true;
-      if (String(doc.status || '') === 'expired') return true;
-      const createdAtRaw = (doc as any)?.created_at || (doc as any)?.createdAt;
-      if (!createdAtRaw) return false;
-      const createdAtMs = new Date(createdAtRaw).getTime();
-      if (!Number.isFinite(createdAtMs)) return false;
-      return (Date.now() - createdAtMs) > (48 * 60 * 60 * 1000);
+      const s = String(doc.status || '').toLowerCase();
+      // Signed, validated, paid or active quotes are NEVER expired
+      if (s === 'signed' || s === 'validated' || s === 'accepted' || s === 'paid' || s === 'to_invoice') {
+          return false;
+      }
+      if (s === 'expired' || s === 'rejected' || s === 'cancelled') {
+          return true;
+      }
+      // Sent quotes are active and valid for planning
+      return false;
   };
 
   // Selection State for Unassigned Missions
@@ -612,7 +616,7 @@ const Planning: React.FC = () => {
 
       // Include all quotes (sent, signed, validated, pending, draft) that have slots
       const candidateDocs = (documents || [])
-          .filter(d => d.type === 'Devis')
+          .filter(d => !d.type || String(d.type).toLowerCase() === 'devis' || String(d.type).toLowerCase() === 'facture')
           .filter(d => !isQuoteExpired(d))
           .filter(d => {
               if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
@@ -623,9 +627,19 @@ const Planning: React.FC = () => {
           });
 
       const provisional = candidateDocs.flatMap(d => {
-          const rawSlots = Array.isArray(d.slotsData) ? d.slotsData : (Array.isArray((d as any).slots_data) ? (d as any).slots_data : []);
+          const raw = d.slotsData || (d as any).slots_data;
+          let rawSlots: any[] = [];
+          if (Array.isArray(raw)) {
+              rawSlots = raw;
+          } else if (typeof raw === 'string') {
+              try {
+                  const p = JSON.parse(raw);
+                  if (Array.isArray(p)) rawSlots = p;
+              } catch { }
+          }
           if (rawSlots.length === 0) return [];
-          const isSigned = d.status === 'signed' || d.status === 'validated';
+          const statusLower = String(d.status || '').toLowerCase();
+          const isSigned = statusLower === 'signed' || statusLower === 'validated' || statusLower === 'accepted' || statusLower === 'paid' || statusLower === 'to_invoice';
 
           return rawSlots.map((slot: any, index: number) => {
               if (!slot?.date || slot.sessionStatus === 'cancelled') return null;
@@ -635,38 +649,39 @@ const Planning: React.FC = () => {
                   m.status !== 'cancelled' &&
                   (
                       (m.sourceDocumentId === d.id && m.date === slot.date) ||
-                      (m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
+                      (m.clientId && d.clientId && m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
                   )
               );
 
               if (hasRealMission) return null; // Already rendered as a confirmed mission
 
               return {
-                  id: `provisional-${d.id}-${index}-${slot.date}-${slot.startTime || 'no-start'}`,
+                  id: slot.id ? `provisional-${slot.id}` : `provisional-${d.id}-${index}-${slot.date}-${slot.startTime || 'no-start'}`,
                   date: slot.date,
                   startTime: slot.startTime || '09:00',
                   endTime: slot.endTime || '12:00',
                   duration: typeof slot.duration === 'number' ? slot.duration : 3,
-                  service: d.description || 'Devis',
+                  service: d.description || 'Prestation',
                   clientId: d.clientId,
                   clientName: d.clientName || 'Client',
                   providerId: null,
                   providerName: 'À assigner',
                   status: 'planned' as const,
+                  color: 'gray',
                   sourceDocumentId: d.id,
                   isQuoteSlot: true,
                   quoteRef: d.ref,
                   isSignedQuote: isSigned,
                   quoteStatus: d.status
               };
-          }).filter(Boolean);
+          }).filter((item): item is NonNullable<typeof item> => Boolean(item));
       })
-      .filter((item: any) => !!item && !!item.date)
-      .filter((item: any) => item.date >= startStr && item.date <= endStr);
+      .filter((item): item is NonNullable<typeof item> => Boolean(item && item.date))
+      .filter((item) => item.date >= startStr && item.date <= endStr);
 
-      let fProvisional = provisional;
+      let fProvisional: any[] = provisional;
 
-      if (selectedProvider !== 'all') {
+      if (selectedProvider !== 'all' && selectedProvider !== 'À assigner') {
           fProvisional = fProvisional.filter((item: any) => item.providerName === selectedProvider);
       }
 
@@ -674,7 +689,7 @@ const Planning: React.FC = () => {
           fProvisional = fProvisional.filter((item: any) => item.clientName === selectedClient);
       }
 
-      if (selectedStatus !== 'all') {
+      if (selectedStatus !== 'all' && selectedStatus !== 'planned') {
           fProvisional = fProvisional.filter((item: any) => item.status === selectedStatus);
       }
 
@@ -766,22 +781,12 @@ const Planning: React.FC = () => {
           .filter(m => String((m as any)?.status || '') !== 'cancelled')
           .reduce((acc, m: any) => acc + computeDuration(m.date, m.startTime, m.endTime, m.duration), 0);
 
-      const provisionalHours = (documents || [])
-          .filter((d: any) => d?.type === 'Devis')
-          .filter((d: any) => d?.status === 'sent')
-          .filter((d: any) => !isQuoteExpired(d))
-          .filter((d: any) => Array.isArray(d?.slotsData) && d.slotsData.length > 0)
-          .flatMap((d: any) => (d.slotsData || []).map((slot: any) => ({
-              date: slot?.date,
-              startTime: slot?.startTime,
-              endTime: slot?.endTime,
-              duration: slot?.duration
-          })))
+      const provisionalHours = (filteredProvisionalMissions || [])
           .filter((s: any) => String(s?.date || '') === statsDate)
           .reduce((acc: number, s: any) => acc + computeDuration(s.date, s.startTime, s.endTime, s.duration), 0);
 
       return Number((missionsHours + provisionalHours).toFixed(2));
-  }, [missions, documents, statsDate, isQuoteExpired]);
+  }, [missions, filteredProvisionalMissions, statsDate]);
 
   const totalHoursFiltered = filteredMissions
       .reduce((acc, m) => acc + m.duration, 0);
@@ -3502,8 +3507,8 @@ const Planning: React.FC = () => {
 
                             {/* Missions for this day */}
                             {filteredProvisionalMissions
-                                .filter(item => getDayIndex(item.date) === colIndex)
-                                .map(item => (
+                                .filter((item: any) => item && getDayIndex(item.date) === colIndex)
+                                .map((item: any) => (
                                     <div
                                         key={item.id}
                                         className={`${item.isSignedQuote ? 'bg-blue-50/90 border-l-4 border-blue-600 text-blue-900 shadow-sm' : 'bg-orange-100/90 border-l-4 border-orange-500 text-orange-900'} p-2 rounded-lg text-xs cursor-pointer hover:scale-105 transition relative group`}
