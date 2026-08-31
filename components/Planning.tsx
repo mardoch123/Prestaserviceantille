@@ -2388,8 +2388,24 @@ const Planning: React.FC = () => {
 
   const handleProvisionalMissionClick = (item: any, e: React.MouseEvent) => {
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
-          setSelectedProvisionalDetails(item);
-          setIsProvisionalDetailsModalOpen(true);
+          const missionLike: Mission = {
+              id: item.id || `provisional-${Date.now()}`,
+              clientId: item.clientId || '',
+              clientName: item.clientName || 'Client',
+              providerId: item.providerId || null,
+              providerName: item.providerName || 'À assigner',
+              service: item.service || 'Prestation',
+              date: item.date || getMartiniqueToday(),
+              startTime: item.startTime || '09:00',
+              endTime: item.endTime || '12:00',
+              duration: typeof item.duration === 'number' ? item.duration : 3,
+              status: item.status || 'planned',
+              color: 'orange',
+              sourceDocumentId: item.sourceDocumentId,
+              source: 'devis'
+          };
+          setSelectedMissionDetails(missionLike);
+          setIsDetailsModalOpen(true);
       }
   };
   
@@ -3291,23 +3307,46 @@ const Planning: React.FC = () => {
                                         ))}
 
                                         {/* Provisional missions */}
-                                        {provisionalForDate.map((item: any) => (
-                                            <div
-                                                key={item.id}
-                                                className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
-                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                            >
-                                                <div className="shrink-0 w-12 text-center">
-                                                    <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0,5)}</div>
-                                                    <div className="text-[10px] text-orange-500">{item.endTime?.slice(0,5)}</div>
+                                        {provisionalForDate.map((item: any) => {
+                                            if (item.isSignedQuote) {
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className="rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border border-slate-200 border-l-4 border-l-red-500 bg-red-50/70 shadow-sm"
+                                                        onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                                    >
+                                                        <div className="shrink-0 w-12 text-center pt-0.5">
+                                                            <div className="text-xs font-bold text-slate-800">{item.startTime?.slice(0,5)}</div>
+                                                            <div className="text-[10px] text-slate-500">{item.endTime?.slice(0,5)}</div>
+                                                            {item.duration && (
+                                                                <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0 border-l-2 border-red-300 pl-2.5">
+                                                            <p className="font-bold text-xs text-slate-900 truncate">{item.clientName}</p>
+                                                            <p className="text-[10px] text-slate-600 truncate">{item.providerName || 'À assigner'} · {item.service || 'Prestation'}</p>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return (
+                                                <div
+                                                    key={item.id}
+                                                    className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
+                                                    onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                                >
+                                                    <div className="shrink-0 w-12 text-center">
+                                                        <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0,5)}</div>
+                                                        <div className="text-[10px] text-orange-500">{item.endTime?.slice(0,5)}</div>
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
+                                                        <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
+                                                        <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
+                                                    </div>
+                                                    <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
                                                 </div>
-                                                <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
-                                                    <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
-                                                    <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
-                                                </div>
-                                                <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
 
                                         {/* Confirmed missions — compact timeline */}
                                         {allItems.map((item: any) => {
@@ -3506,22 +3545,43 @@ const Planning: React.FC = () => {
                             {/* Missions for this day */}
                             {filteredProvisionalMissions
                                 .filter((item: any) => item && getDayIndex(item.date) === colIndex)
-                                .map((item: any) => (
-                                    <div
-                                        key={item.id}
-                                        className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
-                                        onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                    >
-                                        <div className="flex justify-between">
-                                            <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
-                                            <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
+                                .map((item: any) => {
+                                    if (item.isSignedQuote) {
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className="p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group bg-red-50 text-slate-800 border-red-500 shadow-sm"
+                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
+                                                    <span className="text-[10px] font-bold text-slate-700 shrink-0">
+                                                        {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                                <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName || 'À assigner'}</p>
+                                                <p className="text-[10px] text-slate-600 truncate">{item.service || 'Prestation'}</p>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
+                                            onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                        >
+                                            <div className="flex justify-between">
+                                                <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
+                                                <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
+                                            </div>
+                                            <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
+                                            <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
+                                            <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
+                                            <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
                                         </div>
-                                        <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
-                                        <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
-                                        <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
-                                        <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
-                                    </div>
-                                ))
+                                    );
+                                })
                             }
                             {filteredMissions
                                 .filter(item => getDayIndex(item.date) === colIndex)
