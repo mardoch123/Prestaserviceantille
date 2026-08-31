@@ -6140,214 +6140,104 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const generateMissionsFromDocument = async (doc: Document) => {
-        // ... rest of the code remains the same ...
-        if (!doc.slotsData || !Array.isArray(doc.slotsData)) return;
+        if (!doc || !doc.id) return;
+        const slots = Array.isArray(doc.slotsData) ? doc.slotsData : (Array.isArray((doc as any).slots_data) ? (doc as any).slots_data : []);
+        if (slots.length === 0) return;
 
-        // Idempotence: if missions already exist for this document, do not generate again
-        const existingInState = missions.some((m: any) => (m.sourceDocumentId || m.source_document_id) === doc.id);
-        if (existingInState) return;
-
-        const { data: existingMissions, error: existingError } = await supabase
-            .from('missions')
-            .select('id')
-            .eq('source_document_id', doc.id)
-            .limit(1);
-
-        if (existingError) {
-            console.error('Erreur vérification missions existantes (source_document_id):', existingError);
-            // On n'empêche pas la génération si la vérification échoue (fallback), mais on log.
-        }
-        if (existingMissions && existingMissions.length > 0) return;
-
-        const missionsToCreate: any[] = [];
-        const isRecurring = doc.frequency && doc.frequency !== 'Ponctuelle';
-        const endDate = doc.recurrenceEndDate
-            ? dayjs.tz(doc.recurrenceEndDate, MARTINIQUE_TIMEZONE).endOf('day')
-            : dayjs.tz(new Date(), MARTINIQUE_TIMEZONE).add(1, 'year').endOf('day');
-
-        // Use document slots to generate planned missions
-        for (const slot of doc.slotsData) {
-            if (isRecurring && slot.date) {
-                let currentDate = dayjs.tz(slot.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
-                while (currentDate.valueOf() <= endDate.valueOf()) {
-                    const missionId = generateUUID();
-                    missionsToCreate.push({
-                        id: missionId,
-                        date: currentDate.format('YYYY-MM-DD'),
-                        start_time: slot.startTime,
-                        end_time: slot.endTime,
-                        duration: slot.duration,
-                        client_id: doc.clientId,
-                        client_name: doc.clientName,
-                        service: doc.description,
-                        provider_id: null,
-                        provider_name: 'À assigner',
-                        status: 'planned',
-                        color: 'gray',
-                        source: 'devis',
-                        source_document_id: doc.id
-                    });
-                    if (doc.frequency === 'Hebdomadaire') currentDate = currentDate.add(7, 'day');
-                    else if (doc.frequency === 'Bimensuelle') currentDate = currentDate.add(14, 'day');
-                    else if (doc.frequency === 'Mensuelle') currentDate = currentDate.add(1, 'month');
-                    else break;
-                }
-            } else if (slot.date) {
-                const missionId = generateUUID();
-                missionsToCreate.push({
-                    id: missionId,
-                    date: slot.date,
-                    start_time: slot.startTime,
-                    end_time: slot.endTime,
-                    duration: slot.duration,
-                    client_id: doc.clientId,
-                    client_name: doc.clientName,
-                    service: doc.description,
-                    provider_id: null,
-                    provider_name: 'À assigner',
-                    status: 'planned',
-                    color: 'gray',
-                    source: 'devis',
-                    source_document_id: doc.id
-                });
-            }
-        }
-        if (missionsToCreate.length > 0) {
-            // ─── VALIDATION ANTI-CONFLIT AVANT INSERTION ─────────────────────────
-            // Dernière vérification avant insertion en base : s'assurer que les créneaux
-            // ne sont pas devenus occupés entre la validation de signQuoteWithData et ici.
-            // Exclure le document courant des missions provisoires (il est déjà signé).
-            const docsForValidation = (documents || []).filter(d => d.id !== doc.id);
-            const slotsForCheck = missionsToCreate
-                .filter(m => m.date && m.start_time && m.end_time)
-                .map(m => ({ date: m.date, startTime: m.start_time, endTime: m.end_time }));
-
-            // Dédupliquer les créneaux identiques (récurrence)
-            const uniqueSlots = Array.from(
-                new Map(slotsForCheck.map(s => [`${s.date}|${s.startTime}|${s.endTime}`, s])).values()
-            );
-
-            const preInsertValidation = validateSlotsStrictly(
-                uniqueSlots,
-                providers || [],
-                missions || [],
-                docsForValidation
-            );
-
-            if (!preInsertValidation.isValid) {
-                const conflictDetails = preInsertValidation.conflicts
-                    .map(c => `${c.date} ${c.startTime}–${c.endTime}: ${c.reason}`)
-                    .join(' | ');
-                console.error(
-                    `[generateMissionsFromDocument] Blocage anti-conflit : ${conflictDetails}`
-                );
-                await addNotification('admin', 'alert', 'Génération Missions Bloquée',
-                    `Devis ${doc.ref}: Les créneaux sont devenus indisponibles lors de la génération automatique. Conflits : ${conflictDetails}`);
-                return; // Ne pas créer de données partielles
-            }
-            // ─── FIN VALIDATION ─────────────────────────────────────────────────
-
-            const { error } = await supabase.from('missions').insert(missionsToCreate);
-            if (!error) {
-                const createdMissions = missionsToCreate.map(m => ({
-                    ...m,
-                    dayIndex: getDayIndexFromDate(m.date),
-                    startTime: m.start_time,
-                    endTime: m.end_time,
-                    clientId: m.client_id,
-                    clientName: m.client_name,
-                    providerId: m.provider_id,
-                    providerName: m.provider_name
-                }));
-                setMissions(prev => [...prev, ...createdMissions]);
-                await addNotification('admin', 'success', 'Planning Automatique', `${createdMissions.length} missions générées et bloquées selon devis signé.`, undefined, `document:${doc.id}`);
-            }
+        try {
+            await resyncMissionsFromDocument(doc.id);
+        } catch (err) {
+            console.error('[generateMissionsFromDocument] Error syncing quote missions:', err);
         }
     };
 
     // === RESYNC MISSIONS FROM DOCUMENT ===
-    // Ne supprime AUCUNE mission. Vérifie ce qui existe, crée les manquantes, signale les conflits.
+    // Vérifie ce qui existe en base, crée les manquantes, lie le devis et met à jour le state local du planning
     const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }> => {
         const doc = documents.find(d => d.id === docId);
         if (!doc) return { created: 0, alreadyExist: 0, total: 0, blocked: ['Document introuvable'] };
-        if (!doc.slotsData || !Array.isArray(doc.slotsData) || doc.slotsData.length === 0) {
+        const rawSlots = Array.isArray(doc.slotsData) ? doc.slotsData : (Array.isArray((doc as any).slots_data) ? (doc as any).slots_data : []);
+        if (rawSlots.length === 0) {
             return { created: 0, alreadyExist: 0, total: 0, blocked: ['Aucun créneau défini dans ce devis'] };
         }
 
-        // Filtrer les créneaux valides (non annulés)
-        const validSlots = doc.slotsData.filter((s: any) =>
+        // Filtrer les créneaux valides (avec date et heures, non annulés)
+        const validSlots = rawSlots.filter((s: any) =>
             s.date && s.startTime && s.endTime && s.sessionStatus !== 'cancelled'
         );
-        const cancelledCount = doc.slotsData.length - validSlots.length;
 
         if (validSlots.length === 0) {
-            return { created: 0, alreadyExist: cancelledCount, total: doc.slotsData.length, blocked: ['Aucun créneau valide à synchroniser'] };
+            return { created: 0, alreadyExist: 0, total: rawSlots.length, blocked: ['Aucun créneau valide à synchroniser'] };
         }
 
-        // ─── ÉTAPE 1 : Récupérer TOUTES les missions existantes pour ce client en base ───
-        console.log(`[resyncMissionsFromDocument] Document ${doc.ref}, clientId=${doc.clientId}, ${validSlots.length} créneaux valides`);
+        console.log(`[resyncMissionsFromDocument] Synchronisation devis ${doc.ref || docId}: ${validSlots.length} créneaux valides`);
 
-        const { data: existingClientMissions, error: fetchError } = await supabase
-            .from('missions')
-            .select('id, date, start_time, end_time, provider_id, provider_name, status, source_document_id')
-            .eq('client_id', doc.clientId);
+        // ─── ÉTAPE 1 : Récupérer TOUTES les missions existantes pour ce client ou ce devis en base ───
+        let existingDbMissions: any[] = [];
+        try {
+            const { data: byDoc } = await supabase
+                .from('missions')
+                .select('*')
+                .eq('source_document_id', docId);
 
-        if (fetchError) {
-            console.error('[resyncMissionsFromDocument] Erreur fetch:', fetchError);
-            return { created: 0, alreadyExist: 0, total: doc.slotsData.length, blocked: ['Erreur lecture missions : ' + fetchError.message] };
+            const { data: byClient } = doc.clientId ? await supabase
+                .from('missions')
+                .select('*')
+                .eq('client_id', doc.clientId) : { data: [] };
+
+            const mergedDbMap = new Map<string, any>();
+            (byDoc || []).forEach((m: any) => mergedDbMap.set(String(m.id), m));
+            (byClient || []).forEach((m: any) => mergedDbMap.set(String(m.id), m));
+            existingDbMissions = Array.from(mergedDbMap.values());
+        } catch (fetchErr: any) {
+            console.error('[resyncMissionsFromDocument] Erreur lecture missions:', fetchErr);
         }
 
-        console.log(`[resyncMissionsFromDocument] Missions trouvées en base pour ce client: ${(existingClientMissions || []).length}`);
-        if ((existingClientMissions || []).length > 0) {
-            console.log(`[resyncMissionsFromDocument] Exemples:`, (existingClientMissions || []).slice(0, 5).map((m: any) => `${m.date}|${m.start_time}|${m.status}|${m.source_document_id || 'no-doc'}`));
-        }
-
-        // Construire un Set des créneaux déjà existants (client_id + date + start_time)
-        const existingSlotKeys = new Set<string>();
-        const conflicts: string[] = [];
-
-        (existingClientMissions || []).forEach((m: any) => {
-            if (m.date && m.start_time) {
-                const key = `${m.date}|${m.start_time}`;
-                existingSlotKeys.add(key);
-            }
-        });
-
-        // ─── ÉTAPE 2 : Identifier les créneux manquants vs existants ───
+        // ─── ÉTAPE 2 : Détecter créneaux existants vs manquants ───
         const slotsToCreate: any[] = [];
-        const keysBeingCreated = new Set<string>(); // déduplication interne au devis
-        let alreadyExist = 0;
+        const seenSlotKeys = new Set<string>();
+        let existingCount = 0;
 
         for (const slot of validSlots) {
-            const key = `${slot.date}|${slot.startTime}`;
-            if (existingSlotKeys.has(key)) {
-                alreadyExist++;
-                const existingMission = (existingClientMissions || []).find(
-                    (m: any) => m.date === slot.date && m.start_time === slot.startTime
-                );
-                if (existingMission) {
-                    const providerInfo = existingMission.provider_name && existingMission.provider_name !== 'À assigner'
-                        ? `assignée à ${existingMission.provider_name}`
-                        : 'non assignée';
-                    const isFromThisDoc = existingMission.source_document_id === docId;
-                    conflicts.push(
-                        `${slot.date} ${slot.startTime}-${slot.endTime} : déjà présent (${isFromThisDoc ? 'ce devis' : 'autre source'}, ${providerInfo})`
-                    );
+            const slotKey = `${slot.date}|${slot.startTime}`;
+            if (seenSlotKeys.has(slotKey)) continue; // Éviter les doublons internes
+            seenSlotKeys.add(slotKey);
+
+            // Rechercher une mission existante correspondant à ce créneau
+            const existing = existingDbMissions.find((m: any) => {
+                const dateMatch = m.date === slot.date;
+                const timeMatch = m.start_time === slot.startTime || String(m.start_time || '').startsWith(slot.startTime);
+                const docMatch = m.source_document_id === docId;
+                const clientMatch = doc.clientId && m.client_id === doc.clientId;
+                return (docMatch && dateMatch) || (clientMatch && dateMatch && timeMatch);
+            });
+
+            if (existing) {
+                existingCount++;
+                // Si la mission existante n'avait pas le source_document_id ou le client_name, on la met à jour
+                if (existing.source_document_id !== docId || !existing.client_name) {
+                    try {
+                        await supabase
+                            .from('missions')
+                            .update({
+                                source_document_id: docId,
+                                client_name: doc.clientName || existing.client_name || 'Client',
+                                service: existing.service || doc.description || 'Prestation'
+                            } as any)
+                            .eq('id', existing.id);
+                    } catch { }
                 }
-                continue;
-            }
-            // Doublon dans le devis lui-même → ignorer
-            if (keysBeingCreated.has(key)) continue;
-            keysBeingCreated.add(key);
-            slotsToCreate.push({
+            } else {
+                // Créer la nouvelle mission
+                slotsToCreate.push({
                     id: generateUUID(),
                     date: slot.date,
                     start_time: slot.startTime,
                     end_time: slot.endTime,
-                    duration: slot.duration,
+                    duration: typeof slot.duration === 'number' ? slot.duration : 3,
                     client_id: doc.clientId,
-                    client_name: doc.clientName,
-                    service: doc.description,
+                    client_name: doc.clientName || 'Client',
+                    service: doc.description || 'Prestation',
                     provider_id: null,
                     provider_name: 'À assigner',
                     status: 'planned',
@@ -6355,68 +6245,73 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     source: 'devis',
                     source_document_id: docId
                 });
+            }
         }
 
-        console.log(`[resyncMissionsFromDocument] Analyse ${doc.ref}: ${validSlots.length} créneaux valides, ${slotsToCreate.length} à créer, ${alreadyExist} conflits, ${validSlots.length - slotsToCreate.length - alreadyExist} doublons internes ignorés`);
-
-        // ─── ÉTAPE 3 : Insérer les créneaux manquants ───
-        // Stratégie robuste : bulk d'abord, si échec → un par un avec skip des conflits
+        // ─── ÉTAPE 3 : Insérer les créneaux manquants en base ───
         let createdCount = 0;
-        const successfullyCreated: any[] = [];
-
         if (slotsToCreate.length > 0) {
             const { error: insertError } = await supabase.from('missions').insert(slotsToCreate);
-
             if (!insertError) {
-                // Bulk insert réussi
                 createdCount = slotsToCreate.length;
-                successfullyCreated.push(...slotsToCreate);
             } else {
-                // Bulk échoué → fallback un par un
-                console.warn(`[resyncMissionsFromDocument] Bulk insert échoué (${insertError.message}), fallback un par un pour ${slotsToCreate.length} créneaux`);
-
-                for (const slot of slotsToCreate) {
-                    const { error: singleError } = await supabase.from('missions').insert(slot);
-                    if (singleError) {
-                        const isDuplicate = singleError.code === '23505' || singleError.message?.includes('duplicate') || singleError.message?.includes('unique');
-                        if (isDuplicate) {
-                            // Conflit non détecté plus tôt → l'ajouter aux conflits
-                            conflicts.push(`${slot.date} ${slot.start_time}-${slot.end_time} : conflit base de données (mission existante)`);
-                            alreadyExist++;
-                            console.warn(`[resyncMissionsFromDocument] Conflit ignoré: ${slot.date} ${slot.start_time}`);
-                        } else {
-                            console.error(`[resyncMissionsFromDocument] Erreur insert slot ${slot.date} ${slot.start_time}:`, singleError.message);
-                        }
-                    } else {
+                console.warn(`[resyncMissionsFromDocument] Bulk insert échoué, insertion unitaire:`, insertError.message);
+                for (const item of slotsToCreate) {
+                    const { error: singleError } = await supabase.from('missions').insert(item);
+                    if (!singleError) {
                         createdCount++;
-                        successfullyCreated.push(slot);
+                    } else {
+                        console.error(`[resyncMissionsFromDocument] Échec insertion créneau ${item.date} ${item.start_time}:`, singleError);
                     }
                 }
             }
-
-            // Ajouter au state local uniquement les missions créées avec succès
-            if (successfullyCreated.length > 0) {
-                const createdMissions = successfullyCreated.map((m: any) => ({
-                    ...m,
-                    dayIndex: getDayIndexFromDate(m.date),
-                    startTime: m.start_time,
-                    endTime: m.end_time,
-                    clientId: m.client_id,
-                    clientName: m.client_name,
-                    providerId: m.provider_id,
-                    providerName: m.provider_name
-                }));
-                setMissions(prev => [...prev, ...createdMissions]);
-            }
         }
 
-        console.log(`[resyncMissionsFromDocument] Resync ${doc.ref}: ${createdCount} créées, ${alreadyExist} conflits total, ${conflicts.length} détaillés`);
+        // ─── ÉTAPE 4 : Recharger et synchroniser dans le state React missions ───
+        try {
+            const { data: allFreshMissions } = await supabase
+                .from('missions')
+                .select('*')
+                .or(`source_document_id.eq.${docId}${doc.clientId ? `,client_id.eq.${doc.clientId}` : ''}`);
+
+            if (allFreshMissions && allFreshMissions.length > 0) {
+                const mappedMissions = allFreshMissions.map((m: any) => ({
+                    ...m,
+                    dayIndex: m.date ? getDayIndexFromDate(m.date) : 0,
+                    startTime: m.start_time || m.startTime,
+                    endTime: m.end_time || m.endTime,
+                    clientId: m.client_id || m.clientId,
+                    clientName: m.client_name || m.clientName,
+                    providerId: m.provider_id || m.providerId || null,
+                    providerName: m.provider_name || m.providerName || 'À assigner',
+                    provider2Id: m.provider2_id || m.provider2Id || null,
+                    provider2Name: m.provider2_name || m.provider2Name || null,
+                    status: m.status || 'planned',
+                    sourceDocumentId: m.source_document_id || m.sourceDocumentId || docId,
+                    service: m.service || doc.description || 'Prestation',
+                    duration: typeof m.duration === 'number' ? m.duration : 3
+                }));
+
+                setMissions(prev => {
+                    const byId = new Map<string, Mission>();
+                    prev.forEach(m => byId.set(String(m.id), m));
+                    mappedMissions.forEach((m: any) => byId.set(String(m.id), m));
+                    const updated = Array.from(byId.values());
+                    dataCache.set('missions', updated);
+                    return updated;
+                });
+            }
+        } catch (reloadErr) {
+            console.error('[resyncMissionsFromDocument] Erreur rechargement missions:', reloadErr);
+        }
+
+        console.log(`[resyncMissionsFromDocument] Succès ${doc.ref || docId}: ${createdCount} créées, ${existingCount} existantes / synchronisées`);
 
         return {
             created: createdCount,
-            alreadyExist,
-            total: doc.slotsData.length,
-            blocked: conflicts
+            alreadyExist: existingCount,
+            total: validSlots.length,
+            blocked: []
         };
     };
 

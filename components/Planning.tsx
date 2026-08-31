@@ -77,6 +77,16 @@ const EXTERNAL_PROVIDER: Provider = {
     email: '',
 };
 
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 const Planning: React.FC = () => {
   const { missions, providers, clients, packs, documents, addMission, assignProvider, assignSecondProvider, updateMission, deleteMissions, refreshData, reminders, addReminder, toggleReminder, serviceTypeFilter, requestMissionReschedule, loadMissionsForRange, getMissionDetails, dataLoading, convertQuoteToInvoice, markInvoicePaid, updateDocumentStatus, companySettings } = useData();
   const navigate = useNavigate();
@@ -598,7 +608,7 @@ const Planning: React.FC = () => {
   }, [missions, reminders, selectedProvider, selectedClient, selectedStatus, currentWeekOffset, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   const filteredProvisionalMissions = useMemo(() => {
-      let startStr, endStr;
+      let startStr: string, endStr: string;
       
       if (customDateRange && startDate && endDate) {
           startStr = startDate;
@@ -608,9 +618,9 @@ const Planning: React.FC = () => {
           endStr = weekEnd.format('YYYY-MM-DD');
       }
 
-      const provisional = (documents || [])
+      // Include all quotes (sent, signed, validated, pending, draft) that have slots
+      const candidateDocs = (documents || [])
           .filter(d => d.type === 'Devis')
-          .filter(d => d.status === 'sent')
           .filter(d => !isQuoteExpired(d))
           .filter(d => {
               if (!serviceTypeFilter || serviceTypeFilter === 'all') return true;
@@ -618,50 +628,76 @@ const Planning: React.FC = () => {
               const persisted = String((d as any)?.serviceType || (d as any)?.service_type || '').trim();
               if (serviceTypeFilter === 'Personnalisé') return persisted === 'Personnalisé' || category === 'custom';
               return persisted === serviceTypeFilter;
-          })
-          .filter(d => Array.isArray(d.slotsData) && d.slotsData.length > 0)
-          .flatMap(d => (d.slotsData || []).map((slot: any, index: number) => ({
-              id: `provisional-${d.id}-${index}-${slot?.date || 'no-date'}-${slot?.startTime || 'no-start'}`,
-              date: slot?.date,
-              startTime: slot?.startTime,
-              endTime: slot?.endTime,
-              duration: typeof slot?.duration === 'number' ? slot.duration : 0,
-              service: d.description || 'Devis',
-              clientId: d.clientId,
-              clientName: d.clientName,
-              providerId: null,
-              providerName: 'À assigner',
-              status: 'planned' as const,
-              sourceDocumentId: d.id
-          })))
-          .filter(item => !!item.date)
-          .filter(item => item.date >= startStr && item.date <= endStr);
+          });
+
+      const provisional = candidateDocs.flatMap(d => {
+          const rawSlots = Array.isArray(d.slotsData) ? d.slotsData : (Array.isArray((d as any).slots_data) ? (d as any).slots_data : []);
+          if (rawSlots.length === 0) return [];
+          const isSigned = d.status === 'signed' || d.status === 'validated';
+
+          return rawSlots.map((slot: any, index: number) => {
+              if (!slot?.date || slot.sessionStatus === 'cancelled') return null;
+
+              // Check if a real mission already exists in `missions` state for this slot
+              const hasRealMission = missions.some(m =>
+                  m.status !== 'cancelled' &&
+                  (
+                      (m.sourceDocumentId === d.id && m.date === slot.date) ||
+                      (m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
+                  )
+              );
+
+              if (hasRealMission) return null; // Already rendered as a confirmed mission
+
+              return {
+                  id: `provisional-${d.id}-${index}-${slot.date}-${slot.startTime || 'no-start'}`,
+                  date: slot.date,
+                  startTime: slot.startTime || '09:00',
+                  endTime: slot.endTime || '12:00',
+                  duration: typeof slot.duration === 'number' ? slot.duration : 3,
+                  service: d.description || 'Devis',
+                  clientId: d.clientId,
+                  clientName: d.clientName || 'Client',
+                  providerId: null,
+                  providerName: 'À assigner',
+                  status: 'planned' as const,
+                  sourceDocumentId: d.id,
+                  isQuoteSlot: true,
+                  quoteRef: d.ref,
+                  isSignedQuote: isSigned,
+                  quoteStatus: d.status
+              };
+          }).filter(Boolean);
+      })
+      .filter((item: any) => !!item && !!item.date)
+      .filter((item: any) => item.date >= startStr && item.date <= endStr);
 
       let fProvisional = provisional;
 
       if (selectedProvider !== 'all') {
-          fProvisional = fProvisional.filter(item => item.providerName === selectedProvider);
+          fProvisional = fProvisional.filter((item: any) => item.providerName === selectedProvider);
       }
 
       if (selectedClient !== 'all') {
-          fProvisional = fProvisional.filter(item => item.clientName === selectedClient);
+          fProvisional = fProvisional.filter((item: any) => item.clientName === selectedClient);
       }
 
       if (selectedStatus !== 'all') {
-          fProvisional = fProvisional.filter(item => item.status === selectedStatus);
+          fProvisional = fProvisional.filter((item: any) => item.status === selectedStatus);
       }
 
       if (searchQuery) {
           const query = searchQuery.toLowerCase();
-          fProvisional = fProvisional.filter(item =>
+          fProvisional = fProvisional.filter((item: any) =>
               item.clientName.toLowerCase().includes(query) ||
               item.providerName.toLowerCase().includes(query) ||
-              item.date.includes(query)
+              item.date.includes(query) ||
+              (item.quoteRef && item.quoteRef.toLowerCase().includes(query))
           );
       }
 
       return fProvisional;
-  }, [documents, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
+  }, [documents, missions, selectedProvider, selectedClient, selectedStatus, searchQuery, weekStart, weekEnd, customDateRange, startDate, endDate, serviceTypeFilter]);
 
   useEffect(() => {
       if (!planningLoading) return;
@@ -1985,9 +2021,9 @@ const Planning: React.FC = () => {
           return;
       }
 
-      const mission = missions.find(m => m.id === selectedMissionId);
       const isExternal = assignProviderId === EXTERNAL_PROVIDER_ID;
       const provider = isExternal ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignProviderId);
+      const mission = missions.find(m => m.id === selectedMissionId) || (unassignedMissions as any[]).find(m => m.id === selectedMissionId) || (filteredProvisionalMissions as any[]).find(p => p.id === selectedMissionId);
 
       if (!mission || !provider) {
           toast.error('Mission ou prestataire introuvable.');
@@ -2003,9 +2039,31 @@ const Planning: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-          await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
-          if (assignIsOvertime) {
-              await updateMission(mission.id, { isOvertime: true });
+          const isRealInState = missions.some(m => m.id === mission.id);
+          if (isRealInState) {
+              await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
+              if (assignIsOvertime) {
+                  await updateMission(mission.id, { isOvertime: true });
+              }
+          } else {
+              // Create the mission with assigned provider
+              await addMission({
+                  id: (mission.id && !mission.id.startsWith('provisional-')) ? mission.id : generateUUID(),
+                  date: mission.date,
+                  startTime: mission.startTime || '09:00',
+                  endTime: mission.endTime || '12:00',
+                  duration: typeof mission.duration === 'number' ? mission.duration : 3,
+                  clientId: mission.clientId,
+                  clientName: mission.clientName || 'Client',
+                  service: mission.service || 'Prestation',
+                  providerId: provider.id,
+                  providerName: getProviderDisplayName(provider),
+                  status: 'planned',
+                  color: 'gray',
+                  source: 'devis',
+                  sourceDocumentId: mission.sourceDocumentId,
+                  isOvertime: assignIsOvertime
+              });
           }
           toast.success(`Prestataire assigné${isExternal ? ' (externe)' : ' ! Email envoyé.'}`);
           success();
@@ -2026,13 +2084,13 @@ const Planning: React.FC = () => {
   const handleConfirmAssignment = async () => {
       if (!selectedMissionId || !assignProviderId) return;
 
-      const mission = missions.find(m => m.id === selectedMissionId);
       const isExternal1 = assignProviderId === EXTERNAL_PROVIDER_ID;
       const provider = isExternal1 ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignProviderId);
       const isExternal2 = assignSecondProviderSelect === EXTERNAL_PROVIDER_ID;
       const provider2 = assignSecondProviderSelect
           ? (isExternal2 ? EXTERNAL_PROVIDER : providers.find(p => p.id === assignSecondProviderSelect) ?? null)
           : null;
+      const mission = missions.find(m => m.id === selectedMissionId) || (unassignedMissions as any[]).find(m => m.id === selectedMissionId) || (filteredProvisionalMissions as any[]).find(p => p.id === selectedMissionId);
 
       if (!mission || !provider) {
           toast.error('Mission ou prestataire introuvable.');
@@ -2059,20 +2117,45 @@ const Planning: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-          // Assigner le 1er prestataire
-          await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
+          const isRealInState = missions.some(m => m.id === mission.id);
+          if (isRealInState) {
+              // Assigner le 1er prestataire
+              await assignProvider(mission.id, provider.id, getProviderDisplayName(provider));
 
-          // Marquer comme heures supplémentaires si coché
-          if (isOvertimeMode) {
-              await updateMission(mission.id, { isOvertime: true });
-          }
+              // Marquer comme heures supplémentaires si coché
+              if (isOvertimeMode) {
+                  await updateMission(mission.id, { isOvertime: true });
+              }
 
-          // Assigner le 2e prestataire si sélectionné
-          if (provider2) {
-              await assignSecondProvider(mission.id, provider2.id, getProviderDisplayName(provider2));
-              toast.success(`Binôme assigné : ${getProviderDisplayName(provider)} + ${getProviderDisplayName(provider2)} !${isOvertimeMode ? ' (Heures sup.)' : ' Emails envoyés.'}`);
+              // Assigner le 2e prestataire si sélectionné
+              if (provider2) {
+                  await assignSecondProvider(mission.id, provider2.id, getProviderDisplayName(provider2));
+                  toast.success(`Binôme assigné : ${getProviderDisplayName(provider)} + ${getProviderDisplayName(provider2)} !${isOvertimeMode ? ' (Heures sup.)' : ' Emails envoyés.'}`);
+              } else {
+                  toast.success(`Prestataire assigné${isExternal1 ? ' (externe)' : ''} !${isOvertimeMode ? ' (Heures sup.)' : ' Email envoyé.'}`);
+              }
           } else {
-              toast.success(`Prestataire assigné${isExternal1 ? ' (externe)' : ''} !${isOvertimeMode ? ' (Heures sup.)' : ' Email envoyé.'}`);
+              // Create the mission directly with provider(s)
+              await addMission({
+                  id: (mission.id && !mission.id.startsWith('provisional-')) ? mission.id : generateUUID(),
+                  date: mission.date,
+                  startTime: mission.startTime || '09:00',
+                  endTime: mission.endTime || '12:00',
+                  duration: typeof mission.duration === 'number' ? mission.duration : 3,
+                  clientId: mission.clientId,
+                  clientName: mission.clientName || 'Client',
+                  service: mission.service || 'Prestation',
+                  providerId: provider.id,
+                  providerName: getProviderDisplayName(provider),
+                  provider2Id: provider2 ? provider2.id : undefined,
+                  provider2Name: provider2 ? getProviderDisplayName(provider2) : undefined,
+                  status: 'planned',
+                  color: 'gray',
+                  source: 'devis',
+                  sourceDocumentId: mission.sourceDocumentId,
+                  isOvertime: isOvertimeMode
+              });
+              toast.success(`Mission créée et prestataire assigné avec succès !`);
           }
           success();
           if (refreshData) await refreshData();
@@ -2374,7 +2457,28 @@ const Planning: React.FC = () => {
       }
   };
 
-  const unassignedMissions = missions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
+  const unassignedMissions = useMemo<Mission[]>(() => {
+    const realUnassigned = missions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
+    const provUnassigned: Mission[] = filteredProvisionalMissions.map((p: any) => ({
+      id: p.id,
+      date: p.date,
+      startTime: p.startTime,
+      endTime: p.endTime,
+      duration: p.duration,
+      service: p.service,
+      clientId: p.clientId,
+      clientName: p.clientName,
+      providerId: '',
+      providerName: 'À assigner',
+      status: 'planned' as const,
+      color: 'gray',
+      sourceDocumentId: p.sourceDocumentId,
+      isProvisional: true,
+      quoteRef: p.quoteRef,
+      isSignedQuote: p.isSignedQuote
+    } as any));
+    return [...realUnassigned, ...provUnassigned];
+  }, [missions, filteredProvisionalMissions]);
   
   // Actions & Missions filters
   const [unassignedFilterName, setUnassignedFilterName] = useState('');
@@ -2399,7 +2503,7 @@ const Planning: React.FC = () => {
     
     return filtered;
   }, [unassignedMissions, unassignedFilterName, unassignedFilterPack, clients]);
-  const missionToAssign = missions.find(m => m.id === selectedMissionId);
+  const missionToAssign = unassignedMissions.find(m => m.id === selectedMissionId) || missions.find(m => m.id === selectedMissionId);
 
   const getDayIndex = (dateStr: string) => {
       const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
@@ -2998,7 +3102,7 @@ const Planning: React.FC = () => {
                            <button
                                key={m.id}
                                type="button"
-                               onClick={() => { setQuickAssignMission(m); setQuickAssignOpen(true); }}
+                               onClick={() => { setQuickAssignMission(m as Mission); setQuickAssignOpen(true); }}
                                className="w-full p-2 bg-red-50 border border-red-100 rounded-lg text-left hover:bg-red-100 transition"
                            >
                                <div className="text-xs font-bold text-red-800 truncate">{client?.name || m.clientName}</div>
@@ -4411,10 +4515,15 @@ const Planning: React.FC = () => {
 
       {isProvisionalDetailsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[68vh]">
-                <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-cream-50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 max-h-[85vh]">
+                <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-cream-50">
                     <div>
-                        <h3 className="text-lg font-serif font-bold text-slate-800">Détails (En attente)</h3>
+                        <h3 className="text-lg font-serif font-bold text-slate-800">
+                            {selectedProvisionalDetails?.isSignedQuote ? 'Séance Devis Signé' : 'Séance Devis (En attente)'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                            {selectedProvisionalDetails?.quoteRef ? `Réf : ${selectedProvisionalDetails.quoteRef}` : 'Détail de la séance'}
+                        </p>
                     </div>
                     <button
                         onClick={() => {
@@ -4426,24 +4535,73 @@ const Planning: React.FC = () => {
                         <X className="w-5 h-5 text-slate-500" />
                     </button>
                 </div>
-                <div className="p-6 overflow-y-auto flex-1 min-h-0">
-                    <p className="text-sm font-bold text-orange-700">En attente de validation par le client</p>
+                <div className="p-5 overflow-y-auto flex-1 min-h-0 space-y-4">
+                    <div className={`p-3 rounded-xl border flex items-center gap-2 ${selectedProvisionalDetails?.isSignedQuote ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-orange-50 border-orange-200 text-orange-800'}`}>
+                        {selectedProvisionalDetails?.isSignedQuote ? (
+                            <>
+                                <CheckCircle className="w-5 h-5 text-blue-600 shrink-0" />
+                                <span className="text-xs font-bold">Devis signé & validé — Prêt pour assignation prestataire</span>
+                            </>
+                        ) : (
+                            <>
+                                <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0" />
+                                <span className="text-xs font-bold">En attente de validation / signature par le client</span>
+                            </>
+                        )}
+                    </div>
 
-                    <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm">
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="text-slate-500">Client</div>
-                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.clientName || '—'}</div>
-                            <div className="text-slate-500">Date</div>
-                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.date || '—'}</div>
-                            <div className="text-slate-500">Horaire</div>
-                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.startTime || '—'} - {selectedProvisionalDetails?.endTime || '—'}</div>
-                            <div className="text-slate-500">Prestataire</div>
-                            <div className="font-bold text-slate-800">{selectedProvisionalDetails?.providerName || 'À assigner'}</div>
-                            <div className="text-slate-500">Service</div>
-                            <div className="font-bold text-brand-blue">{selectedProvisionalDetails?.service || 'Devis'}</div>
-                            <div className="text-slate-500">Devis</div>
-                            <div className="font-bold text-slate-800 text-xs">{selectedProvisionalDetails?.sourceDocumentId || '—'}</div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2.5">
+                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span className="text-slate-500 font-medium">Client</span>
+                            <span className="font-bold text-slate-800">{selectedProvisionalDetails?.clientName || '—'}</span>
                         </div>
+                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span className="text-slate-500 font-medium">Date</span>
+                            <span className="font-bold text-slate-800">{selectedProvisionalDetails?.date ? dayjs.tz(selectedProvisionalDetails.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('dddd DD/MM/YYYY') : '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span className="text-slate-500 font-medium">Créneau & Durée</span>
+                            <span className="font-bold text-slate-800">{selectedProvisionalDetails?.startTime || '—'} - {selectedProvisionalDetails?.endTime || '—'} ({selectedProvisionalDetails?.duration || 3}h)</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span className="text-slate-500 font-medium">Prestataire</span>
+                            <span className="font-bold text-slate-800">{selectedProvisionalDetails?.providerName || 'À assigner'}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-slate-500 font-medium">Prestation</span>
+                            <span className="font-bold text-brand-blue">{selectedProvisionalDetails?.service || 'Devis'}</span>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const idToAssign = selectedProvisionalDetails?.id;
+                                setIsProvisionalDetailsModalOpen(false);
+                                setSelectedProvisionalDetails(null);
+                                if (idToAssign) {
+                                    setSelectedMissionId(idToAssign);
+                                }
+                            }}
+                            className="w-full py-2.5 px-4 rounded-xl bg-brand-blue text-white font-bold text-xs hover:opacity-95 transition flex items-center justify-center gap-2 shadow-sm"
+                        >
+                            <User className="w-4 h-4" /> Assigner un prestataire à cette séance
+                        </button>
+                        {selectedProvisionalDetails?.sourceDocumentId && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const docId = selectedProvisionalDetails.sourceDocumentId;
+                                    setIsProvisionalDetailsModalOpen(false);
+                                    setSelectedProvisionalDetails(null);
+                                    navigate(`/invoices/${docId}`);
+                                }}
+                                className="w-full py-2 px-4 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-200 transition text-center"
+                            >
+                                Voir les détails complets du devis
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -5731,7 +5889,7 @@ const Planning: React.FC = () => {
                                           </div>
                                           <button
                                               type="button"
-                                              onClick={() => { setQuickAssignMission(m); setQuickAssignOpen(true); }}
+                                              onClick={() => { setQuickAssignMission(m as Mission); setQuickAssignOpen(true); }}
                                               className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
                                           >
                                               Assigner
