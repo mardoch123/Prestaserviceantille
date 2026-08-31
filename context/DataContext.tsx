@@ -6266,8 +6266,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     // === RESYNC MISSIONS FROM DOCUMENT ===
-    // Supprime TOUTES les missions existantes pour ce devis, puis les recrée proprement.
-    // Garantie : après resync, les missions sont en base ET dans le state → visibles dans le planning.
+    // Supprime les missions existantes (par source_document_id ET par client/date/start_time)
+    // puis recrée proprement. Garantie : missions en base + state → visibles dans le planning.
     const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }> => {
         const doc = documents.find(d => d.id === docId);
         if (!doc) return { created: 0, alreadyExist: 0, total: 0, blocked: ['Document introuvable'] };
@@ -6285,21 +6285,49 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return { created: 0, alreadyExist: cancelledCount, total: doc.slotsData.length, blocked: ['Aucun créneau valide à synchroniser'] };
         }
 
-        // ─── ÉTAPE 1 : Supprimer TOUTES les missions existantes pour ce document en base ───
-        const { error: deleteError } = await supabase
+        // Collecter les dates et start_times uniques des créneaux à synchroniser
+        const uniqueDates = [...new Set(validSlots.map((s: any) => s.date))];
+        const uniqueStartTimes = [...new Set(validSlots.map((s: any) => s.startTime))];
+
+        // ─── ÉTAPE 1a : Supprimer les missions liées par source_document_id ───
+        const { error: deleteByDocError } = await supabase
             .from('missions')
             .delete()
             .eq('source_document_id', docId);
 
-        if (deleteError) {
-            console.error('[resyncMissionsFromDocument] Erreur delete:', deleteError);
-            return { created: 0, alreadyExist: 0, total: doc.slotsData.length, blocked: ['Erreur suppression anciennes missions : ' + deleteError.message] };
+        if (deleteByDocError) {
+            console.error('[resyncMissionsFromDocument] Erreur delete by doc:', deleteByDocError);
+            return { created: 0, alreadyExist: 0, total: doc.slotsData.length, blocked: ['Erreur suppression anciennes missions : ' + deleteByDocError.message] };
         }
 
-        // Retirer du state local les anciennes missions liées à ce document
-        setMissions(prev => prev.filter((m: any) =>
-            (m.sourceDocumentId || m.source_document_id) !== docId
-        ));
+        // ─── ÉTAPE 1b : Supprimer les missions orphelines par client_id + date + start_time ───
+        // Cela catch les missions créées à la signature sans source_document_id correct,
+        // ou toute autre mission en conflit sur les mêmes créneaux (contrainte unique).
+        if (doc.clientId && uniqueDates.length > 0 && uniqueStartTimes.length > 0) {
+            const { error: deleteOrphansError } = await supabase
+                .from('missions')
+                .delete()
+                .eq('client_id', doc.clientId)
+                .in('date', uniqueDates)
+                .in('start_time', uniqueStartTimes);
+
+            if (deleteOrphansError) {
+                console.warn('[resyncMissionsFromDocument] Erreur delete orphans (non bloquant):', deleteOrphansError);
+                // Non bloquant : on continue, l'insert gérera le conflit si nécessaire
+            }
+        }
+
+        // Retirer du state local les anciennes missions liées à ce document OU sur les mêmes créneaux
+        const slotKeys = new Set(validSlots.map((s: any) => `${s.date}|${s.startTime}`));
+        setMissions(prev => prev.filter((m: any) => {
+            // Supprimer si liée à ce document
+            if ((m.sourceDocumentId || m.source_document_id) === docId) return false;
+            // Supprimer si même client + même créneau (conflit unique constraint)
+            if ((m.clientId || m.client_id) === doc.clientId && m.date && m.startTime) {
+                if (slotKeys.has(`${m.date}|${m.startTime}`)) return false;
+            }
+            return true;
+        }));
 
         // ─── ÉTAPE 2 : Recréer toutes les missions valides ───
         const missionsToInsert = validSlots.map((slot: any) => ({
