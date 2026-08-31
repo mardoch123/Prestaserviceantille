@@ -272,6 +272,8 @@ interface DataContextType {
     runAutoGenerateSplitInvoices: () => Promise<{ generated: number; quotesProcessed: number }>;
     refundTransaction: (ref: string, amount: number) => Promise<void>;
     generateMissionsFromDocument: (doc: Document) => Promise<void>;
+    // Resynchronise les séances d'un devis vers le planning (crée les missions manquantes)
+    resyncMissionsFromDocument: (docId: string) => Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }>;
 
     // === GESTION STATUT SESSIONS (annulation individuelle) ===
     toggleSessionStatus: (quoteId: string, sessionIndex: number, newStatus: 'planned' | 'cancelled') => Promise<void>;
@@ -6263,6 +6265,102 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    // === RESYNC MISSIONS FROM DOCUMENT ===
+    // Crée les missions manquantes pour un devis déjà validé/signé, sans doublon
+    const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }> => {
+        const doc = documents.find(d => d.id === docId);
+        if (!doc) return { created: 0, alreadyExist: 0, total: 0, blocked: ['Document introuvable'] };
+        if (!doc.slotsData || !Array.isArray(doc.slotsData) || doc.slotsData.length === 0) {
+            return { created: 0, alreadyExist: 0, total: 0, blocked: ['Aucun créneau défini dans ce devis'] };
+        }
+
+        // Récupérer les missions existantes pour ce document (en state + en base)
+        const existingInState = missions.filter((m: any) =>
+            (m.sourceDocumentId || m.source_document_id) === docId && m.status !== 'cancelled'
+        );
+
+        const { data: existingInDb } = await supabase
+            .from('missions')
+            .select('id, date, start_time')
+            .eq('source_document_id', docId)
+            .neq('status', 'cancelled');
+
+        // Construire un Set des créneaux déjà couverts (date|startTime)
+        const coveredSlotKeys = new Set<string>();
+        existingInState.forEach(m => {
+            if (m.date && m.startTime) coveredSlotKeys.add(`${m.date}|${m.startTime}`);
+        });
+        (existingInDb || []).forEach(m => {
+            if (m.date && m.start_time) coveredSlotKeys.add(`${m.date}|${m.start_time}`);
+        });
+
+        // Déterminer les créneaux manquants
+        const slotsToCreate: any[] = [];
+        let alreadyExist = 0;
+        const blocked: string[] = [];
+
+        for (const slot of doc.slotsData) {
+            if (!slot.date || !slot.startTime || !slot.endTime) continue;
+            const key = `${slot.date}|${slot.startTime}`;
+            if (coveredSlotKeys.has(key)) {
+                alreadyExist++;
+                continue;
+            }
+            // Vérifier si la session n'est pas annulée
+            if (slot.sessionStatus === 'cancelled') {
+                alreadyExist++;
+                continue;
+            }
+            slotsToCreate.push({
+                id: generateUUID(),
+                date: slot.date,
+                start_time: slot.startTime,
+                end_time: slot.endTime,
+                duration: slot.duration,
+                client_id: doc.clientId,
+                client_name: doc.clientName,
+                service: doc.description,
+                provider_id: null,
+                provider_name: 'À assigner',
+                status: 'planned',
+                color: 'gray',
+                source: 'devis',
+                source_document_id: docId
+            });
+        }
+
+        if (slotsToCreate.length === 0) {
+            return { created: 0, alreadyExist, total: doc.slotsData.length, blocked: [] };
+        }
+
+        // Insertion en base
+        const { error } = await supabase.from('missions').insert(slotsToCreate);
+        if (error) {
+            console.error('[resyncMissionsFromDocument] Erreur insert:', error);
+            return { created: 0, alreadyExist, total: doc.slotsData.length, blocked: [error.message || 'Erreur DB'] };
+        }
+
+        // Ajout au state local
+        const createdMissions = slotsToCreate.map(m => ({
+            ...m,
+            dayIndex: getDayIndexFromDate(m.date),
+            startTime: m.start_time,
+            endTime: m.end_time,
+            clientId: m.client_id,
+            clientName: m.client_name,
+            providerId: m.provider_id,
+            providerName: m.provider_name
+        }));
+        setMissions(prev => [...prev, ...createdMissions]);
+
+        return {
+            created: slotsToCreate.length,
+            alreadyExist,
+            total: doc.slotsData.length,
+            blocked
+        };
+    };
+
     const updateDocumentStatus = async (id: string, status: string) => {
         const oldDoc = documents.find(d => d.id === id);
         const nextStatus = typeof status === 'string' && status.trim() ? status.trim() : 'pending';
@@ -9044,7 +9142,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
  
              providers, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, updateLeaveStatus, resetProviderPassword,
  
-             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument, toggleSessionStatus, checkSessionsToInvoice,
+             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument, resyncMissionsFromDocument, toggleSessionStatus, checkSessionsToInvoice,
              
              // Facturation fractionnée par pack
              generateSplitInvoicesAtSignature, generateSplitInvoice, checkAndGeneratePendingSplitInvoices, getSplitInvoicesForQuote, getPackBillingStats, getAllPackBillingStats, isEligibleForSplitBilling: isEligibleForSplitBillingFn, configureSplitBilling, markSplitInvoiceRead, notifyReadySplitInvoices, getUnreadSplitInvoicesCount, backfillSplitBilling, rollbackBackfillSplitBilling, runAutoGenerateSplitInvoices,

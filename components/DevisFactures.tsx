@@ -78,7 +78,7 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice, resyncMissionsFromDocument } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -1689,6 +1689,28 @@ const DevisFactures: React.FC = () => {
             } else {
                 toast.error("Erreur lors de la génération du contrat");
             }
+        }
+    };
+
+    // === RESYNC PLANNING ===
+    const [isResyncing, setIsResyncing] = useState(false);
+    const handleResyncPlanning = async () => {
+        if (!selectedDocument?.id) return;
+        setIsResyncing(true);
+        try {
+            const result = await resyncMissionsFromDocument(selectedDocument.id);
+            if (result.blocked.length > 0 && result.created === 0) {
+                toast.error(`Blocage : ${result.blocked.join(', ')}`);
+            } else if (result.created > 0) {
+                toast.success(`Synchronisation réussie : ${result.created} séance${result.created > 1 ? 's' : ''} créée${result.created > 1 ? 's' : ''} dans le planning. (${result.alreadyExist} déjà présente${result.alreadyExist > 1 ? 's' : ''})`);
+            } else {
+                toast.info(`Toutes les séances sont déjà synchronisées (${result.alreadyExist}/${result.total}).`);
+            }
+        } catch (e: any) {
+            console.error('[handleResyncPlanning] Erreur:', e);
+            toast.error('Erreur lors de la synchronisation : ' + (e?.message || 'inconnue'));
+        } finally {
+            setIsResyncing(false);
         }
     };
 
@@ -4174,6 +4196,23 @@ const DevisFactures: React.FC = () => {
                                         >
                                             <PenTool className="w-4 h-4" />
                                             Signer (admin)
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Bouton Resync Planning — visible pour les devis signés ou validés (admin) */}
+                                {selectedDocument.type === 'Devis' && 
+                                 (selectedDocument.status === 'signed' || selectedDocument.status === 'validated' || selectedDocument.status === 'to_invoice') && 
+                                 selectedDocument.slotsData && selectedDocument.slotsData.length > 0 &&
+                                 (currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+                                    <div className="mt-4 flex justify-end">
+                                        <button
+                                            onClick={handleResyncPlanning}
+                                            disabled={isResyncing}
+                                            className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-50"
+                                        >
+                                            {isResyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                            {isResyncing ? 'Synchronisation...' : 'Resync. Planning'}
                                         </button>
                                     </div>
                                 )}
