@@ -557,8 +557,9 @@ const Planning: React.FC = () => {
           startStr = startDate;
           endStr = endDate;
       } else {
+          // Inclure 4 semaines pour que les missions futures soient visibles dans la grille
           startStr = weekStart.format('YYYY-MM-DD');
-          endStr = weekEnd.format('YYYY-MM-DD');
+          endStr = weekStart.add(27, 'day').format('YYYY-MM-DD');
       }
       
       // Missions
