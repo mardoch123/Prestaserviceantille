@@ -116,7 +116,7 @@ export function getProvisionalMissionsFromDocuments(documents: any[]): MissionLi
   const now = dayjs().tz(MARTINIQUE_TIMEZONE).toDate();
 
   return documents
-    .filter((d: any) => d?.type === 'Devis' && d?.status === 'sent')
+    .filter((d: any) => d?.type === 'Devis' && d?.status === 'sent' && Number(d?.totalTTC || d?.total_ttc || d?.total || 0) > 0)
     .filter((d: any) => {
       // Filtrer les devis expirés
       const expStr = d.expirationDate || d.expiration_date;
