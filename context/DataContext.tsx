@@ -5356,9 +5356,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
+            // Validate date before using dayjs.tz to avoid RangeError
+            const parsedMissionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            if (!parsedMissionDate.isValid()) {
+                console.warn('[assignProvider] Invalid mission date:', existingMission.date, '- skipping date-based checks');
+            } else {
             const provider = providers.find(p => p.id === providerId);
             const days = (provider as any)?.nonInterventionDays;
-            const day = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            const day = parsedMissionDate.day();
             if (Array.isArray(days) && days.includes(day)) {
                 throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
             }
@@ -5402,7 +5407,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
                     return h * 60 + m;
                 };
-                const missionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                const missionDate = parsedMissionDate; // reuse already validated date
                 const missionDay = missionDate.day();
                 const missionDateStart = missionDate.startOf('day');
                 const hasScheduledBlock = scheds.some((su: any) => {
@@ -5466,6 +5471,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
                 );
             }
+            } // end isValid date check
         }
 
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
@@ -5518,7 +5524,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (existingMission?.date) {
             const provider = providers.find(p => p.id === providerId);
             const days = (provider as any)?.nonInterventionDays;
-            const day = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+            // Validate date before using dayjs.tz to avoid RangeError
+            const parsedMissionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+            if (!parsedMissionDate.isValid()) {
+                console.warn('[assignProvider] Invalid mission date:', existingMission.date, '- skipping date-based checks');
+            } else {
+            const day = parsedMissionDate.day();
             if (Array.isArray(days) && days.includes(day)) {
                 throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
             }
@@ -5562,7 +5573,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
                     return h * 60 + m;
                 };
-                const missionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+                const missionDate = parsedMissionDate; // reuse already validated date
                 const missionDay = missionDate.day();
                 const missionDateStart = missionDate.startOf('day');
                 const hasScheduledBlock = scheds.some((su: any) => {
@@ -5626,6 +5637,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
                 );
             }
+            } // end isValid date check
         }
 
         const { error } = await supabase.from('missions').update({ provider2_id: providerId, provider2_name: providerName }).eq('id', missionId);
@@ -7119,22 +7131,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
             if (quoteChanged) {
                 // Déterminer le nouveau statut du devis
-                const hasToInvoice = updatedSlots.some((s: any) => s.sessionStatus === 'to_invoice');
-                const newDocStatus = hasToInvoice ? 'to_invoice' : 'signed';
+                // Status change removed - only update slots_data, not document status
+                // (newDocStatus removed to avoid PATCH 400 with invalid status)
 
                 // Mise à jour DB du slotsData
                 await supabase
                     .from('documents')
-                    .update({ slots_data: updatedSlots, status: newDocStatus })
+                    .update({ slots_data: updatedSlots })
                     .eq('id', quote.id);
 
                 // Mise à jour state local
                 setDocuments(prev => prev.map(d =>
-                    d.id === quote.id ? { ...d, slotsData: updatedSlots, status: newDocStatus as any } : d
+                    d.id === quote.id ? { ...d, slotsData: updatedSlots } : d
                 ));
 
                 // Notification admin (seulement s'il reste des prestations à facturer)
-                if (hasToInvoice) {
+                const hasToInvoiceNow = updatedSlots.some((s: any) => s.sessionStatus === 'to_invoice');
+                if (hasToInvoiceNow) {
                     const countToInvoice = updatedSlots.filter((s: any) => s.sessionStatus === 'to_invoice').length;
                     await addNotification(
                         'admin',
