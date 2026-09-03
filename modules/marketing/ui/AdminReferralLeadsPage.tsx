@@ -26,6 +26,26 @@ const AdminReferralLeadsPage: React.FC = () => {
     try {
       const { data, error } = await supabase.rpc('mkt_admin_list_pending_client_leads', { p_limit: 2000 });
       if (error) {
+        // Si la fonction RPC n'existe pas ou la table client_leads est absente, on tente un fallback direct
+        const msg = String(error.message || '').toLowerCase();
+        const isMissingFunc = msg.includes('function') || msg.includes('does not exist') || msg.includes('not found') || msg.includes('not allowed') || error.code === '42703' || error.code === '42883';
+        if (isMissingFunc) {
+          try {
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('client_leads')
+              .select('*')
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false })
+              .limit(2000);
+            if (!fallbackError && fallbackData) {
+              setLeads(fallbackData as any[]);
+              setLoadingLeads(false);
+              return;
+            }
+          } catch {
+            // fallback failed too
+          }
+        }
         setLeads([]);
         setLeadsError(String(error.message || error));
         return;

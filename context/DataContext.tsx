@@ -537,9 +537,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
              serviceType = 'Autre';
         }
 
-        const packId = draft?.packId && String(draft.packId).match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) 
-             ? String(draft.packId) 
-             : null;
+        const packId = draft?.packId ? String(draft.packId).trim() || null : null;
 
         const dbDocData: any = {
             id,
@@ -7396,8 +7394,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Ideally, link via packId if we had it stored on Document.
                 // Fallback: If we can't link precisely, we'll try to find the contract linked to the pack used in the quote.
 
-                // Try to find the pack
-                const pack = packs.find(p => quote.description.includes(p.name));
+                // Try to find the pack - prioritize packId, fallback to longest-name match in description
+                const pack = quote.packId
+                    ? packs.find(p => String(p.id) === String(quote.packId))
+                    : (() => {
+                        const descLower = String(quote.description || '').toLowerCase();
+                        const candidates = packs.filter(p => p.name && descLower.includes(p.name.toLowerCase()));
+                        if (candidates.length > 0) return candidates.reduce((best, p) => p.name.length > best.name.length ? p : best);
+                        return undefined;
+                      })();
 
                 if (pack) {
                     const relatedContract = contracts.find(c => c.packId === pack.id);

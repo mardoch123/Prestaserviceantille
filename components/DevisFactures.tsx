@@ -2594,7 +2594,11 @@ const DevisFactures: React.FC = () => {
             }
             const descriptionRaw = String((d.description || '') as any);
             if (descriptionRaw) {
-                return packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
+                const descLower = descriptionRaw.toLowerCase();
+                const candidates = packs.filter(p => p.name && descLower.includes(p.name.toLowerCase()));
+                if (candidates.length > 0) {
+                    return candidates.reduce((best, p) => p.name.length > best.name.length ? p : best);
+                }
             }
             return undefined;
         };
@@ -2744,12 +2748,8 @@ const DevisFactures: React.FC = () => {
                 : '';
             const packNameFromField = String((doc as any).packName || '').trim();
             const descLower = String(doc.description || '').toLowerCase();
-            const packNameFromText = String(
-                (packs || []).find((p: any) => {
-                    const n = String(p?.name || '').toLowerCase();
-                    return n && descLower.includes(n);
-                })?.name || ''
-            );
+            const packCandidates = (packs || []).filter((p: any) => { const n = String(p?.name || '').toLowerCase(); return n && descLower.includes(n); });
+            const packNameFromText = packCandidates.length > 0 ? packCandidates.reduce((best: any, p: any) => String(p.name).length > String(best.name).length ? p : best).name : '';
             const packName = packNameFromId || packNameFromField || packNameFromText || '';
 
             const meta = parseQuoteDescriptionMeta((doc as any).description);
@@ -3383,7 +3383,11 @@ const DevisFactures: React.FC = () => {
                                                     }
                                                     const descriptionRaw = String((doc as any).description || '');
                                                     if (descriptionRaw) {
-                                                        return packs.find(p => descriptionRaw.toLowerCase().includes(p.name.toLowerCase()));
+                                                        const descLower = descriptionRaw.toLowerCase();
+                                                        const candidates = packs.filter(p => p.name && descLower.includes(p.name.toLowerCase()));
+                                                        if (candidates.length > 0) {
+                                                            return candidates.reduce((best, p) => p.name.length > best.name.length ? p : best);
+                                                        }
                                                     }
                                                     return undefined;
                                                 })();

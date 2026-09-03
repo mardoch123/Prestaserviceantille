@@ -800,8 +800,8 @@ const Planning: React.FC = () => {
 
     // Stats Logic
     const statsDate = focusedDate || getMartiniqueToday();
-    const missionsCountToday = validMissions.filter(m => String(m.date || '') === String(statsDate)).length;
-    const missionsCountWeek = filteredMissions.length;
+    const missionsCountToday = validMissions.filter(m => String(m.date || '') === String(statsDate) && m.status !== 'cancelled').length;
+    const missionsCountWeek = filteredMissions.filter(m => m.status !== 'cancelled').length;
     const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
 
     const totalHoursToday = useMemo(() => {
