@@ -66,11 +66,14 @@ export function getEffectiveStatus(mission: any, documents?: any[]): Mission['st
 
     // 2. Vérifier si le devis source marque cette séance comme annulée ou facturée/réalisée
     if (documents && mission.sourceDocumentId && mission.date) {
-        const doc = documents.find(d => d.id === mission.sourceDocumentId);
+        const doc = documents.find(d => String(d.id) === String(mission.sourceDocumentId));
         if (doc && (doc.slotsData || doc.slots_data)) {
             const raw = doc.slotsData || doc.slots_data;
             const slots = Array.isArray(raw) ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
-            const slot = slots.find((s: any) => s.date === mission.date && (s.startTime === mission.startTime || String(s.startTime || '').startsWith(mission.startTime)));
+            const slot = slots.find((s: any) => s.date === mission.date && (
+                s.startTime === mission.startTime ||
+                String(s.startTime || '').slice(0, 5) === String(mission.startTime || '').slice(0, 5)
+            ));
             if (slot) {
                 if (slot.sessionStatus === 'cancelled') return 'cancelled';
                 if (slot.sessionStatus === 'completed' || slot.sessionStatus === 'invoiced' || slot.sessionStatus === 'to_invoice') {

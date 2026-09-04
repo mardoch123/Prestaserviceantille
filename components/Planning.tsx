@@ -140,12 +140,18 @@ const Planning: React.FC = () => {
 
     const isQuoteExpired = (doc: any): boolean => {
         if (!doc) return true;
-        const s = String(doc.status || '').toLowerCase();
-        // Signed, validated, paid or active quotes are NEVER expired
-        if (s === 'signed' || s === 'validated' || s === 'accepted' || s === 'paid' || s === 'to_invoice') {
+        const s = String(doc.status || '').toLowerCase().trim();
+        // Signed, validated, paid, converted or active quotes are NEVER expired
+        if (
+            s === 'signed' || s === 'signe' || s === 'signée' || s === 'signee' ||
+            s === 'validated' || s === 'valide' || s === 'validée' || s === 'validee' ||
+            s === 'accepted' || s === 'accepte' || s === 'acceptée' || s === 'acceptee' ||
+            s === 'paid' || s === 'paye' || s === 'payée' || s === 'payee' ||
+            s === 'to_invoice' || s === 'converted' || s === 'converti'
+        ) {
             return false;
         }
-        if (s === 'expired' || s === 'rejected' || s === 'cancelled') {
+        if (s === 'expired' || s === 'rejected' || s === 'cancelled' || s === 'annule' || s === 'annulée') {
             return true;
         }
         // Sent quotes are active and valid for planning
@@ -623,7 +629,7 @@ const Planning: React.FC = () => {
 
         // Filter by status
         if (selectedStatus !== 'all') {
-            fMissions = fMissions.filter(item => item.status === selectedStatus);
+            fMissions = fMissions.filter(item => getEffectiveStatus(item, documents) === selectedStatus);
         }
 
         // Search query
@@ -680,8 +686,15 @@ const Planning: React.FC = () => {
                 } catch { }
             }
             if (rawSlots.length === 0) return [];
-            const statusLower = String(d.status || '').toLowerCase();
-            const isSigned = statusLower === 'signed' || statusLower === 'validated' || statusLower === 'accepted' || statusLower === 'paid' || statusLower === 'to_invoice';
+            const statusLower = String(d.status || '').trim().toLowerCase();
+            const docTypeLower = String(d.type || '').trim().toLowerCase();
+            const isDocInvoice = docTypeLower === 'facture';
+            const isSigned = isDocInvoice ||
+                statusLower === 'signed' || statusLower === 'signe' || statusLower === 'signee' || statusLower === 'signée' ||
+                statusLower === 'validated' || statusLower === 'valide' || statusLower === 'validee' || statusLower === 'validée' ||
+                statusLower === 'accepted' || statusLower === 'accepte' || statusLower === 'acceptee' || statusLower === 'acceptée' ||
+                statusLower === 'paid' || statusLower === 'paye' || statusLower === 'payee' || statusLower === 'payée' ||
+                statusLower === 'to_invoice' || statusLower === 'converted' || statusLower === 'converti';
 
             return rawSlots.map((slot: any, index: number) => {
                 if (!slot?.date) return null;
@@ -689,13 +702,21 @@ const Planning: React.FC = () => {
 
                 // Check if a real mission already exists in `missions` state for this slot
                 const hasRealMission = validMissions.some(m =>
-                    (m.sourceDocumentId === d.id && m.date === slot.date) ||
-                    (m.clientId && d.clientId && m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
+                    (m.sourceDocumentId && d.id && String(m.sourceDocumentId) === String(d.id) && m.date === slot.date) ||
+                    (m.clientId && d.clientId && String(m.clientId) === String(d.clientId) && m.date === slot.date && (
+                        String(m.startTime || '').slice(0, 5) === String(slot.startTime || '').slice(0, 5)
+                    ))
                 );
 
                 if (hasRealMission) return null; // Already rendered as a confirmed mission
 
                 const slotKey = slot.id || `idx-${index}`;
+                const itemEffectiveStatus = isSlotCancelled
+                    ? ('cancelled' as const)
+                    : (slot.sessionStatus === 'completed' || slot.sessionStatus === 'invoiced' || slot.sessionStatus === 'to_invoice'
+                        ? ('completed' as const)
+                        : (slot.date < getMartiniqueToday() ? ('completed' as const) : ('planned' as const)));
+
                 return {
                     id: `provisional-${d.id}-${slotKey}-${slot.date}-${slot.startTime || 'no-start'}`,
                     date: slot.date,
@@ -705,12 +726,13 @@ const Planning: React.FC = () => {
                     service: d.description || 'Prestation',
                     clientId: d.clientId,
                     clientName: d.clientName || 'Client',
-                    providerId: null,
-                    providerName: isSlotCancelled ? 'Séance annulée' : 'À assigner',
-                    status: isSlotCancelled ? ('cancelled' as const) : ('planned' as const),
+                    providerId: slot.providerId || null,
+                    providerName: isSlotCancelled ? 'Séance annulée' : (slot.providerName || 'À assigner'),
+                    status: itemEffectiveStatus,
                     color: 'gray',
                     sourceDocumentId: d.id,
                     isQuoteSlot: true,
+                    isProvisional: true,
                     quoteRef: d.ref,
                     isSignedQuote: isSigned,
                     quoteStatus: d.status,
@@ -739,8 +761,8 @@ const Planning: React.FC = () => {
             fProvisional = fProvisional.filter((item: any) => item.clientName === selectedClient);
         }
 
-        if (selectedStatus !== 'all' && selectedStatus !== 'planned') {
-            fProvisional = fProvisional.filter((item: any) => item.status === selectedStatus);
+        if (selectedStatus !== 'all') {
+            fProvisional = fProvisional.filter((item: any) => getEffectiveStatus(item, documents) === selectedStatus);
         }
 
         if (searchQuery) {
@@ -810,7 +832,7 @@ const Planning: React.FC = () => {
     const statsDate = focusedDate || getMartiniqueToday();
     const missionsCountToday = validMissions.filter(m => String(m.date || '') === String(statsDate) && m.status !== 'cancelled').length;
     const missionsCountWeek = filteredMissions.filter(m => m.status !== 'cancelled').length;
-    const missionsCompletedWeek = filteredMissions.filter(m => m.status === 'completed').length;
+    const missionsCompletedWeek = filteredMissions.filter(m => getEffectiveStatus(m, documents) === 'completed').length;
 
     const totalHoursToday = useMemo(() => {
         const computeDuration = (date: string, startTime: string, endTime: string, fallback: any) => {
@@ -2531,6 +2553,20 @@ const Planning: React.FC = () => {
 
     const handleProvisionalMissionClick = (item: any, e: React.MouseEvent) => {
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            // Si une mission réelle existe déjà pour ce créneau de devis, ouvrir directement la mission réelle
+            const existingReal = missions.find(m =>
+                (m.sourceDocumentId && item.sourceDocumentId && String(m.sourceDocumentId) === String(item.sourceDocumentId) && m.date === item.date) ||
+                (m.clientId && item.clientId && String(m.clientId) === String(item.clientId) && m.date === item.date && (
+                    String(m.startTime || '').slice(0, 5) === String(item.startTime || '').slice(0, 5)
+                ))
+            );
+
+            if (existingReal) {
+                handleMissionClick(existingReal, e);
+                return;
+            }
+
+            const effectiveSt = getEffectiveStatus(item, documents);
             const missionLike: Mission = {
                 id: item.id || `provisional-${Date.now()}`,
                 clientId: item.clientId || '',
@@ -2542,8 +2578,8 @@ const Planning: React.FC = () => {
                 startTime: item.startTime || '09:00',
                 endTime: item.endTime || '12:00',
                 duration: typeof item.duration === 'number' ? item.duration : 3,
-                status: item.status || 'planned',
-                color: 'orange',
+                status: effectiveSt,
+                color: effectiveSt === 'completed' ? 'green' : 'orange',
                 sourceDocumentId: item.sourceDocumentId,
                 source: 'devis'
             };
@@ -2675,7 +2711,7 @@ const Planning: React.FC = () => {
         const isInProgress = effectiveStatus === 'in_progress';
         const hasBinome = Boolean(mission.provider2Id && mission.provider2Id !== 'null');
         const isUnassigned = (!mission.providerId || mission.providerId === 'null') && !isCancelled && !isCompleted;
-        const isSignedFromQuote = mission.source === 'devis' && !isCancelled && !isCompleted;
+        const isSignedFromQuote = (mission.source === 'devis' || mission.isSignedQuote || mission.isQuoteSlot) && !isCancelled && !isCompleted;
 
         // 1. Annulée (prioritaire : affiche clairement le statut Annulée)
         if (isCancelled) {
@@ -2710,14 +2746,14 @@ const Planning: React.FC = () => {
             };
         }
 
-        // 4. Non assignée
-        if (isUnassigned) {
+        // 4. Créneau de devis non encore validé / non signé (En attente)
+        if (mission.isProvisional && !mission.isSignedQuote && mission.sessionStatus !== 'planned') {
             return {
-                container: 'bg-red-50 text-slate-800',
-                border: 'border-red-500',
-                label: 'Non assignée',
-                borderColor: '#ef4444',
-                statusCls: 'bg-red-100 text-red-700'
+                container: 'bg-orange-50 text-slate-800 border-orange-200',
+                border: 'border-orange-400',
+                label: 'Devis en attente',
+                borderColor: '#f97316',
+                statusCls: 'bg-orange-100 text-orange-800'
             };
         }
 
@@ -2743,7 +2779,18 @@ const Planning: React.FC = () => {
             };
         }
 
-        // 7. Planifiée normale
+        // 7. Non assignée
+        if (isUnassigned) {
+            return {
+                container: 'bg-amber-50 text-slate-800',
+                border: 'border-amber-500',
+                label: 'Non assignée',
+                borderColor: '#f59e0b',
+                statusCls: 'bg-amber-100 text-amber-800'
+            };
+        }
+
+        // 8. Planifiée normale
         return {
             container: 'bg-sky-50 text-slate-800',
             border: 'border-sky-500',
@@ -3536,66 +3583,27 @@ const Planning: React.FC = () => {
 
                                                 {/* Provisional missions */}
                                                 {provisionalForDate.map((item: any) => {
-                                                    if (item.status === 'cancelled') {
-                                                        return (
-                                                            <div
-                                                                key={item.id}
-                                                                className="rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border border-slate-300 border-l-4 border-l-slate-400 bg-slate-100/80 opacity-75 line-through shadow-sm"
-                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                                            >
-                                                                <div className="shrink-0 w-12 text-center pt-0.5">
-                                                                    <div className="text-xs font-bold text-slate-500">{item.startTime?.slice(0, 5)}</div>
-                                                                    <div className="text-[10px] text-slate-400">{item.endTime?.slice(0, 5)}</div>
-                                                                    {item.duration && (
-                                                                        <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0 border-l-2 border-slate-300 pl-2.5">
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <p className="font-bold text-xs text-slate-600 truncate">{item.clientName}</p>
-                                                                        <span className="shrink-0 text-[9px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded not-italic">Annulée</span>
-                                                                    </div>
-                                                                    <p className="text-[10px] text-slate-500 truncate">{item.providerName || 'Séance annulée'} · {item.service || 'Devis'}</p>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    if (item.isSignedQuote) {
-                                                        return (
-                                                            <div
-                                                                key={item.id}
-                                                                className="rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border border-slate-200 border-l-4 border-l-red-500 bg-red-50/70 shadow-sm"
-                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                                            >
-                                                                <div className="shrink-0 w-12 text-center pt-0.5">
-                                                                    <div className="text-xs font-bold text-slate-800">{item.startTime?.slice(0, 5)}</div>
-                                                                    <div className="text-[10px] text-slate-500">{item.endTime?.slice(0, 5)}</div>
-                                                                    {item.duration && (
-                                                                        <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0 border-l-2 border-red-300 pl-2.5">
-                                                                    <p className="font-bold text-xs text-slate-900 truncate">{item.clientName}</p>
-                                                                    <p className="text-[10px] text-slate-600 truncate">{item.providerName || 'À assigner'} · {item.service || 'Prestation'}</p>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }
+                                                    const style = getMissionPlanningStyle(item);
                                                     return (
                                                         <div
                                                             key={item.id}
-                                                            className="bg-orange-50 border border-orange-200 rounded-lg p-2.5 cursor-pointer hover:bg-orange-100 active:bg-orange-150 transition flex items-center gap-3"
+                                                            className={`rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border ${style.border} ${style.container}`}
                                                             onClick={(e) => handleProvisionalMissionClick(item, e)}
                                                         >
-                                                            <div className="shrink-0 w-12 text-center">
-                                                                <div className="text-xs font-bold text-orange-700">{item.startTime?.slice(0, 5)}</div>
-                                                                <div className="text-[10px] text-orange-500">{item.endTime?.slice(0, 5)}</div>
+                                                            <div className="shrink-0 w-12 text-center pt-0.5">
+                                                                <div className="text-xs font-bold text-slate-800">{item.startTime?.slice(0, 5)}</div>
+                                                                <div className="text-[10px] text-slate-500">{item.endTime?.slice(0, 5)}</div>
+                                                                {item.duration && (
+                                                                    <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
+                                                                )}
                                                             </div>
-                                                            <div className="flex-1 min-w-0 border-l-2 border-orange-300 pl-2.5">
-                                                                <p className="font-bold text-xs text-orange-900 truncate">{item.clientName}</p>
-                                                                <p className="text-[10px] text-orange-700 truncate">{item.providerName || 'À assigner'} · {item.service || 'Devis'}</p>
+                                                            <div className="flex-1 min-w-0 border-l-2 pl-2.5" style={{ borderColor: style.borderColor }}>
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <p className="font-bold text-xs text-slate-900 truncate">{item.clientName}</p>
+                                                                    <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded ${style.statusCls}`}>{style.label}</span>
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-600 truncate mt-0.5">{item.providerName || 'À assigner'} · {item.service || 'Prestation'}</p>
                                                             </div>
-                                                            <span className="shrink-0 text-[9px] font-bold bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Attente</span>
                                                         </div>
                                                     );
                                                 })}
@@ -3798,56 +3806,25 @@ const Planning: React.FC = () => {
                                             {filteredProvisionalMissions
                                                 .filter((item: any) => item && getDayIndex(item.date) === colIndex)
                                                 .map((item: any) => {
-                                                    if (item.status === 'cancelled') {
-                                                        return (
-                                                            <div
-                                                                key={item.id}
-                                                                className="p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group bg-slate-100/90 text-slate-500 border-slate-400 opacity-75 line-through"
-                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                                            >
-                                                                <div className="flex items-center justify-between gap-2">
-                                                                    <p className="font-bold text-slate-600 pr-2 truncate">{item.clientName}</p>
-                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0 not-italic">Annulée</span>
-                                                                </div>
-                                                                <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
-                                                                <p className="text-[10px] italic text-slate-500 truncate">{item.providerName || 'Séance annulée'}</p>
-                                                                <p className="text-[10px] text-slate-500 truncate">{item.service || 'Devis'}</p>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    if (item.isSignedQuote) {
-                                                        return (
-                                                            <div
-                                                                key={item.id}
-                                                                className="p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group bg-red-50 text-slate-800 border-red-500 shadow-sm"
-                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
-                                                            >
-                                                                <div className="flex items-center justify-between gap-2">
-                                                                    <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
-                                                                    <span className="text-[10px] font-bold text-slate-700 shrink-0">
-                                                                        {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
-                                                                    </span>
-                                                                </div>
-                                                                <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
-                                                                <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName || 'À assigner'}</p>
-                                                                <p className="text-[10px] text-slate-600 truncate">{item.service || 'Prestation'}</p>
-                                                            </div>
-                                                        );
-                                                    }
+                                                    const style = getMissionPlanningStyle(item);
                                                     return (
                                                         <div
                                                             key={item.id}
-                                                            className="bg-orange-100 p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 border-orange-500 relative group"
+                                                            className={`p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group ${style.container} ${style.border}`}
                                                             onClick={(e) => handleProvisionalMissionClick(item, e)}
                                                         >
-                                                            <div className="flex justify-between">
-                                                                <p className="font-bold text-orange-900 pr-4 truncate">{item.clientName}</p>
-                                                                <span className="text-[9px] text-orange-700">{dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).date()}</span>
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <p className="font-bold text-slate-800 pr-2 truncate">{item.clientName}</p>
+                                                                <span className="text-[10px] font-bold text-slate-700 shrink-0">
+                                                                    {dayjs.tz(item.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).format('DD/MM')}
+                                                                </span>
                                                             </div>
-                                                            <p className="text-[10px] text-orange-800">{item.startTime}-{item.endTime}</p>
-                                                            <p className="text-[10px] font-bold text-orange-800 truncate">{item.providerName || 'À assigner'}</p>
-                                                            <p className="text-[10px] text-orange-800 truncate">{item.service || 'Devis'}</p>
-                                                            <p className="text-[9px] italic text-orange-700 truncate">En attente</p>
+                                                            <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                                            <p className="text-[10px] font-bold text-slate-700 truncate">{item.providerName || 'À assigner'}</p>
+                                                            <p className="text-[10px] text-slate-600 truncate">{item.service || 'Prestation'}</p>
+                                                            <div className="mt-1 flex items-center gap-1">
+                                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${style.statusCls}`}>{style.label}</span>
+                                                            </div>
                                                         </div>
                                                     );
                                                 })
