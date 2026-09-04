@@ -2208,6 +2208,33 @@ const Planning: React.FC = () => {
         }
     };
 
+    // Helper sécurisé : gère l'assignation aussi bien pour les missions réelles (DB) que provisoires (devis)
+    const safeAssignMission = async (mission: any, providerId: string, providerName: string) => {
+        const isRealInState = missions.some(m => m.id === mission.id);
+        if (isRealInState) {
+            await assignProvider(mission.id, providerId, providerName);
+        } else {
+            // Mission provisoire → créer une vraie mission en base avec un UUID valide
+            await addMission({
+                id: generateUUID(),
+                date: mission.date,
+                startTime: mission.startTime || '09:00',
+                endTime: mission.endTime || '12:00',
+                duration: typeof mission.duration === 'number' ? mission.duration : 3,
+                clientId: mission.clientId,
+                clientName: mission.clientName || 'Client',
+                service: mission.service || 'Prestation',
+                providerId: providerId,
+                providerName: providerName,
+                status: 'planned',
+                color: 'gray',
+                source: 'devis',
+                sourceDocumentId: mission.sourceDocumentId,
+                isOvertime: false
+            });
+        }
+    };
+
     // BULK DELETE
     const toggleMissionSelection = (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -5829,7 +5856,7 @@ const Planning: React.FC = () => {
                                                     type="button"
                                                     onClick={async () => {
                                                         try {
-                                                            await assignProvider(quickAssignMission.id, EXTERNAL_PROVIDER_ID, 'EDWARD Sylvie');
+                                                            await safeAssignMission(quickAssignMission, EXTERNAL_PROVIDER_ID, 'EDWARD Sylvie');
                                                             toast.success('EDWARD Sylvie assignée !');
                                                             if (refreshData) await refreshData();
                                                         } catch (err: any) {
@@ -5863,7 +5890,7 @@ const Planning: React.FC = () => {
                                                             disabled={!canAssign}
                                                             onClick={async () => {
                                                                 try {
-                                                                    await assignProvider(quickAssignMission.id, p.id, getProviderDisplayName(p));
+                                                                    await safeAssignMission(quickAssignMission, p.id, getProviderDisplayName(p));
                                                                     toast.success(`${getProviderDisplayName(p)} assigné(e) !`);
                                                                     if (refreshData) await refreshData();
                                                                 } catch (err: any) {
@@ -5919,7 +5946,7 @@ const Planning: React.FC = () => {
                                                             disabled={!canAssign}
                                                             onClick={async () => {
                                                                 try {
-                                                                    await assignProvider(m.id, quickAssignTarget.providerId, quickAssignTarget.providerName);
+                                                                    await safeAssignMission(m, quickAssignTarget.providerId, quickAssignTarget.providerName);
                                                                     toast.success(`Mission assignée à ${quickAssignTarget.providerName} !`);
                                                                     if (refreshData) await refreshData();
                                                                 } catch (err: any) {
