@@ -87,7 +87,9 @@ function capitalize(s: string) {
 
 // Helper to calculate day index
 function getDayIndexFromDate(dateStr: string): number {
+    if (!dateStr) return 0;
     const date = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+    if (!date.isValid()) return 0;
     const day = date.day();
     return day === 0 ? 6 : day - 1;
 }
@@ -3866,21 +3868,53 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
+        let missionData = data;
+
         if (error) {
-            // Si contrainte UNIQUE en base, on l'ignore pour permettre les missions multiples même créneau
+            // Si contrainte UNIQUE en base, on récupère la mission existante
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
             if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                // On laisse passer : on récupère la mission via un select
-                console.warn('[addMission] Doublon détecté mais autorisé:', mission.clientName, mission.date, mission.startTime);
+                console.warn('[addMission] Doublon détecté, récupération de la mission existante:', mission.clientName, mission.date, mission.startTime);
+                // Récupérer la mission existante par client_id + date + start_time
+                const { data: existingData, error: selectError } = await supabase
+                    .from('missions')
+                    .select('*')
+                    .eq('client_id', mission.clientId)
+                    .eq('date', mission.date)
+                    .eq('start_time', mission.startTime)
+                    .neq('status', 'cancelled')
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (selectError) {
+                    console.error('[addMission] Erreur lors de la récupération de la mission existante:', selectError);
+                } else if (existingData) {
+                    missionData = [existingData];
+                } else {
+                    // Fallback: chercher par source_document_id + date si pas trouvé
+                    if (mission.sourceDocumentId) {
+                        const { data: docData } = await supabase
+                            .from('missions')
+                            .select('*')
+                            .eq('source_document_id', mission.sourceDocumentId)
+                            .eq('date', mission.date)
+                            .neq('status', 'cancelled')
+                            .limit(1)
+                            .maybeSingle();
+                        if (docData) {
+                            missionData = [docData];
+                        }
+                    }
+                }
             } else {
                 console.error("Error adding mission:", error);
                 throw error;
             }
         }
 
-        if (data) {
-            const m = data[0];
+        if (missionData && missionData.length > 0) {
+            const m = missionData[0];
             const newMission: Mission = {
                 ...m,
                 dayIndex: getDayIndexFromDate(m.date),
