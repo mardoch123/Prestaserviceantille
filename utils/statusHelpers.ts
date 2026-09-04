@@ -11,7 +11,8 @@
  */
 
 import type { Mission } from '../types';
-import { getMartiniqueToday } from '../src/utils/martiniqueTime';
+import dayjs from 'dayjs';
+import { getMartiniqueToday, MARTINIQUE_TIMEZONE } from '../src/utils/martiniqueTime';
 
 // ---------------------------------------------------------------------------
 // Labels français pour chaque statut de mission
@@ -25,15 +26,15 @@ export const MISSION_STATUS_LABELS: Record<Mission['status'], string> = {
 
 // ---------------------------------------------------------------------------
 // Couleurs harmonisées (charte unique sur tous les listings)
-//   planned     = amber/orange
-//   in_progress = bleu
-//   completed   = vert
-//   cancelled   = gris
+//   planned     = bleu marque / ambre
+//   in_progress = bleu vif
+//   completed   = vert émeraude
+//   cancelled   = gris ardoise
 // ---------------------------------------------------------------------------
 export const MISSION_STATUS_COLORS: Record<Mission['status'], { bg: string; text: string; border: string }> = {
-    planned:     { bg: 'bg-amber-100',  text: 'text-amber-700',  border: 'border-amber-300' },
+    planned:     { bg: 'bg-sky-100',    text: 'text-sky-800',    border: 'border-sky-300' },
     in_progress: { bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-300' },
-    completed:   { bg: 'bg-green-100',  text: 'text-green-700',  border: 'border-green-300' },
+    completed:   { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
     cancelled:   { bg: 'bg-slate-100',  text: 'text-slate-600',  border: 'border-slate-300' },
 };
 
@@ -50,15 +51,63 @@ export const MISSION_STATUS_ORDER: Record<Mission['status'], number> = {
 
 // ---------------------------------------------------------------------------
 // getEffectiveStatus
-//   Si une mission est encore "planned" mais que sa date est dans le passé,
-//   on la considère comme "completed" automatiquement.
-//   Cela corrige le bug où une mission passée reste indéfiniment "Planifiée".
+//   Détermine avec précision le statut effectif d'une mission :
+//   - Annulée si explicitement annulée ou annulée dans le devis
+//   - Terminée si status="completed", date passée, heure de fin dépassée,
+//     rapport envoyé ou séance devis marquée "to_invoice" / "invoiced"
 // ---------------------------------------------------------------------------
-export function getEffectiveStatus(mission: Pick<Mission, 'status' | 'date'>): Mission['status'] {
-    if (mission.status === 'planned' && mission.date && mission.date < getMartiniqueToday()) {
+export function getEffectiveStatus(mission: any, documents?: any[]): Mission['status'] {
+    if (!mission) return 'planned';
+
+    // 1. Annulation explicite
+    if (mission.status === 'cancelled' || mission.sessionStatus === 'cancelled') {
+        return 'cancelled';
+    }
+
+    // 2. Vérifier si le devis source marque cette séance comme annulée ou facturée/réalisée
+    if (documents && mission.sourceDocumentId && mission.date) {
+        const doc = documents.find(d => d.id === mission.sourceDocumentId);
+        if (doc && (doc.slotsData || doc.slots_data)) {
+            const raw = doc.slotsData || doc.slots_data;
+            const slots = Array.isArray(raw) ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
+            const slot = slots.find((s: any) => s.date === mission.date && (s.startTime === mission.startTime || String(s.startTime || '').startsWith(mission.startTime)));
+            if (slot) {
+                if (slot.sessionStatus === 'cancelled') return 'cancelled';
+                if (slot.sessionStatus === 'completed' || slot.sessionStatus === 'invoiced' || slot.sessionStatus === 'to_invoice') {
+                    return 'completed';
+                }
+            }
+        }
+    }
+
+    // 3. Complétée explicitement ou via slot devis
+    if (mission.status === 'completed' || mission.sessionStatus === 'completed' || mission.sessionStatus === 'invoiced' || mission.sessionStatus === 'to_invoice') {
         return 'completed';
     }
-    return mission.status;
+
+    // 4. Preuves d'intervention (rapport envoyé ou photos de fin)
+    if (mission.reportSent || mission.report_sent) return 'completed';
+    if ((mission.endPhotos && mission.endPhotos.length > 0) || (mission.end_photos && mission.end_photos.length > 0)) {
+        return 'completed';
+    }
+
+    // 5. Date passée en Martinique
+    const today = getMartiniqueToday();
+    if (mission.date && mission.date < today) {
+        return 'completed';
+    }
+
+    // 6. Mission du jour dont l'heure de fin est déjà passée
+    if (mission.date && mission.date === today && mission.endTime) {
+        const nowTime = dayjs().tz(MARTINIQUE_TIMEZONE).format('HH:mm');
+        const end = String(mission.endTime).slice(0, 5);
+        if (end && end <= nowTime) {
+            return 'completed';
+        }
+    }
+
+    if (mission.status === 'in_progress') return 'in_progress';
+    return mission.status || 'planned';
 }
 
 // ---------------------------------------------------------------------------

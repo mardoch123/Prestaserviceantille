@@ -684,21 +684,20 @@ const Planning: React.FC = () => {
             const isSigned = statusLower === 'signed' || statusLower === 'validated' || statusLower === 'accepted' || statusLower === 'paid' || statusLower === 'to_invoice';
 
             return rawSlots.map((slot: any, index: number) => {
-                if (!slot?.date || slot.sessionStatus === 'cancelled') return null;
+                if (!slot?.date) return null;
+                const isSlotCancelled = slot.sessionStatus === 'cancelled';
 
                 // Check if a real mission already exists in `missions` state for this slot
                 const hasRealMission = validMissions.some(m =>
-                    m.status !== 'cancelled' &&
-                    (
-                        (m.sourceDocumentId === d.id && m.date === slot.date) ||
-                        (m.clientId && d.clientId && m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
-                    )
+                    (m.sourceDocumentId === d.id && m.date === slot.date) ||
+                    (m.clientId && d.clientId && m.clientId === d.clientId && m.date === slot.date && (m.startTime === slot.startTime || String(m.startTime || '').startsWith(slot.startTime)))
                 );
 
                 if (hasRealMission) return null; // Already rendered as a confirmed mission
 
+                const slotKey = slot.id || `idx-${index}`;
                 return {
-                    id: slot.id ? `provisional-${slot.id}` : `provisional-${d.id}-${index}-${slot.date}-${slot.startTime || 'no-start'}`,
+                    id: `provisional-${d.id}-${slotKey}-${slot.date}-${slot.startTime || 'no-start'}`,
                     date: slot.date,
                     startTime: slot.startTime || '09:00',
                     endTime: slot.endTime || '12:00',
@@ -707,21 +706,30 @@ const Planning: React.FC = () => {
                     clientId: d.clientId,
                     clientName: d.clientName || 'Client',
                     providerId: null,
-                    providerName: 'À assigner',
-                    status: 'planned' as const,
+                    providerName: isSlotCancelled ? 'Séance annulée' : 'À assigner',
+                    status: isSlotCancelled ? ('cancelled' as const) : ('planned' as const),
                     color: 'gray',
                     sourceDocumentId: d.id,
                     isQuoteSlot: true,
                     quoteRef: d.ref,
                     isSignedQuote: isSigned,
-                    quoteStatus: d.status
+                    quoteStatus: d.status,
+                    sessionStatus: slot.sessionStatus
                 };
             }).filter((item): item is NonNullable<typeof item> => Boolean(item));
         })
             .filter((item): item is NonNullable<typeof item> => Boolean(item && item.date))
             .filter((item) => item.date >= startStr && item.date <= endStr);
 
-        let fProvisional: any[] = provisional;
+        // Déduplication stricte par identifiant unique pour éviter toute clé en double
+        const seenIds = new Set<string>();
+        const uniqueProvisional = provisional.filter(item => {
+            if (seenIds.has(item.id)) return false;
+            seenIds.add(item.id);
+            return true;
+        });
+
+        let fProvisional: any[] = uniqueProvisional;
 
         if (selectedProvider !== 'all' && selectedProvider !== 'À assigner') {
             fProvisional = fProvisional.filter((item: any) => item.providerName === selectedProvider);
@@ -825,6 +833,7 @@ const Planning: React.FC = () => {
 
         const provisionalHours = (filteredProvisionalMissions || [])
             .filter((s: any) => String(s?.date || '') === statsDate)
+            .filter((s: any) => String(s?.status || '') !== 'cancelled')
             .reduce((acc: number, s: any) => acc + computeDuration(s.date, s.startTime, s.endTime, s.duration), 0);
 
         return Number((missionsHours + provisionalHours).toFixed(2));
@@ -855,7 +864,7 @@ const Planning: React.FC = () => {
         return dates.map((dateStr) => {
             const remindersForDate = (filteredReminders || []).filter((r: any) => String(r?.date || '') === dateStr && !r.completed);
             const provisionalForDate = (filteredProvisionalMissions || []).filter((m: any) => String(m?.date || '') === dateStr);
-            const missionsForDate = (filteredMissions || []).filter((m: any) => String(m?.date || '') === dateStr).filter((m: any) => m.status !== 'cancelled');
+            const missionsForDate = (filteredMissions || []).filter((m: any) => String(m?.date || '') === dateStr);
             return { dateStr, remindersForDate, provisionalForDate, missionsForDate };
         });
     }, [filteredReminders, filteredProvisionalMissions, filteredMissions, customDateRange, startDate, endDate, weekStart, weekEnd]);
@@ -2600,7 +2609,9 @@ const Planning: React.FC = () => {
 
     const unassignedMissions = useMemo<Mission[]>(() => {
         const realUnassigned = validMissions.filter(m => (!m.providerId || m.providerId === 'null') && m.status !== 'cancelled');
-        const provUnassigned: Mission[] = filteredProvisionalMissions.map((p: any) => ({
+        const provUnassigned: Mission[] = filteredProvisionalMissions
+            .filter((p: any) => p.status !== 'cancelled')
+            .map((p: any) => ({
             id: p.id,
             date: p.date,
             startTime: p.startTime,
@@ -2657,30 +2668,89 @@ const Planning: React.FC = () => {
         navigate('/statistics', { state: { filter, time } });
     };
 
-    const getMissionPlanningStyle = (mission: Mission): { container: string; border: string; label: string; borderColor: string; statusCls: string } => {
-        const isUnassigned = (!mission.providerId || mission.providerId === 'null') && mission.status !== 'cancelled';
-        const isSignedFromQuote = mission.source === 'devis' && mission.status !== 'cancelled';
-        const hasBinome = !!mission.provider2Id;
+    const getMissionPlanningStyle = (mission: any): { container: string; border: string; label: string; borderColor: string; statusCls: string } => {
+        const effectiveStatus = getEffectiveStatus(mission, documents);
+        const isCancelled = effectiveStatus === 'cancelled' || mission.status === 'cancelled' || mission.sessionStatus === 'cancelled';
+        const isCompleted = effectiveStatus === 'completed';
+        const isInProgress = effectiveStatus === 'in_progress';
+        const hasBinome = Boolean(mission.provider2Id && mission.provider2Id !== 'null');
+        const isUnassigned = (!mission.providerId || mission.providerId === 'null') && !isCancelled && !isCompleted;
+        const isSignedFromQuote = mission.source === 'devis' && !isCancelled && !isCompleted;
 
-        if (mission.status === 'completed') {
-            return { container: 'bg-green-100 text-slate-800', border: 'border-green-500', label: hasBinome ? 'Binôme terminée' : 'Terminée', borderColor: '#22c55e', statusCls: 'bg-green-100 text-green-700' };
+        // 1. Annulée (prioritaire : affiche clairement le statut Annulée)
+        if (isCancelled) {
+            return {
+                container: 'bg-slate-100 text-slate-500 opacity-70 border-slate-300',
+                border: 'border-slate-400 border-dashed',
+                label: 'Annulée',
+                borderColor: '#94a3b8',
+                statusCls: 'bg-slate-200 text-slate-700'
+            };
         }
-        if (mission.status === 'cancelled') {
-            return { container: 'bg-slate-100 text-slate-600 opacity-60', border: 'border-slate-300', label: 'Annulée', borderColor: '#cbd5e1', statusCls: 'bg-slate-100 text-slate-500' };
+
+        // 2. Terminée (prioritaire : une mission réalisée, passée ou clôturée est toujours en VERT)
+        if (isCompleted) {
+            return {
+                container: 'bg-emerald-50 text-slate-800',
+                border: 'border-emerald-500',
+                label: hasBinome ? 'Binôme terminée' : 'Terminée',
+                borderColor: '#10b981',
+                statusCls: 'bg-emerald-100 text-emerald-800'
+            };
         }
-        if (mission.status === 'in_progress') {
-            return { container: 'bg-blue-100 text-slate-800', border: 'border-blue-600', label: hasBinome ? 'Binôme en cours' : 'En cours', borderColor: '#2563eb', statusCls: 'bg-blue-100 text-blue-700' };
+
+        // 3. En cours
+        if (isInProgress) {
+            return {
+                container: 'bg-blue-50 text-slate-800',
+                border: 'border-blue-600',
+                label: hasBinome ? 'Binôme en cours' : 'En cours',
+                borderColor: '#2563eb',
+                statusCls: 'bg-blue-100 text-blue-700'
+            };
         }
+
+        // 4. Non assignée
         if (isUnassigned) {
-            return { container: 'bg-red-50 text-slate-800', border: 'border-red-500', label: 'Non assignée', borderColor: '#ef4444', statusCls: 'bg-red-100 text-red-700' };
+            return {
+                container: 'bg-red-50 text-slate-800',
+                border: 'border-red-500',
+                label: 'Non assignée',
+                borderColor: '#ef4444',
+                statusCls: 'bg-red-100 text-red-700'
+            };
         }
-        if (isSignedFromQuote) {
-            return { container: 'bg-purple-100 text-slate-800', border: 'border-purple-500', label: hasBinome ? 'Binôme (devis signé)' : 'Devis signé', borderColor: '#a855f7', statusCls: 'bg-purple-100 text-purple-700' };
-        }
+
+        // 5. Binôme assigné
         if (hasBinome) {
-            return { container: 'bg-violet-50 text-slate-800', border: 'border-violet-500', label: 'Binôme', borderColor: '#8b5cf6', statusCls: 'bg-violet-100 text-violet-700' };
+            return {
+                container: 'bg-violet-50 text-slate-800',
+                border: 'border-violet-500',
+                label: 'Binôme',
+                borderColor: '#8b5cf6',
+                statusCls: 'bg-violet-100 text-violet-700'
+            };
         }
-        return { container: 'bg-blue-50 text-slate-800', border: 'border-brand-blue', label: 'Assignée', borderColor: '#006699', statusCls: 'bg-blue-50 text-blue-700' };
+
+        // 6. Devis signé (future/planifiée)
+        if (isSignedFromQuote) {
+            return {
+                container: 'bg-purple-50 text-slate-800',
+                border: 'border-purple-500',
+                label: 'Devis signé',
+                borderColor: '#a855f7',
+                statusCls: 'bg-purple-100 text-purple-700'
+            };
+        }
+
+        // 7. Planifiée normale
+        return {
+            container: 'bg-sky-50 text-slate-800',
+            border: 'border-sky-500',
+            label: 'Planifiée',
+            borderColor: '#0284c7',
+            statusCls: 'bg-sky-100 text-sky-800'
+        };
     };
 
     const normalizeCommune = (value: string): string => {
@@ -2759,20 +2829,36 @@ const Planning: React.FC = () => {
                                     <div className="text-xs font-bold text-slate-700 mb-2">Légende</div>
                                     <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
                                         <div className="flex items-center gap-2">
-                                            <span className="w-3 h-3 rounded-full bg-orange-400"></span>
-                                            En attente de validation
+                                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                                            Terminée
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="w-3 h-3 rounded-full bg-brand-blue"></span>
-                                            Assignée
+                                            <span className="w-3 h-3 rounded-full bg-sky-500"></span>
+                                            Planifiée
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-3 h-3 rounded-full bg-blue-600"></span>
+                                            En cours
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-3 h-3 rounded-full bg-violet-500"></span>
+                                            Binôme
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+                                            Devis signé
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="w-3 h-3 rounded-full bg-red-500"></span>
                                             Non assignée
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="w-3 h-3 rounded-full bg-purple-500"></span>
-                                            Devis signé
+                                            <span className="w-3 h-3 rounded-full bg-orange-400"></span>
+                                            En attente
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-3 h-3 rounded-full bg-slate-400"></span>
+                                            Annulée
                                         </div>
                                     </div>
                                 </div>
@@ -3172,11 +3258,24 @@ const Planning: React.FC = () => {
 
                     {/* Légende compacte */}
                     {showColorLegend && (
-                        <div className="flex items-center gap-4 mb-3 px-1 animate-in slide-in-from-top duration-200">
-                            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#dcfce7' }} /> &lt;60% Normal</span>
-                            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#fef9c3' }} /> 60–89% Chargé</span>
-                            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ffedd5' }} /> ≥90% Complet</span>
-                            <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ccfbf1' }} /> Jour clos</span>
+                        <div className="flex flex-col gap-2 mb-3 px-1 animate-in slide-in-from-top duration-200">
+                            <div className="flex items-center gap-4 flex-wrap">
+                                <span className="text-[11px] font-bold text-slate-500 uppercase">Jours :</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#dcfce7' }} /> &lt;60% Normal</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#fef9c3' }} /> 60–89% Chargé</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ffedd5' }} /> ≥90% Complet</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3.5 h-3.5 rounded inline-block border border-slate-200" style={{ backgroundColor: '#ccfbf1' }} /> Jour clos</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-slate-100">
+                                <span className="text-[11px] font-bold text-slate-500 uppercase">Missions :</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Terminée</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Planifiée / En cours</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-violet-500 inline-block" /> Binôme</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-purple-500 inline-block" /> Devis signé</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Non assignée</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Devis en attente</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium"><span className="w-3 h-3 rounded-full bg-slate-400 inline-block" /> Annulée</span>
+                            </div>
                         </div>
                     )}
 
@@ -3437,6 +3536,30 @@ const Planning: React.FC = () => {
 
                                                 {/* Provisional missions */}
                                                 {provisionalForDate.map((item: any) => {
+                                                    if (item.status === 'cancelled') {
+                                                        return (
+                                                            <div
+                                                                key={item.id}
+                                                                className="rounded-lg p-2.5 cursor-pointer transition active:scale-[0.98] flex items-start gap-3 border border-slate-300 border-l-4 border-l-slate-400 bg-slate-100/80 opacity-75 line-through shadow-sm"
+                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                                            >
+                                                                <div className="shrink-0 w-12 text-center pt-0.5">
+                                                                    <div className="text-xs font-bold text-slate-500">{item.startTime?.slice(0, 5)}</div>
+                                                                    <div className="text-[10px] text-slate-400">{item.endTime?.slice(0, 5)}</div>
+                                                                    {item.duration && (
+                                                                        <span className="text-[9px] font-bold text-slate-400">{item.duration}h</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0 border-l-2 border-slate-300 pl-2.5">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <p className="font-bold text-xs text-slate-600 truncate">{item.clientName}</p>
+                                                                        <span className="shrink-0 text-[9px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded not-italic">Annulée</span>
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-500 truncate">{item.providerName || 'Séance annulée'} · {item.service || 'Devis'}</p>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
                                                     if (item.isSignedQuote) {
                                                         return (
                                                             <div
@@ -3675,6 +3798,23 @@ const Planning: React.FC = () => {
                                             {filteredProvisionalMissions
                                                 .filter((item: any) => item && getDayIndex(item.date) === colIndex)
                                                 .map((item: any) => {
+                                                    if (item.status === 'cancelled') {
+                                                        return (
+                                                            <div
+                                                                key={item.id}
+                                                                className="p-2 rounded text-xs cursor-pointer hover:scale-105 transition border-l-4 relative group bg-slate-100/90 text-slate-500 border-slate-400 opacity-75 line-through"
+                                                                onClick={(e) => handleProvisionalMissionClick(item, e)}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <p className="font-bold text-slate-600 pr-2 truncate">{item.clientName}</p>
+                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0 not-italic">Annulée</span>
+                                                                </div>
+                                                                <p className="text-[10px]">{item.startTime}-{item.endTime}</p>
+                                                                <p className="text-[10px] italic text-slate-500 truncate">{item.providerName || 'Séance annulée'}</p>
+                                                                <p className="text-[10px] text-slate-500 truncate">{item.service || 'Devis'}</p>
+                                                            </div>
+                                                        );
+                                                    }
                                                     if (item.isSignedQuote) {
                                                         return (
                                                             <div
@@ -3714,7 +3854,6 @@ const Planning: React.FC = () => {
                                             }
                                             {filteredMissions
                                                 .filter(item => getDayIndex(item.date) === colIndex)
-                                                .filter(item => item.status !== 'cancelled')
                                                 .map(item => {
                                                     const style = getMissionPlanningStyle(item);
                                                     const clientCityRaw = item?.clientId ? (clients.find(c => c.id === item.clientId)?.city || '') : '';
