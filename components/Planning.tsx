@@ -2081,24 +2081,41 @@ const Planning: React.FC = () => {
                     await updateMission(mission.id, { isOvertime: true });
                 }
             } else {
-                // Create the mission with assigned provider
-                await addMission({
-                    id: (mission.id && !mission.id.startsWith('provisional-')) ? mission.id : generateUUID(),
-                    date: mission.date,
-                    startTime: mission.startTime || '09:00',
-                    endTime: mission.endTime || '12:00',
-                    duration: typeof mission.duration === 'number' ? mission.duration : 3,
-                    clientId: mission.clientId,
-                    clientName: mission.clientName || 'Client',
-                    service: mission.service || 'Prestation',
-                    providerId: provider.id,
-                    providerName: getProviderDisplayName(provider),
-                    status: 'planned',
-                    color: 'gray',
-                    source: 'devis',
-                    sourceDocumentId: mission.sourceDocumentId,
-                    isOvertime: assignIsOvertime
-                });
+                // Chercher si une mission réelle existe déjà pour ce créneau (même client + date + heure ou même document source)
+                const existingReal = missions.find(m =>
+                    m.status !== 'cancelled' &&
+                    m.clientId === mission.clientId &&
+                    m.date === mission.date &&
+                    (m.startTime === (mission.startTime || '09:00') ||
+                     (mission.sourceDocumentId && m.sourceDocumentId === mission.sourceDocumentId && m.date === mission.date))
+                );
+
+                if (existingReal) {
+                    // Mission réelle existante → lui assigner le prestataire
+                    await assignProvider(existingReal.id, provider.id, getProviderDisplayName(provider));
+                    if (assignIsOvertime) {
+                        await updateMission(existingReal.id, { isOvertime: true });
+                    }
+                } else {
+                    // Aucune mission réelle → créer une nouvelle mission
+                    await addMission({
+                        id: generateUUID(),
+                        date: mission.date,
+                        startTime: mission.startTime || '09:00',
+                        endTime: mission.endTime || '12:00',
+                        duration: typeof mission.duration === 'number' ? mission.duration : 3,
+                        clientId: mission.clientId,
+                        clientName: mission.clientName || 'Client',
+                        service: mission.service || 'Prestation',
+                        providerId: provider.id,
+                        providerName: getProviderDisplayName(provider),
+                        status: 'planned',
+                        color: 'gray',
+                        source: 'devis',
+                        sourceDocumentId: mission.sourceDocumentId,
+                        isOvertime: assignIsOvertime
+                    });
+                }
             }
             toast.success(`Prestataire assigné${isExternal ? ' (externe)' : ' ! Email envoyé.'}`);
             success();
@@ -2170,27 +2187,48 @@ const Planning: React.FC = () => {
                     toast.success(`Prestataire assigné${isExternal1 ? ' (externe)' : ''} !${isOvertimeMode ? ' (Heures sup.)' : ' Email envoyé.'}`);
                 }
             } else {
-                // Create the mission directly with provider(s)
-                await addMission({
-                    id: (mission.id && !mission.id.startsWith('provisional-')) ? mission.id : generateUUID(),
-                    date: mission.date,
-                    startTime: mission.startTime || '09:00',
-                    endTime: mission.endTime || '12:00',
-                    duration: typeof mission.duration === 'number' ? mission.duration : 3,
-                    clientId: mission.clientId,
-                    clientName: mission.clientName || 'Client',
-                    service: mission.service || 'Prestation',
-                    providerId: provider.id,
-                    providerName: getProviderDisplayName(provider),
-                    provider2Id: provider2 ? provider2.id : undefined,
-                    provider2Name: provider2 ? getProviderDisplayName(provider2) : undefined,
-                    status: 'planned',
-                    color: 'gray',
-                    source: 'devis',
-                    sourceDocumentId: mission.sourceDocumentId,
-                    isOvertime: isOvertimeMode
-                });
-                toast.success(`Mission créée et prestataire assigné avec succès !`);
+                // Chercher si une mission réelle existe déjà pour ce créneau
+                const existingReal = missions.find(m =>
+                    m.status !== 'cancelled' &&
+                    m.clientId === mission.clientId &&
+                    m.date === mission.date &&
+                    (m.startTime === (mission.startTime || '09:00') ||
+                     (mission.sourceDocumentId && m.sourceDocumentId === mission.sourceDocumentId && m.date === mission.date))
+                );
+
+                if (existingReal) {
+                    // Mission réelle existante → lui assigner le(s) prestataire(s)
+                    await assignProvider(existingReal.id, provider.id, getProviderDisplayName(provider));
+                    if (isOvertimeMode) {
+                        await updateMission(existingReal.id, { isOvertime: true });
+                    }
+                    if (provider2) {
+                        await assignSecondProvider(existingReal.id, provider2.id, getProviderDisplayName(provider2));
+                    }
+                    toast.success(`Prestataire assigné à la mission existante !`);
+                } else {
+                    // Aucune mission réelle → créer une nouvelle mission
+                    await addMission({
+                        id: generateUUID(),
+                        date: mission.date,
+                        startTime: mission.startTime || '09:00',
+                        endTime: mission.endTime || '12:00',
+                        duration: typeof mission.duration === 'number' ? mission.duration : 3,
+                        clientId: mission.clientId,
+                        clientName: mission.clientName || 'Client',
+                        service: mission.service || 'Prestation',
+                        providerId: provider.id,
+                        providerName: getProviderDisplayName(provider),
+                        provider2Id: provider2 ? provider2.id : undefined,
+                        provider2Name: provider2 ? getProviderDisplayName(provider2) : undefined,
+                        status: 'planned',
+                        color: 'gray',
+                        source: 'devis',
+                        sourceDocumentId: mission.sourceDocumentId,
+                        isOvertime: isOvertimeMode
+                    });
+                    toast.success(`Mission créée et prestataire assigné avec succès !`);
+                }
             }
             success();
             if (refreshData) await refreshData();
@@ -2210,29 +2248,46 @@ const Planning: React.FC = () => {
 
     // Helper sécurisé : gère l'assignation aussi bien pour les missions réelles (DB) que provisoires (devis)
     const safeAssignMission = async (mission: any, providerId: string, providerName: string) => {
+        // 1. Mission réelle en state → assignation directe
         const isRealInState = missions.some(m => m.id === mission.id);
         if (isRealInState) {
             await assignProvider(mission.id, providerId, providerName);
-        } else {
-            // Mission provisoire → créer une vraie mission en base avec un UUID valide
-            await addMission({
-                id: generateUUID(),
-                date: mission.date,
-                startTime: mission.startTime || '09:00',
-                endTime: mission.endTime || '12:00',
-                duration: typeof mission.duration === 'number' ? mission.duration : 3,
-                clientId: mission.clientId,
-                clientName: mission.clientName || 'Client',
-                service: mission.service || 'Prestation',
-                providerId: providerId,
-                providerName: providerName,
-                status: 'planned',
-                color: 'gray',
-                source: 'devis',
-                sourceDocumentId: mission.sourceDocumentId,
-                isOvertime: false
-            });
+            return;
         }
+
+        // 2. Mission provisoire → chercher si une mission réelle existe déjà pour ce créneau
+        const existingReal = missions.find(m =>
+            m.status !== 'cancelled' &&
+            m.clientId === mission.clientId &&
+            m.date === mission.date &&
+            (m.startTime === (mission.startTime || '09:00') ||
+             (mission.sourceDocumentId && m.sourceDocumentId === mission.sourceDocumentId && m.date === mission.date))
+        );
+
+        if (existingReal) {
+            // Une mission réelle existe déjà → on lui assigne le prestataire
+            await assignProvider(existingReal.id, providerId, providerName);
+            return;
+        }
+
+        // 3. Aucune mission réelle → créer une nouvelle mission en base
+        await addMission({
+            id: generateUUID(),
+            date: mission.date,
+            startTime: mission.startTime || '09:00',
+            endTime: mission.endTime || '12:00',
+            duration: typeof mission.duration === 'number' ? mission.duration : 3,
+            clientId: mission.clientId,
+            clientName: mission.clientName || 'Client',
+            service: mission.service || 'Prestation',
+            providerId: providerId,
+            providerName: providerName,
+            status: 'planned',
+            color: 'gray',
+            source: 'devis',
+            sourceDocumentId: mission.sourceDocumentId,
+            isOvertime: false
+        });
     };
 
     // BULK DELETE
