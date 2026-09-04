@@ -3842,9 +3842,121 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             throw new Error('Vous êtes en mode démo');
         }
-        // NOTE: La vérification anti-doublons a été retirée pour permettre
-        // plusieurs missions pour le même client à la même date/heure (ex: 2 devis séparés).
 
+        // ── Étape 1 : Vérifier si une mission existe déjà pour ce créneau (anti-409) ──
+        let existingMissionId: string | null = null;
+
+        if (mission.clientId && mission.date && mission.startTime) {
+            const { data: existing } = await supabase
+                .from('missions')
+                .select('id')
+                .eq('client_id', mission.clientId)
+                .eq('date', mission.date)
+                .eq('start_time', mission.startTime)
+                .neq('status', 'cancelled')
+                .limit(1)
+                .maybeSingle();
+
+            if (existing?.id) {
+                existingMissionId = existing.id;
+            }
+        }
+
+        // Fallback : chercher par source_document_id + date
+        if (!existingMissionId && mission.sourceDocumentId && mission.date) {
+            const { data: existingDoc } = await supabase
+                .from('missions')
+                .select('id')
+                .eq('source_document_id', mission.sourceDocumentId)
+                .eq('date', mission.date)
+                .neq('status', 'cancelled')
+                .limit(1)
+                .maybeSingle();
+
+            if (existingDoc?.id) {
+                existingMissionId = existingDoc.id;
+            }
+        }
+
+        // ── Étape 2 : Si mission existante → UPDATE (upsert) ──
+        if (existingMissionId) {
+            console.warn('[addMission] Mission existante détectée, mise à jour au lieu de créer:', mission.clientName, mission.date, mission.startTime);
+
+            const updateData: Record<string, any> = {
+                date: mission.date,
+                start_time: mission.startTime,
+                end_time: mission.endTime,
+                duration: mission.duration,
+                client_name: mission.clientName,
+                service: mission.service,
+                status: mission.status,
+                color: mission.color,
+            };
+
+            // N' écraser le prestataire que si on en assigne un nouveau
+            if (mission.providerId && mission.providerId !== 'null') {
+                updateData.provider_id = mission.providerId;
+                updateData.provider_name = mission.providerName;
+            }
+            if (mission.provider2Id && mission.provider2Id !== 'null') {
+                updateData.provider2_id = mission.provider2Id;
+                updateData.provider2_name = mission.provider2Name;
+            }
+            if (mission.sourceDocumentId) {
+                updateData.source_document_id = mission.sourceDocumentId;
+            }
+            if (mission.isOvertime) {
+                updateData.is_overtime = true;
+            }
+            if (mission.source) {
+                updateData.source = mission.source;
+            }
+
+            const { data, error } = await supabase
+                .from('missions')
+                .update(updateData)
+                .eq('id', existingMissionId)
+                .select();
+
+            if (error) {
+                console.error('[addMission] Erreur update mission existante:', error);
+                throw error;
+            }
+
+            if (data && data.length > 0) {
+                const m = data[0];
+                const updatedMission: Mission = {
+                    ...m,
+                    dayIndex: getDayIndexFromDate(m.date),
+                    startTime: m.start_time,
+                    endTime: m.end_time,
+                    clientId: m.client_id,
+                    clientName: m.client_name,
+                    providerId: m.provider_id,
+                    providerName: m.provider_name,
+                    provider2Id: m.provider2_id || null,
+                    provider2Name: m.provider2_name || null,
+                    startPhotos: m.start_photos,
+                    endPhotos: m.end_photos,
+                    startVideo: m.start_video,
+                    endVideo: m.end_video,
+                    startRemark: m.start_remark,
+                    endRemark: m.end_remark,
+                    cancellationReason: m.cancellation_reason,
+                    lateCancellation: m.late_cancellation,
+                    reminder48hSent: m.reminder_48h_sent,
+                    reminder72hSent: m.reminder_72h_sent,
+                    reminder24hProviderSent: m.reminder_24h_provider_sent,
+                    reportSent: m.report_sent,
+                    sourceDocumentId: m.source_document_id,
+                    isOvertime: m.is_overtime || false
+                };
+                setMissions(prev => prev.map(x => x.id === existingMissionId ? updatedMission : x));
+            }
+            return;
+        }
+
+        // ── Étape 3 : Aucune mission existante → INSERT classique ──
         const finalId = generateUUID();
         const dbData = {
             id: finalId,
@@ -3868,16 +3980,13 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
-        let missionData = data;
-
         if (error) {
-            // Si contrainte UNIQUE en base, on récupère la mission existante
+            // Sécurité ultime : si malgré la vérification un doublon survient
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
             if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                console.warn('[addMission] Doublon détecté, récupération de la mission existante:', mission.clientName, mission.date, mission.startTime);
-                // Récupérer la mission existante par client_id + date + start_time
-                const { data: existingData, error: selectError } = await supabase
+                console.warn('[addMission] Doublon résiduel détecté, récupération:', mission.clientName, mission.date, mission.startTime);
+                const { data: fallbackData } = await supabase
                     .from('missions')
                     .select('*')
                     .eq('client_id', mission.clientId)
@@ -3886,35 +3995,49 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     .neq('status', 'cancelled')
                     .limit(1)
                     .maybeSingle();
-                
-                if (selectError) {
-                    console.error('[addMission] Erreur lors de la récupération de la mission existante:', selectError);
-                } else if (existingData) {
-                    missionData = [existingData];
-                } else {
-                    // Fallback: chercher par source_document_id + date si pas trouvé
-                    if (mission.sourceDocumentId) {
-                        const { data: docData } = await supabase
-                            .from('missions')
-                            .select('*')
-                            .eq('source_document_id', mission.sourceDocumentId)
-                            .eq('date', mission.date)
-                            .neq('status', 'cancelled')
-                            .limit(1)
-                            .maybeSingle();
-                        if (docData) {
-                            missionData = [docData];
-                        }
-                    }
+
+                if (fallbackData) {
+                    const m = fallbackData;
+                    const newMission: Mission = {
+                        ...m,
+                        dayIndex: getDayIndexFromDate(m.date),
+                        startTime: m.start_time,
+                        endTime: m.end_time,
+                        clientId: m.client_id,
+                        clientName: m.client_name,
+                        providerId: m.provider_id,
+                        providerName: m.provider_name,
+                        provider2Id: m.provider2_id || null,
+                        provider2Name: m.provider2_name || null,
+                        startPhotos: m.start_photos,
+                        endPhotos: m.end_photos,
+                        startVideo: m.start_video,
+                        endVideo: m.end_video,
+                        startRemark: m.start_remark,
+                        endRemark: m.end_remark,
+                        cancellationReason: m.cancellation_reason,
+                        lateCancellation: m.late_cancellation,
+                        reminder48hSent: m.reminder_48h_sent,
+                        reminder72hSent: m.reminder_72h_sent,
+                        reminder24hProviderSent: m.reminder_24h_provider_sent,
+                        reportSent: m.report_sent,
+                        sourceDocumentId: m.source_document_id,
+                        isOvertime: m.is_overtime || false
+                    };
+                    setMissions(prev => {
+                        if (prev.some(x => x.id === newMission.id)) return prev;
+                        return [...prev, newMission];
+                    });
                 }
+                return;
             } else {
                 console.error("Error adding mission:", error);
                 throw error;
             }
         }
 
-        if (missionData && missionData.length > 0) {
-            const m = missionData[0];
+        if (data) {
+            const m = data[0];
             const newMission: Mission = {
                 ...m,
                 dayIndex: getDayIndexFromDate(m.date),
@@ -3941,7 +4064,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 sourceDocumentId: m.source_document_id,
                 isOvertime: m.is_overtime || false
             };
-            setMissions(prev => [...prev, newMission]);
+            setMissions(prev => {
+                if (prev.some(x => x.id === newMission.id)) return prev;
+                return [...prev, newMission];
+            });
 
             // NOTIF ADMIN: mission créée (toujours)
             await addNotification(
@@ -3952,10 +4078,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 undefined,
                 `mission:${newMission.id}`
             );
-
-            // NOTE: Notification au prestataire différée à 24h avant la mission
-            // L'intervenant ne prend connaissance de l'heure que 24h avant la prestation
-            // pour éviter les changements de dernière minute.
         }
     };
 
