@@ -166,7 +166,9 @@ export function minutesToTime(minutes: number): string {
 }
 
 function getDayOfWeek(dateStr: string): number {
-  return dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+  if (!dateStr || typeof dateStr !== 'string') return 0;
+  const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+  return d.isValid() ? d.day() : 0;
 }
 
 /** Normalise un nom de champ provider (camelCase ou snake_case) */
@@ -230,9 +232,10 @@ export function getScheduledUnavailabilitiesForDate(
   dateStr: string
 ): Array<{ dayOfWeek: number; startTime: string; endTime: string; startDate: string; weeks: number }> {
   const scheds = provider.scheduledUnavailabilities || provider.scheduled_unavailabilities || [];
-  if (!Array.isArray(scheds) || scheds.length === 0) return [];
+  if (!Array.isArray(scheds) || scheds.length === 0 || !dateStr || typeof dateStr !== 'string') return [];
 
   const date = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+  if (!date.isValid()) return [];
   const dateDay = date.day();
 
   return scheds.filter(su => {
@@ -240,10 +243,12 @@ export function getScheduledUnavailabilitiesForDate(
     if (su.dayOfWeek !== dateDay) return false;
 
     // Vérifier que la date est dans la fenêtre de N semaines
+    if (!su.startDate || typeof su.startDate !== 'string') return false;
     const startDate = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
-    if (date.isBefore(startDate)) return false; // pas encore commencé
+    if (!startDate.isValid() || date.isBefore(startDate)) return false; // pas encore commencé
 
-    const endDate = startDate.add(su.weeks * 7 - 1, 'day');
+    const weeks = typeof su.weeks === 'number' && Number.isFinite(su.weeks) ? su.weeks : 1;
+    const endDate = startDate.add(weeks * 7 - 1, 'day');
     if (date.isAfter(endDate)) return false; // fenêtre terminée
 
     return true;
@@ -940,10 +945,12 @@ export function validateSlotsStrictly(
     }
 
     // Date+heure passées → bloquant
+    if (!slot?.date || !slot?.startTime) continue;
     const slotStartMin = timeToMinutes(slot.startTime);
     const slotEndMin = timeToMinutes(slot.endTime);
     const now = dayjs().tz(MARTINIQUE_TIMEZONE);
     const slotDate = dayjs.tz(`${slot.date} ${slot.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+    if (!slotDate.isValid()) continue;
     if (slotDate.isBefore(now)) {
       conflicts.push({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime, reason: 'Créneau dans le passé.' });
       continue;

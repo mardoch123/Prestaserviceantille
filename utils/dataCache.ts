@@ -77,14 +77,26 @@ class DataCache {
         try {
             localStorage.setItem(key, JSON.stringify(data));
             localStorage.setItem(metaKey, JSON.stringify(entry.meta));
-        } catch (e) {
+        } catch (e: any) {
             // Si localStorage est plein, nettoyer les anciennes entrées
             this.cleanupOldEntries();
             try {
                 localStorage.setItem(key, JSON.stringify(data));
                 localStorage.setItem(metaKey, JSON.stringify(entry.meta));
-            } catch (e2) {
-                console.warn('[DataCache] Unable to cache data:', e2);
+            } catch (e2: any) {
+                // Si toujours plein (payload trop lourd pour le quota 5MB du navigateur),
+                // purger le cache localStorage non essentiel pour libérer de la place
+                const isQuota = e2?.name === 'QuotaExceededError' || String(e2).toLowerCase().includes('quota');
+                if (isQuota) {
+                    this.clearStorageCache();
+                    try {
+                        localStorage.setItem(key, JSON.stringify(data));
+                        localStorage.setItem(metaKey, JSON.stringify(entry.meta));
+                    } catch {
+                        // Si l'objet dépasse à lui seul le quota localStorage (ex: documents/contrats avec base64),
+                        // l'entrée reste disponible en mémoire vive (memoryCache) pour la session active.
+                    }
+                }
             }
         }
     }
@@ -207,11 +219,9 @@ class DataCache {
     }
 
     /**
-     * Nettoie tout le cache
+     * Nettoie uniquement le cache du localStorage sans vider la mémoire
      */
-    clearAll(): void {
-        this.memoryCache.clear();
-
+    clearStorageCache(): void {
         try {
             for (let i = localStorage.length - 1; i >= 0; i--) {
                 const key = localStorage.key(i);
@@ -220,8 +230,16 @@ class DataCache {
                 }
             }
         } catch (e) {
-            console.warn('[DataCache] Error clearing all cache:', e);
+            console.warn('[DataCache] Error clearing storage cache:', e);
         }
+    }
+
+    /**
+     * Nettoie tout le cache (mémoire + localStorage)
+     */
+    clearAll(): void {
+        this.memoryCache.clear();
+        this.clearStorageCache();
     }
 
     /**
@@ -233,21 +251,25 @@ class DataCache {
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && key.startsWith(CACHE_PREFIX)) {
+                if (key && key.startsWith(CACHE_PREFIX) && !key.startsWith(CACHE_META_PREFIX)) {
                     const metaKey = key.replace(CACHE_PREFIX, CACHE_META_PREFIX);
                     const metaStr = localStorage.getItem(metaKey);
+                    let timestamp = 0;
                     if (metaStr) {
-                        const meta: CacheMeta = JSON.parse(metaStr);
-                        entries.push({ key, metaKey, timestamp: meta.timestamp });
+                        try {
+                            const meta: CacheMeta = JSON.parse(metaStr);
+                            timestamp = meta.timestamp;
+                        } catch {}
                     }
+                    entries.push({ key, metaKey, timestamp });
                 }
             }
 
-            // Trier par ancienneté et supprimer les 20% les plus vieux
+            // Trier par ancienneté et supprimer les 50% les plus vieux
             entries.sort((a, b) => a.timestamp - b.timestamp);
-            const toDelete = Math.ceil(entries.length * 0.2);
+            const toDelete = Math.max(1, Math.ceil(entries.length * 0.5));
 
-            for (let i = 0; i < toDelete; i++) {
+            for (let i = 0; i < toDelete && i < entries.length; i++) {
                 localStorage.removeItem(entries[i].key);
                 localStorage.removeItem(entries[i].metaKey);
             }

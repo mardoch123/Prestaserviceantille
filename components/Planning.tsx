@@ -630,10 +630,10 @@ const Planning: React.FC = () => {
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             fMissions = fMissions.filter(item =>
-                item.clientName.toLowerCase().includes(query) ||
-                (item.providerName && item.providerName.toLowerCase().includes(query)) ||
-                item.service.toLowerCase().includes(query) ||
-                item.date.includes(query)
+                String(item.clientName || '').toLowerCase().includes(query) ||
+                (item.providerName && String(item.providerName).toLowerCase().includes(query)) ||
+                String(item.service || '').toLowerCase().includes(query) ||
+                String(item.date || '').includes(query)
             );
         }
 
@@ -738,10 +738,10 @@ const Planning: React.FC = () => {
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             fProvisional = fProvisional.filter((item: any) =>
-                item.clientName.toLowerCase().includes(query) ||
-                item.providerName.toLowerCase().includes(query) ||
-                item.date.includes(query) ||
-                (item.quoteRef && item.quoteRef.toLowerCase().includes(query))
+                String(item?.clientName || '').toLowerCase().includes(query) ||
+                String(item?.providerName || '').toLowerCase().includes(query) ||
+                String(item?.date || '').includes(query) ||
+                (item?.quoteRef && String(item.quoteRef).toLowerCase().includes(query))
             );
         }
 
@@ -866,17 +866,23 @@ const Planning: React.FC = () => {
     const handleCurrentWeek = () => setCurrentWeekOffset(0);
 
     const isProviderNonWorkingDay = (providerId: string, dateStr: string) => {
+        if (!dateStr || typeof dateStr !== 'string') return false;
         const provider = providers.find(p => p.id === providerId);
         if (!provider) return false;
-        const day = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+        const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+        if (!d.isValid()) return false;
+        const day = d.day();
         const days = (provider as any)?.nonInterventionDays;
         return Array.isArray(days) && days.includes(day);
     };
 
     const isProviderNonWorkingHours = (providerId: string, dateStr: string, startTime: string, endTime: string) => {
+        if (!dateStr || typeof dateStr !== 'string') return false;
         const provider = providers.find(p => p.id === providerId);
         if (!provider) return false;
-        const day = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
+        const d = dayjs.tz(dateStr, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+        if (!d.isValid()) return false;
+        const day = d.day();
         const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
             ? (provider as any).nonInterventionHours[day]
             : undefined;
@@ -1943,6 +1949,7 @@ const Planning: React.FC = () => {
     const getProviderUnavailableReason = (providerId: string, dateStr: string, startTime: string = '00:00', endTime: string = '23:59', excludeMissionId?: string): string | null => {
         // Le prestataire externe est toujours disponible
         if (providerId === EXTERNAL_PROVIDER_ID) return null;
+        if (!dateStr || typeof dateStr !== 'string') return null;
         const provider = providers.find(p => p.id === providerId);
         if (!provider) return 'Prestataire introuvable';
 
@@ -1966,6 +1973,7 @@ const Planning: React.FC = () => {
             if (!mStart.isValid() || !mEnd.isValid()) return false;
             const slotStart = dayjs.tz(`${dateStr} ${startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
             const slotEnd = dayjs.tz(`${dateStr} ${endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
+            if (!slotStart.isValid() || !slotEnd.isValid()) return false;
             return (slotStart.valueOf() < mEnd.valueOf() && slotEnd.valueOf() > mStart.valueOf());
         });
 
@@ -2009,11 +2017,11 @@ const Planning: React.FC = () => {
     // Find providers whose specialty matches the service type
     const findProvidersByServiceType = (serviceType: string): Provider[] => {
         if (!serviceType) return providers.filter(p => p?.status === 'Active');
-        const normalizedService = serviceType.toLowerCase();
+        const normalizedService = String(serviceType || '').toLowerCase();
         return providers.filter(p => {
             if (p?.status !== 'Active') return false;
             if (!p.specialty) return true; // If no specialty defined, consider compatible
-            const normalizedSpecialty = p.specialty.toLowerCase();
+            const normalizedSpecialty = String(p.specialty || '').toLowerCase();
             // Check if service type is contained in specialty or vice versa
             return normalizedSpecialty.includes(normalizedService) ||
                 normalizedService.includes(normalizedSpecialty);
@@ -2083,10 +2091,10 @@ const Planning: React.FC = () => {
             } else {
                 // Chercher si une mission réelle existe déjà pour ce créneau (même client + date + heure ou même document source)
                 const existingReal = missions.find(m =>
-                    m.status !== 'cancelled' &&
                     m.clientId === mission.clientId &&
                     m.date === mission.date &&
                     (m.startTime === (mission.startTime || '09:00') ||
+                     String(m.startTime || '').startsWith(mission.startTime || '09:00') ||
                      (mission.sourceDocumentId && m.sourceDocumentId === mission.sourceDocumentId && m.date === mission.date))
                 );
 
@@ -2189,10 +2197,10 @@ const Planning: React.FC = () => {
             } else {
                 // Chercher si une mission réelle existe déjà pour ce créneau
                 const existingReal = missions.find(m =>
-                    m.status !== 'cancelled' &&
                     m.clientId === mission.clientId &&
                     m.date === mission.date &&
                     (m.startTime === (mission.startTime || '09:00') ||
+                     String(m.startTime || '').startsWith(mission.startTime || '09:00') ||
                      (mission.sourceDocumentId && m.sourceDocumentId === mission.sourceDocumentId && m.date === mission.date))
                 );
 
@@ -2623,7 +2631,7 @@ const Planning: React.FC = () => {
         // Filter by client name
         if (unassignedFilterName.trim()) {
             const query = unassignedFilterName.toLowerCase();
-            filtered = filtered.filter(m => m.clientName.toLowerCase().includes(query));
+            filtered = filtered.filter(m => String(m?.clientName || '').toLowerCase().includes(query));
         }
 
         // Filter by pack (service type)
@@ -4573,7 +4581,7 @@ const Planning: React.FC = () => {
                                                 {(() => {
                                                     const p = providers.find(pr => pr.id === assignProviderId);
                                                     if (!p) return null;
-                                                    const available = getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null;
+                                                    const available = (missionToAssign?.date && p) ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null : true;
                                                     return available
                                                         ? 'Ce prestataire est normalement disponible sur ce créneau.'
                                                         : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
@@ -4617,7 +4625,7 @@ const Planning: React.FC = () => {
                                                 {(() => {
                                                     const p = providers.find(pr => pr.id === assignSecondProviderSelect);
                                                     if (!p) return null;
-                                                    const available = getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null;
+                                                    const available = (missionToAssign?.date && p) ? getProviderUnavailableReason(p.id, missionToAssign.date, missionToAssign.startTime, missionToAssign.endTime) === null : true;
                                                     return available
                                                         ? 'Ce prestataire est normalement disponible sur ce créneau.'
                                                         : 'Ce prestataire sera traité en heures supplémentaires (indisponible normalement).';
@@ -5542,7 +5550,7 @@ const Planning: React.FC = () => {
 
                                         {billingSignals.ultimatePackDocs.size > 0 && (() => {
                                             const filtered = Array.from(billingSignals.ultimatePackDocs.entries()).filter(([, data]) =>
-                                                !billingFilter || data.clientName.toLowerCase().includes(billingFilter.toLowerCase())
+                                                !billingFilter || String(data?.clientName || '').toLowerCase().includes(billingFilter.toLowerCase())
                                             );
                                             if (filtered.length === 0) return null;
                                             return (
@@ -5568,7 +5576,7 @@ const Planning: React.FC = () => {
                                         })()}
                                         {billingSignals.readyToInvoiceDocs.size > 0 && (() => {
                                             const filtered = Array.from(billingSignals.readyToInvoiceDocs.entries()).filter(([, data]) =>
-                                                !billingFilter || data.clientName.toLowerCase().includes(billingFilter.toLowerCase())
+                                                !billingFilter || String(data?.clientName || '').toLowerCase().includes(billingFilter.toLowerCase())
                                             );
                                             if (filtered.length === 0) return null;
                                             return (

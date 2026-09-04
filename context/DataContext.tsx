@@ -3853,7 +3853,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 .eq('client_id', mission.clientId)
                 .eq('date', mission.date)
                 .eq('start_time', mission.startTime)
-                .neq('status', 'cancelled')
                 .limit(1)
                 .maybeSingle();
 
@@ -3869,7 +3868,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 .select('id')
                 .eq('source_document_id', mission.sourceDocumentId)
                 .eq('date', mission.date)
-                .neq('status', 'cancelled')
                 .limit(1)
                 .maybeSingle();
 
@@ -3889,8 +3887,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 duration: mission.duration,
                 client_name: mission.clientName,
                 service: mission.service,
-                status: mission.status,
-                color: mission.color,
+                status: mission.status || 'planned',
+                color: mission.color || 'orange',
             };
 
             // N' écraser le prestataire que si on en assigne un nouveau
@@ -3981,24 +3979,71 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const { data, error } = await supabase.from('missions').insert(dbData).select();
 
         if (error) {
-            // Sécurité ultime : si malgré la vérification un doublon survient
+            // Sécurité ultime : si malgré la vérification un doublon survient (409 Conflict)
             const msg = String((error as any)?.message || '').toLowerCase();
             const code = String((error as any)?.code || '');
-            if (code === '23505' || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte')) {
-                console.warn('[addMission] Doublon résiduel détecté, récupération:', mission.clientName, mission.date, mission.startTime);
-                const { data: fallbackData } = await supabase
-                    .from('missions')
-                    .select('*')
-                    .eq('client_id', mission.clientId)
-                    .eq('date', mission.date)
-                    .eq('start_time', mission.startTime)
-                    .neq('status', 'cancelled')
-                    .limit(1)
-                    .maybeSingle();
+            const status = (error as any)?.status || (error as any)?.statusCode;
+            if (code === '23505' || status === 409 || msg.includes('duplicate') || msg.includes('unique') || msg.includes('contrainte') || msg.includes('conflict')) {
+                console.warn('[addMission] Doublon résiduel détecté, mise à jour de la mission existante:', mission.clientName, mission.date, mission.startTime);
+                let fallbackData: any = null;
+
+                if (mission.clientId && mission.date && mission.startTime) {
+                    const { data: fb1 } = await supabase
+                        .from('missions')
+                        .select('*')
+                        .eq('client_id', mission.clientId)
+                        .eq('date', mission.date)
+                        .eq('start_time', mission.startTime)
+                        .limit(1)
+                        .maybeSingle();
+                    if (fb1) fallbackData = fb1;
+                }
+
+                if (!fallbackData && mission.sourceDocumentId && mission.date) {
+                    const { data: fb2 } = await supabase
+                        .from('missions')
+                        .select('*')
+                        .eq('source_document_id', mission.sourceDocumentId)
+                        .eq('date', mission.date)
+                        .limit(1)
+                        .maybeSingle();
+                    if (fb2) fallbackData = fb2;
+                }
 
                 if (fallbackData) {
-                    const m = fallbackData;
-                    const newMission: Mission = {
+                    const updatePayload: Record<string, any> = {
+                        date: mission.date,
+                        start_time: mission.startTime,
+                        end_time: mission.endTime,
+                        duration: mission.duration,
+                        client_name: mission.clientName,
+                        service: mission.service,
+                        status: mission.status || 'planned',
+                        color: mission.color || 'orange'
+                    };
+                    if (mission.providerId && mission.providerId !== 'null') {
+                        updatePayload.provider_id = mission.providerId;
+                        updatePayload.provider_name = mission.providerName;
+                    }
+                    if (mission.provider2Id && mission.provider2Id !== 'null') {
+                        updatePayload.provider2_id = mission.provider2Id;
+                        updatePayload.provider2_name = mission.provider2Name;
+                    }
+                    if (mission.sourceDocumentId) {
+                        updatePayload.source_document_id = mission.sourceDocumentId;
+                    }
+                    if (mission.isOvertime) {
+                        updatePayload.is_overtime = true;
+                    }
+
+                    const { data: updatedRows } = await supabase
+                        .from('missions')
+                        .update(updatePayload)
+                        .eq('id', fallbackData.id)
+                        .select();
+
+                    const m = (updatedRows && updatedRows.length > 0) ? updatedRows[0] : { ...fallbackData, ...updatePayload };
+                    const updatedMission: Mission = {
                         ...m,
                         dayIndex: getDayIndexFromDate(m.date),
                         startTime: m.start_time,
@@ -4025,8 +4070,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         isOvertime: m.is_overtime || false
                     };
                     setMissions(prev => {
-                        if (prev.some(x => x.id === newMission.id)) return prev;
-                        return [...prev, newMission];
+                        const exists = prev.some(x => x.id === updatedMission.id);
+                        if (exists) {
+                            return prev.map(x => x.id === updatedMission.id ? updatedMission : x);
+                        }
+                        return [...prev, updatedMission];
                     });
                 }
                 return;
