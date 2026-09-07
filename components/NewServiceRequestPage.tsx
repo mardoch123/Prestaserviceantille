@@ -26,7 +26,9 @@ import {
   Send,
   Plus,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -577,6 +579,67 @@ ${additionalNotes ? `Notes additionnelles: ${additionalNotes}` : ''}
       <div className="flex-1 flex items-center justify-center bg-cream-50">
         <div className="text-center">
           <p className="text-slate-500">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentUser?.role === 'client') {
+    return (
+      <div className="flex-1 min-h-screen flex items-center justify-center bg-cream-50 p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 p-6 text-white text-center">
+            <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-3 shadow-inner">
+              <AlertCircle className="w-8 h-8 text-white" />
+            </div>
+            <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+              Maintenance en cours
+            </span>
+            <h2 className="text-xl font-bold">Fonctionnalité en maintenance</h2>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <p className="text-slate-700 text-sm sm:text-base leading-relaxed">
+              Cette fonctionnalité est actuellement en cours de maintenance.
+            </p>
+
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-left">
+              <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide mb-1">Prise en charge rapide</p>
+              <p className="text-sm text-slate-700 leading-relaxed">
+                Veuillez contacter l'administration au{' '}
+                <a href="tel:+596696061594" className="font-bold text-emerald-700 hover:underline">
+                  +596 696 06 15 94
+                </a>{' '}
+                pour une prise en charge rapide de votre demande.
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-2">
+              <a
+                href="tel:+596696061594"
+                className="w-full flex items-center justify-center gap-2.5 bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+              >
+                <Phone className="w-4 h-4" />
+                Appeler le +596 696 06 15 94
+              </a>
+              <a
+                href="https://wa.me/596696061594?text=Bonjour%2C%20je%20souhaite%20r%C3%A9server%20une%20prestation."
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2.5 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Contacter sur WhatsApp
+              </a>
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="w-full py-2.5 px-4 text-slate-500 hover:text-slate-700 font-medium text-sm transition"
+              >
+                Retour à mon espace
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );

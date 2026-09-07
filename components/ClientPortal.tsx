@@ -333,6 +333,8 @@ const ClientPortal: React.FC = () => {
     const [quoteModalOpen, setQuoteModalOpen] = useState(false);
     const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
     const [termsAccepted, setTermsAccepted] = useState(false);
+    const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+    const [maintenanceSlotInfo, setMaintenanceSlotInfo] = useState<{ date?: string; startTime?: string; endTime?: string; serviceType?: string } | null>(null);
 
 
     // Review Form
@@ -2144,7 +2146,7 @@ const ClientPortal: React.FC = () => {
                                     </div>
                                     <div className="flex flex-wrap gap-3 mt-6">
                                         <button 
-                                            onClick={() => setActiveTab('disponibilites')}
+                                            onClick={() => { setMaintenanceSlotInfo(null); setShowMaintenanceModal(true); }}
                                             className="flex items-center gap-2 bg-white text-emerald-700 px-5 py-3 rounded-xl font-bold hover:bg-white/90 transition shadow-lg"
                                         >
                                             <Calendar className="w-5 h-5" />
@@ -2357,7 +2359,7 @@ const ClientPortal: React.FC = () => {
                             {/* Quick Actions */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                 <button 
-                                    onClick={() => setActiveTab('disponibilites')}
+                                    onClick={() => { setMaintenanceSlotInfo(null); setShowMaintenanceModal(true); }}
                                     className="flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50 transition"
                                 >
                                     <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
@@ -2473,7 +2475,7 @@ const ClientPortal: React.FC = () => {
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                                 <h2 className="text-2xl font-bold text-slate-800">Mon Planning</h2>
                                 <button
-                                    onClick={() => window.location.href = '/nouvelle-demande'}
+                                    onClick={() => { setMaintenanceSlotInfo(null); setShowMaintenanceModal(true); }}
                                     className="flex items-center justify-center gap-2 bg-brand-blue text-white px-4 py-2 rounded-xl font-bold hover:bg-teal-700 transition shadow-sm"
                                 >
                                     <span className="text-lg">+</span>
@@ -2701,6 +2703,10 @@ const ClientPortal: React.FC = () => {
                             addDocument={addDocument}
                             signQuoteWithData={signQuoteWithData}
                             addNotification={addNotification}
+                            onOpenMaintenanceModal={(slotInfo) => {
+                                setMaintenanceSlotInfo(slotInfo || null);
+                                setShowMaintenanceModal(true);
+                            }}
                         />
                     )}
 
@@ -4092,6 +4098,97 @@ const ClientPortal: React.FC = () => {
                 </div>
             </div>
         )}
+
+        {/* Maintenance Modal for Client Booking */}
+        {showMaintenanceModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => { setShowMaintenanceModal(false); setMaintenanceSlotInfo(null); }}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100" onClick={e => e.stopPropagation()}>
+                    {/* Modal Header */}
+                    <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 p-6 text-white text-center relative">
+                        <button
+                            type="button"
+                            onClick={() => { setShowMaintenanceModal(false); setMaintenanceSlotInfo(null); }}
+                            className="absolute top-4 right-4 p-1.5 rounded-full bg-black/10 hover:bg-black/20 text-white transition"
+                            aria-label="Fermer"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                        <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-3 shadow-inner">
+                            <AlertTriangle className="w-8 h-8 text-white" />
+                        </div>
+                        <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+                            Maintenance en cours
+                        </span>
+                        <h3 className="text-xl font-bold">Fonctionnalité en maintenance</h3>
+                    </div>
+
+                    {/* Modal Body */}
+                    <div className="p-6 space-y-4 text-center">
+                        <p className="text-slate-700 text-sm sm:text-base leading-relaxed">
+                            Cette fonctionnalité est actuellement en cours de maintenance.
+                        </p>
+
+                        {maintenanceSlotInfo && (
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-left">
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Créneau souhaité</p>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {maintenanceSlotInfo.date ? formatMartiniqueDate(new Date(maintenanceSlotInfo.date)) : ''}
+                                    {maintenanceSlotInfo.startTime && maintenanceSlotInfo.endTime ? ` (${maintenanceSlotInfo.startTime} – ${maintenanceSlotInfo.endTime})` : ''}
+                                </p>
+                                {maintenanceSlotInfo.serviceType && (
+                                    <p className="text-xs text-slate-500 mt-0.5">Prestation : {maintenanceSlotInfo.serviceType}</p>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-left">
+                            <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide mb-1">Prise en charge rapide</p>
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                                Merci de contacter l'administration au{' '}
+                                <a href="tel:+596696061594" className="font-bold text-emerald-700 hover:underline">
+                                    +596 696 06 15 94
+                                </a>{' '}
+                                pour une prise en charge rapide de votre demande de réservation.
+                            </p>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="space-y-2.5 pt-2">
+                            <a
+                                href="tel:+596696061594"
+                                className="w-full flex items-center justify-center gap-2.5 bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+                            >
+                                <Phone className="w-4 h-4" />
+                                Appeler (+596 696 06 15 94)
+                            </a>
+                            <a
+                                href={`https://wa.me/596696061594?text=${encodeURIComponent(
+                                    maintenanceSlotInfo
+                                        ? `Bonjour, je souhaite réserver une prestation pour le ${maintenanceSlotInfo.date || ''} de ${maintenanceSlotInfo.startTime || ''} à ${maintenanceSlotInfo.endTime || ''}.`
+                                        : `Bonjour, je souhaite réserver une prestation avec Presta Services.`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-center gap-2.5 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+                            >
+                                <MessageCircle className="w-4 h-4" />
+                                Contacter sur WhatsApp
+                            </a>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowMaintenanceModal(false);
+                                    setMaintenanceSlotInfo(null);
+                                }}
+                                className="w-full py-2.5 px-4 text-slate-500 hover:text-slate-700 font-medium text-sm transition"
+                            >
+                                Fermer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
         </div>
     );
 };
@@ -4176,9 +4273,10 @@ interface ClientAvailabilityTabProps {
   addDocument: (doc: Document) => Promise<void>;
   signQuoteWithData: (id: string, signatureData: string, signedBy?: 'client' | 'admin') => Promise<void>;
   addNotification: (...args: any[]) => Promise<void>;
+  onOpenMaintenanceModal?: (slotInfo?: { date?: string; startTime?: string; endTime?: string; serviceType?: string }) => void;
 }
 
-const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, providers, client, addDocument, signQuoteWithData, addNotification }) => {
+const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions, documents, packs, providers, client, addDocument, signQuoteWithData, addNotification, onOpenMaintenanceModal }) => {
   const { currentUser } = useData();
   const [weekOffset, setWeekOffset] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -4852,7 +4950,9 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Disponibilités</h1>
-          <p className="text-sm text-gray-500 mt-1">Cliquez sur un créneau libre pour réserver directement.</p>
+          <p className="text-sm text-slate-600 mt-1">
+            Consultez les créneaux disponibles. Pour réserver, contactez l'administration au <strong className="text-emerald-700">+596 696 06 15 94</strong>.
+          </p>
         </div>
         <button
           onClick={handleCopy}
@@ -4861,6 +4961,42 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
           {copied ? <CheckCircle className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
           {copied ? 'Lien copié !' : 'Partager le lien public'}
         </button>
+      </div>
+
+      {/* Maintenance Notification Banner */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-800 text-sm sm:text-base">Réservation directe en maintenance</h3>
+              <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-200 text-amber-800 rounded-full">Maintenance</span>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
+              Cette fonctionnalité est actuellement en cours de maintenance. Pour toute réservation ou prise en charge rapide, veuillez contacter directement l'administration au <a href="tel:+596696061594" className="font-bold text-emerald-700 hover:underline">+596 696 06 15 94</a>.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+          <a
+            href="tel:+596696061594"
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all active:scale-95"
+          >
+            <Phone className="w-4 h-4" />
+            Appeler (+596 696 06 15 94)
+          </a>
+          <a
+            href="https://wa.me/596696061594?text=Bonjour%2C%20je%20souhaite%20r%C3%A9server%20un%20cr%C3%A9neau."
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all active:scale-95"
+          >
+            <MessageCircle className="w-4 h-4" />
+            WhatsApp
+          </a>
+        </div>
       </div>
 
       {/* Week navigation */}
@@ -5037,8 +5173,18 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
                             return (
                               <button
                                 key={i}
-                                onClick={() => { setBookingSlot({ date: selectedDay.date, startTime: slot.startTime, endTime: slot.endTime }); setSelectedPackId(''); setCustomStartTime(slot.startTime); setCustomEndTime(slot.endTime); setBookingStep('pack'); setMultiSlots([]); setExpandedDay(null); }}
-                                className="w-full bg-white/80 rounded-lg p-2.5 border border-slate-100 hover:border-green-300 hover:bg-green-50 transition-all cursor-pointer text-left"
+                                onClick={() => {
+                                  if (onOpenMaintenanceModal) {
+                                    onOpenMaintenanceModal({
+                                      date: selectedDay.date,
+                                      startTime: slot.startTime,
+                                      endTime: slot.endTime,
+                                      serviceType: svc.serviceType,
+                                    });
+                                  }
+                                  setExpandedDay(null);
+                                }}
+                                className="w-full bg-white/80 rounded-lg p-2.5 border border-slate-100 hover:border-amber-300 hover:bg-amber-50/60 transition-all cursor-pointer text-left"
                               >
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-1.5">
@@ -5154,7 +5300,7 @@ const ClientAvailabilityTab: React.FC<ClientAvailabilityTabProps> = ({ missions,
       <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-gray-500">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
-          <span>Disponible — cliquez pour réserver</span>
+          <span>Disponible — contacter l'administration (+596 696 06 15 94)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-orange-400" />
