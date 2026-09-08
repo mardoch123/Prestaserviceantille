@@ -281,6 +281,7 @@ interface DataContextType {
     toggleSessionStatus: (quoteId: string, sessionIndex: number, newStatus: 'planned' | 'cancelled') => Promise<void>;
     // === DETECTION PRESTATIONS A FACTURER ===
     checkSessionsToInvoice: () => Promise<{ checked: number; toInvoice: number }>;
+    notifyQuotesToInvoiceThreshold: () => Promise<{ checked: number; notified: number; toInvoiceQuotes: any[] }>;
 
     packs: Pack[];
     addPack: (pack: Pack) => Promise<string | null>; // Returns ID if success
@@ -6797,14 +6798,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         console.log('[generateSplitInvoicesAtSignature] Using config for quote:', quoteId, 'totalSplits:', config.totalSplits);
 
-        // Générer les factures pour les tranches 'signature'
-        const signatureSplits = config.splits.filter((s: SplitDetail) => s.trigger === 'signature');
-        
-        for (const split of signatureSplits) {
-            await generateSplitInvoice(quoteId, split.index, config);
-        }
-        // Note: chaque appel à generateSplitInvoice crée déjà sa propre notification
-        // avec le lien vers la facture générée (document:${invoiceId})
+        // Au lieu de créer des factures automatiquement, le système vérifie si une notification doit être émise
+        console.log('[generateSplitInvoicesAtSignature] Mode notification actif pour:', quoteId);
+        await checkSessionsToInvoice();
     };
 
     /**
@@ -7292,81 +7288,159 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         );
     };
 
-    // === DETECTION PRESTATIONS A FACTURER ===
+    // === DETECTION ET NOTIFICATION DES PRESTATIONS A FACTURER (SEUIL 2 SÉANCES / 180 €) ===
     const checkSessionsToInvoice = async (): Promise<{ checked: number; toInvoice: number }> => {
         const today = getMartiniqueToday();
-        // Ne considérer que les séances à partir du 1er du mois en cours (ignorer les anciennes)
-        const firstOfCurrentMonth = dayjs().tz(MARTINIQUE_TIMEZONE).startOf('month').format('YYYY-MM-DD');
         let checked = 0;
         let toInvoice = 0;
 
         const signedQuotes = documents.filter(d =>
             d.type === 'Devis' &&
-            (d.status === 'signed' || d.status === 'to_invoice') &&
-            d.slotsData && Array.isArray(d.slotsData) && d.slotsData.length > 0
+            (d.status === 'signed' || d.status === 'to_invoice' || d.status === 'validated')
         );
 
         for (const quote of signedQuotes) {
-            const slots = quote.slotsData!;
-            let quoteChanged = false;
-            const updatedSlots = [...slots];
+            checked++;
+            const slots = quote.slotsData && Array.isArray(quote.slotsData) ? quote.slotsData : [];
+            const totalSessions = slots.length || quote.quantity || 1;
+            const totalAmount = quote.totalTTC || 0;
+            const pricePerSession = totalSessions > 0 ? (totalAmount / totalSessions) : totalAmount;
 
-            for (let i = 0; i < updatedSlots.length; i++) {
-                const slot = { ...updatedSlots[i] };
-                const sessionStatus = slot.sessionStatus || 'planned';
+            // Compter les séances réalisées (date <= today et non annulée, ou mission complétée)
+            const completedSessions = getCompletedSessionsForQuote(quote.id, missions, quote);
+            const completedAmount = completedSessions * pricePerSession;
 
-                // Nettoyage : réinitialiser les anciennes séances to_invoice avant le 1er du mois
-                if (sessionStatus === 'to_invoice' && slot.date && slot.date < firstOfCurrentMonth) {
-                    slot.sessionStatus = 'planned';
-                    updatedSlots[i] = slot;
-                    quoteChanged = true;
-                    continue;
+            // Règle métier : seuil à 180 € ou à chaque palier de 2 séances (2, 4, 6...)
+            const sessionMilestones = Math.floor(completedSessions / 2);
+            const amountMilestones = Math.floor(completedAmount / 180);
+            const isSingleSession180 = (totalSessions === 1 && completedSessions >= 1 && totalAmount >= 180);
+            const milestonesReached = Math.max(sessionMilestones, amountMilestones, isSingleSession180 ? 1 : 0);
+
+            // Factures déjà existantes liées à ce devis
+            const existingInvoices = documents.filter(d =>
+                d.type === 'Facture' &&
+                (d.linkedInvoiceId === quote.id || d.parentQuoteId === quote.id)
+            );
+            const alreadyInvoicedCount = existingInvoices.length;
+            const pendingMilestones = Math.max(0, milestonesReached - alreadyInvoicedCount);
+
+            if (pendingMilestones > 0) {
+                toInvoice++;
+                let quoteChanged = false;
+                const updatedSlots = [...slots];
+
+                // Marquer les créneaux concernés en 'to_invoice' par tranches de 2
+                const targetSlotCount = Math.min(milestonesReached * 2, totalSessions);
+                let markedCount = 0;
+
+                for (let i = 0; i < updatedSlots.length; i++) {
+                    const slot = { ...updatedSlots[i] };
+                    if (slot.sessionStatus === 'cancelled' || slot.sessionStatus === 'invoiced') continue;
+
+                    if (markedCount < targetSlotCount && (slot.date && slot.date <= today)) {
+                        if (slot.sessionStatus !== 'to_invoice') {
+                            slot.sessionStatus = 'to_invoice';
+                            updatedSlots[i] = slot;
+                            quoteChanged = true;
+                        }
+                        markedCount++;
+                    }
                 }
 
-                // Si la date est dans le mois en cours ET passée ET la session n'est ni annulée ni déjà à facturer/facturée
-                if (slot.date && slot.date >= firstOfCurrentMonth && slot.date < today && sessionStatus !== 'cancelled' && sessionStatus !== 'invoiced' && sessionStatus !== 'to_invoice') {
-                    slot.sessionStatus = 'to_invoice';
-                    updatedSlots[i] = slot;
-                    quoteChanged = true;
-                    toInvoice++;
+                if (quoteChanged && slots.length > 0) {
+                    await supabase
+                        .from('documents')
+                        .update({ slots_data: updatedSlots })
+                        .eq('id', quote.id);
+
+                    setDocuments(prev => prev.map(d =>
+                        d.id === quote.id ? { ...d, slotsData: updatedSlots } : d
+                    ));
                 }
-                checked++;
-            }
 
-            if (quoteChanged) {
-                // Déterminer le nouveau statut du devis
-                // Status change removed - only update slots_data, not document status
-                // (newDocStatus removed to avoid PATCH 400 with invalid status)
-
-                // Mise à jour DB du slotsData
-                await supabase
-                    .from('documents')
-                    .update({ slots_data: updatedSlots })
-                    .eq('id', quote.id);
-
-                // Mise à jour state local
-                setDocuments(prev => prev.map(d =>
-                    d.id === quote.id ? { ...d, slotsData: updatedSlots } : d
-                ));
-
-                // Notification admin (seulement s'il reste des prestations à facturer)
-                const hasToInvoiceNow = updatedSlots.some((s: any) => s.sessionStatus === 'to_invoice');
-                if (hasToInvoiceNow) {
-                    const countToInvoice = updatedSlots.filter((s: any) => s.sessionStatus === 'to_invoice').length;
-                    await addNotification(
-                        'admin',
-                        'alert',
-                        'Prestation à facturer',
-                        `${countToInvoice} prestation(s) à facturer pour le devis ${quote.ref}`,
-                        undefined,
-                        `document:${quote.id}`
-                    );
-                }
+                // Notification pour alerter qu'il faut facturer
+                const milestoneAmount = Math.min(pendingMilestones * 180, totalAmount);
+                await addNotification(
+                    'admin',
+                    'alert',
+                    'Prestation à facturer (Seuil 2 séances / 180 €)',
+                    `Le devis ${quote.ref} (${quote.clientName}) a atteint ${completedSessions} séance(s) (~${Math.round(completedAmount || milestoneAmount)} €). Facturation requise.`,
+                    undefined,
+                    `document:${quote.id}`
+                );
             }
         }
 
-        console.log('[checkSessionsToInvoice] Terminé:', { checked, toInvoice });
+        console.log('[checkSessionsToInvoice] Terminé (Seuil 2 séances / 180 €):', { checked, toInvoice });
         return { checked, toInvoice };
+    };
+
+    /**
+     * Retourne la liste détaillée des devis ayant atteint le seuil (2 séances / 180 €)
+     * et envoie les notifications nécessaires sans créer de facture automatique.
+     */
+    const notifyQuotesToInvoiceThreshold = async (): Promise<{ checked: number; notified: number; toInvoiceQuotes: any[] }> => {
+        let checked = 0;
+        let notified = 0;
+        const toInvoiceQuotes: any[] = [];
+
+        const targetQuotes = documents.filter(d =>
+            d.type === 'Devis' &&
+            (d.status === 'signed' || d.status === 'to_invoice' || d.status === 'validated')
+        );
+
+        for (const quote of targetQuotes) {
+            checked++;
+            const slots = quote.slotsData && Array.isArray(quote.slotsData) ? quote.slotsData : [];
+            const totalSessions = slots.length || quote.quantity || 1;
+            const totalAmount = quote.totalTTC || 0;
+            const pricePerSession = totalSessions > 0 ? (totalAmount / totalSessions) : totalAmount;
+
+            const completedSessions = getCompletedSessionsForQuote(quote.id, missions, quote);
+            const completedAmount = completedSessions * pricePerSession;
+
+            const sessionMilestones = Math.floor(completedSessions / 2);
+            const amountMilestones = Math.floor(completedAmount / 180);
+            const isSingleSession180 = (totalSessions === 1 && completedSessions >= 1 && totalAmount >= 180);
+            const milestonesReached = Math.max(sessionMilestones, amountMilestones, isSingleSession180 ? 1 : 0);
+
+            const existingInvoices = documents.filter(d =>
+                d.type === 'Facture' &&
+                (d.linkedInvoiceId === quote.id || d.parentQuoteId === quote.id)
+            );
+            const alreadyInvoicedCount = existingInvoices.length;
+            const pendingMilestones = Math.max(0, milestonesReached - alreadyInvoicedCount);
+
+            if (pendingMilestones > 0) {
+                notified++;
+                const amountToInvoice = Math.min(pendingMilestones * 180, Math.max(0, totalAmount - (alreadyInvoicedCount * 180)));
+                toInvoiceQuotes.push({
+                    quote,
+                    quoteId: quote.id,
+                    ref: quote.ref,
+                    clientName: quote.clientName,
+                    serviceType: quote.serviceType || 'Ménage',
+                    completedSessions,
+                    totalSessions,
+                    completedAmount,
+                    amountToInvoice: amountToInvoice > 0 ? amountToInvoice : (pricePerSession * 2),
+                    milestonesReached,
+                    pendingMilestones,
+                    alreadyInvoicedCount
+                });
+
+                await addNotification(
+                    'admin',
+                    'alert',
+                    'Prestation à facturer (Seuil 2 séances / 180 €)',
+                    `Le devis ${quote.ref} (${quote.clientName}) a atteint ${completedSessions} séance(s) (~${Math.round(completedAmount)} €). Facturation requise.`,
+                    undefined,
+                    `document:${quote.id}`
+                );
+            }
+        }
+
+        return { checked, notified, toInvoiceQuotes };
     };
 
     const sendDocumentReminder = async (id: string) => {
@@ -9338,7 +9412,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
  
              providers, addProvider, updateProvider, deleteProviders, addLeave, deleteLeave, updateLeaveStatus, resetProviderPassword,
  
-             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument, resyncMissionsFromDocument, toggleSessionStatus, checkSessionsToInvoice,
+             documents, addDocument, updateDocument, upsertDocumentDraft, updateDocumentStatus, deleteDocument, deleteDocuments, duplicateDocument, convertQuoteToInvoice, markInvoicePaid, sendDocumentReminder, sendQuoteSignatureReminder, signQuoteWithData, signQuoteAsAdmin, refuseQuote, requestInvoice, refundTransaction, generateMissionsFromDocument, resyncMissionsFromDocument, toggleSessionStatus, checkSessionsToInvoice, notifyQuotesToInvoiceThreshold,
              
              // Facturation fractionnée par pack
              generateSplitInvoicesAtSignature, generateSplitInvoice, checkAndGeneratePendingSplitInvoices, getSplitInvoicesForQuote, getPackBillingStats, getAllPackBillingStats, isEligibleForSplitBilling: isEligibleForSplitBillingFn, configureSplitBilling, markSplitInvoiceRead, notifyReadySplitInvoices, getUnreadSplitInvoicesCount, backfillSplitBilling, rollbackBackfillSplitBilling, runAutoGenerateSplitInvoices,

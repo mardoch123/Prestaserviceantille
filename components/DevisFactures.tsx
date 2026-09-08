@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import PageLoader from './PageLoader';
 import EnhancedLoader from './EnhancedLoader';
 import dayjs from 'dayjs';
-import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, Filter, FileText, Mail, Copy, Trash2, Paperclip, ArrowRight, RefreshCw, CreditCard, Send, AlertTriangle, RotateCcw, Zap, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, PlusCircle, Loader2, Clock, PenTool, UploadCloud, Download, Bell } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { type ServiceTypeFilter } from '../utils/serviceTypes';
@@ -78,7 +78,7 @@ type QuoteDraft = {
 };
 
 const DevisFactures: React.FC = () => {
-    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice, resyncMissionsFromDocument } = useData();
+    const { packs, addMission, documents, addDocument, updateDocument, upsertDocumentDraft, convertQuoteToInvoice, deleteDocument, deleteDocuments, duplicateDocument, clients, markInvoicePaid, updateDocumentStatus, sendDocumentReminder, sendQuoteSignatureReminder, addNotification, missions, providers, addContract, generateContractFromTemplate, downloadContract, contracts, currentUser, signQuoteAsAdmin, serviceTypeFilter, sendEmail, dataLoading, getSplitInvoicesForQuote, getPackBillingStats, toggleSessionStatus, checkSessionsToInvoice, notifyQuotesToInvoiceThreshold, resyncMissionsFromDocument } = useData();
     const isMobile = useIsMobile();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'devis' | 'facture'>('devis');
@@ -2851,63 +2851,208 @@ const DevisFactures: React.FC = () => {
                             : 'text-slate-600 hover:bg-slate-100'
                     }`}
                 >
-                    <Package className="w-4 h-4" />
-                    Facturation par Pack
+                    <Bell className="w-4 h-4" />
+                    Suivi Facturation & Notifications
                 </button>
             </div>
 
             {/* Contenu de la vue active */}
             {activeView === 'packs' ? (
                 <>
-                {/* Section "Prestations à facturer" */}
+                {/* Section "Prestations à facturer — Notification (Seuil 2 séances / 180 €)" */}
                 {(() => {
-                    const toInvoiceDocs = documents.filter(d => d.type === 'Devis' && d.status === 'to_invoice');
-                    if (toInvoiceDocs.length === 0) return null;
+                    const today = getMartiniqueToday();
+                    const targetQuotes = documents.filter(d =>
+                        d.type === 'Devis' &&
+                        (d.status === 'signed' || d.status === 'to_invoice' || d.status === 'validated')
+                    );
+
+                    const quotesToInvoice = targetQuotes.map(doc => {
+                        const slots = doc.slotsData && Array.isArray(doc.slotsData) ? doc.slotsData : [];
+                        const totalSessions = slots.length || doc.quantity || 1;
+                        const totalAmount = doc.totalTTC || 0;
+                        const pricePerSession = totalSessions > 0 ? (totalAmount / totalSessions) : totalAmount;
+
+                        // Séances passées ou complétées
+                        const completedSlots = slots.filter((s: any) => s.sessionStatus !== 'cancelled' && ((s.date && s.date <= today) || s.sessionStatus === 'completed' || s.sessionStatus === 'to_invoice'));
+                        const completedSessions = completedSlots.length;
+                        const completedAmount = completedSessions * pricePerSession;
+
+                        // Règle métier : seuil à 180 € ou à chaque palier de 2 séances (séances 2, 4, 6...)
+                        const sessionMilestones = Math.floor(completedSessions / 2);
+                        const amountMilestones = Math.floor(completedAmount / 180);
+                        const isSingleSession180 = (totalSessions === 1 && completedSessions >= 1 && totalAmount >= 180);
+                        const milestonesReached = Math.max(sessionMilestones, amountMilestones, isSingleSession180 ? 1 : 0);
+
+                        const existingInvoices = documents.filter(d =>
+                            d.type === 'Facture' &&
+                            (d.linkedInvoiceId === doc.id || d.parentQuoteId === doc.id)
+                        );
+                        const alreadyInvoicedCount = existingInvoices.length;
+                        const pendingMilestones = Math.max(0, milestonesReached - alreadyInvoicedCount);
+
+                        const hasToInvoiceSlots = slots.some((s: any) => s.sessionStatus === 'to_invoice');
+                        const isReadyToInvoice = pendingMilestones > 0 || hasToInvoiceSlots || doc.status === 'to_invoice';
+
+                        const calculatedAmountToInvoice = Math.min(
+                            pendingMilestones > 0 ? pendingMilestones * 180 : 180,
+                            Math.max(0, totalAmount - (alreadyInvoicedCount * 180))
+                        );
+
+                        return {
+                            doc,
+                            slots,
+                            totalSessions,
+                            totalAmount,
+                            pricePerSession,
+                            completedSessions,
+                            completedAmount,
+                            milestonesReached,
+                            alreadyInvoicedCount,
+                            pendingMilestones,
+                            hasToInvoiceSlots,
+                            isReadyToInvoice,
+                            amountToInvoice: calculatedAmountToInvoice > 0 ? calculatedAmountToInvoice : (pricePerSession * 2)
+                        };
+                    }).filter(item => item.isReadyToInvoice);
+
                     return (
-                        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2">
-                                    <AlertTriangle className="w-5 h-5 text-amber-600" />
-                                    <h3 className="text-lg font-bold text-amber-800">Prestations à facturer ({toInvoiceDocs.length})</h3>
+                        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-sm">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-amber-100 rounded-xl text-amber-700">
+                                        <Bell className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
+                                            Prestations à Facturer ({quotesToInvoice.length})
+                                            <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-semibold">
+                                                Seuil 2 séances / 180 €
+                                            </span>
+                                        </h3>
+                                        <p className="text-xs text-amber-700 mt-0.5">
+                                            Notification automatique à chaque palier de 2 séances ou dès 180 € atteints — aucune facture n'est créée sans validation.
+                                        </p>
+                                    </div>
                                 </div>
-                                <button type="button" onClick={async () => { const r = await checkSessionsToInvoice(); toast.success(`${r.toInvoice} prestation(s) détectée(s) à facturer`); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 transition">Rafraîchir</button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const r = await notifyQuotesToInvoiceThreshold();
+                                            toast.success(`${r.notified} notification(s) envoyée(s) (${r.toInvoiceQuotes.length} prestation(s) à facturer)`);
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 transition flex items-center gap-1.5 shadow-sm"
+                                    >
+                                        <Bell className="w-3.5 h-3.5" />
+                                        Notifier Tout
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const r = await checkSessionsToInvoice();
+                                            toast.success(`${r.toInvoice} prestation(s) détectée(s) à facturer`);
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-amber-800 border border-amber-300 hover:bg-amber-100 transition"
+                                    >
+                                        Rafraîchir
+                                    </button>
+                                </div>
                             </div>
-                            <div className="space-y-3">
-                                {toInvoiceDocs.map(doc => {
-                                    const toInvoiceSlots = (doc.slotsData || []).filter((s: any) => s.sessionStatus === 'to_invoice');
-                                    return (
-                                        <div key={doc.id} className="bg-white border border-amber-100 rounded-xl p-4">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div>
-                                                    <span className="font-bold text-slate-800">{doc.ref}</span>
-                                                    <span className="text-sm text-slate-500 ml-2">{doc.clientName}</span>
+
+                            {quotesToInvoice.length === 0 ? (
+                                <div className="bg-white/80 border border-amber-100 rounded-xl p-4 text-center text-sm text-amber-800">
+                                    <p className="font-medium">Aucune prestation n'a actuellement atteint le seuil de facturation (2 séances ou 180 €).</p>
+                                    <p className="text-xs text-slate-500 mt-1">Le système surveille les créneaux réalisés et notifiera automatiquement dès qu'un palier est franchi.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {quotesToInvoice.map(({ doc, completedSessions, totalSessions, amountToInvoice, pendingMilestones }) => {
+                                        const toInvoiceSlots = (doc.slotsData || []).filter((s: any) => s.sessionStatus === 'to_invoice' || ((s.date && s.date <= today) && s.sessionStatus !== 'cancelled' && s.sessionStatus !== 'invoiced'));
+                                        return (
+                                            <div key={doc.id} className="bg-white border border-amber-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-bold text-slate-800 text-base">{doc.ref}</span>
+                                                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                                                {doc.serviceType || 'Prestation'}
+                                                            </span>
+                                                            <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                                                                Seuil atteint ({completedSessions} séance{completedSessions > 1 ? 's' : ''} / ~{amountToInvoice.toFixed(2)} €)
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-sm text-slate-600 mt-1">
+                                                            Client : <strong className="text-slate-800">{doc.clientName}</strong>
+                                                            <span className="mx-2">•</span>
+                                                            Avancement : <strong>{completedSessions} / {totalSessions} séances</strong>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                await addNotification(
+                                                                    'admin',
+                                                                    'alert',
+                                                                    'Rappel Prestation à facturer',
+                                                                    `Devis ${doc.ref} (${doc.clientName}) : ${completedSessions} séance(s) effectuée(s). Montant à facturer : ~${amountToInvoice.toFixed(2)} €.`,
+                                                                    undefined,
+                                                                    `document:${doc.id}`
+                                                                );
+                                                                toast.success(`Notification de facturation envoyée pour ${doc.ref}`);
+                                                            }}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition flex items-center gap-1"
+                                                            title="Notifier le secrétariat qu'il faut facturer"
+                                                        >
+                                                            <Bell className="w-3 h-3" /> Notifier
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => navigate(`/admin/devis/${doc.id}`)}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+                                                        >
+                                                            Voir Devis
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                if (!window.confirm(`Confirmer la création manuelle de la facture pour le devis ${doc.ref} (${amountToInvoice.toFixed(2)} €) ?`)) return;
+                                                                try {
+                                                                    await convertQuoteToInvoice(doc.id);
+                                                                    toast.success(`Devis ${doc.ref} converti en facture`);
+                                                                } catch (e: any) {
+                                                                    toast.error('Erreur de facturation: ' + (e.message || 'inconnue'));
+                                                                }
+                                                            }}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1"
+                                                            title="Créer la facture manuellement"
+                                                        >
+                                                            <CreditCard className="w-3 h-3" /> Facturer Manuellement
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{toInvoiceSlots.length} séance{toInvoiceSlots.length > 1 ? 's' : ''}</span>
-                                                    <button type="button" onClick={() => navigate(`/admin/devis/${doc.id}`)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Voir</button>
-                                                    <button type="button" onClick={async () => {
-                                                        try {
-                                                            await convertQuoteToInvoice(doc.id);
-                                                            toast.success(`Devis ${doc.ref} converti en facture`);
-                                                        } catch (e: any) {
-                                                            toast.error('Erreur de facturation: ' + (e.message || 'inconnue'));
-                                                        }
-                                                    }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-600 text-white hover:bg-green-700 transition flex items-center gap-1">
-                                                        <CreditCard className="w-3 h-3" /> Facturer
-                                                    </button>
+
+                                                {/* Détail des créneaux concernés */}
+                                                <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                                                    <span className="text-[11px] font-semibold text-slate-400 mr-1">Séances prêtes :</span>
+                                                    {toInvoiceSlots.slice(0, 6).map((s: any, i: number) => (
+                                                        <span key={i} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded">
+                                                            {s.date} ({s.startTime}-{s.endTime})
+                                                        </span>
+                                                    ))}
+                                                    {toInvoiceSlots.length > 6 && (
+                                                        <span className="text-xs text-slate-400 font-medium">+{toInvoiceSlots.length - 6} autres</span>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {toInvoiceSlots.map((s: any, i: number) => (
-                                                    <span key={i} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded">
-                                                        {s.date} {s.startTime}-{s.endTime} ({s.duration}h)
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     );
                 })()}

@@ -74,6 +74,8 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
         backfillSplitBilling,
         rollbackBackfillSplitBilling,
         runAutoGenerateSplitInvoices,
+        notifyQuotesToInvoiceThreshold,
+        checkSessionsToInvoice,
         clients,
         packs
     } = useData();
@@ -276,8 +278,8 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
         setIsAutoGenerating(true);
         setBackfillResult(null);
         try {
-            const result = await runAutoGenerateSplitInvoices();
-            setBackfillResult(`✓ Auto-génération : ${result.generated} facture(s) générée(s) pour ${result.quotesProcessed} devis`);
+            const result = await notifyQuotesToInvoiceThreshold();
+            setBackfillResult(`✓ Notifications envoyées : ${result.notified} alerte(s) émise(s) pour ${result.toInvoiceQuotes.length} prestation(s) ayant atteint le seuil (2 séances / 180 €)`);
         } catch (e) {
             setBackfillResult(`Erreur : ${e instanceof Error ? e.message : 'inconnue'}`);
         } finally {
@@ -455,27 +457,27 @@ const SplitInvoiceManagement: React.FC<SplitInvoiceManagementProps> = ({ onNavig
                 </div>
             </div>
 
-            {/* Actions d'automatisation */}
+            {/* Actions de notification et suivi */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                         <Zap className="w-4 h-4 text-amber-500" />
-                        Automatisation
+                        Notifications & Alertes de Facturation
                     </h3>
-                    <span className="text-xs text-slate-400">Cron : toutes les 2 heures</span>
+                    <span className="text-xs text-slate-400 font-semibold">Seuil : 2 séances / 180 €</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <button
                         onClick={handleAutoGenerate}
                         disabled={isAutoGenerating}
-                        className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition disabled:opacity-50 shadow-sm"
                     >
                         {isAutoGenerating ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         ) : (
                             <Zap className="w-4 h-4" />
                         )}
-                        Générer les factures en attente
+                        Vérifier & Notifier les prestations à facturer
                     </button>
                     <button
                         onClick={handleBackfill}

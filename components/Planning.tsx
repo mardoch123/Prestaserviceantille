@@ -1742,11 +1742,12 @@ const Planning: React.FC = () => {
 
             const isOvertimeMode = missionForm.isOvertime;
 
-            // --- GRAFTED: Validation durée (3h, 4h, 6h ou 7h uniquement) ---
+            // --- GRAFTED: Validation durée (3h, 4h, 6h ou 7h uniquement, SAUF Jardinage où la durée est libre au choix) ---
+            const isJardinage = String(missionForm.service || '').toLowerCase().includes('jardin');
             const slotDurationHours = calculateDuration(missionForm.date, missionForm.startTime, finalEndDate, missionForm.endTime);
             const roundedDuration = Math.round(slotDurationHours * 10) / 10;
             const isValidDuration = ALLOWED_DURATIONS.some(d => Math.abs(slotDurationHours - d) < 0.05);
-            if (!isValidDuration && !isOvertimeMode) {
+            if (!isValidDuration && !isOvertimeMode && !isJardinage) {
                 throw new Error(`Durée invalide (${roundedDuration}h). Les créneaux autorisés sont : 3h, 4h, 6h ou 7h.`);
             }
 
@@ -4244,8 +4245,18 @@ const Planning: React.FC = () => {
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-1">
                                         Créneau horaire
-                                        <span className="ml-1 text-xs font-normal text-slate-400">(3h, 4h, 6h ou 7h)</span>
+                                        <span className="ml-1 text-xs font-normal text-slate-400">
+                                            {missionForm.service === 'Jardinage'
+                                                ? '(Durée libre au choix — aucune durée minimum)'
+                                                : '(3h, 4h, 6h ou 7h)'}
+                                        </span>
                                     </label>
+                                    {missionForm.service === 'Jardinage' ? (
+                                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 font-medium mb-3 flex items-center gap-2">
+                                            <span className="text-base">🌱</span>
+                                            <span>Pour les prestations de <strong>Jardinage</strong>, aucune durée minimum n'est requise. Vous pouvez choisir n'importe quel créneau ci-dessous ou saisir librement vos heures de début et de fin.</span>
+                                        </div>
+                                    ) : null}
                                     <div className="grid grid-cols-3 gap-1.5 mb-3">
                                         {ALLOWED_SLOTS.map(slot => (
                                             <button

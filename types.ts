@@ -356,6 +356,10 @@ export interface SplitDetail {
     trigger: 'signature' | 'completion';
     // Session déclencheuse (pour trigger = 'completion', c'est la dernière session du groupe)
     triggerSession?: number;
+    // Indique si la notification de facturation a été envoyée
+    notified?: boolean;
+    // Date d'envoi de la notification
+    notifiedAt?: string;
 }
 
 // Statistiques de facturation par pack

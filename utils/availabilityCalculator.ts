@@ -567,6 +567,25 @@ const MENAGE_KEYWORDS = [
   'repassage', 'vitres', 'aspiration', 'domicile', 'maison',
 ];
 
+export const JARDINAGE_KEYWORDS = [
+  'jardin', 'jardinage', 'paysag', 'tonte', 'gazon',
+  'taille', 'haie', 'elag', 'abattage', 'debrouss',
+  'plantation', 'fleur', 'pelouse', 'espace vert', 'espaces verts',
+];
+
+/**
+ * Vérifie si une spécialité prestataire correspond au domaine « Jardinage ».
+ */
+export function isJardinageSpecialty(specialty: string): boolean {
+  const normalized = String(specialty || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  if (!normalized) return false;
+  return JARDINAGE_KEYWORDS.some(kw => normalized.includes(kw));
+}
+
 /**
  * Vérifie si une spécialité prestataire correspond strictement au domaine « Ménage ».
  * Exclut jardinage, bricolage, et toute autre spécialité non liée au ménage.
@@ -583,10 +602,11 @@ export function isMenageSpecialty(specialty: string): boolean {
 
 /**
  * Mappe une spécialité prestataire vers un domaine de service standardisé.
- * Retourne 'Ménage' uniquement si la spécialité correspond au ménage, sinon null.
  */
 export function mapSpecialtyToDomain(specialty: string): string | null {
-  return isMenageSpecialty(specialty) ? 'Ménage' : null;
+  if (isMenageSpecialty(specialty)) return 'Ménage';
+  if (isJardinageSpecialty(specialty)) return 'Jardinage';
+  return null;
 }
 
 /**
@@ -637,16 +657,18 @@ export function getAvailableProvidersCount(
   const dayOfWeek = getDayOfWeek(dateStr);
 
   let filteredProviders = providers;
-  if (serviceType) {
+  if (serviceType === 'Jardinage') {
+    filteredProviders = providers.filter(p => isJardinageSpecialty(p.specialty || '') || !p.specialty);
+  } else if (serviceType) {
     const domain = serviceType;
     filteredProviders = providers.filter(p => {
       const pDomain = mapSpecialtyToDomain(p.specialty || '');
       return pDomain === domain || domain === 'Autre' || domain === 'Personnalisé';
     });
+  } else {
+    // Filtrer uniquement les prestataires dont la spécialité est « Ménage » par défaut
+    filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
   }
-
-  // Filtrer uniquement les prestataires dont la spécialité est strictement « Ménage »
-  filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
 
   return filteredProviders.filter(p => {
     // Vérifier congé
@@ -717,15 +739,17 @@ export function computeAvailabilitySlots(
   // Filtrer par type de service si demandé
   let filteredProviders = providers;
 
-  // Filtrer systématiquement par spécialité Ménage (exclure jardinage, bricolage, etc.)
-  filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
-
-  if (serviceType) {
+  if (serviceType === 'Jardinage') {
+    filteredProviders = filteredProviders.filter(p => isJardinageSpecialty(p.specialty || '') || !p.specialty);
+  } else if (serviceType) {
     const domain = serviceType;
     filteredProviders = filteredProviders.filter(p => {
       const pDomain = mapSpecialtyToDomain(p.specialty || '');
       return pDomain === domain || domain === 'Autre' || domain === 'Personnalisé';
     });
+  } else {
+    // Filtrer systématiquement par spécialité Ménage par défaut (exclure jardinage, bricolage, etc.)
+    filteredProviders = filteredProviders.filter(p => isMenageSpecialty(p.specialty || ''));
   }
 
   // Dédupliquer les providers par ID (au cas où)
