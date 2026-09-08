@@ -83,6 +83,9 @@ export const htmlToPlainText = (html: string): string => {
     // Convert <em>, <i> to markdown-style italic
     text = text.replace(/<(em|i)[^>]*>(.*?)<\/(em|i)>/gi, '_$2_');
     
+    // Convert hyperlinks to visible text with URL
+    text = text.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, '$2\n👉 $1\n');
+
     // Remove all remaining HTML tags
     text = text.replace(/<[^>]+>/g, '');
     
@@ -94,6 +97,19 @@ export const htmlToPlainText = (html: string): string => {
     text = text.trim();
     
     return text;
+};
+
+/**
+ * Génère un token simple et déterministe pour sécuriser les liens d'action email d'une mission
+ */
+export const getMissionValidationToken = (missionId: string, missionDate?: string): string => {
+    const raw = `psa-val-${missionId}-${missionDate || 'mission'}`;
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+        hash = (hash << 5) - hash + raw.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
 };
 
 export interface EmailTemplateData {
@@ -870,6 +886,48 @@ INFORMATIONS :
 Le contrat est maintenant actif et peut être utilisé.`
                 )
             };
+
+        // ========== SUIVI POST-PRESTATION (+30 MIN) ==========
+        case 'mission_completion_check': {
+            const doneUrl = context.doneUrl || 'https://www.prestaservicesantilles.com/';
+            const notDoneUrl = context.notDoneUrl || 'https://www.prestaservicesantilles.com/';
+            return {
+                subject: `Confirmation d'intervention du ${context.date || ''} - ${context.clientName || 'Client'}`,
+                message: createTextEmail(
+                    'Confirmation d\'intervention',
+                    `Bonjour ${context.providerName || 'Prestataire'},
+
+Votre intervention pour le client ${context.clientName || ''} s'est achevée il y a plus de 30 minutes.
+
+DÉTAILS DE L'INTERVENTION :
+- Client : ${context.clientName || 'Client'}
+- Prestation : ${context.service || 'Prestation'}
+- Date : ${context.date || ''}
+- Horaires : ${context.startTime || ''} - ${context.endTime || ''}${context.address ? `\n- Lieu : ${context.address}` : ''}
+
+Merci de confirmer l'état de cette intervention en cliquant simplement sur l'un des boutons ci-dessous :
+
+<div style="margin: 25px 0; text-align: center;">
+  <a href="${doneUrl}" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 6px;">
+    ✅ FAIT (Prestation Réalisée)
+  </a>
+  <span style="display: inline-block; width: 12px;"></span>
+  <a href="${notDoneUrl}" style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 6px;">
+    ❌ PAS FAIT (Non Réalisée)
+  </a>
+</div>
+
+LIENS DIRECTS DE CONFIRMATION :
+👉 Si la prestation a bien été effectuée (FAIT) :
+${doneUrl}
+
+👉 Si la prestation n'a pas été effectuée (PAS FAIT) :
+${notDoneUrl}
+
+Merci pour votre rigueur et votre réactivité !`
+                )
+            };
+        }
 
         // ========== DEFAULT TEMPLATE ==========
         default:

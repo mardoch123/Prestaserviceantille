@@ -232,6 +232,9 @@ export interface Mission {
     reminder48hSent?: boolean;
     reminder72hSent?: boolean; // New reminder flag
     reminder24hProviderSent?: boolean; // Reminder sent to provider 24h before mission
+    completionCheckSent?: boolean; // Email de confirmation post-prestation (+30min) envoyé au prestataire
+    completionCheckSentAt?: string; // Timestamp de l'envoi de l'email
+    completedViaEmailAt?: string; // Timestamp de validation par le prestataire via le bouton email
     reportSent?: boolean;
     sourceDocumentId?: string;
     isOvertime?: boolean; // Heures supplémentaires (ignore les validations de disponibilité)

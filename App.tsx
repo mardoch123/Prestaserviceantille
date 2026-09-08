@@ -67,6 +67,7 @@ import DocumentDetailPage from './components/DocumentDetailPage';
 import MissionDetailPage from './components/MissionDetailPage';
 import ClientDetailPage from './components/ClientDetailPage';
 import ProviderDetailPage from './components/ProviderDetailPage';
+import MissionValidationPage from './components/MissionValidationPage';
 import { App as CapacitorApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import UpdateNotification from './components/UpdateNotification';
@@ -639,6 +640,7 @@ const AppLayout: React.FC = () => {
     const isFlyersRoute = location.pathname === '/flyers' || location.pathname.startsWith('/flyers/');
     const isReferralRoute = location.pathname.startsWith('/parrainage');
     const isAvailabilityRoute = location.pathname === '/disponibilites';
+    const isMissionValidationRoute = location.pathname === '/validation-prestation' || (window.location.hash || '').startsWith('#/validation-prestation');
 
     const isAdminLike = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
@@ -647,7 +649,7 @@ const AppLayout: React.FC = () => {
 
     useEffect(() => {
         try {
-            if (isContactRoute || isFlyersRoute) return;
+            if (isContactRoute || isFlyersRoute || isMissionValidationRoute) return;
             if (isAdminLike) return;
 
             const today = new Date();
@@ -660,7 +662,7 @@ const AppLayout: React.FC = () => {
         } catch {
             // ignore
         }
-    }, [isContactRoute, isFlyersRoute, isAdminLike]);
+    }, [isContactRoute, isFlyersRoute, isMissionValidationRoute, isAdminLike]);
 
     const closeOfferModal = () => {
         try {
@@ -672,6 +674,15 @@ const AppLayout: React.FC = () => {
         }
         setIsOfferModalOpen(false);
     };
+
+    if (isMissionValidationRoute) {
+        return (
+            <>
+                <ToastContainer />
+                <MissionValidationPage />
+            </>
+        );
+    }
 
     if (isContactRoute) {
         return <ContactPage />;

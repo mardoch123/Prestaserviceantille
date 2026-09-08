@@ -11,6 +11,7 @@ import { Network } from '@capacitor/network';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase, isSupabaseConfigured } from '../utils/supabaseClient';
 import { sendEmailViaEmailJS } from '../utils/emailService';
+import { getMissionValidationToken } from '../utils/emailTemplates';
 import { getServiceTypeOptions, type ServiceTypeFilter } from '../utils/serviceTypes';
 import { setApiConfig } from '../src/config/apiConfig';
 import jsPDF from 'jspdf';
@@ -495,6 +496,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Ref pour empêcher les envois multiples de reminders (évite les emails dupliqués)
     const sendingReminderIdsRef = useRef<Set<string>>(new Set());
+
+    // Ref pour empêcher les envois multiples d'emails de vérification post-prestation (+30min)
+    const sendingCompletionCheckIdsRef = useRef<Set<string>>(new Set());
 
     const demoBlocked = () => {
         try {
@@ -1853,6 +1857,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (cachedMissions) {
                         setMissions(cachedMissions);
                         checkUpcomingReminders(cachedMissions);
+                        checkPostMissionCompletionEmails(cachedMissions);
                     }
                     if (cachedDocuments) setDocuments(cachedDocuments);
                     if (cachedNotifications) setNotifications(cachedNotifications);
@@ -2006,6 +2011,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                         reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
                         reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
+                        completionCheckSent: m.completion_check_sent || m.completionCheckSent,
                         reportSent: m.report_sent || m.reportSent,
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId,
                         isOvertime: m.is_overtime || m.isOvertime || false
@@ -2209,6 +2215,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
                         reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
                         reminder24hProviderSent: m.reminder_24h_provider_sent || m.reminder24hProviderSent,
+                        completionCheckSent: m.completion_check_sent || m.completionCheckSent,
                         reportSent: m.report_sent || m.reportSent,
                         sourceDocumentId: m.source_document_id || m.sourceDocumentId,
                         isOvertime: m.is_overtime || m.isOvertime || false
@@ -2368,6 +2375,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     setMissions(mappedMissions);
                     dataCache.set('missions', mData); // Sauvegarder dans le cache
                     checkUpcomingReminders(mappedMissions);
+                    checkPostMissionCompletionEmails(mappedMissions);
                 } else {
                     try {
                         setAlertPopup({ show: true, message: 'Planning indisponible (timeout). Réessayez.' });
@@ -2490,6 +2498,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                             const mappedMissions = mapMissions(mData2);
                             setMissions(mappedMissions);
                             checkUpcomingReminders(mappedMissions);
+                            checkPostMissionCompletionEmails(mappedMissions);
                         }
                     }
 
@@ -2986,6 +2995,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             lateCancellation: m.late_cancellation || m.lateCancellation,
             reminder48hSent: m.reminder_48h_sent || m.reminder48hSent,
             reminder72hSent: m.reminder_72h_sent || m.reminder72hSent,
+            completionCheckSent: m.completion_check_sent || m.completionCheckSent,
             reportSent: m.report_sent || m.reportSent,
             sourceDocumentId: m.source_document_id || m.sourceDocumentId,
             isOvertime: m.is_overtime || m.isOvertime || false
@@ -3014,6 +3024,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
 
             checkUpcomingReminders(merged);
+            checkPostMissionCompletionEmails(merged);
             return merged;
         });
 
@@ -3052,6 +3063,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             reminder48hSent: m.reminder_48h_sent,
             reminder72hSent: m.reminder_72h_sent,
             reminder24hProviderSent: m.reminder_24h_provider_sent,
+            completionCheckSent: m.completion_check_sent,
             reportSent: m.report_sent,
             sourceDocumentId: m.source_document_id,
             isOvertime: m.is_overtime || false
@@ -3215,6 +3227,152 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
         setIsOnline(true);
         return true;
+    };
+
+    /**
+     * Surveillance post-prestation :
+     * Lorsqu'une prestation dépasse de 30 minutes après son heure de fin prévue,
+     * un email est automatiquement envoyé au prestataire avec deux boutons simples (Fait / Pas fait)
+     * lui permettant de valider directement la prestation en un seul clic.
+     */
+    const checkPostMissionCompletionEmails = async (currentMissions: Mission[]) => {
+        if (!currentMissions || !Array.isArray(currentMissions) || currentMissions.length === 0) {
+            return;
+        }
+
+        const now = dayjs().tz(MARTINIQUE_TIMEZONE);
+
+        // Charger les IDs déjà notifiés depuis le cache local persistant
+        let persistedSentIds = new Set<string>();
+        try {
+            const raw = localStorage.getItem('presta_completion_emails_sent_ids');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    persistedSentIds = new Set(parsed);
+                }
+            }
+        } catch {}
+
+        for (const m of currentMissions) {
+            if (!m || !m.id) continue;
+
+            // Protection anti-doublon en mémoire et persistant
+            if (sendingCompletionCheckIdsRef.current.has(m.id)) continue;
+            if (m.completionCheckSent || persistedSentIds.has(m.id)) continue;
+
+            // Seules les missions non encore terminées ni annulées sont concernées
+            if (m.status === 'completed' || m.status === 'cancelled') continue;
+            if (!m.date || !m.endTime) continue;
+
+            try {
+                // Parser l'heure de fin dans le fuseau de Martinique
+                const cleanEndTime = String(m.endTime || '').trim().slice(0, 5);
+                if (!cleanEndTime.includes(':')) continue;
+
+                const missionEndDateTime = dayjs.tz(`${m.date}T${cleanEndTime}`, MARTINIQUE_TIMEZONE);
+                if (!missionEndDateTime.isValid()) continue;
+
+                const diffMinutes = now.diff(missionEndDateTime, 'minute');
+
+                // Dépassement d'au moins 30 minutes (limité aux 7 derniers jours pour ne pas spammer d'anciennes missions)
+                if (diffMinutes >= 30 && diffMinutes <= 7 * 24 * 60) {
+                    // Trouver le prestataire assigné
+                    const targetProvider = providers.find(p => p.id === m.providerId) || 
+                                           providers.find(p => `${p.firstName || ''} ${p.lastName || ''}`.trim() === m.providerName);
+
+                    if (!targetProvider || !targetProvider.email) {
+                        continue;
+                    }
+
+                    const providerFullName = `${targetProvider.firstName || ''} ${targetProvider.lastName || ''}`.trim() || m.providerName || 'Prestataire';
+
+                    // Marquer en cours d'envoi
+                    sendingCompletionCheckIdsRef.current.add(m.id);
+
+                    // Vérifier en base pour éviter les doublons inter-onglets
+                    try {
+                        const { data: dbCheck } = await supabase
+                            .from('missions')
+                            .select('status, completion_check_sent')
+                            .eq('id', m.id)
+                            .single();
+
+                        if (dbCheck?.status === 'completed' || dbCheck?.completion_check_sent) {
+                            persistedSentIds.add(m.id);
+                            continue;
+                        }
+                    } catch {}
+
+                    // Construire les URLs de validation directe
+                    const token = getMissionValidationToken(m.id, m.date);
+                    const baseUrl = typeof window !== 'undefined' && window.location?.origin 
+                        ? window.location.origin 
+                        : 'https://www.prestaservicesantilles.com';
+
+                    const doneUrl = `${baseUrl}/validation-prestation?id=${encodeURIComponent(m.id)}&action=done&token=${token}`;
+                    const notDoneUrl = `${baseUrl}/validation-prestation?id=${encodeURIComponent(m.id)}&action=not_done&token=${token}`;
+
+                    console.log(`[checkPostMissionCompletionEmails] Envoi email de confirmation (+30min) à ${targetProvider.email} pour mission ${m.id} (${m.clientName})`);
+
+                    // Envoyer l'email avec les 2 boutons Fait / Pas fait
+                    await sendEmail(
+                        targetProvider.email,
+                        `Confirmation d'intervention du ${m.date} - ${m.clientName}`,
+                        'mission_completion_check',
+                        {
+                            providerName: providerFullName,
+                            clientName: m.clientName || 'Client',
+                            service: m.service || 'Prestation',
+                            date: m.date,
+                            startTime: m.startTime,
+                            endTime: m.endTime,
+                            doneUrl,
+                            notDoneUrl
+                        }
+                    );
+
+                    // Enregistrer en base Supabase
+                    try {
+                        await supabase.from('missions').update({
+                            completion_check_sent: true,
+                            completion_check_sent_at: getMartiniqueNowISO()
+                        }).eq('id', m.id);
+                    } catch (dbErr) {
+                        console.warn('[checkPostMissionCompletionEmails] Supabase update warning:', dbErr);
+                    }
+
+                    // Sauvegarder dans le cache local
+                    persistedSentIds.add(m.id);
+                    try {
+                        localStorage.setItem('presta_completion_emails_sent_ids', JSON.stringify(Array.from(persistedSentIds)));
+                    } catch {}
+
+                    // Mettre à jour le state local
+                    setMissions(prev => prev.map(mission =>
+                        mission.id === m.id ? { ...mission, completionCheckSent: true } : mission
+                    ));
+
+                    // Notification administrative in-app
+                    await addNotification(
+                        'admin',
+                        'info',
+                        'Email de suivi envoyé au prestataire',
+                        `Demande de confirmation (+30 min) envoyée à ${providerFullName} pour l'intervention du ${m.date} (${m.clientName}).`,
+                        undefined,
+                        `/admin/planning`
+                    );
+
+                    console.log(`[checkPostMissionCompletionEmails] Notification post-prestation envoyée pour mission ${m.id}`);
+                }
+            } catch (err) {
+                console.error(`[checkPostMissionCompletionEmails] Erreur pour mission ${m.id}:`, err);
+            } finally {
+                setTimeout(() => {
+                    sendingCompletionCheckIdsRef.current.delete(m.id);
+                }, 60000);
+            }
+        }
     };
 
     // Nettoyage de l'ancienne clé de récupération de mot de passe (migration sécurité)
@@ -3669,6 +3827,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             setIsBackgroundRefreshing(true);
             try {
                 await refreshData({ silent: true });
+                if (missions && missions.length > 0) {
+                    await checkPostMissionCompletionEmails(missions);
+                }
             } catch (e) {
                 console.warn('[BackgroundRefresh] Error during background refresh:', e);
             } finally {
