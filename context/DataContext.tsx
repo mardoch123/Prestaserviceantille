@@ -4039,6 +4039,31 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
 
+        // ── Étape 1.5 : Vérification stricte de la disponibilité des prestataires AVANT assignation ──
+        // Refuse la création/mise à jour si un prestataire n'est pas disponible sur ce créneau
+        // (congés, indisponibilités programmées ou ponctuelles, conflit avec une autre mission).
+        // Ignoré en mode heures supplémentaires (forçage explicite par l'admin).
+        if (!mission.isOvertime && mission.date && mission.startTime && mission.endTime) {
+            if (mission.providerId && mission.providerId !== 'null') {
+                await assertProviderAvailableForAssignment(
+                    mission.providerId,
+                    mission.date,
+                    mission.startTime,
+                    mission.endTime,
+                    existingMissionId || undefined
+                );
+            }
+            if (mission.provider2Id && mission.provider2Id !== 'null') {
+                await assertProviderAvailableForAssignment(
+                    mission.provider2Id,
+                    mission.date,
+                    mission.startTime,
+                    mission.endTime,
+                    existingMissionId || undefined
+                );
+            }
+        }
+
         // ── Étape 2 : Si mission existante → UPDATE (upsert) ──
         if (existingMissionId) {
             console.warn('[addMission] Mission existante détectée, mise à jour au lieu de créer:', mission.clientName, mission.date, mission.startTime);
@@ -5715,6 +5740,142 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         return diffHours > 48;
     };
 
+    /**
+     * Vérification stricte et centralisée de la disponibilité d'un prestataire AVANT toute assignation.
+     * Couvre : jours de non-intervention, heures de non-intervention, indisponibilités programmées
+     * (multi-semaines), indisponibilités ponctuelles, congés (hors rejetés) et conflits avec
+     * d'autres missions en base (en tant que prestataire 1 OU 2).
+     * Lance une Error explicite si le prestataire n'est pas disponible.
+     */
+    const assertProviderAvailableForAssignment = async (
+        providerId: string,
+        date: string,
+        startTime: string,
+        endTime: string,
+        excludeMissionId?: string
+    ): Promise<void> => {
+        // Prestataire externe / placeholder : toujours assignable
+        if (!providerId || providerId === 'null' || providerId === '__external__' || providerId === 'auto-assign') return;
+        if (!date) return;
+
+        // Valider la date avant dayjs.tz pour éviter RangeError
+        const parsedMissionDate = dayjs.tz(date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
+        if (!parsedMissionDate.isValid()) {
+            console.warn('[assertProviderAvailable] Invalid mission date:', date, '- skipping date-based checks');
+            return;
+        }
+
+        const provider = providers.find(p => p.id === providerId);
+        if (!provider) {
+            console.warn('[assertProviderAvailable] Provider not found in state:', providerId, '- skipping provider-based checks');
+            return;
+        }
+        const providerLabel = `${(provider as any)?.firstName || ''} ${(provider as any)?.lastName || ''}`.trim() || 'Prestataire';
+
+        const toMinutes = (t: any) => {
+            const raw = String(t || '').trim();
+            if (!raw) return NaN;
+            const parts = raw.includes(':') ? raw.split(':') : [];
+            const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
+            const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+            if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+            return h * 60 + m;
+        };
+
+        const s = toMinutes(startTime);
+        const e = toMinutes(endTime);
+        const day = parsedMissionDate.day();
+
+        // 1. Jour de non-intervention
+        const days = (provider as any)?.nonInterventionDays;
+        if (Array.isArray(days) && days.includes(day)) {
+            throw new Error(`Impossible de programmer ${providerLabel} : ne travaille pas aujourd'hui.`);
+        }
+
+        // 2. Heures de non-intervention
+        const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
+            ? (provider as any).nonInterventionHours[day]
+            : undefined;
+        if (Array.isArray(ranges) && ranges.length > 0) {
+            const hasHourBlock = Number.isFinite(s) && Number.isFinite(e) && ranges.some((r: any) => {
+                const rStart = toMinutes(r?.start);
+                const rEnd = toMinutes(r?.end);
+                if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+                return s < rEnd && e > rStart;
+            });
+            if (hasHourBlock) {
+                throw new Error(`Impossible de programmer ${providerLabel} : indisponible sur ce créneau horaire.`);
+            }
+        }
+
+        // 3. Indisponibilités programmées multi-semaines
+        const scheds = (provider as any)?.scheduledUnavailabilities;
+        if (Array.isArray(scheds) && scheds.length > 0) {
+            const missionDateStart = parsedMissionDate.startOf('day');
+            const hasScheduledBlock = scheds.some((su: any) => {
+                if (su.dayOfWeek !== day) return false;
+                const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
+                if (missionDateStart.isBefore(suStart)) return false;
+                const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
+                if (missionDateStart.isAfter(suEnd)) return false;
+                const rStart = toMinutes(su.startTime);
+                const rEnd = toMinutes(su.endTime);
+                if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
+                return s < rEnd && e > rStart;
+            });
+            if (hasScheduledBlock) {
+                throw new Error(`Impossible de programmer ${providerLabel} : indisponible (programmation multi-semaines) sur ce créneau.`);
+            }
+        }
+
+        // 4. Indisponibilités ponctuelles
+        const oneTimes = (provider as any)?.oneTimeUnavailabilities;
+        if (Array.isArray(oneTimes) && oneTimes.length > 0) {
+            const activeForDate = oneTimes.filter((otu: any) => otu.date === date);
+            if (activeForDate.length > 0) {
+                const hasOneTimeBlock = activeForDate.some((otu: any) => {
+                    const otuStart = toMinutes(otu.startTime);
+                    const otuEnd = toMinutes(otu.endTime);
+                    if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
+                    return s < otuEnd && e > otuStart;
+                });
+                if (hasOneTimeBlock) {
+                    throw new Error(`Impossible de programmer ${providerLabel} : indisponible (indisponibilité ponctuelle) sur ce créneau.`);
+                }
+            }
+        }
+
+        // 5. Congés (approuvés ou en attente — les rejetés sont ignorés)
+        const leaves = Array.isArray((provider as any)?.leaves) ? (provider as any).leaves : [];
+        const missionStart = new Date(`${date}T${startTime || '00:00'}`);
+        const missionEnd = new Date(`${date}T${endTime || '23:59'}`);
+        for (const leave of leaves) {
+            if (leave?.status === 'rejected') continue;
+            if (!leave?.startDate || !leave?.endDate) continue;
+            const leaveStart = new Date(`${leave.startDate}T${leave.startTime || '00:00'}`);
+            const leaveEnd = new Date(`${leave.endDate}T${leave.endTime || '23:59'}`);
+            if (missionStart < leaveEnd && missionEnd > leaveStart) {
+                throw new Error(`Impossible de programmer ${providerLabel} : en congé sur cette période.`);
+            }
+        }
+
+        // 6. Conflit avec une autre mission en base (prestataire 1 OU 2)
+        const conflictCheck = await checkProviderMissionConflict(
+            providerId,
+            date,
+            startTime,
+            endTime,
+            excludeMissionId
+        );
+
+        if (conflictCheck.hasConflict) {
+            const conflict = conflictCheck.conflictingMission;
+            throw new Error(
+                `Conflit d'horaire : ${providerLabel} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
+            );
+        }
+    };
+
     const assignProvider = async (missionId: string, providerId: string, providerName: string) => {
         if (isDemoMode) {
             demoBlocked();
@@ -5723,122 +5884,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
-            // Validate date before using dayjs.tz to avoid RangeError
-            const parsedMissionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
-            if (!parsedMissionDate.isValid()) {
-                console.warn('[assignProvider] Invalid mission date:', existingMission.date, '- skipping date-based checks');
-            } else {
-            const provider = providers.find(p => p.id === providerId);
-            const days = (provider as any)?.nonInterventionDays;
-            const day = parsedMissionDate.day();
-            if (Array.isArray(days) && days.includes(day)) {
-                throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
-            }
-
-            const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
-                ? (provider as any).nonInterventionHours[day]
-                : undefined;
-            if (Array.isArray(ranges) && ranges.length > 0) {
-                const toMinutes = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-
-                const s = toMinutes(existingMission.startTime);
-                const e = toMinutes(existingMission.endTime);
-                const hasHourBlock = Number.isFinite(s) && Number.isFinite(e) && ranges.some((r: any) => {
-                    const rStart = toMinutes(r?.start);
-                    const rEnd = toMinutes(r?.end);
-                    if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
-                    return s < rEnd && e > rStart;
-                });
-                if (hasHourBlock) {
-                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible sur ce créneau horaire.`);
-                }
-            }
-
-            // Vérifier les indisponibilités programmées multi-semaines
-            const scheds = (provider as any)?.scheduledUnavailabilities;
-            if (Array.isArray(scheds) && scheds.length > 0) {
-                const toMin = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-                const missionDate = parsedMissionDate; // reuse already validated date
-                const missionDay = missionDate.day();
-                const missionDateStart = missionDate.startOf('day');
-                const hasScheduledBlock = scheds.some((su: any) => {
-                    if (su.dayOfWeek !== missionDay) return false;
-                    const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
-                    if (missionDateStart.isBefore(suStart)) return false;
-                    const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
-                    if (missionDateStart.isAfter(suEnd)) return false;
-                    const s = toMin(existingMission.startTime);
-                    const e = toMin(existingMission.endTime);
-                    const rStart = toMin(su.startTime);
-                    const rEnd = toMin(su.endTime);
-                    if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
-                    return s < rEnd && e > rStart;
-                });
-                if (hasScheduledBlock) {
-                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (programmation multi-semaines) sur ce créneau.`);
-                }
-            }
-
-            // Vérifier les indisponibilités ponctuelles
-            const oneTimes = (provider as any)?.oneTimeUnavailabilities;
-            if (Array.isArray(oneTimes) && oneTimes.length > 0) {
-                const toMin2 = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-                const activeForDate = oneTimes.filter((otu: any) => otu.date === existingMission.date);
-                if (activeForDate.length > 0) {
-                    const s = toMin2(existingMission.startTime);
-                    const e = toMin2(existingMission.endTime);
-                    const hasOneTimeBlock = activeForDate.some((otu: any) => {
-                        const otuStart = toMin2(otu.startTime);
-                        const otuEnd = toMin2(otu.endTime);
-                        if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
-                        return s < otuEnd && e > otuStart;
-                    });
-                    if (hasOneTimeBlock) {
-                        throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (indisponibilité ponctuelle) sur ce créneau.`);
-                    }
-                }
-            }
-
-            // Check for mission time conflicts with other missions
-            const conflictCheck = await checkProviderMissionConflict(
+            // Vérification stricte de la disponibilité AVANT assignation (congés, indisponibilités, conflits)
+            await assertProviderAvailableForAssignment(
                 providerId,
                 existingMission.date,
                 existingMission.startTime,
                 existingMission.endTime,
                 missionId
             );
-
-            if (conflictCheck.hasConflict) {
-                const conflict = conflictCheck.conflictingMission;
-                throw new Error(
-                    `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
-                );
-            }
-            } // end isValid date check
         }
 
         const { error } = await supabase.from('missions').update({ provider_id: providerId, provider_name: providerName, status: 'planned', color: 'orange' }).eq('id', missionId);
@@ -5889,122 +5942,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
-            const provider = providers.find(p => p.id === providerId);
-            const days = (provider as any)?.nonInterventionDays;
-            // Validate date before using dayjs.tz to avoid RangeError
-            const parsedMissionDate = dayjs.tz(existingMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE);
-            if (!parsedMissionDate.isValid()) {
-                console.warn('[assignProvider] Invalid mission date:', existingMission.date, '- skipping date-based checks');
-            } else {
-            const day = parsedMissionDate.day();
-            if (Array.isArray(days) && days.includes(day)) {
-                throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : ne travaille pas aujourd'hui.`);
-            }
-
-            const ranges = (provider as any)?.nonInterventionHours && typeof (provider as any)?.nonInterventionHours === 'object'
-                ? (provider as any).nonInterventionHours[day]
-                : undefined;
-            if (Array.isArray(ranges) && ranges.length > 0) {
-                const toMinutes = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-
-                const s = toMinutes(existingMission.startTime);
-                const e = toMinutes(existingMission.endTime);
-                const hasHourBlock = Number.isFinite(s) && Number.isFinite(e) && ranges.some((r: any) => {
-                    const rStart = toMinutes(r?.start);
-                    const rEnd = toMinutes(r?.end);
-                    if (!Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
-                    return s < rEnd && e > rStart;
-                });
-                if (hasHourBlock) {
-                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible sur ce créneau horaire.`);
-                }
-            }
-
-            // Vérifier les indisponibilités programmées multi-semaines
-            const scheds = (provider as any)?.scheduledUnavailabilities;
-            if (Array.isArray(scheds) && scheds.length > 0) {
-                const toMin = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-                const missionDate = parsedMissionDate; // reuse already validated date
-                const missionDay = missionDate.day();
-                const missionDateStart = missionDate.startOf('day');
-                const hasScheduledBlock = scheds.some((su: any) => {
-                    if (su.dayOfWeek !== missionDay) return false;
-                    const suStart = dayjs.tz(su.startDate, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).startOf('day');
-                    if (missionDateStart.isBefore(suStart)) return false;
-                    const suEnd = suStart.add(su.weeks * 7 - 1, 'day');
-                    if (missionDateStart.isAfter(suEnd)) return false;
-                    const s = toMin(existingMission.startTime);
-                    const e = toMin(existingMission.endTime);
-                    const rStart = toMin(su.startTime);
-                    const rEnd = toMin(su.endTime);
-                    if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(rStart) || !Number.isFinite(rEnd)) return false;
-                    return s < rEnd && e > rStart;
-                });
-                if (hasScheduledBlock) {
-                    throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (programmation multi-semaines) sur ce créneau.`);
-                }
-            }
-
-            // Vérifier les indisponibilités ponctuelles
-            const oneTimes = (provider as any)?.oneTimeUnavailabilities;
-            if (Array.isArray(oneTimes) && oneTimes.length > 0) {
-                const toMin = (t: any) => {
-                    const raw = String(t || '').trim();
-                    if (!raw) return NaN;
-                    const parts = raw.includes(':') ? raw.split(':') : [];
-                    const h = parts.length > 0 ? parseInt(parts[0], 10) : NaN;
-                    const m = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-                    return h * 60 + m;
-                };
-                const activeForDate = oneTimes.filter((otu: any) => otu.date === existingMission.date);
-                if (activeForDate.length > 0) {
-                    const s = toMin(existingMission.startTime);
-                    const e = toMin(existingMission.endTime);
-                    const hasOneTimeBlock = activeForDate.some((otu: any) => {
-                        const otuStart = toMin(otu.startTime);
-                        const otuEnd = toMin(otu.endTime);
-                        if (!Number.isFinite(otuStart) || !Number.isFinite(otuEnd)) return false;
-                        return s < otuEnd && e > otuStart;
-                    });
-                    if (hasOneTimeBlock) {
-                        throw new Error(`Impossible de programmer ${provider?.firstName || ''} ${provider?.lastName || ''} : indisponible (indisponibilité ponctuelle) sur ce créneau.`);
-                    }
-                }
-            }
-
-            // Check for mission time conflicts (as provider1 OR provider2)
-            const conflictCheck = await checkProviderMissionConflict(
+            // Vérification stricte de la disponibilité AVANT assignation (congés, indisponibilités, conflits)
+            await assertProviderAvailableForAssignment(
                 providerId,
                 existingMission.date,
                 existingMission.startTime,
                 existingMission.endTime,
                 missionId
             );
-
-            if (conflictCheck.hasConflict) {
-                const conflict = conflictCheck.conflictingMission;
-                throw new Error(
-                    `Conflit d'horaire : ${provider?.firstName || ''} ${provider?.lastName || ''} a déjà une mission assignée de ${conflict.start_time} à ${conflict.end_time} pour ${conflict.client_name}`
-                );
-            }
-            } // end isValid date check
         }
 
         const { error } = await supabase.from('missions').update({ provider2_id: providerId, provider2_name: providerName }).eq('id', missionId);

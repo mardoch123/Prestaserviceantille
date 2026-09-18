@@ -1778,56 +1778,20 @@ const Planning: React.FC = () => {
 
                 const dateStr = currentDate.format('YYYY-MM-DD');
 
-                if (provider && !isOvertimeMode && !isExternalProvider && isProviderNonWorkingDay(provider.id, dateStr)) {
-                    throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : ne travaille pas aujourd'hui.`);
-                }
-
-                if (provider && !isOvertimeMode && !isExternalProvider && isProviderNonWorkingHours(provider.id, dateStr, missionForm.startTime, missionForm.endTime)) {
-                    throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : indisponible sur ce créneau horaire.`);
-                }
-
-                // Vérifier le 2e prestataire
-                if (provider2 && !isOvertimeMode && !isExternalProvider2 && isProviderNonWorkingDay(provider2.id, dateStr)) {
-                    throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : ne travaille pas aujourd'hui.`);
-                }
-                if (provider2 && !isOvertimeMode && !isExternalProvider2 && isProviderNonWorkingHours(provider2.id, dateStr, missionForm.startTime, missionForm.endTime)) {
-                    throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : indisponible sur ce créneau horaire.`);
-                }
-
-                // --- GRAFTED: Vérification chevauchement d'horaires pour la même prestataire (ignoré en heures supplémentaires) ---
+                // Vérification complète de la disponibilité AVANT assignation :
+                // jour/horaires de travail, indisponibilités programmées ou ponctuelles, congés,
+                // et conflit avec une autre mission (en tant que prestataire 1 OU 2).
                 if (provider && !isOvertimeMode && !isExternalProvider) {
-                    const hasOverlap = missions.some(m => {
-                        if (m.status === 'cancelled' || m.date !== dateStr || m.providerId !== provider.id) return false;
-                        if (!m.startTime || !m.endTime) return false;
-                        const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        if (!mStart.isValid() || !mEnd.isValid()) return false;
-                        const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
-                    });
-                    if (hasOverlap) {
-                        throw new Error(`Conflit d'horaire : ${getProviderDisplayName(provider)} a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
+                    const unavailableReason = getProviderUnavailableReason(provider.id, dateStr, missionForm.startTime, missionForm.endTime);
+                    if (unavailableReason) {
+                        throw new Error(`Impossible de programmer ${getProviderDisplayName(provider)} le ${dateStr} : ${unavailableReason}.`);
                     }
                 }
 
-                // Vérification chevauchement pour le 2e prestataire
                 if (provider2 && !isOvertimeMode && !isExternalProvider2) {
-                    const hasOverlap2 = missions.some(m => {
-                        if (m.status === 'cancelled' || m.date !== dateStr) return false;
-                        const mP1 = m.providerId === provider2.id;
-                        const mP2 = m.provider2Id === provider2.id;
-                        if (!mP1 && !mP2) return false;
-                        if (!m.startTime || !m.endTime) return false;
-                        const mStart = dayjs.tz(`${m.date} ${m.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        const mEnd = dayjs.tz(`${m.date} ${m.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        if (!mStart.isValid() || !mEnd.isValid()) return false;
-                        const sStart = dayjs.tz(`${dateStr} ${missionForm.startTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        const sEnd = dayjs.tz(`${dateStr} ${missionForm.endTime}`, 'YYYY-MM-DD HH:mm', MARTINIQUE_TIMEZONE);
-                        return sStart.valueOf() < mEnd.valueOf() && sEnd.valueOf() > mStart.valueOf();
-                    });
-                    if (hasOverlap2) {
-                        throw new Error(`Conflit d'horaire : ${getProviderDisplayName(provider2)} (2e prestataire) a déjà une mission qui chevauche ${missionForm.startTime}–${missionForm.endTime} le ${dateStr}.`);
+                    const unavailableReason2 = getProviderUnavailableReason(provider2.id, dateStr, missionForm.startTime, missionForm.endTime);
+                    if (unavailableReason2) {
+                        throw new Error(`Impossible de programmer ${getProviderDisplayName(provider2)} (2e prestataire) le ${dateStr} : ${unavailableReason2}.`);
                     }
                 }
 
@@ -6066,12 +6030,11 @@ const Planning: React.FC = () => {
                                                     <CheckCircle className="w-4 h-4 text-blue-500" />
                                                 </button>
                                                 {providers.filter(p => p?.status === 'Active').map(p => {
-                                                    const dayOfWeek = dayjs.tz(quickAssignMission.date, 'YYYY-MM-DD', MARTINIQUE_TIMEZONE).day();
-                                                    const nid = (p as any).nonInterventionDays;
-                                                    const isWorkingDay = !(Array.isArray(nid) && nid.includes(dayOfWeek));
+                                                    // Disponibilité complète : jour/horaires, indisponibilités, congés, conflits de missions
+                                                    const unavailableReason = getProviderUnavailableReason(p.id, quickAssignMission.date, quickAssignMission.startTime, quickAssignMission.endTime, quickAssignMission.id);
                                                     const existingHours = getProviderDailyHours(p.id, quickAssignMission.date);
                                                     const missionDuration = calculateDuration(quickAssignMission.date, quickAssignMission.startTime, quickAssignMission.date, quickAssignMission.endTime);
-                                                    const canAssign = isWorkingDay && existingHours + missionDuration <= MAX_PROVIDER_DAILY_HOURS;
+                                                    const canAssign = !unavailableReason && existingHours + missionDuration <= MAX_PROVIDER_DAILY_HOURS;
 
                                                     return (
                                                         <button
@@ -6101,7 +6064,7 @@ const Planning: React.FC = () => {
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="text-xs font-bold text-slate-800 truncate">{getProviderDisplayName(p)}</div>
                                                                 <div className="text-[10px] text-slate-500">
-                                                                    {!isWorkingDay ? 'Jour de repos' : `${existingHours.toFixed(1)}h/${MAX_PROVIDER_DAILY_HOURS}h`}
+                                                                    {unavailableReason ? unavailableReason : `${existingHours.toFixed(1)}h/${MAX_PROVIDER_DAILY_HOURS}h`}
                                                                 </div>
                                                             </div>
                                                             {canAssign && <CheckCircle className="w-4 h-4 text-emerald-500" />}
