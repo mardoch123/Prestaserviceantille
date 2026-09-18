@@ -276,7 +276,7 @@ interface DataContextType {
     refundTransaction: (ref: string, amount: number) => Promise<void>;
     generateMissionsFromDocument: (doc: Document) => Promise<void>;
     // Resynchronise les séances d'un devis vers le planning (crée les missions manquantes)
-    resyncMissionsFromDocument: (docId: string) => Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }>;
+    resyncMissionsFromDocument: (docId: string) => Promise<{ created: number; alreadyExist: number; reactivated: number; total: number; blocked: string[] }>;
 
     // === GESTION STATUT SESSIONS (annulation individuelle) ===
     toggleSessionStatus: (quoteId: string, sessionIndex: number, newStatus: 'planned' | 'cancelled') => Promise<void>;
@@ -6495,12 +6495,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // === RESYNC MISSIONS FROM DOCUMENT ===
     // Vérifie ce qui existe en base, crée les manquantes, lie le devis et met à jour le state local du planning
-    const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; total: number; blocked: string[] }> => {
+    const resyncMissionsFromDocument = async (docId: string): Promise<{ created: number; alreadyExist: number; reactivated: number; total: number; blocked: string[] }> => {
         const doc = documents.find(d => d.id === docId);
-        if (!doc) return { created: 0, alreadyExist: 0, total: 0, blocked: ['Document introuvable'] };
+        if (!doc) return { created: 0, alreadyExist: 0, reactivated: 0, total: 0, blocked: ['Document introuvable'] };
         const rawSlots = Array.isArray(doc.slotsData) ? doc.slotsData : (Array.isArray((doc as any).slots_data) ? (doc as any).slots_data : []);
         if (rawSlots.length === 0) {
-            return { created: 0, alreadyExist: 0, total: 0, blocked: ['Aucun créneau défini dans ce devis'] };
+            return { created: 0, alreadyExist: 0, reactivated: 0, total: 0, blocked: ['Aucun créneau défini dans ce devis'] };
         }
 
         // Filtrer les créneaux valides (avec date et heures, non annulés)
@@ -6509,23 +6509,29 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         );
 
         if (validSlots.length === 0) {
-            return { created: 0, alreadyExist: 0, total: rawSlots.length, blocked: ['Aucun créneau valide à synchroniser'] };
+            return { created: 0, alreadyExist: 0, reactivated: 0, total: rawSlots.length, blocked: ['Aucun créneau valide à synchroniser'] };
         }
+
+        // Helper local : empêche les requêtes de pendre indéfiniment (spinner sans fin côté UI)
+        const withTimeout = (promise: any, ms = 20000): Promise<any> => Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Délai dépassé (${ms / 1000}s) — vérifiez la connexion puis réessayez.`)), ms))
+        ]) as any;
 
         console.log(`[resyncMissionsFromDocument] Synchronisation devis ${doc.ref || docId}: ${validSlots.length} créneaux valides`);
 
         // ─── ÉTAPE 1 : Récupérer TOUTES les missions existantes pour ce client ou ce devis en base ───
         let existingDbMissions: any[] = [];
         try {
-            const { data: byDoc } = await supabase
+            const { data: byDoc } = await withTimeout(supabase
                 .from('missions')
                 .select('*')
-                .eq('source_document_id', docId);
+                .eq('source_document_id', docId));
 
-            const { data: byClient } = doc.clientId ? await supabase
+            const { data: byClient } = doc.clientId ? await withTimeout(supabase
                 .from('missions')
                 .select('*')
-                .eq('client_id', doc.clientId) : { data: [] };
+                .eq('client_id', doc.clientId)) : { data: [] };
 
             const mergedDbMap = new Map<string, any>();
             (byDoc || []).forEach((m: any) => mergedDbMap.set(String(m.id), m));
@@ -6533,77 +6539,126 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             existingDbMissions = Array.from(mergedDbMap.values());
         } catch (fetchErr: any) {
             console.error('[resyncMissionsFromDocument] Erreur lecture missions:', fetchErr);
+            return { created: 0, alreadyExist: 0, reactivated: 0, total: validSlots.length, blocked: [`Erreur lecture des missions : ${fetchErr?.message || fetchErr}`] };
         }
 
         // ─── ÉTAPE 2 : Détecter créneaux existants vs manquants ───
         const slotsToCreate: any[] = [];
         const seenSlotKeys = new Set<string>();
         let existingCount = 0;
+        let reactivatedCount = 0;
+
+        // Correspondance stricte : même date ET même heure de début (normalisée HH:MM),
+        // mission rattachée au devis OU au client. Sans ça, plusieurs séances du même jour
+        // étaient faussement considérées comme déjà synchronisées.
+        const normTime = (t: any) => String(t || '').slice(0, 5);
+        const matchesSlot = (m: any, slot: any): boolean => {
+            if (m.date !== slot.date) return false;
+            if (normTime(m.start_time) !== normTime(slot.startTime)) return false;
+            const docMatch = m.source_document_id === docId;
+            const clientMatch = doc.clientId && m.client_id === doc.clientId;
+            return Boolean(docMatch || clientMatch);
+        };
 
         for (const slot of validSlots) {
-            const slotKey = `${slot.date}|${slot.startTime}`;
+            const slotKey = `${slot.date}|${normTime(slot.startTime)}`;
             if (seenSlotKeys.has(slotKey)) continue; // Éviter les doublons internes
             seenSlotKeys.add(slotKey);
 
-            // Rechercher une mission existante correspondant à ce créneau
-            const existing = existingDbMissions.find((m: any) => {
-                const dateMatch = m.date === slot.date;
-                const timeMatch = m.start_time === slot.startTime || String(m.start_time || '').startsWith(slot.startTime);
-                const docMatch = m.source_document_id === docId;
-                const clientMatch = doc.clientId && m.client_id === doc.clientId;
-                return (docMatch && dateMatch) || (clientMatch && dateMatch && timeMatch);
-            });
+            // Rechercher une mission ACTIVE existante correspondant à ce créneau.
+            // Les missions ANNULÉES ne comptent pas : elles sont invisibles au planning.
+            const existing = existingDbMissions.find((m: any) => m.status !== 'cancelled' && matchesSlot(m, slot));
 
             if (existing) {
                 existingCount++;
                 // Si la mission existante n'avait pas le source_document_id ou le client_name, on la met à jour
                 if (existing.source_document_id !== docId || !existing.client_name) {
                     try {
-                        await supabase
+                        await withTimeout(supabase
                             .from('missions')
                             .update({
                                 source_document_id: docId,
                                 client_name: doc.clientName || existing.client_name || 'Client',
                                 service: existing.service || doc.description || 'Prestation'
                             } as any)
-                            .eq('id', existing.id);
+                            .eq('id', existing.id));
                     } catch { }
                 }
-            } else {
-                // Créer la nouvelle mission
-                slotsToCreate.push({
-                    id: generateUUID(),
-                    date: slot.date,
-                    start_time: slot.startTime,
-                    end_time: slot.endTime,
-                    duration: typeof slot.duration === 'number' ? slot.duration : 3,
-                    client_id: doc.clientId,
-                    client_name: doc.clientName || 'Client',
-                    service: doc.description || 'Prestation',
-                    provider_id: null,
-                    provider_name: 'À assigner',
-                    status: 'planned',
-                    color: 'gray',
-                    source: 'devis',
-                    source_document_id: docId
-                });
+                continue;
             }
+
+            // Une mission ANNULÉE couvre peut-être ce créneau : la réactiver pour qu'elle réapparaisse au planning
+            const cancelledMatch = existingDbMissions.find((m: any) => m.status === 'cancelled' && matchesSlot(m, slot));
+            if (cancelledMatch) {
+                try {
+                    const { error: reactivateErr } = await withTimeout(supabase
+                        .from('missions')
+                        .update({
+                            status: 'planned',
+                            color: cancelledMatch.provider_id ? 'orange' : 'gray',
+                            cancellation_reason: null,
+                            late_cancellation: false,
+                            source_document_id: docId,
+                            client_name: doc.clientName || cancelledMatch.client_name || 'Client'
+                        } as any)
+                        .eq('id', cancelledMatch.id));
+                    if (!reactivateErr) {
+                        reactivatedCount++;
+                        cancelledMatch.status = 'planned'; // maj locale pour la suite de la boucle
+                        continue;
+                    }
+                    console.warn(`[resyncMissionsFromDocument] Réactivation impossible ${slot.date} ${slot.startTime}:`, reactivateErr.message);
+                } catch (reactEx: any) {
+                    console.warn(`[resyncMissionsFromDocument] Réactivation impossible ${slot.date} ${slot.startTime}:`, reactEx?.message || reactEx);
+                }
+            }
+
+            // Créer la nouvelle mission
+            slotsToCreate.push({
+                id: generateUUID(),
+                date: slot.date,
+                start_time: slot.startTime,
+                end_time: slot.endTime,
+                duration: typeof slot.duration === 'number' ? slot.duration : 3,
+                client_id: doc.clientId,
+                client_name: doc.clientName || 'Client',
+                service: doc.description || 'Prestation',
+                provider_id: null,
+                provider_name: 'À assigner',
+                status: 'planned',
+                color: 'gray',
+                source: 'devis',
+                source_document_id: docId
+            });
         }
 
         // ─── ÉTAPE 3 : Insérer les créneaux manquants en base ───
         let createdCount = 0;
+        const insertErrors: string[] = [];
         if (slotsToCreate.length > 0) {
-            const { error: insertError } = await supabase.from('missions').insert(slotsToCreate);
-            if (!insertError) {
+            let bulkError: any = null;
+            try {
+                const { error } = await withTimeout(supabase.from('missions').insert(slotsToCreate));
+                bulkError = error;
+            } catch (bulkEx: any) {
+                bulkError = bulkEx;
+            }
+            if (!bulkError) {
                 createdCount = slotsToCreate.length;
             } else {
-                console.warn(`[resyncMissionsFromDocument] Bulk insert échoué, insertion unitaire:`, insertError.message);
+                console.warn(`[resyncMissionsFromDocument] Bulk insert échoué, insertion unitaire:`, bulkError.message || bulkError);
                 for (const item of slotsToCreate) {
-                    const { error: singleError } = await supabase.from('missions').insert(item);
-                    if (!singleError) {
-                        createdCount++;
-                    } else {
-                        console.error(`[resyncMissionsFromDocument] Échec insertion créneau ${item.date} ${item.start_time}:`, singleError);
+                    try {
+                        const { error: singleError } = await withTimeout(supabase.from('missions').insert(item));
+                        if (!singleError) {
+                            createdCount++;
+                        } else {
+                            console.error(`[resyncMissionsFromDocument] Échec insertion créneau ${item.date} ${item.start_time}:`, singleError);
+                            insertErrors.push(`Erreur ${item.date} ${item.start_time} : ${singleError.message}`);
+                        }
+                    } catch (singleEx: any) {
+                        console.error(`[resyncMissionsFromDocument] Échec insertion créneau ${item.date} ${item.start_time}:`, singleEx);
+                        insertErrors.push(`Erreur ${item.date} ${item.start_time} : ${singleEx?.message || singleEx}`);
                     }
                 }
             }
@@ -6611,10 +6666,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
         // ─── ÉTAPE 4 : Recharger et synchroniser dans le state React missions ───
         try {
-            const { data: allFreshMissions } = await supabase
+            const { data: allFreshMissions } = await withTimeout(supabase
                 .from('missions')
                 .select('*')
-                .or(`source_document_id.eq.${docId}${doc.clientId ? `,client_id.eq.${doc.clientId}` : ''}`);
+                .or(`source_document_id.eq.${docId}${doc.clientId ? `,client_id.eq.${doc.clientId}` : ''}`));
 
             if (allFreshMissions && allFreshMissions.length > 0) {
                 const mappedMissions = allFreshMissions.map((m: any) => ({
@@ -6647,13 +6702,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             console.error('[resyncMissionsFromDocument] Erreur rechargement missions:', reloadErr);
         }
 
-        console.log(`[resyncMissionsFromDocument] Succès ${doc.ref || docId}: ${createdCount} créées, ${existingCount} existantes / synchronisées`);
+        console.log(`[resyncMissionsFromDocument] Succès ${doc.ref || docId}: ${createdCount} créées, ${existingCount} existantes, ${reactivatedCount} réactivées`);
 
         return {
             created: createdCount,
             alreadyExist: existingCount,
+            reactivated: reactivatedCount,
             total: validSlots.length,
-            blocked: []
+            blocked: insertErrors
         };
     };
 

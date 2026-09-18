@@ -1699,15 +1699,22 @@ const DevisFactures: React.FC = () => {
         setIsResyncing(true);
         try {
             const result = await resyncMissionsFromDocument(selectedDocument.id);
-            const isRealError = result.blocked.length > 0 && result.blocked[0]?.startsWith('Erreur');
+            const synced = result.created + result.alreadyExist + (result.reactivated || 0);
+            // Vraie erreur : rien n'a pu être synchronisé (technique ou document invalide)
+            const isRealError = result.blocked.length > 0 && synced === 0;
 
             if (isRealError) {
                 // Erreur technique (DB, fetch, etc.)
                 toast.error(`Blocage : ${result.blocked.join(', ')}`);
-            } else if (result.created > 0 && result.alreadyExist > 0) {
-                toast.success(`${result.total} séances synchronisées (${result.created} créées, ${result.alreadyExist} existantes) au planning.`);
-            } else if (result.created > 0) {
-                toast.success(`Synchronisation réussie : ${result.created} séance${result.created > 1 ? 's' : ''} ajoutée${result.created > 1 ? 's' : ''} au planning.`);
+            } else if (result.blocked.length > 0) {
+                // Synchronisation partielle : certaines séances ont échoué
+                toast.warning(`Synchronisation partielle : ${synced}/${result.total} séances OK, ${result.blocked.length} en échec. Réessayez pour les séances restantes.`);
+            } else if (result.created > 0 || (result.reactivated || 0) > 0) {
+                const parts: string[] = [];
+                if (result.created > 0) parts.push(`${result.created} créée${result.created > 1 ? 's' : ''}`);
+                if ((result.reactivated || 0) > 0) parts.push(`${result.reactivated} réactivée${(result.reactivated || 0) > 1 ? 's' : ''}`);
+                if (result.alreadyExist > 0) parts.push(`${result.alreadyExist} déjà en place`);
+                toast.success(`Synchronisation réussie : ${parts.join(', ')} — tout est à jour au planning.`);
             } else if (result.alreadyExist > 0) {
                 toast.success(`Toutes les ${result.alreadyExist} séances sont bien synchronisées et actives au planning.`);
             } else {
