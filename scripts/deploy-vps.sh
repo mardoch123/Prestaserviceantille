@@ -163,6 +163,7 @@ deploy_functions() {
     FUNCTIONS=(
         "create-user"
         "marketing-automation"
+        "mission-completion-check"
         "mission-reminder-48h"
         "mkt-auto-create-client"
         "mkt-notification-dispatcher"
@@ -202,6 +203,7 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 SELECT cron.unschedule('provider-mission-reminder-24h');
 SELECT cron.unschedule('mission-reminder-48h');
 SELECT cron.unschedule('quote-signature-reminder');
+SELECT cron.unschedule('mission-completion-check');
 
 -- Cron job: Rappel 24h avant mission (providers)
 -- Exécution: Toutes les heures
@@ -237,6 +239,21 @@ SELECT cron.schedule(
   SELECT net.http_get(
     url:='${SUPABASE_URL}/functions/v1/quote-signature-reminder',
     headers:='{"Authorization": "Bearer ${SUPABASE_SERVICE_ROLE_KEY}", "Content-Type": "application/json"}'::jsonb
+  ) AS request_id;
+  $$
+);
+
+-- Cron job: Confirmation d'intervention 2h après la fin de mission (prestataires)
+-- Envoie UN SEUL email par mission non déclarée terminée, au plus tôt 2h après l'heure de fin
+-- Exécution: Toutes les 30 minutes
+SELECT cron.schedule(
+  'mission-completion-check',
+  '*/30 * * * *',
+  $$
+  SELECT net.http_post(
+    url:='${SUPABASE_URL}/functions/v1/mission-completion-check',
+    headers:='{"Authorization": "Bearer ${SUPABASE_SERVICE_ROLE_KEY}", "Content-Type": "application/json"}'::jsonb,
+    body:='{}'::jsonb
   ) AS request_id;
   $$
 );

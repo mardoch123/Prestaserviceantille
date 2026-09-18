@@ -887,7 +887,7 @@ Le contrat est maintenant actif et peut être utilisé.`
                 )
             };
 
-        // ========== SUIVI POST-PRESTATION (+30 MIN) ==========
+        // ========== SUIVI POST-PRESTATION (+2H) ==========
         case 'mission_completion_check': {
             const doneUrl = context.doneUrl || 'https://www.prestaservicesantilles.com/';
             const notDoneUrl = context.notDoneUrl || 'https://www.prestaservicesantilles.com/';
@@ -897,7 +897,7 @@ Le contrat est maintenant actif et peut être utilisé.`
                     'Confirmation d\'intervention',
                     `Bonjour ${context.providerName || 'Prestataire'},
 
-Votre intervention pour le client ${context.clientName || ''} s'est achevée il y a plus de 30 minutes.
+Votre intervention pour le client ${context.clientName || ''} s'est achevée il y a plus de 2 heures.
 
 DÉTAILS DE L'INTERVENTION :
 - Client : ${context.clientName || 'Client'}

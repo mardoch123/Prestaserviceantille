@@ -3231,9 +3231,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     /**
      * Surveillance post-prestation :
-     * Lorsqu'une prestation dépasse de 30 minutes après son heure de fin prévue,
+     * Lorsqu'une prestation dépasse de 2 heures après son heure de fin prévue,
      * un email est automatiquement envoyé au prestataire avec deux boutons simples (Fait / Pas fait)
      * lui permettant de valider directement la prestation en un seul clic.
+     * Une seule fois par mission : dès que la mission est validée (terminée), plus aucun envoi.
      */
     const checkPostMissionCompletionEmails = async (currentMissions: Mission[]) => {
         if (!currentMissions || !Array.isArray(currentMissions) || currentMissions.length === 0) {
@@ -3275,8 +3276,8 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
                 const diffMinutes = now.diff(missionEndDateTime, 'minute');
 
-                // Dépassement d'au moins 30 minutes (limité aux 7 derniers jours pour ne pas spammer d'anciennes missions)
-                if (diffMinutes >= 30 && diffMinutes <= 7 * 24 * 60) {
+                // Dépassement d'au moins 2 heures (limité aux 7 derniers jours pour ne pas spammer d'anciennes missions)
+                if (diffMinutes >= 120 && diffMinutes <= 7 * 24 * 60) {
                     // Trouver le prestataire assigné
                     const targetProvider = providers.find(p => p.id === m.providerId) || 
                                            providers.find(p => `${p.firstName || ''} ${p.lastName || ''}`.trim() === m.providerName);
@@ -3313,7 +3314,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const doneUrl = `${baseUrl}/validation-prestation?id=${encodeURIComponent(m.id)}&action=done&token=${token}`;
                     const notDoneUrl = `${baseUrl}/validation-prestation?id=${encodeURIComponent(m.id)}&action=not_done&token=${token}`;
 
-                    console.log(`[checkPostMissionCompletionEmails] Envoi email de confirmation (+30min) à ${targetProvider.email} pour mission ${m.id} (${m.clientName})`);
+                    console.log(`[checkPostMissionCompletionEmails] Envoi email de confirmation (+2h) à ${targetProvider.email} pour mission ${m.id} (${m.clientName})`);
 
                     // Envoyer l'email avec les 2 boutons Fait / Pas fait
                     await sendEmail(
@@ -3358,7 +3359,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         'admin',
                         'info',
                         'Email de suivi envoyé au prestataire',
-                        `Demande de confirmation (+30 min) envoyée à ${providerFullName} pour l'intervention du ${m.date} (${m.clientName}).`,
+                        `Demande de confirmation (+2h) envoyée à ${providerFullName} pour l'intervention du ${m.date} (${m.clientName}).`,
                         undefined,
                         `/admin/planning`
                     );
