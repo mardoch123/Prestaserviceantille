@@ -392,6 +392,90 @@
 }
 
 /* ============================================
+   ANIMATIONS FUN (loader prestataire + dashboard)
+   ============================================ */
+
+/* Entrée en cascade (avec delay sûr grâce à fill-mode both) */
+@keyframes slideInUpSoft {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-in {
+  animation: slideInUpSoft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Flottement doux (icône du loader) */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float {
+  animation: float 2.4s ease-in-out infinite;
+}
+
+/* Blobs de fond en mouvement lent */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(24px, -18px) scale(1.12); }
+  66% { transform: translate(-18px, 14px) scale(0.94); }
+}
+
+.animate-blob {
+  animation: blob 9s ease-in-out infinite;
+}
+
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }
+
+/* Barre de progression indéterminée */
+@keyframes progressSlide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+
+.animate-progress-slide {
+  animation: progressSlide 1.4s ease-in-out infinite;
+}
+
+/* Points rebondissants */
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+
+.animate-dot-bounce {
+  animation: dotBounce 1.2s ease-in-out infinite;
+}
+
+/* Balayage lumineux pour squelettes (shimmer) */
+@keyframes shimmerSweep {
+  100% { transform: translateX(100%); }
+}
+
+.shimmer-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e7efe9;
+}
+
+.shimmer-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  transform: translateX(-100%);
+  animation: shimmerSweep 1.6s infinite;
+}
+
+/* ============================================
    PAGE TRANSITIONS
    ============================================ */
 

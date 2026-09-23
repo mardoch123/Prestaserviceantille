@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useData } from '../context/DataContext';
 import { Mission } from '../types';
 import { supabase } from '../utils/supabaseClient';
-import PageLoader from './PageLoader';
+import ProviderLoadingSplash from './ProviderLoadingSplash';
 import Pagination from './Pagination';
 import UploadProgressManager from './UploadProgressManager';
 import VideoCallManagerImproved from './VideoCallManagerImproved';
@@ -63,6 +63,40 @@ import { getMartiniqueNow, MARTINIQUE_TIMEZONE } from '../src/utils/dayjsMartini
 import { getMartiniqueToday } from '../src/utils/martiniqueTime';
 
 dayjs.locale('fr');
+
+/**
+ * Compteur animé (count-up) purement visuel : affiche la valeur cible
+ * dès la fin de l'animation, sans jamais impacter les données affichées.
+ */
+const AnimatedNumber: React.FC<{ value: number; duration?: number }> = ({ value, duration = 700 }) => {
+  const [display, setDisplay] = useState(0);
+  const prevRef = useRef(0);
+
+  useEffect(() => {
+    const from = prevRef.current;
+    const to = value;
+    if (from === to) {
+      setDisplay(to);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setDisplay(Math.round(from + (to - from) * eased));
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        prevRef.current = to;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+
+  return <span className="tabular-nums">{display}</span>;
+};
 
 const ProviderPortal: React.FC = () => {
   const { 
@@ -508,14 +542,8 @@ const ProviderPortal: React.FC = () => {
   }
 
   if (!provider && dataLoading) {
-    if (showShimmerLoader) return <PageLoader />;
-    return (
-      <div className="h-full flex items-center justify-center bg-gradient-to-br from-[#f0fdf4] to-[#ecfdf5]">
-        <div className="flex items-center gap-3 text-gray-600 font-bold">
-          <Loader className="w-5 h-5 animate-spin" /> Chargement…
-        </div>
-      </div>
-    );
+    // Joli loader affiché pendant toute la durée du chargement des données
+    return <ProviderLoadingSplash />;
   }
 
   if (!provider) {
@@ -1037,7 +1065,7 @@ const ProviderPortal: React.FC = () => {
         {/* Main Content - Full width on desktop */}
         <main ref={mainScrollRef} className="flex-1 overflow-y-auto bg-gray-50/50" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
           {isProviderPortalLoading ? (
-            <PageLoader />
+            <ProviderLoadingSplash providerName={provider?.firstName} />
           ) : (
             <>
               {/* Pull-to-refresh indicator (mobile only) */}
@@ -1062,7 +1090,7 @@ const ProviderPortal: React.FC = () => {
                     {/* Mobile Calendar Section - Carte Date visible, calendrier masqué */}
                     <div className="md:hidden space-y-4">
                       {/* Date du jour - Visible en haut sur MOBILE uniquement */}
-                      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200">
+                      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-200 stagger-in">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-emerald-100 text-sm font-medium">{selectedDate ? dayjs.tz(selectedDate, MARTINIQUE_TIMEZONE).format('dddd') : 'Toutes les missions'}</p>
@@ -1214,9 +1242,13 @@ const ProviderPortal: React.FC = () => {
                           { label: 'Annulées', value: providerMissions.filter(m => m.status === 'cancelled').length, color: 'bg-red-50' },
                           { label: selectedDate ? 'Filtrées' : 'Total', value: selectedDate ? filteredMissionsByDate.length : providerMissions.length, color: 'bg-purple-50' },
                         ].map((stat, idx) => (
-                          <div key={idx} className={`${stat.color} rounded-2xl p-4 border border-gray-100`}>
+                          <div
+                            key={idx}
+                            className={`${stat.color} rounded-2xl p-4 border border-gray-100 stagger-in transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-default`}
+                            style={{ animationDelay: `${idx * 60}ms` }}
+                          >
                             <p className="text-xs text-gray-500 font-medium">{stat.label}</p>
-                            <p className="text-2xl font-bold text-gray-800 mt-1">{stat.value}</p>
+                            <p className="text-2xl font-bold text-gray-800 mt-1"><AnimatedNumber value={stat.value} /></p>
                           </div>
                         ))}
                       </div>
@@ -1338,7 +1370,7 @@ const ProviderPortal: React.FC = () => {
                             const colors = statusColors[m.status as keyof typeof statusColors] || statusColors.planned;
                             
                             return (
-                              <div key={m.id} className={`${colors.bg} rounded-2xl p-4 border border-gray-100`}>
+                              <div key={m.id} className={`${colors.bg} rounded-2xl p-4 border border-gray-100 stagger-in transition-all duration-200 hover:-translate-y-1 hover:shadow-md`} style={{ animationDelay: `${idx * 80}ms` }}>
                                 {/* Date et Jour en premier */}
                                 <div className="flex items-center gap-2 mb-2">
                                   <span className="text-xs font-bold text-gray-600 uppercase">
@@ -1633,9 +1665,9 @@ const ProviderPortal: React.FC = () => {
 
                     {/* Missions List */}
                     {filteredMissionsByDate.length === 0 ? (
-                      <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl text-center border border-white/50 shadow-lg">
+                      <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl text-center border border-white/50 shadow-lg animate-scale-in">
                         <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
-                          <Briefcase className="w-10 h-10 text-gray-400" />
+                          <Briefcase className="w-10 h-10 text-gray-400 animate-float" />
                         </div>
                         <p className="text-gray-500 font-medium">{selectedDate ? 'Aucune mission pour cette date' : 'Aucune mission'}</p>
                         <p className="text-sm text-gray-400 mt-1">{selectedDate ? 'Sélectionnez une autre date ou cliquez sur "Toutes"' : 'Vous n\'avez pas de missions pour le moment'}</p>
@@ -1661,7 +1693,7 @@ const ProviderPortal: React.FC = () => {
                           const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.planned;
 
                           return (
-                            <div key={m.id} className="bg-white/90 backdrop-blur-xl rounded-3xl p-5 border border-white/50 shadow-lg shadow-gray-100/50 transition-all hover:shadow-xl">
+                            <div key={m.id} className="bg-white/90 backdrop-blur-xl rounded-3xl p-5 border border-white/50 shadow-lg shadow-gray-100/50 transition-all hover:shadow-xl stagger-in" style={{ animationDelay: `${Math.min(idx, 8) * 70}ms` }}>
                               {/* Header: Date + Jour prominently displayed */}
                               <div className="flex items-start justify-between mb-4">
                                 <div className="flex-1">
