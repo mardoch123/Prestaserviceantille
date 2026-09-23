@@ -54,6 +54,7 @@ import {
   Search,
   Filter,
   Loader2,
+  RefreshCw,
   Share,
   Share2
 } from 'lucide-react';
@@ -131,6 +132,8 @@ const ProviderPortal: React.FC = () => {
   const LOADER_SEEN_KEY = 'presta_provider_portal_loader_seen';
   const loaderSeenRef = useRef<boolean>(false);
   const [loaderSeen, setLoaderSeen] = useState(false);
+  // État du bouton « Réessayer » de l'écran « Prestataire introuvable »
+  const [isRetryingLoad, setIsRetryingLoad] = useState(false);
 
   // Pull-to-refresh state
   const [isPulling, setIsPulling] = useState(false);
@@ -552,11 +555,26 @@ const ProviderPortal: React.FC = () => {
         <div className="w-full max-w-md px-6">
           <div className="bg-white/80 backdrop-blur-xl border border-white/50 rounded-3xl p-6 shadow-xl">
             <div className="text-lg font-bold text-gray-800">Prestataire introuvable</div>
-            <div className="text-sm text-gray-500 mt-2">Votre session semble invalide. Reconnectez-vous.</div>
+            <div className="text-sm text-gray-500 mt-2">
+              Impossible de charger votre profil (session expirée ou connexion instable).
+              Réessayez, sinon reconnectez-vous.
+            </div>
+            <button
+              type="button"
+              disabled={isRetryingLoad}
+              onClick={async () => {
+                setIsRetryingLoad(true);
+                try { await refreshData(); } catch { }
+                setIsRetryingLoad(false);
+              }}
+              className="mt-5 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-emerald-200 disabled:opacity-60"
+            >
+              {isRetryingLoad ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />} Réessayer
+            </button>
             <button
               type="button"
               onClick={() => { setSimulatedProviderId(null); logout(true); }}
-              className="mt-5 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-red-200"
+              className="mt-3 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-red-200"
             >
               <LogOut className="w-5 h-5" /> Déconnexion
             </button>

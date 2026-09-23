@@ -2250,8 +2250,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }
 
                     const mappedProviders = mapProviders(Array.isArray(providerRows) ? providerRows : [], Array.isArray(leavesRows) ? leavesRows : []);
-                    setProviders(mappedProviders);
-                    dataCache.set('providers', mappedProviders);
+                    // Filet de sécurité : ne JAMAIS écraser un cache providers non-empty avec un
+                    // résultat vide (session expirée → 401 ou RLS renvoie [] sans erreur).
+                    // Sinon le portail affiche à tort « Prestataire introuvable ».
+                    if (mappedProviders.length > 0) {
+                        setProviders(mappedProviders);
+                        dataCache.set('providers', mappedProviders);
+                    } else {
+                        const cachedProviders = dataCache.get<any[]>('providers', undefined, 24 * 60 * 60 * 1000);
+                        if (!cachedProviders || cachedProviders.length === 0) {
+                            setProviders([]);
+                        } else {
+                            console.warn('[RefreshData] Fetch providers vide/erreur : conservation du cache pour éviter "Prestataire introuvable"');
+                            setProviders(cachedProviders);
+                        }
+                    }
 
                     const mappedNotifications = (notifRows || []).map((n: any) => ({
                         ...n,
