@@ -1873,8 +1873,19 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Charger depuis le cache immédiatement (ne bloque pas le thread)
                 const hadCachedData = loadFromCache();
 
-                // Si on a des données en cache, masquer le loader immédiatement
-                if (hadCachedData && shouldShowLoader) {
+                // Rôle de l'utilisateur actif lu de façon SYNCHRONE et fiable via localStorage
+                // (currentUser/simulatedProviderId peuvent être périmés dans la closure au moment du login).
+                let activeUserRole: string | null = null;
+                try {
+                    const storedUser = localStorage.getItem('presta_current_user');
+                    if (storedUser) activeUserRole = JSON.parse(storedUser)?.role || null;
+                } catch { activeUserRole = null; }
+
+                // Si on a des données en cache, masquer le loader immédiatement.
+                // EXCEPTION prestataire : on garde le splash jusqu'à la fin du premier
+                // chargement réseau, sinon le dashboard se monte avec des compteurs à 0
+                // (missions pas encore revenues) avant de se corriger juste après.
+                if (hadCachedData && shouldShowLoader && activeUserRole !== 'provider') {
                     setDataLoading(false);
                 }
 
