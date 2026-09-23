@@ -438,6 +438,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [simulatedClientId, setSimulatedClientId] = useState<string | null>(null);
     const [simulatedProviderId, setSimulatedProviderId] = useState<string | null>(null);
+    // Clé (relatedEntityId) du prestataire dont le premier chargement des données
+    // est terminé. Tant que providerDataReadyKey !== id du prestataire actif, on
+    // maintient le loader pour éviter le flash « 0 partout » après le login.
+    const [providerDataReadyKey, setProviderDataReadyKey] = useState<string | null>(null);
     const [activeStream, setActiveStream] = useState<StreamSession | null>(null);
     const [videoRecordings, setVideoRecordings] = useState<VideoRecording[]>([]);
     const [videoAccessTokens, setVideoAccessTokens] = useState<VideoAccessToken[]>([]);
@@ -800,6 +804,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
+        setProviderDataReadyKey(null);
         setMissions([]);
         setClients([]);
         setClientLeads([]);
@@ -1829,7 +1834,25 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             return;
         }
 
-        const shouldShowLoader = !options?.silent && !hasLoadedOnceRef.current;
+        // Utilisateur actif lu de façon SYNCHRONE et fiable via localStorage
+        // (currentUser/simulatedProviderId peuvent être périmés dans la closure au login).
+        let activeUserRole: string | null = null;
+        let activeProviderKey = '';
+        try {
+            const storedUser = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
+            if (storedUser) {
+                activeUserRole = storedUser.role || null;
+                if (storedUser.role === 'provider' && storedUser.relatedEntityId != null) {
+                    activeProviderKey = String(storedUser.relatedEntityId);
+                }
+            }
+        } catch { activeUserRole = null; activeProviderKey = ''; }
+
+        // Pour un prestataire, on considère que le « boot » n'est pas fini tant que
+        // les données de CE prestataire n'ont pas été chargées au moins une fois.
+        const providerStillBooting = !!activeProviderKey && providerDataReadyKey !== activeProviderKey;
+
+        const shouldShowLoader = !options?.silent && (!hasLoadedOnceRef.current || providerStillBooting);
         if (shouldShowLoader) setDataLoading(true);
 
         const run = (async () => {
@@ -1873,19 +1896,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // Charger depuis le cache immédiatement (ne bloque pas le thread)
                 const hadCachedData = loadFromCache();
 
-                // Rôle de l'utilisateur actif lu de façon SYNCHRONE et fiable via localStorage
-                // (currentUser/simulatedProviderId peuvent être périmés dans la closure au moment du login).
-                let activeUserRole: string | null = null;
-                try {
-                    const storedUser = localStorage.getItem('presta_current_user');
-                    if (storedUser) activeUserRole = JSON.parse(storedUser)?.role || null;
-                } catch { activeUserRole = null; }
-
                 // Si on a des données en cache, masquer le loader immédiatement.
-                // EXCEPTION prestataire : on garde le splash jusqu'à la fin du premier
-                // chargement réseau, sinon le dashboard se monte avec des compteurs à 0
-                // (missions pas encore revenues) avant de se corriger juste après.
-                if (hadCachedData && shouldShowLoader && activeUserRole !== 'provider') {
+                // EXCEPTION prestataire : on garde le splash tant que le boot de ce
+                // prestataire n'est pas fini (providerStillBooting), sinon le dashboard
+                // se monte avec des compteurs à 0 avant l'arrivée des missions.
+                if (hadCachedData && shouldShowLoader && !providerStillBooting) {
                     setDataLoading(false);
                 }
 
@@ -2756,6 +2771,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         } finally {
             refreshInFlightRef.current = null;
             hasLoadedOnceRef.current = true;
+            // Le chargement de CE prestataire est terminé (missions posées ou échec
+            // borné) : on lève le gate pour ne pas rester bloqué sur le splash.
+            if (activeProviderKey) {
+                setProviderDataReadyKey(activeProviderKey);
+            }
             if (shouldShowLoader) setDataLoading(false);
         }
     };
@@ -8824,6 +8844,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         setCurrentUser(null);
         setSimulatedClientId(null);
         setSimulatedProviderId(null);
+        setProviderDataReadyKey(null);
         setMissions([]);
         setClients([]);
         setClientLeads([]);
