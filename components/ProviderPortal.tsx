@@ -120,6 +120,7 @@ const ProviderPortal: React.FC = () => {
     visitScans,
     refreshData,
     dataLoading,
+    providerDataReadyKey,
     // Upload progress tracking
     uploadJobs,
     activeUploadJob,
@@ -186,6 +187,18 @@ const ProviderPortal: React.FC = () => {
   const hasProviderId = Boolean(simulatedProviderId);
   const isProviderPortalLoading = Boolean(dataLoading) || (hasProviderId && !provider);
   const showShimmerLoader = isProviderPortalLoading && !loaderSeen;
+
+  // Gate par prestataire : on garde le splash tant que les données de CE prestataire
+  // n'ont pas réellement été chargées (providerDataReadyKey === id), avec un filet de
+  // sécurité de 20s pour ne jamais rester bloqué sur le splash (cf. spinner infini).
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  useEffect(() => {
+    setBootTimedOut(false);
+    const t = setTimeout(() => setBootTimedOut(true), 20000);
+    return () => clearTimeout(t);
+  }, [simulatedProviderId]);
+  const awaitingProviderBoot = hasProviderId && !bootTimedOut && providerDataReadyKey !== String(simulatedProviderId ?? '');
+  const showProviderSplash = isProviderPortalLoading || awaitingProviderBoot;
   const [activeTab, setActiveTab] = useState<'dashboard' | 'leaves' | 'live' | 'scans' | 'archive'>('dashboard');
   const [toast, setToast] = useState<{ show: boolean; message: string; type?: 'success' | 'error' | 'warning' }>({ show: false, message: '', type: 'success' });
   
@@ -544,7 +557,7 @@ const ProviderPortal: React.FC = () => {
     );
   }
 
-  if (!provider && dataLoading) {
+  if (!provider && (dataLoading || awaitingProviderBoot)) {
     // Joli loader affiché pendant toute la durée du chargement des données
     return <ProviderLoadingSplash />;
   }
@@ -1082,7 +1095,7 @@ const ProviderPortal: React.FC = () => {
 
         {/* Main Content - Full width on desktop */}
         <main ref={mainScrollRef} className="flex-1 overflow-y-auto bg-gray-50/50" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-          {isProviderPortalLoading ? (
+          {showProviderSplash ? (
             <ProviderLoadingSplash providerName={provider?.firstName} />
           ) : (
             <>

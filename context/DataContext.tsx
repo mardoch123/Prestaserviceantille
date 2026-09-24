@@ -355,6 +355,7 @@ interface DataContextType {
     loading: boolean;
     dataLoading: boolean;
     isBackgroundRefreshing: boolean;
+    providerDataReadyKey: string | null;
 
     // Session management functions
     extendReadingSession: () => void;
@@ -2282,6 +2283,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (mappedProviders.length > 0) {
                         setProviders(mappedProviders);
                         dataCache.set('providers', mappedProviders);
+                        // Le prestataire actif a réellement été chargé : on peut lever le splash.
+                        if (activeProviderKey && mappedProviders.some((p: any) => String(p.id) === activeProviderKey)) {
+                            setProviderDataReadyKey(activeProviderKey);
+                        }
                     } else {
                         const cachedProviders = dataCache.get<any[]>('providers', undefined, 24 * 60 * 60 * 1000);
                         if (!cachedProviders || cachedProviders.length === 0) {
@@ -2406,8 +2411,14 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     dataCache.set('clients', cData); // Sauvegarder dans le cache
                 }
                 if (pData) {
-                    setProviders(mapProviders(pData, null));
+                    const mappedProvidersGeneric = mapProviders(pData, null);
+                    setProviders(mappedProvidersGeneric);
                     dataCache.set('providers', pData); // Sauvegarder dans le cache
+                    // Si la ligne du prestataire actif est bien présente (session valide),
+                    // on marque le boot terminé pour lever le splash avec les vraies données.
+                    if (activeProviderKey && mappedProvidersGeneric.some((p: any) => String(p.id) === activeProviderKey)) {
+                        setProviderDataReadyKey(activeProviderKey);
+                    }
                 }
                 if (mData) {
                     const mappedMissions = mapMissions(mData);
@@ -2771,11 +2782,6 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         } finally {
             refreshInFlightRef.current = null;
             hasLoadedOnceRef.current = true;
-            // Le chargement de CE prestataire est terminé (missions posées ou échec
-            // borné) : on lève le gate pour ne pas rester bloqué sur le splash.
-            if (activeProviderKey) {
-                setProviderDataReadyKey(activeProviderKey);
-            }
             if (shouldShowLoader) setDataLoading(false);
         }
     };
@@ -3616,12 +3622,16 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 // 2. If we have a cached user (client/provider), trust the cache and load data immediately
                 if (restoredUser && (restoredUser.role === 'client' || restoredUser.role === 'provider') && mounted) {
                     console.log("[Auth] Using cached client/provider, loading data...");
+                    // IMPORTANT: rafraîchir la session AVANT le premier chargement (borné à 10s),
+                    // sinon la 1ʳᵉ requête part avec un token expiré → RLS renvoie [] →
+                    // le dashboard se monte à 0 jusqu'au prochain refresh de fond (2 min).
+                    try {
+                        await Promise.race([
+                            supabase.auth.refreshSession(),
+                            new Promise((resolve) => setTimeout(resolve, 10000)),
+                        ]);
+                    } catch { /* on continue avec la session courante */ }
                     try { await refreshData(); } catch { }
-                    // Refresh session in background (non-blocking)
-                    supabase.auth.refreshSession().then(({ data, error }) => {
-                        if (error) console.warn("[Auth] Background session refresh failed:", error.message);
-                        else console.log("[Auth] Background session refresh OK");
-                    });
                     return;
                 }
 
@@ -9648,7 +9658,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              activeStream, startLiveStream, stopLiveStream,
              videoRecordings, getVideoRecordings, createVideoRecording, updateVideoRecording,
              generateVideoAccessToken, validateVideoAccessToken, revokeVideoAccessToken,
-             isOnline, pendingSyncCount, loading, dataLoading, isBackgroundRefreshing,
+             isOnline, pendingSyncCount, loading, dataLoading, isBackgroundRefreshing, providerDataReadyKey,
              extendReadingSession, endReadingSession, isReadingDocument,
              connectionStatus, reconnectAttempts, maxReconnectAttempts, reconnectDelay, attemptReconnection, resetConnectionState,
              getAvailableSlots, refreshData, refreshVisitScansOnly, sendEmail,
