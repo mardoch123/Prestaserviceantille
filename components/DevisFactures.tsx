@@ -204,6 +204,9 @@ const DevisFactures: React.FC = () => {
     const [editingDocumentStatus, setEditingDocumentStatus] = useState<string>('');
 
     const isPrefillingFromDbRef = useRef(false);
+    // Mémorise le pack pour lequel la réinitialisation auto du formulaire a déjà été appliquée.
+    // Empêche le refresh périodique (nouvelle référence `packs`) de re-déclencher le reset et d'effacer les créneaux en cours de saisie.
+    const lastAutoAppliedPackIdRef = useRef<string | null>(null);
 
     const [loadingActions, setLoadingActions] = useState<Set<string>>(new Set());
 
@@ -587,6 +590,7 @@ const DevisFactures: React.FC = () => {
         setTvaRate(0); // TVA à 0% par défaut pour les particuliers
         setTaxCreditActive(false);
         setSelectedPackId('');
+        lastAutoAppliedPackIdRef.current = null; // Nouveau devis : autoriser le reset auto à la première sélection de pack
         setInterventionSlots([]);
         setPackSpecificConfig({});
         setCustomLines([]); // Réinitialiser les lignes personnalisées
@@ -651,6 +655,8 @@ const DevisFactures: React.FC = () => {
             setServiceType((doc?.category === 'custom' ? 'custom' : 'pack') as any);
         }
         setSelectedPackId(initialPackId);
+        // Préserver les créneaux du document : la réinitialisation liée au pack ne doit se déclencher que sur un changement de pack VOULU par l'utilisateur
+        lastAutoAppliedPackIdRef.current = initialPackId;
         setPackQuantity(Number(doc?.quantity || 1));
         setUnitPrice(Number(doc?.unitPrice || 0));
         setCustomDescription(String(doc?.description || ''));
@@ -705,6 +711,7 @@ const DevisFactures: React.FC = () => {
                 try {
                     if (clientId) setSelectedClientId(clientId);
                     if (packId) {
+                        lastAutoAppliedPackIdRef.current = packId;
                         setServiceType('pack');
                         setSelectedPackId(packId);
                     }
@@ -731,7 +738,9 @@ const DevisFactures: React.FC = () => {
 
         setSelectedClientId(String(draft.form.selectedClientId || ''));
         setServiceType((draft.form.serviceType || 'pack') as any);
-        setSelectedPackId(String(draft.form.selectedPackId || ''));
+        const restoredPackId = String(draft.form.selectedPackId || '');
+        lastAutoAppliedPackIdRef.current = restoredPackId;
+        setSelectedPackId(restoredPackId);
         setPackQuantity(Number(draft.form.packQuantity || 1));
         setUnitPrice(Number(draft.form.unitPrice || 0));
         setCustomDescription(String(draft.form.customDescription || ''));
@@ -896,46 +905,62 @@ const DevisFactures: React.FC = () => {
         return `${resultH.toString().padStart(2, '0')}:${resultM.toString().padStart(2, '0')}`;
     };
 
+    // RESET du formulaire UNIQUEMENT quand l'utilisateur change réellement de pack.
+    // Ne doit JAMAIS se déclencher quand `packs` change de référence (refresh silencieux toutes les 2 min dans DataContext),
+    // sinon les créneaux (dates + horaires) en cours de saisie sont effacés.
     useEffect(() => {
-        if (serviceType === 'pack' && selectedPackId) {
-            if (isPrefillingFromDbRef.current) {
-                return;
-            }
-            const pack = packs.find(p => p.id === selectedPackId);
-            if (pack) {
-                setUnitPrice(pack.priceTTC);
-                setCustomDescription(pack.description);
-
-                // RESET CONFIG ON PACK CHANGE
-                setPackSpecificConfig({});
-                setInterventionSlots([]);
-
-                // Initial Setup based on Pack Name (Logic from images)
-                if (pack.name.includes("Tranquility")) {
-                    // Default to first option
-                    setPackSpecificConfig({ frequencyChoice: "4j_3h" });
-                } else if (isPackUltime6Name(pack.name)) {
-                    // Auto generate single slot 6h
-                    setInterventionSlots([{
-                        id: 'slot-ultime',
-                        date: getMartiniqueToday(),
-                        startTime: '09:00',
-                        endTime: '17:00',
-                        duration: 6
-                    }]);
-                } else if (pack.name.includes("personnalisé")) {
-                    // Reset for manual entry
-                    setPackSpecificConfig({ customDays: 1, customTotalHours: 2 });
-                    setInterventionSlots([{
-                        id: 'slot-custom-0',
-                        date: getMartiniqueToday(),
-                        startTime: '09:00',
-                        endTime: '11:00',
-                        duration: 2
-                    }]);
-                }
-            }
+        if (isPrefillingFromDbRef.current) {
+            return;
         }
+        if (serviceType !== 'pack' || !selectedPackId) {
+            return;
+        }
+        if (lastAutoAppliedPackIdRef.current === selectedPackId) {
+            return; // Même pack : ne pas toucher aux créneaux existants
+        }
+        lastAutoAppliedPackIdRef.current = selectedPackId;
+
+        const pack = packs.find(p => p.id === selectedPackId);
+        if (!pack) return;
+
+        // RESET CONFIG ON PACK CHANGE
+        setPackSpecificConfig({});
+        setInterventionSlots([]);
+
+        // Initial Setup based on Pack Name (Logic from images)
+        if (pack.name.includes("Tranquility")) {
+            // Default to first option
+            setPackSpecificConfig({ frequencyChoice: "4j_3h" });
+        } else if (isPackUltime6Name(pack.name)) {
+            // Auto generate single slot 6h
+            setInterventionSlots([{
+                id: 'slot-ultime',
+                date: getMartiniqueToday(),
+                startTime: '09:00',
+                endTime: '17:00',
+                duration: 6
+            }]);
+        } else if (pack.name.includes("personnalisé")) {
+            // Reset for manual entry
+            setPackSpecificConfig({ customDays: 1, customTotalHours: 2 });
+            setInterventionSlots([{
+                id: 'slot-custom-0',
+                date: getMartiniqueToday(),
+                startTime: '09:00',
+                endTime: '11:00',
+                duration: 2
+            }]);
+        }
+    }, [selectedPackId, serviceType, packs]);
+
+    // Synchronisation prix/description depuis le pack sélectionné (sans aucun reset des créneaux)
+    useEffect(() => {
+        if (serviceType !== 'pack' || !selectedPackId) return;
+        if (isPrefillingFromDbRef.current) return;
+        const pack = packs.find(p => p.id === selectedPackId);
+        if (!pack) return;
+        setUnitPrice(pack.priceTTC);
+        setCustomDescription(pack.description);
     }, [selectedPackId, serviceType, packs]);
 
     // Handler for Generating Slots based on Configuration
