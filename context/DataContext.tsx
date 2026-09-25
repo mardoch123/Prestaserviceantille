@@ -3167,11 +3167,188 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
     };
 
+    // ══════════════════════════════════════════════════════════════════
+    // GESTION CENTRALE DES IDENTIFIANTS PROVISOIRES (créneaux de devis non
+    // matérialisés en mission). Un id « provisional-<docId>-<slotKey>-<date>-<startTime> »
+    // n'existe pas dans la table missions (colonne uuid) : toute écriture qui le
+    // reçoit doit soit résoudre la mission réelle correspondante, soit mettre à
+    // jour le créneau dans documents.slots_data. Centralisé ici pour être
+    // infaillible quel que soit l'appelant (Planning, Reservations, etc.).
+    // ══════════════════════════════════════════════════════════════════
+    const PROVISIONAL_ID_REGEX = /^provisional-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-(.+)-(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2}(?::\d{2})?|no-start)$/;
+
+    const isProvisionalMissionId = (id: any): boolean => typeof id === 'string' && id.startsWith('provisional-');
+
+    const parseProvisionalMissionId = (id: string) => {
+        const m = PROVISIONAL_ID_REGEX.exec(id || '');
+        if (!m) return null;
+        return { docId: m[1], slotKey: m[2], slotDate: m[3], slotTime: m[4] === 'no-start' ? '' : m[4] };
+    };
+
+    const getSlotsFromRaw = (raw: any): any[] => {
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+            try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }
+        }
+        return [];
+    };
+
+    const findSlotIndexForKey = (slots: any[], slotKey: string, slotDate: string, slotTime: string): number => {
+        // 1) par identifiant du créneau (stable même si la date a changé entre-temps)
+        let idx = slots.findIndex((s: any) => s && String(s.id || '') === String(slotKey));
+        // 2) clé synthétique « idx-N » générée par le planning
+        if (idx === -1 && /^idx-\d+$/.test(slotKey)) {
+            const n = parseInt(slotKey.slice(4), 10);
+            if (Number.isInteger(n) && n >= 0 && n < slots.length) idx = n;
+        }
+        // 3) repli par date + heure de début encodées dans l'identifiant
+        if (idx === -1) {
+            idx = slots.findIndex((s: any) => s && String(s.date || '') === slotDate &&
+                (!slotTime || String(s.startTime || '').slice(0, 5) === slotTime.slice(0, 5)));
+        }
+        return idx;
+    };
+
+    type ParsedProvisionalId = { docId: string; slotKey: string; slotDate: string; slotTime: string };
+
+    // Résout un id provisoire vers la mission réelle correspondante en base (si elle existe)
+    const resolveProvisionalToRealMission = async (parsed: ParsedProvisionalId): Promise<string | null> => {
+        // 1) mission créée depuis le même devis pour la même date
+        const { data: byDoc } = await supabase
+            .from('missions')
+            .select('id, start_time')
+            .eq('source_document_id', parsed.docId)
+            .eq('date', parsed.slotDate)
+            .limit(5);
+        if (byDoc && byDoc.length > 0) {
+            if (parsed.slotTime) {
+                const exact = byDoc.find(r => String(r.start_time || '').slice(0, 5) === parsed.slotTime.slice(0, 5));
+                if (exact?.id) return exact.id;
+            }
+            return byDoc[0].id;
+        }
+        // 2) même client + date + heure de début (le devis source peut ne pas être référencé)
+        const doc = (documents || []).find(d => String(d.id) === parsed.docId);
+        if (doc?.clientId && parsed.slotDate && parsed.slotTime) {
+            const { data: byTime } = await supabase
+                .from('missions')
+                .select('id, start_time')
+                .eq('client_id', doc.clientId)
+                .eq('date', parsed.slotDate)
+                .limit(20);
+            const match = (byTime || []).find(r => String(r.start_time || '').slice(0, 5) === parsed.slotTime.slice(0, 5));
+            if (match?.id) return match.id;
+        }
+        return null;
+    };
+
+    // Met à jour le créneau du devis (documents.slots_data) pour un id provisoire
+    const updateProvisionalSlotInDocument = async (parsed: ParsedProvisionalId, data: Partial<Mission>) => {
+        const { data: docRow, error: fetchErr } = await supabase
+            .from('documents')
+            .select('slots_data')
+            .eq('id', parsed.docId)
+            .single();
+        if (fetchErr) {
+            console.error('[updateProvisionalSlotInDocument] Erreur lecture devis:', fetchErr);
+            throw fetchErr;
+        }
+        const slots = getSlotsFromRaw(docRow?.slots_data);
+        if (slots.length === 0) throw new Error('Aucun créneau trouvé dans le devis associé.');
+        const idx = findSlotIndexForKey(slots, parsed.slotKey, parsed.slotDate, parsed.slotTime);
+        if (idx === -1) {
+            throw new Error('Créneau introuvable dans le devis associé (il a peut-être déjà été converti en mission).');
+        }
+        const updatedSlots = slots.map((s: any, i: number) => {
+            if (i !== idx) return s;
+            const slot = { ...s };
+            if (data.date !== undefined) slot.date = data.date;
+            if (data.startTime !== undefined) slot.startTime = data.startTime;
+            if (data.endTime !== undefined) slot.endTime = data.endTime;
+            if (data.duration !== undefined) slot.duration = data.duration;
+            if (data.providerId !== undefined) slot.providerId = (!data.providerId || data.providerId === 'null') ? null : data.providerId;
+            if (data.providerName !== undefined) slot.providerName = data.providerName;
+            if (data.status !== undefined) {
+                if (data.status === 'cancelled') slot.sessionStatus = 'cancelled';
+                else if (data.status === 'completed') slot.sessionStatus = 'completed';
+                else if (data.status === 'planned') slot.sessionStatus = 'planned';
+            }
+            return slot;
+        });
+
+        const { error } = await supabase
+            .from('documents')
+            .update({ slots_data: updatedSlots })
+            .eq('id', parsed.docId);
+        if (error) {
+            console.error('[updateProvisionalSlotInDocument] Erreur DB:', error);
+            throw error;
+        }
+        setDocuments(prev => prev.map(d => d.id === parsed.docId ? { ...d, slotsData: updatedSlots } : d));
+    };
+
+    // Matérialise une mission réelle en base depuis un créneau de devis (id provisoire)
+    const materializeProvisionalMission = async (
+        parsed: ParsedProvisionalId,
+        assign?: { providerId?: string; providerName?: string; provider2Id?: string; provider2Name?: string }
+    ): Promise<string> => {
+        const doc = (documents || []).find(d => String(d.id) === parsed.docId);
+        if (!doc) throw new Error('Devis introuvable pour ce créneau.');
+        // Relecture DB pour obtenir le créneau le plus récent (state potentiellement périmé)
+        const { data: docRow } = await supabase
+            .from('documents')
+            .select('slots_data')
+            .eq('id', parsed.docId)
+            .single();
+        const slots = getSlotsFromRaw(docRow?.slots_data ?? (doc as any).slotsData ?? (doc as any).slots_data);
+        const idx = findSlotIndexForKey(slots, parsed.slotKey, parsed.slotDate, parsed.slotTime);
+        const slot = idx >= 0 ? slots[idx] : null;
+
+        const newMission: Mission = {
+            id: generateUUID(),
+            date: slot?.date || parsed.slotDate,
+            startTime: slot?.startTime || parsed.slotTime || '09:00',
+            endTime: slot?.endTime || '12:00',
+            duration: typeof slot?.duration === 'number' ? slot.duration : 3,
+            clientId: doc.clientId || '',
+            clientName: doc.clientName || 'Client',
+            service: (doc as any).description || 'Prestation',
+            providerId: assign?.providerId || slot?.providerId || null,
+            providerName: assign?.providerName || slot?.providerName || 'À assigner',
+            provider2Id: assign?.provider2Id || null,
+            provider2Name: assign?.provider2Name,
+            status: 'planned',
+            color: 'orange',
+            source: 'devis',
+            sourceDocumentId: doc.id,
+            isOvertime: false
+        };
+        // addMission = point d'entrée unique avec upsert anti-doublon
+        await addMission(newMission);
+        return newMission.id;
+    };
+
     const updateMission = async (id: string, data: Partial<Mission>) => {
         if (isDemoMode) {
             demoBlocked();
             return;
         }
+
+        // ── Garde-fou : identifiant provisoire (créneau de devis non matérialisé) ──
+        // Jamais d'UPDATE sur missions.id avec un id « provisional-* » (erreur uuid 22P02).
+        let effectiveId = id;
+        if (isProvisionalMissionId(id)) {
+            const parsed = parseProvisionalMissionId(id);
+            if (!parsed) throw new Error('Identifiant de créneau invalide : modification impossible.');
+            const realId = await resolveProvisionalToRealMission(parsed);
+            if (realId) {
+                effectiveId = realId;
+            } else {
+                await updateProvisionalSlotInDocument(parsed, data);
+                return;
+            }
+        }
+
         const dbData: any = {};
 
         if (data.date !== undefined) dbData.date = data.date;
@@ -3189,7 +3366,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (data.sourceDocumentId !== undefined) dbData.source_document_id = data.sourceDocumentId;
         if (data.isOvertime !== undefined) dbData.is_overtime = data.isOvertime;
 
-        const { error } = await supabase.from('missions').update(dbData).eq('id', id);
+        const { error } = await supabase.from('missions').update(dbData).eq('id', effectiveId);
 
         if (error) {
             console.error('[updateMission] Supabase error:', error);
@@ -3197,7 +3374,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
 
         setMissions(prev => prev.map(m => {
-            if (m.id !== id) return m;
+            if (m.id !== effectiveId) return m;
             const nextDate = data.date !== undefined ? data.date : m.date;
             return {
                 ...m,
@@ -5935,6 +6112,23 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
+
+        // ── Garde-fou : mission provisoire (créneau de devis) ──
+        if (isProvisionalMissionId(missionId)) {
+            const parsed = parseProvisionalMissionId(missionId);
+            if (!parsed) throw new Error('Identifiant de créneau invalide : assignation impossible.');
+            const realId = await resolveProvisionalToRealMission(parsed);
+            if (realId) {
+                await assignProvider(realId, providerId, providerName);
+                return;
+            }
+            // Aucune mission réelle : matérialisation via addMission (upsert anti-doublon),
+            // puis réutilisation du flux complet (disponibilité, notifications, emails)
+            const newId = await materializeProvisionalMission(parsed, { providerId, providerName });
+            await assignProvider(newId, providerId, providerName);
+            return;
+        }
+
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
@@ -5993,6 +6187,21 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             demoBlocked();
             return;
         }
+
+        // ── Garde-fou : mission provisoire (créneau de devis) ──
+        if (isProvisionalMissionId(missionId)) {
+            const parsed = parseProvisionalMissionId(missionId);
+            if (!parsed) throw new Error('Identifiant de créneau invalide : assignation impossible.');
+            const realId = await resolveProvisionalToRealMission(parsed);
+            if (realId) {
+                await assignSecondProvider(realId, providerId, providerName);
+                return;
+            }
+            const newId = await materializeProvisionalMission(parsed, { provider2Id: providerId, provider2Name: providerName });
+            await assignSecondProvider(newId, providerId, providerName);
+            return;
+        }
+
         const existingMission = missions.find(m => m.id === missionId);
 
         if (existingMission?.date) {
@@ -8810,9 +9019,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     };
 
     const deleteMissions = async (ids: string[]) => {
-        const { error } = await supabase.from('missions').delete().in('id', ids);
+        // Les créneaux provisoires (devis) n'ont pas d'UUID en base : ils sont traités à part
+        // (sinon PostgreSQL rejette toute la requête : invalid input syntax for type uuid).
+        const realIds: string[] = [];
+        for (const id of ids || []) {
+            if (!isProvisionalMissionId(id)) {
+                if (!realIds.includes(id)) realIds.push(id);
+                continue;
+            }
+            const parsed = parseProvisionalMissionId(id);
+            if (!parsed) continue;
+            const realId = await resolveProvisionalToRealMission(parsed);
+            if (realId) {
+                if (!realIds.includes(realId)) realIds.push(realId);
+            } else {
+                // Aucune mission réelle : annuler le créneau dans le devis source
+                await updateProvisionalSlotInDocument(parsed, { status: 'cancelled' });
+            }
+        }
+        if (realIds.length === 0) return;
+        const { error } = await supabase.from('missions').delete().in('id', realIds);
         if (!error) {
-            setMissions(prev => prev.filter(m => !ids.includes(m.id)));
+            setMissions(prev => prev.filter(m => !realIds.includes(m.id) && !(ids || []).includes(m.id)));
         }
     };
 
