@@ -187,20 +187,18 @@ export default defineConfig(({ mode, command }) => {
           // quel que soit NODE_ENV. L'ancien garde process.env.NODE_ENV==='production'
           // désactivait le splitting sur le VPS (NODE_ENV=y production) → chunk unique
           // > 7 MB et échec du precache Workbox.
-          // IMPORTANT : ne pas isoler @supabase/realtime-js ni @supabase/storage-js dans
-          // un chunk séparé (ils consomment @supabase/supabase-js → cycle de dépendances
-          // qui provoque « Cannot read properties of undefined (reading 'WebSocketClient') »
-          // au runtime). Seuls les packages feuilles (aucune dépendance croisée avec le
-          // graphe supabase principal) sont extraits.
+          // IMPORTANT (éprouvé) : ne jamais isoler un paquet dont les ré-exports ou
+          // dépendances partagées restent dans le chunk principal → cycle entre chunks
+          // et erreur runtime « Cannot access 'X' before initialization » (écran blanc).
+          // Sont donc INTERDITS de splitting : @supabase/realtime-js, @supabase/storage-js
+          // (cycles avec supabase-js) et recharts/d3/victory-vendor (cycles via les
+          // ré-exports). Seuls les packages réellement feuillus sont extraits.
           manualChunks: command === 'build' ? (id: string) => {
             if (!id.includes('node_modules')) {
               return undefined;
             }
             const normalized = id.replace(/\\/g, '/');
             const vendorRules: Array<[RegExp, string]> = [
-              [/(^|\/)three(\/|\.|$)|@react-three/, 'three'],
-              [/@fullcalendar/, 'fullcalendar'],
-              [/(^|\/)(recharts|d3(-[a-z]+)?)(\/|\.|$)/, 'charts'],
               [/react-router|@remix-run/, 'router'],
               [/@react-spring/, 'react-spring'],
               [/jspdf|html2canvas/, 'pdf'],
@@ -210,7 +208,6 @@ export default defineConfig(({ mode, command }) => {
               [/@react-google-maps/, 'gmaps'],
               [/(^|\/)(react-dom|react|scheduler)(\/|\.|$)/, 'react'],
               [/(^|\/)date-fns(\/|\.|$)/, 'date-fns'],
-              [/firebase|@firebase/, 'firebase'],
               [/@supabase\/supabase-js/, 'supabase'],
               [/@simplewebauthn/, 'webauthn'],
               [/localforage/, 'localforage'],
