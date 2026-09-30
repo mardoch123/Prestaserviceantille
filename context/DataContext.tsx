@@ -8587,8 +8587,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // Supabase auto-hébergée -> « permission denied for table » en direct.
     // =====================================================================
     const callEmploymentContractsApi = async (init: { method: 'POST' | 'PATCH' | 'DELETE'; body?: any; query?: string }): Promise<any[]> => {
-        const token = (await supabase.auth.getSession())?.data?.session?.access_token;
-        if (!token) throw new Error('Session expirée, veuillez vous reconnecter.');
+        // Token : getSession() peut revenir vide alors que l'app restaure l'admin
+        // depuis le cache (auth résiliente) -> retenter refreshSession() comme dans
+        // initializeAuth, puis laisser le serveur trancher la validité du token.
+        let token = (await supabase.auth.getSession())?.data?.session?.access_token || '';
+        if (!token) {
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            token = refreshed?.session?.access_token || '';
+        }
+        if (!token) throw new Error('Session Supabase absente (reconnexion depuis le cache) : reconnectez-vous via le formulaire de connexion.');
         let res: Response;
         try {
             res = await fetch(`/api/employment-contracts${init.query || ''}`, {
@@ -8597,10 +8604,22 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                 body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
             });
         } catch {
-            throw new Error('Serveur injoignable, vérifiez votre connexion.');
+            throw new Error('Passerelle /api/employment-contracts injoignable (en dev local : lancer npm run dev:api, sinon tester sur le déploiement Vercel).');
         }
         const payload = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(payload?.error || `Erreur serveur (HTTP ${res.status})`);
+        if (!res.ok) {
+            if (res.status === 401) throw new Error('Session Supabase expirée : reconnectez-vous via le formulaire de connexion.');
+            // Vercel renvoie parfois {"errorMessage":"..."} ou du texte/html brut quand la
+            // function timeout ou que le déploiement n'a pas encore pris -> extraire le vrai msg
+            let detail = payload?.error || payload?.errorMessage || '';
+            if (!detail && typeof payload === 'object' && payload !== null) {
+                detail = JSON.stringify(payload).slice(0, 120);
+            }
+            if (res.status === 404 || res.status === 405) {
+                throw new Error('Passerelle /api/employment-contracts absente du déploiement (Vercel en cours de build ? patienter puis redéplover)');
+            }
+            throw new Error(detail || `Erreur serveur (HTTP ${res.status})${res.status === 500 ? ' — function Vercel timeout/crash ; voir logs Vercel' : ''}`);
+        }
         return Array.isArray(payload?.data) ? payload.data : [];
     };
 

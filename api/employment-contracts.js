@@ -18,6 +18,18 @@
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://outremerfermetures.com/api';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// Timeout pour éviter le kill Vercel (fonction Hobby max ~10 s)
+const FETCH_TIMEOUT = parseInt(process.env.API_FETCH_TIMEOUT || '7000', 10);
+async function fetchWithTimeout(url, opts = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function allowCORS(req, res) {
   const origin = req.headers.origin || '*';
   res.setHeader('Access-Control-Allow-Origin', origin);
@@ -29,8 +41,7 @@ function allowCORS(req, res) {
 async function getAuthUser(authorization) {
   const token = String(authorization || '').replace(/^Bearer\s+/i, '');
   if (!token) return null;
-  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    // apikey : clé anon si disponible, sinon le JWT lui-même (accepté par GoTrue)
+  const r = await fetchWithTimeout(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: process.env.SUPABASE_ANON_KEY || token, Authorization: `Bearer ${token}` },
   });
   if (!r.ok) return null;
@@ -44,7 +55,7 @@ async function isAdminUser(user) {
   if (String(user.email || '').toLowerCase() === 'contact@prestaservicesantilles.com') return true;
 
   const params = new URLSearchParams({ select: 'role', id: `eq.${user.id}`, limit: '1' });
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/users?${params}`, {
+  const r = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/users?${params}`, {
     headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
   });
   if (!r.ok) return false;
@@ -87,7 +98,7 @@ export default async function handler(req, res) {
         res.status(400).json({ error: 'Corps de requête invalide' });
         return;
       }
-      const upstream = await fetch(`${base}?select=*`, {
+      const upstream = await fetchWithTimeout(`${base}?select=*`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=representation' },
         body: JSON.stringify(record),
@@ -107,7 +118,7 @@ export default async function handler(req, res) {
         res.status(400).json({ error: 'id requis' });
         return;
       }
-      const upstream = await fetch(`${base}?id=eq.${encodeURIComponent(id)}`, {
+      const upstream = await fetchWithTimeout(`${base}?id=eq.${encodeURIComponent(id)}`, {
         method: req.method,
         headers: { ...headers, Prefer: 'return=minimal' },
         body: req.method === 'PATCH' ? JSON.stringify(req.body || {}) : undefined,
