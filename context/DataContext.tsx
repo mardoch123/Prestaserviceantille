@@ -8582,60 +8582,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // =====================================================================
     // CONTRATS DE TRAVAIL PRESTATAIRES (CDI/CDD salariés)
-    // Écritures via /api/employment-contracts (passerelle serveur service_role) :
-    // le rôle authenticated n'a pas le GRANT INSERT/UPDATE/DELETE sur la base
-    // Supabase auto-hébergée -> « permission denied for table » en direct.
+    // Écritures DIRECTES via supabase (comme toutes les autres tables). La prod
+    // est un build statique servi par nginx sur le VPS : aucune function Vercel
+    // n'y tourne, d'où le retour à l'accès direct. Prérequis base : les GRANT
+    // INSERT/UPDATE/DELETE pour `authenticated` sur employment_contracts (voir
+    // supabase/fix_employment_contracts_grants.sql, à exécuter sur le Postgres du VPS).
     // =====================================================================
-    const callEmploymentContractsApi = async (init: { method: 'POST' | 'PATCH' | 'DELETE'; body?: any; query?: string }): Promise<any[]> => {
-        // Identité de l'appelant : la passerelle vérifie le rôle admin CÔTÉ SERVEUR.
-        // - Jeton Supabase vivant (session) = voie préférée (DELETE autorisé).
-        // - À défaut, admin restauré depuis le cache (presta_current_user) = voie
-        //   fallback pour créer/modifier (alignée sur le modèle de confiance de l'app).
-        let token = (await supabase.auth.getSession())?.data?.session?.access_token || '';
-        if (!token) {
-            const { data: refreshed } = await supabase.auth.refreshSession();
-            token = refreshed?.session?.access_token || '';
-        }
-        let cachedAdminEmail = '';
-        try {
-            const cached = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
-            if (cached && (cached.role === 'admin' || cached.role === 'super_admin')) {
-                cachedAdminEmail = String(cached.email || '');
-            }
-        } catch { /* ignore */ }
-        if (!token && !cachedAdminEmail) {
-            throw new Error('Aucune session ni identité admin en cache : reconnectez-vous via le formulaire de connexion.');
-        }
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        if (cachedAdminEmail) headers['x-admin-email'] = cachedAdminEmail;
-        let res: Response;
-        try {
-            res = await fetch(`/api/employment-contracts${init.query || ''}`, {
-                method: init.method,
-                headers,
-                body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-            });
-        } catch {
-            throw new Error('Passerelle /api/employment-contracts injoignable (en dev local : lancer npm run dev:api, sinon tester sur le déploiement Vercel).');
-        }
-        const payload = await res.json().catch(() => null);
-        if (!res.ok) {
-            if (res.status === 401) throw new Error(payload?.error || 'Accès refusé : identité admin non reconnue par le serveur.');
-            // Vercel renvoie parfois {"errorMessage":"..."} ou du texte/html brut quand la
-            // function timeout ou que le déploiement n'a pas encore pris -> extraire le vrai msg
-            let detail = payload?.error || payload?.errorMessage || '';
-            if (!detail && typeof payload === 'object' && payload !== null) {
-                detail = JSON.stringify(payload).slice(0, 120);
-            }
-            if (res.status === 404 || res.status === 405) {
-                throw new Error('Passerelle /api/employment-contracts absente du déploiement (Vercel en cours de build ? patienter puis redéplover)');
-            }
-            throw new Error(detail || `Erreur serveur (HTTP ${res.status})${res.status === 500 ? ' — function Vercel timeout/crash ; voir logs Vercel' : ''}`);
-        }
-        return Array.isArray(payload?.data) ? payload.data : [];
-    };
-
     const addEmploymentContract = async (contract: CreateEmploymentContractDTO): Promise<EmploymentContract | null> => {
         if (isDemoMode) {
             alert('Mode démo : création de contrat de travail désactivée.');
@@ -8647,15 +8599,12 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
         const finalId = generateUUID();
         const dbData = { id: finalId, ...employmentContractToDb(contract as EmploymentContract) };
-        let createdRow: any = null;
-        try {
-            const rows = await callEmploymentContractsApi({ method: 'POST', body: dbData });
-            createdRow = rows[0] || null;
-        } catch (err: any) {
-            console.error('Error adding employment contract:', err);
-            throw new Error('Erreur lors de la sauvegarde du contrat de travail: ' + (err?.message || 'erreur inconnue'));
+        const { data, error } = await supabase.from('employment_contracts').insert(dbData).select();
+        if (error) {
+            console.error('Error adding employment contract:', error);
+            throw new Error('Erreur lors de la sauvegarde du contrat de travail: ' + error.message);
         }
-        const created = mapEmploymentContract(createdRow || { id: finalId, ...contract });
+        const created = mapEmploymentContract(data?.[0] || { id: finalId, ...contract });
         setEmploymentContracts(prev => {
             const next = [...prev, created];
             dataCache.set('employmentContracts', next);
@@ -8674,11 +8623,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
         const dbUpdates = employmentContractToDb(updates);
-        try {
-            await callEmploymentContractsApi({ method: 'PATCH', query: `?id=${encodeURIComponent(id)}`, body: dbUpdates });
-        } catch (err: any) {
-            console.error('Error updating employment contract:', err);
-            throw new Error('Erreur lors de la mise à jour du contrat de travail: ' + (err?.message || 'erreur inconnue'));
+        const { error } = await supabase.from('employment_contracts').update(dbUpdates).eq('id', id);
+        if (error) {
+            console.error('Error updating employment contract:', error);
+            throw new Error('Erreur lors de la mise à jour du contrat de travail: ' + error.message);
         }
         setEmploymentContracts(prev => {
             const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
@@ -8690,11 +8638,10 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const deleteEmploymentContract = async (id: string) => {
         if (isDemoMode) return;
         const target = employmentContracts.find(c => c.id === id);
-        try {
-            await callEmploymentContractsApi({ method: 'DELETE', query: `?id=${encodeURIComponent(id)}` });
-        } catch (err: any) {
-            console.error('Error deleting employment contract:', err);
-            throw new Error('Erreur lors de la suppression du contrat de travail: ' + (err?.message || 'erreur inconnue'));
+        const { error } = await supabase.from('employment_contracts').delete().eq('id', id);
+        if (error) {
+            console.error('Error deleting employment contract:', error);
+            throw new Error('Erreur lors de la suppression du contrat de travail: ' + error.message);
         }
         setEmploymentContracts(prev => {
             const next = prev.filter(c => c.id !== id);
