@@ -28,7 +28,8 @@ import {
   Settings,
   Check,
   MailCheck,
-  Headphones
+  Headphones,
+  FileSignature
 } from 'lucide-react';
 import { NavItem } from '../types';
 import { useData } from '../context/DataContext';
@@ -51,6 +52,7 @@ const navItems: NavItem[] = [
   { label: 'Comptabilité', path: '/accounting', icon: Calculator },
   { label: 'Clients', path: '/clients', icon: Users },
   { label: 'Prestataires', path: '/providers', icon: Briefcase },
+  { label: 'Contrats de Travail', path: '/employment-contracts', icon: FileSignature },
   { label: 'Devis/Factures', path: '/invoices', icon: FileText },
   { label: 'Planning', path: '/planning', icon: Calendar },
   { label: 'Réservations', path: '/reservations', icon: Clock },
@@ -427,7 +429,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         );
     }
     if (currentUser?.role === 'provider') {
-      return navItems.filter(item => item.path !== '/demo-accounts' && !item.path.startsWith('/admin/') && !item.path.startsWith('/parrainage/') && item.path !== '/flyers');
+      return navItems.filter(item => item.path !== '/demo-accounts' && item.path !== '/employment-contracts' && !item.path.startsWith('/admin/') && !item.path.startsWith('/parrainage/') && item.path !== '/flyers');
     }
     // Admin and super admin
     return navItems

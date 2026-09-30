@@ -2,6 +2,7 @@ import React from 'react';
 import { Page, Text, View, Document, StyleSheet, Image, Font } from '@react-pdf/renderer';
 import { LOGO_BASE64, LOGO_SAP_BASE64, SIGNATURE_BASE64, STAMP_SIGNATURE_BASE64 } from '../src/assets/images';
 import { formatPDFDate } from '../src/utils/dayjsMartinique';
+import { EMPLOYER_INFO, EmploymentContract, ContractScheduleEntry } from '../types';
 
 const COMPANY_STAMP_LOCAL_SRC = new URL('../src/assets/images/cachetetsignature.webp', import.meta.url).toString();
 
@@ -1774,3 +1775,439 @@ export const ContractPDF = ({ doc, packs }: { doc: any, packs?: any[] }) => (
     </Page>
   </Document>
 );
+
+// =====================================================================
+// CONTRAT DE TRAVAIL PRESTATAIRE (CDI/CDD salariés)
+// Modèle calqué sur l'exemple GAUVAL, corrigé juridiquement :
+// - cohérence taux horaire × heures mensuelles = brut affiché
+// - accords genrés harmonisés (« la salariée » / « le salarié »)
+// - clause de non-concurrence avec contrepartie financière obligatoire
+// - mentions légales ajoutées (DPAE, affiliation, formation, RGPD)
+// =====================================================================
+
+const employmentStyles = StyleSheet.create({
+  page: {
+    fontSize: 9.5,
+    fontFamily: 'Helvetica',
+    backgroundColor: '#ffffff',
+    paddingTop: 42,
+    paddingHorizontal: 40,
+    paddingBottom: 46,
+    color: '#1a1a1a',
+    lineHeight: 1.45,
+  },
+  headerBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    borderBottomWidth: 2,
+    borderBottomColor: '#2980b9',
+    paddingBottom: 10,
+    marginBottom: 14,
+  },
+  headerLogo: { width: 64, height: 64, objectFit: 'contain' },
+  headerText: { flex: 1, marginLeft: 12 },
+  brand: { fontSize: 13, fontWeight: 'bold', color: '#2980b9', marginBottom: 2 },
+  brandMeta: { fontSize: 8, color: '#4B5563', marginBottom: 1 },
+  titleMain: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+    marginTop: 6,
+  },
+  titleSub: {
+    fontSize: 11,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    color: '#374151',
+    marginBottom: 14,
+  },
+  partiesBox: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    padding: 10,
+    marginBottom: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  partiesLabel: { fontSize: 10, fontWeight: 'bold', marginBottom: 4 },
+  partiesLine: { fontSize: 9, marginBottom: 1.5, color: '#1F2937' },
+  partiesQuality: { fontSize: 9, fontStyle: 'italic', color: '#4B5563', marginTop: 2, marginBottom: 6 },
+  articleTitle: { fontSize: 10.5, fontWeight: 'bold', marginTop: 10, marginBottom: 4 },
+  articleText: { fontSize: 9.5, marginBottom: 3, textAlign: 'justify' },
+  bullet: { flexDirection: 'row', marginBottom: 2, paddingLeft: 8 },
+  bulletDot: { fontSize: 9.5, marginRight: 5 },
+  bulletText: { flex: 1, fontSize: 9.5, textAlign: 'justify' },
+  madeOver: { fontSize: 9.5, marginTop: 14, marginBottom: 4 },
+  signatureSection: { marginTop: 10 },
+  signatureRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  signatureBox: {
+    width: '47%',
+    borderWidth: 1,
+    borderColor: '#9CA3AF',
+    borderRadius: 6,
+    padding: 10,
+    minHeight: 130,
+  },
+  signatureTitle: { fontSize: 9.5, fontWeight: 'bold', marginBottom: 2 },
+  signatureHint: { fontSize: 8, fontStyle: 'italic', color: '#6B7280', marginBottom: 6 },
+  signatureStamp: { width: 170, height: 95, objectFit: 'contain', marginTop: 4 },
+  signatureSpace: { marginTop: 6 },
+  footer: {
+    position: 'absolute',
+    bottom: 18,
+    left: 40,
+    right: 40,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#D1D5DB',
+    paddingTop: 4,
+    fontSize: 7,
+    color: '#6B7280',
+  },
+});
+
+const DAY_NAMES_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+const formatHeureFr = (t?: string): string => {
+  const [h, m] = String(t || '00:00').split(':');
+  const hh = parseInt(h, 10);
+  if (!Number.isFinite(hh)) return t || '';
+  return `${hh}h ${(m || '00').padStart(2, '0')}`;
+};
+
+const hoursBetweenFr = (start?: string, end?: string): number => {
+  const [sh, sm] = String(start || '00:00').split(':').map((v) => parseInt(v, 10));
+  const [eh, em] = String(end || '00:00').split(':').map((v) => parseInt(v, 10));
+  const a = (Number.isFinite(sh) ? sh : 0) * 60 + (Number.isFinite(sm) ? sm : 0);
+  const b = (Number.isFinite(eh) ? eh : 0) * 60 + (Number.isFinite(em) ? em : 0);
+  return Math.max(0, Math.round(((b - a) / 60) * 100) / 100);
+};
+
+const fmtEuro = (n: number): string =>
+  `${new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n) || 0)} €`;
+
+const fmtHours = (n: number): string =>
+  `${new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(n) || 0)}`;
+
+export const EmploymentContractPDF = ({ contract }: { contract: EmploymentContract }) => {
+  const isFemale = (contract.employeeGender ?? 'f') !== 'm';
+  const salarie = isFemale ? 'la salariée' : 'le salarié';
+  const salarieCap = isFemale ? 'La salariée' : 'Le salarié';
+  const engage = isFemale ? 'engagée' : 'engagé';
+  const chargee = isFemale ? 'chargée' : 'chargé';
+  const affectee = isFemale ? 'affectée' : 'affecté';
+  const nomCourt = `${contract.employeeFirstName} ${contract.employeeLastName}`.trim();
+
+  const formatScheduleDays = (entry: ContractScheduleEntry): string => {
+    const names = [...(entry.days || [])]
+      .sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
+      .map((d) => DAY_NAMES_FR[d] || '');
+    return names.filter(Boolean).join(', ');
+  };
+
+  const estTempsPartiel = (Number(contract.weeklyHours) || 0) < 35;
+
+  // Articles numérotés dynamiquement (les clauses désactivées sont retirées)
+  const articles: Array<{ title: string; body: React.ReactNode }> = [];
+
+  articles.push({
+    title: 'Objet du contrat',
+    body: (
+      <>
+        <Text style={employmentStyles.articleText}>
+          Le présent contrat est conclu {contract.contractType === 'cdd' ? 'pour une durée déterminée' : 'à durée indéterminée'} et prend
+          effet à compter du {formatPDFDate(contract.startDate)}, conformément aux dispositions du Code du travail et de la convention
+          collective applicable.
+        </Text>
+        {contract.trialPeriodWeeks ? (
+          <Text style={employmentStyles.articleText}>
+            Il est assorti d'une période d'essai de {contract.trialPeriodWeeks} semaine{contract.trialPeriodWeeks > 1 ? 's' : ''},
+            renouvelable une fois dans les conditions prévues par la convention collective applicable.
+          </Text>
+        ) : null}
+      </>
+    ),
+  });
+
+  articles.push({
+    title: 'Fonctions',
+    body: (
+      <>
+        <Text style={employmentStyles.articleText}>
+          {salarieCap} est {engage} en qualité de {contract.jobTitle || 'Employée à domicile'}, relevant de la classification
+          « {contract.classification || 'Employée'} ». Dans le cadre de ses fonctions, {salarie} sera notamment {chargee} des missions
+          suivantes :
+        </Text>
+        {(contract.duties || []).map((d, i) => (
+          <View key={i} style={employmentStyles.bullet}>
+            <Text style={employmentStyles.bulletDot}>-</Text>
+            <Text style={employmentStyles.bulletText}>{d}</Text>
+          </View>
+        ))}
+        {(contract.supervisors || []).length > 0 ? (
+          <Text style={employmentStyles.articleText}>
+            {salarieCap} exercera ses fonctions sous l'autorité de{' '}
+            {(contract.supervisors || [])
+              .map((s) => `${s.name}, en sa qualité de ${s.role}`)
+              .join(', ainsi que ')}
+            .
+          </Text>
+        ) : null}
+      </>
+    ),
+  });
+
+  articles.push({
+    title: 'Lieu de travail',
+    body: (
+      <>
+        <Text style={employmentStyles.articleText}>
+          Le travail sera exécuté, selon les nécessités du service :
+        </Text>
+        {(contract.workLocations || []).map((l, i) => (
+          <View key={i} style={employmentStyles.bullet}>
+            <Text style={employmentStyles.bulletDot}>-</Text>
+            <Text style={employmentStyles.bulletText}>
+              {i === 0 ? l : l.charAt(0) + l.slice(1)}
+            </Text>
+          </View>
+        ))}
+        <Text style={employmentStyles.articleText}>
+          {salarieCap} pourra être amené{isFemale ? 'e' : ''}, dans les mêmes conditions, à travailler sur tout autre lieu du secteur
+          géographique d'intervention de l'entreprise.
+        </Text>
+      </>
+    ),
+  });
+
+  articles.push({
+    title: 'Durée et horaires de travail',
+    body: (
+      <>
+        <Text style={employmentStyles.articleText}>
+          La durée hebdomadaire de travail est fixée à {fmtHours(contract.weeklyHours)} heures par semaine, réparties comme suit :
+        </Text>
+        {(contract.schedule || []).map((entry, i) => (
+          <View key={i} style={employmentStyles.bullet}>
+            <Text style={employmentStyles.bulletDot}>-</Text>
+            <Text style={employmentStyles.bulletText}>
+              {formatScheduleDays(entry)} : de {formatHeureFr(entry.start)} à {formatHeureFr(entry.end)}, soit{' '}
+              {fmtHours(hoursBetweenFr(entry.start, entry.end))} heures de travail effectif par jour.
+            </Text>
+          </View>
+        ))}
+        {estTempsPartiel ? (
+          <Text style={employmentStyles.articleText}>
+            Le présent contrat s'inscrit dans le cadre d'un contrat de travail à temps partiel, la durée légale de référence étant fixée
+            à 35 heures hebdomadaires, soit 151,67 heures mensuelles.
+          </Text>
+        ) : null}
+        <Text style={employmentStyles.articleText}>
+          Les horaires de travail peuvent être modifiés en fonction des besoins du service, dans le respect de la réglementation
+          applicable et avec l'accord des deux parties.
+        </Text>
+      </>
+    ),
+  });
+
+  articles.push({
+    title: 'Rémunération',
+    body: (
+      <>
+        <Text style={employmentStyles.articleText}>
+          La durée mensuelle du travail est fixée à {fmtHours(contract.monthlyHours)} heures ({fmtHours(contract.weeklyHours)} heures
+          hebdomadaires). En contrepartie de l'exécution de ses fonctions, {salarie} percevra une rémunération mensuelle brute de{' '}
+          {fmtEuro(contract.monthlyGross)}, correspondant à un taux horaire brut de {fmtEuro(contract.hourlyRate)}, calculée sur la base
+          de la durée mensuelle de travail fixée ci-dessus.
+        </Text>
+        {contract.monthlyNetEstimate ? (
+          <Text style={employmentStyles.articleText}>
+            Cette rémunération correspond, à titre indicatif, à une rémunération nette mensuelle d'environ{' '}
+            {fmtEuro(contract.monthlyNetEstimate)}, sous réserve des cotisations sociales et prélèvements légaux applicables.
+          </Text>
+        ) : null}
+        <Text style={employmentStyles.articleText}>
+          La rémunération sera versée mensuellement {contract.paymentPeriod || 'entre le 1er et le 5 du mois'}. Elle ne peut en aucun
+          cas être inférieure au salaire minimum interprofessionnel de croissance (SMIC) horaire brut en vigueur.
+        </Text>
+      </>
+    ),
+  });
+
+  articles.push({
+    title: 'Congés payés',
+    body: (
+      <Text style={employmentStyles.articleText}>
+        {salarieCap} bénéficiera de {fmtHours(contract.leaveDaysPerMonth ?? 2.5)} jours ouvrables de congés payés par mois de travail
+        effectif, conformément au Code du travail.
+      </Text>
+    ),
+  });
+
+  articles.push({
+    title: 'Convention collective applicable',
+    body: (
+      <Text style={employmentStyles.articleText}>
+        La présente relation de travail est régie par la {contract.collectiveAgreement || 'Convention collective des entreprises de services à la personne'}.
+      </Text>
+    ),
+  });
+
+  articles.push({
+    title: 'Droits sociaux et formation',
+    body: (
+      <Text style={employmentStyles.articleText}>
+        L'Employeur s'engage à effectuer la Déclaration Préalable À l'Embauche (DPAE) préalablement à la prise de fonction, ainsi que
+        les démarches d'affiliation auprès des organismes de Sécurité sociale et d'assurance chômage. {salarieCap} bénéficie des
+        garanties de prévoyance et de complémentaire santé en vigueur dans l'entreprise, ainsi que du droit à la formation
+        professionnelle dans les conditions prévues par le Code du travail et la convention collective applicable.
+      </Text>
+    ),
+  });
+
+  if (contract.confidentiality !== false) {
+    articles.push({
+      title: 'Clause de confidentialité',
+      body: (
+        <Text style={employmentStyles.articleText}>
+          {salarieCap} s'engage à respecter la confidentialité des informations auxquelles {isFemale ? 'elle' : 'il'} aura accès dans le
+          cadre de son activité, y compris après la cessation du présent contrat.
+        </Text>
+      ),
+    });
+  }
+
+  if (contract.nonCompetition) {
+    const compensation = Number(contract.nonCompetitionCompensationPercent) || 0;
+    articles.push({
+      title: 'Clause de non-concurrence',
+      body: (
+        <>
+          <Text style={employmentStyles.articleText}>
+            {salarieCap} s'engage, pendant une durée de {contract.nonCompetitionMonths || 1} an
+            {(contract.nonCompetitionMonths || 1) > 1 ? 's' : ''} après la cessation de son emploi au sein de l'entreprise, à ne pas
+            exercer une activité professionnelle, directement ou indirectement, avec la clientèle de l'entreprise.
+          </Text>
+          <Text style={employmentStyles.articleText}>
+            En contrepartie de cette obligation, {salarie} percevra une indemnité mensuelle égale à {fmtHours(compensation)} % de la
+            moyenne mensuelle de la dernière rémunération brute perçue durant les douze derniers mois du contrat. À défaut de versement
+            de cette contrepartie financière, la clause de non-concurrence sera inopposable à {isFemale ? 'la salariée' : 'le salarié'}.
+          </Text>
+        </>
+      ),
+    });
+  }
+
+  articles.push({
+    title: 'Données personnelles',
+    body: (
+      <Text style={employmentStyles.articleText}>
+        {salarieCap} est informé{isFemale ? 'e' : ''} que des données à caractère personnel les/le concernant sont collectées et traitées
+        aux fins de gestion de la relation de travail, conformément au Règlement (UE) 2016/679 (RGPD) et à la loi Informatique et
+        Libertés. {isFemale ? 'Elle' : 'Il'} dispose d'un droit d'accès, de rectification, d'effacement et d'opposition sur simple
+        demande auprès de l'Employeur.
+      </Text>
+    ),
+  });
+
+  articles.push({
+    title: 'Résiliation anticipée du contrat',
+    body: (
+      <Text style={employmentStyles.articleText}>
+        Le contrat pourra être rompu avant son terme à l'initiative de l'une ou l'autre des parties, dans les cas et conditions prévus
+        par la loi (faute grave, force majeure, accord commun des parties, inaptitude constatée par le médecin du travail, etc.), sous
+        réserve du respect des procédures et délais de préavis prévus par le Code du travail et la convention collective applicable.
+      </Text>
+    ),
+  });
+
+  return (
+    <Document title={`Contrat de travail - ${nomCourt}`} author={EMPLOYER_INFO.name}>
+      <Page size="A4" style={employmentStyles.page}>
+        <View style={employmentStyles.headerBox}>
+          {LOGO_BASE64 ? <Image src={LOGO_BASE64} style={employmentStyles.headerLogo} /> : null}
+          <View style={employmentStyles.headerText}>
+            <Text style={employmentStyles.brand}>{EMPLOYER_INFO.name} — {EMPLOYER_INFO.legalForm}</Text>
+            <Text style={employmentStyles.brandMeta}>{EMPLOYER_INFO.address}</Text>
+            <Text style={employmentStyles.brandMeta}>SIRET : {EMPLOYER_INFO.siret} — N° SAP : {EMPLOYER_INFO.sapNumber}</Text>
+            <Text style={employmentStyles.brandMeta}>prestaservicesantilles@gmail.com — www.prestaservicesantilles.com</Text>
+          </View>
+        </View>
+
+        <Text style={employmentStyles.titleMain}>
+          Contrat de travail à durée {contract.contractType === 'cdd' ? 'déterminée' : 'indéterminée'}
+        </Text>
+        <Text style={employmentStyles.titleSub}>{contract.jobTitle || 'Employée de ménage'}</Text>
+
+        <View style={employmentStyles.partiesBox}>
+          <Text style={employmentStyles.partiesLabel}>Entre les soussignés :</Text>
+          <Text style={employmentStyles.partiesLine}>Nom de l'employeur : {EMPLOYER_INFO.name}</Text>
+          <Text style={employmentStyles.partiesLine}>Adresse : {EMPLOYER_INFO.address}</Text>
+          <Text style={employmentStyles.partiesLine}>SIRET : {EMPLOYER_INFO.siret}</Text>
+          <Text style={employmentStyles.partiesLine}>
+            Représentée par {EMPLOYER_INFO.president}, en sa qualité de {EMPLOYER_INFO.presidentRole}
+          </Text>
+          <Text style={employmentStyles.partiesQuality}>ci-après dénommé « l'Employeur »</Text>
+          <Text style={[employmentStyles.partiesLabel, { marginTop: 6 }]}>Et :</Text>
+          <Text style={employmentStyles.partiesLine}>
+            Nom du{isFemale ? ' la' : ''} salarié{isFemale ? 'ée' : ''} : {nomCourt}
+          </Text>
+          {contract.employeeAddress ? (
+            <Text style={employmentStyles.partiesLine}>Adresse : {contract.employeeAddress}</Text>
+          ) : null}
+          <Text style={employmentStyles.partiesQuality}>ci-après dénommé{isFemale ? 'e' : ''} « {isFemale ? 'la Salariée' : 'le Salarié'} »</Text>
+        </View>
+
+        {articles.map((article, index) => (
+          <View key={index}>
+            <Text style={employmentStyles.articleTitle}>
+              Article {index + 1} – {article.title}
+            </Text>
+            {article.body}
+          </View>
+        ))}
+
+        <View style={employmentStyles.signatureSection} wrap={false} minPresenceAhead={160}>
+          <Text style={employmentStyles.madeOver}>
+            Fait à {contract.placeOfSignature || 'Lamentin'}, le{' '}
+            {contract.issuedAt ? formatPDFDate(contract.issuedAt) : formatPDFDate(new Date())}
+          </Text>
+          <Text style={employmentStyles.articleText}>En deux exemplaires originaux.</Text>
+
+          <View style={employmentStyles.signatureRow}>
+            <View style={employmentStyles.signatureBox}>
+              <Text style={employmentStyles.signatureTitle}>Signature de l'Employeur :</Text>
+              <Text style={employmentStyles.signatureHint}>(cachet {EMPLOYER_INFO.name})</Text>
+              <View style={employmentStyles.signatureSpace}>
+                <Image src={COMPANY_STAMP_LOCAL_SRC} style={employmentStyles.signatureStamp} />
+              </View>
+            </View>
+            <View style={employmentStyles.signatureBox}>
+              <Text style={employmentStyles.signatureTitle}>
+                Signature de {isFemale ? 'la Salariée' : 'du Salarié'} :
+              </Text>
+              <Text style={employmentStyles.signatureHint}>(précédée de la mention « Lu et approuvé »)</Text>
+              <View style={{ marginTop: 10, borderBottomWidth: 1, borderBottomColor: '#9CA3AF', borderBottomStyle: 'dashed', height: 70 }} />
+              <Text style={[employmentStyles.signatureHint, { marginTop: 4, textAlign: 'center' }]}>{nomCourt}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={employmentStyles.footer}
+          fixed
+          render={(props: any) => (
+            <>
+              <Text>{EMPLOYER_INFO.name} — SIRET {EMPLOYER_INFO.siret} — {EMPLOYER_INFO.sapNumber}</Text>
+              <Text>Page {props.pageNumber} / {props.totalPages}</Text>
+            </>
+          )}
+        />
+      </Page>
+    </Document>
+  );
+};

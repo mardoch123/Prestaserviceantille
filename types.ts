@@ -194,6 +194,136 @@ export interface GenericContract {
     createdBy: string; // ID de l'admin qui l'a créé/modifié
 }
 
+// =====================================================================
+// Contrats de travail prestataires (salariés CDI/CDD) — module distinct
+// des contrats clients (`contracts`)
+// =====================================================================
+
+export interface ContractScheduleEntry {
+    days: number[]; // 0=Dimanche ... 6=Samedi
+    start: string; // HH:mm
+    end: string; // HH:mm
+}
+
+export interface ContractSupervisor {
+    name: string;
+    role: string;
+}
+
+export type EmploymentContractStatus = 'draft' | 'active' | 'terminated';
+
+export interface EmploymentContract {
+    id: string;
+    providerId?: string | null; // FK providers
+    // Salarié (snapshot au moment de la rédaction)
+    employeeFirstName: string;
+    employeeLastName: string;
+    employeeEmail?: string;
+    employeeAddress?: string;
+    employeeGender?: 'f' | 'm'; // Accord d'écriture du contrat (« la salariée » / « le salarié »)
+    // Objet
+    contractType?: 'cdi' | 'cdd';
+    startDate: string; // ISO YYYY-MM-DD (prise d'effet)
+    jobTitle?: string; // ex. « Employée à domicile »
+    classification?: string; // ex. « Employée »
+    duties: string[]; // Missions confiées (Article Fonctions)
+    supervisors: ContractSupervisor[]; // Autorité hiérarchique
+    workLocations: string[]; // Lieux d'exécution (Article Lieu de travail)
+    // Durée du travail
+    weeklyHours: number;
+    schedule: ContractScheduleEntry[];
+    monthlyHours: number; // hebdo × 52 / 12 (ex. 21h → 91h)
+    // Rémunération (brut mensuel = monthlyHours × hourlyRate)
+    hourlyRate: number;
+    monthlyGross: number;
+    monthlyNetEstimate?: number;
+    paymentPeriod?: string; // ex. « entre le 1er et le 5 du mois »
+    // Clauses
+    trialPeriodWeeks?: number | null; // null/absent = pas de période d'essai
+    leaveDaysPerMonth?: number; // 2,5 par défaut (Code du travail)
+    collectiveAgreement?: string;
+    confidentiality?: boolean;
+    nonCompetition?: boolean;
+    nonCompetitionMonths?: number;
+    nonCompetitionCompensationPercent?: number; // Contrepartie financière OBLIGATOIRE si clause activée
+    // Cycle de vie
+    status: EmploymentContractStatus;
+    terminationDate?: string;
+    terminationReason?: string;
+    // Documents / signature hors ligne (print + scan)
+    pdfPath?: string; // bucket 'documents' → contrats-travail/{id}.pdf
+    signedScanPath?: string; // scan du contrat contresigné
+    sentAt?: string;
+    signedAt?: string;
+    placeOfSignature?: string; // ex. « Lamentin »
+    issuedAt?: string; // « Fait à X, le Y »
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export type CreateEmploymentContractDTO = Omit<EmploymentContract, 'id' | 'createdAt' | 'updatedAt'>;
+
+// Coordonnées de l'employeur (pré-remplissage des contrats)
+export const EMPLOYER_INFO = {
+    name: 'PRESTA SERVICES ANTILLES',
+    legalForm: 'SASU',
+    address: '31 Résidence L\'Autre Bord, 97220 Trinité',
+    siret: '944 789 700 00019',
+    sapNumber: 'SAP944789700',
+    president: 'M. BOLNET Johann',
+    presidentRole: 'Président',
+    householdManager: 'Sylvie EDWARD',
+    householdManagerRole: 'responsable du Pôle ménage/repassage',
+    agencyLocation: 'Immeuble Luc Elisabeth – Zone de Jambette',
+} as const;
+
+// Valeurs par défaut d'un contrat de travail (calquées sur le modèle GAUVAL)
+export const EMPLOYMENT_CONTRACT_DEFAULTS: CreateEmploymentContractDTO = {
+    providerId: null,
+    employeeFirstName: '',
+    employeeLastName: '',
+    employeeEmail: '',
+    employeeAddress: '',
+    employeeGender: 'f',
+    contractType: 'cdi',
+    startDate: new Date().toISOString().slice(0, 10),
+    jobTitle: 'Employée à domicile',
+    classification: 'Employée',
+    duties: [
+        'entretien courant du domicile',
+        'nettoyage régulier des espaces de vie',
+        'entretien du linge (lavage, repassage, rangement)',
+        'rangement et maintien d\'un environnement propre et soigné',
+        'plus généralement, toute mission complémentaire relevant du secteur des services à la personne, nécessaire au bon accomplissement de ses fonctions',
+    ],
+    supervisors: [
+        { name: 'Johann BOLNET', role: 'Président' },
+        { name: 'Sylvie EDWARD', role: 'responsable du Pôle ménage/repassage' },
+    ],
+    workLocations: [
+        'au domicile des clients auprès desquels le/la salarié(e) sera affecté(e) par la société',
+        'dans les locaux de l\'agence situés ' + EMPLOYER_INFO.agencyLocation,
+        'au siège social de la société, ' + EMPLOYER_INFO.address,
+    ],
+    weeklyHours: 21,
+    schedule: [{ days: [1, 3, 5], start: '09:00', end: '16:00' }],
+    monthlyHours: 91,
+    hourlyRate: 12.86,
+    monthlyGross: 1170.26,
+    monthlyNetEstimate: 900,
+    paymentPeriod: 'entre le 1er et le 5 du mois',
+    trialPeriodWeeks: null,
+    leaveDaysPerMonth: 2.5,
+    collectiveAgreement: 'Convention collective des entreprises de services à la personne',
+    confidentiality: true,
+    nonCompetition: false,
+    nonCompetitionMonths: 1,
+    nonCompetitionCompensationPercent: undefined,
+    status: 'draft',
+    placeOfSignature: 'Lamentin',
+    issuedAt: new Date().toISOString().slice(0, 10),
+};
+
 export interface Mission {
     id: string;
     dayIndex?: number; // Helper for UI, likely calculated in DB view

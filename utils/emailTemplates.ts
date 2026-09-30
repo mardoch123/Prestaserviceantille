@@ -929,6 +929,32 @@ Merci pour votre rigueur et votre réactivité !`
             };
         }
 
+        // ========== CONTRAT DE TRAVAIL PRESTATAIRE ==========
+        case 'employment_contract_sent':
+            return {
+                subject: `Votre contrat de travail est disponible`,
+                message: createTextEmail(
+                    'Contrat de travail',
+                    `Bonjour ${context.providerName || 'Prestataire'},
+
+Votre contrat de travail (${context.contractType || 'CDI'}) vient d'être établi par ${companyName}.
+
+Résumé du contrat :
+- Poste : ${context.jobTitle || 'N/A'}
+- Prise d'effet : ${context.startDate || 'N/A'}
+- Durée hebdomadaire : ${context.weeklyHours || 'N/A'} heures
+
+TÉLÉCHARGER VOTRE CONTRAT (PDF) :
+${context.link || 'https://www.prestaservicesantilles.com/'}
+
+Votre contrat est également consultable et téléchargeable à tout moment dans la rubrique « Mon Contrat » de votre espace prestataire.
+
+Merci de l'imprimer, le signer (précédé de la mention « Lu et approuvé ») et nous retourner un exemplaire contresigné.
+
+Pour toute question : ${companyEmail} | ${companyPhone}`
+                )
+            };
+
         // ========== DEFAULT TEMPLATE ==========
         default:
             return {

@@ -3,8 +3,11 @@ import {
     Provider, Mission, Pack, Contract, Reminder, Document, Client,
     AppNotification, Message, User, StreamSession, VideoRecording, VideoAccessToken, Expense, CompanySettings,
     CreateMissionDTO, CreateClientDTO, CreateProviderDTO, Leave, VisitScan, ScheduleOption, GenericContract, MissionChangeRequest,
-    ContactForm, CreateContactFormDTO
+    ContactForm, CreateContactFormDTO,
+    EmploymentContract, EmploymentContractStatus, CreateEmploymentContractDTO, EMPLOYER_INFO
 } from '../types';
+import { pdf } from '@react-pdf/renderer';
+import { EmploymentContractPDF } from '../components/PDFComponents';
 import { UploadJob, UploadStatus } from '../hooks/useUploadProgress';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
@@ -60,6 +63,93 @@ function generateUUID() {
         return v.toString(16);
     });
 }
+
+// --- Contrats de travail prestataires : mapping DB (snake_case) <-> app (camelCase) ---
+const EMPLOYMENT_CONTRACTS_BUCKET = 'documents';
+const EMPLOYMENT_CONTRACTS_FOLDER = 'contrats-travail';
+
+const mapEmploymentContract = (row: any): EmploymentContract => ({
+    id: row.id,
+    providerId: row.provider_id || row.providerId || null,
+    employeeFirstName: row.employee_first_name || row.employeeFirstName || '',
+    employeeLastName: row.employee_last_name || row.employeeLastName || '',
+    employeeEmail: row.employee_email || row.employeeEmail || '',
+    employeeAddress: row.employee_address || row.employeeAddress || '',
+    employeeGender: row.employee_gender === 'm' || row.employeeGender === 'm' ? 'm' : 'f',
+    contractType: (row.contract_type === 'cdd' || row.contractType === 'cdd') ? 'cdd' : 'cdi',
+    startDate: row.start_date || row.startDate || '',
+    jobTitle: row.job_title || row.jobTitle || 'Employée à domicile',
+    classification: row.classification || 'Employée',
+    duties: Array.isArray(row.duties) ? row.duties : [],
+    supervisors: Array.isArray(row.supervisors) ? row.supervisors : [],
+    workLocations: Array.isArray(row.work_locations) ? row.work_locations : (Array.isArray(row.workLocations) ? row.workLocations : []),
+    weeklyHours: Number(row.weekly_hours ?? row.weeklyHours ?? 0) || 0,
+    schedule: Array.isArray(row.schedule) ? row.schedule : [],
+    monthlyHours: Number(row.monthly_hours ?? row.monthlyHours ?? 0) || 0,
+    hourlyRate: Number(row.hourly_rate ?? row.hourlyRate ?? 0) || 0,
+    monthlyGross: Number(row.monthly_gross ?? row.monthlyGross ?? 0) || 0,
+    monthlyNetEstimate: (row.monthly_net_estimate ?? row.monthlyNetEstimate) != null ? Number(row.monthly_net_estimate ?? row.monthlyNetEstimate) : undefined,
+    paymentPeriod: row.payment_period || row.paymentPeriod || '',
+    trialPeriodWeeks: (row.trial_period_weeks ?? row.trialPeriodWeeks) != null ? Number(row.trial_period_weeks ?? row.trialPeriodWeeks) : null,
+    leaveDaysPerMonth: Number(row.leave_days_per_month ?? row.leaveDaysPerMonth ?? 2.5) || 2.5,
+    collectiveAgreement: row.collective_agreement || row.collectiveAgreement || '',
+    confidentiality: (row.confidentiality ?? true) !== false,
+    nonCompetition: row.non_competition !== undefined ? !!row.non_competition : !!row.nonCompetition,
+    nonCompetitionMonths: (row.non_competition_months ?? row.nonCompetitionMonths) != null ? Number(row.non_competition_months ?? row.nonCompetitionMonths) : undefined,
+    nonCompetitionCompensationPercent: (row.non_competition_compensation_percent ?? row.nonCompetitionCompensationPercent) != null ? Number(row.non_competition_compensation_percent ?? row.nonCompetitionCompensationPercent) : undefined,
+    status: (['draft', 'active', 'terminated'].includes(row.status) ? row.status : 'draft') as EmploymentContractStatus,
+    terminationDate: row.termination_date || row.terminationDate || undefined,
+    terminationReason: row.termination_reason || row.terminationReason || undefined,
+    pdfPath: row.pdf_path || row.pdfPath || undefined,
+    signedScanPath: row.signed_scan_path || row.signedScanPath || undefined,
+    sentAt: row.sent_at || row.sentAt || undefined,
+    signedAt: row.signed_at || row.signedAt || undefined,
+    placeOfSignature: row.place_of_signature || row.placeOfSignature || 'Lamentin',
+    issuedAt: row.issued_at || row.issuedAt || undefined,
+    createdAt: row.created_at || row.createdAt || undefined,
+    updatedAt: row.updated_at || row.updatedAt || undefined,
+});
+
+const employmentContractToDb = (data: Partial<EmploymentContract>): any => {
+    const db: any = {};
+    if (data.providerId !== undefined) db.provider_id = data.providerId || null;
+    if (data.employeeFirstName !== undefined) db.employee_first_name = data.employeeFirstName;
+    if (data.employeeLastName !== undefined) db.employee_last_name = data.employeeLastName;
+    if (data.employeeEmail !== undefined) db.employee_email = data.employeeEmail || null;
+    if (data.employeeAddress !== undefined) db.employee_address = data.employeeAddress || null;
+    if (data.employeeGender !== undefined) db.employee_gender = data.employeeGender || 'f';
+    if (data.contractType !== undefined) db.contract_type = data.contractType || 'cdi';
+    if (data.startDate !== undefined) db.start_date = data.startDate;
+    if (data.jobTitle !== undefined) db.job_title = data.jobTitle;
+    if (data.classification !== undefined) db.classification = data.classification;
+    if (data.duties !== undefined) db.duties = data.duties || [];
+    if (data.supervisors !== undefined) db.supervisors = data.supervisors || [];
+    if (data.workLocations !== undefined) db.work_locations = data.workLocations || [];
+    if (data.weeklyHours !== undefined) db.weekly_hours = data.weeklyHours;
+    if (data.schedule !== undefined) db.schedule = data.schedule || [];
+    if (data.monthlyHours !== undefined) db.monthly_hours = data.monthlyHours;
+    if (data.hourlyRate !== undefined) db.hourly_rate = data.hourlyRate;
+    if (data.monthlyGross !== undefined) db.monthly_gross = data.monthlyGross;
+    if (data.monthlyNetEstimate !== undefined) db.monthly_net_estimate = data.monthlyNetEstimate ?? null;
+    if (data.paymentPeriod !== undefined) db.payment_period = data.paymentPeriod;
+    if (data.trialPeriodWeeks !== undefined) db.trial_period_weeks = data.trialPeriodWeeks ?? null;
+    if (data.leaveDaysPerMonth !== undefined) db.leave_days_per_month = data.leaveDaysPerMonth;
+    if (data.collectiveAgreement !== undefined) db.collective_agreement = data.collectiveAgreement;
+    if (data.confidentiality !== undefined) db.confidentiality = data.confidentiality;
+    if (data.nonCompetition !== undefined) db.non_competition = !!data.nonCompetition;
+    if (data.nonCompetitionMonths !== undefined) db.non_competition_months = data.nonCompetitionMonths ?? null;
+    if (data.nonCompetitionCompensationPercent !== undefined) db.non_competition_compensation_percent = data.nonCompetitionCompensationPercent ?? null;
+    if (data.status !== undefined) db.status = data.status;
+    if (data.terminationDate !== undefined) db.termination_date = data.terminationDate || null;
+    if (data.terminationReason !== undefined) db.termination_reason = data.terminationReason || null;
+    if (data.pdfPath !== undefined) db.pdf_path = data.pdfPath || null;
+    if (data.signedScanPath !== undefined) db.signed_scan_path = data.signedScanPath || null;
+    if (data.sentAt !== undefined) db.sent_at = data.sentAt || null;
+    if (data.signedAt !== undefined) db.signed_at = data.signedAt || null;
+    if (data.placeOfSignature !== undefined) db.place_of_signature = data.placeOfSignature;
+    if (data.issuedAt !== undefined) db.issued_at = data.issuedAt || null;
+    return db;
+};
 
 // Debug logging helper
 const DEBUG_UPLOAD = true;
@@ -301,6 +391,17 @@ interface DataContextType {
     generateContractFromTemplate: (quote: Document, client: Client, pack?: Pack) => Contract | null;
     downloadContract: (contract: Contract) => void;
 
+    // === CONTRATS DE TRAVAIL PRESTATAIRES (CDI/CDD) ===
+    employmentContracts: EmploymentContract[];
+    addEmploymentContract: (contract: CreateEmploymentContractDTO) => Promise<EmploymentContract | null>;
+    updateEmploymentContract: (id: string, updates: Partial<EmploymentContract>) => Promise<void>;
+    deleteEmploymentContract: (id: string) => Promise<void>;
+    buildEmploymentContractPdfBlob: (contract: EmploymentContract) => Promise<Blob>;
+    downloadEmploymentContractPdf: (contract: EmploymentContract) => Promise<void>;
+    getEmploymentContractPdfUrl: (contract: EmploymentContract) => string | null;
+    sendEmploymentContract: (contract: EmploymentContract) => Promise<void>;
+    uploadEmploymentContractSignedScan: (contract: EmploymentContract, file: File) => Promise<void>;
+
     reminders: Reminder[];
     addReminder: (reminder: Reminder) => Promise<void>;
     toggleReminder: (id: string) => Promise<void>;
@@ -419,6 +520,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [documents, setDocuments] = useState<Document[]>([]);
     const [packs, setPacks] = useState<Pack[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
+    const [employmentContracts, setEmploymentContracts] = useState<EmploymentContract[]>([]);
     const [genericContracts, setGenericContracts] = useState<GenericContract[]>([]);
     const [reminders, setReminders] = useState<Reminder[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -1872,6 +1974,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     const cachedNotifications = dataCache.get<any[]>('notifications', undefined, 24 * 60 * 60 * 1000);
                     const cachedPacks = dataCache.get<any[]>('packs', undefined, 24 * 60 * 60 * 1000);
                     const cachedContracts = dataCache.get<any[]>('contracts', undefined, 24 * 60 * 60 * 1000);
+                    const cachedEmploymentContracts = dataCache.get<EmploymentContract[]>('employmentContracts', undefined, 24 * 60 * 60 * 1000);
                     const cachedReminders = dataCache.get<any[]>('reminders', undefined, 24 * 60 * 60 * 1000);
                     const cachedMessages = dataCache.get<any[]>('messages', undefined, 24 * 60 * 60 * 1000);
                     const cachedContactForms = dataCache.get<any[]>('contactForms', undefined, 24 * 60 * 60 * 1000);
@@ -1887,6 +1990,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     if (cachedNotifications) setNotifications(cachedNotifications);
                     if (cachedPacks) setPacks(cachedPacks);
                     if (cachedContracts) setContracts(cachedContracts);
+                    if (cachedEmploymentContracts) setEmploymentContracts(cachedEmploymentContracts);
                     if (cachedReminders) setReminders(cachedReminders);
                     if (cachedMessages) setMessages(cachedMessages);
                     if (cachedContactForms) setContactForms(cachedContactForms);
@@ -2378,9 +2482,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         const cachedDocs = dataCache.get<any[]>('documents', undefined, 24 * 60 * 60 * 1000);
                         const cachedPacks = dataCache.get<any[]>('packs', undefined, 24 * 60 * 60 * 1000);
                         const cachedContracts = dataCache.get<any[]>('contracts', undefined, 24 * 60 * 60 * 1000);
+                        const cachedEmploymentContracts = dataCache.get<EmploymentContract[]>('employmentContracts', undefined, 24 * 60 * 60 * 1000);
                         if (!cachedDocs) setDocuments([]);
                         if (!cachedPacks) setPacks([]);
                         if (!cachedContracts) setContracts([]);
+                        if (!cachedEmploymentContracts) setEmploymentContracts([]);
                         setReminders([]);
                         setExpenses([]);
                         setGenericContracts([]);
@@ -2515,14 +2621,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                         fetchTable('contact_forms'),
                         fetchTable('company_settings', '*', 15000),
                     ]);
-                    // Lot 3 : scans, vidéos, congés, contrats génériques, changements
-                    const [vsData, vrData, leavesData, gcData, mcrData, eData] = await Promise.all([
+                    // Lot 3 : scans, vidéos, congés, contrats génériques, changements, contrats de travail
+                    const [vsData, vrData, leavesData, gcData, mcrData, eData, ecData] = await Promise.all([
                         fetchTable('visit_scans'),
                         fetchTable('video_recordings'),
                         fetchTable('leaves'),
                         fetchTable('generic_contracts'),
                         fetchMissionChangeRequests(15000),
                         Promise.resolve([]), // expenses temporairement désactivé - base en timeout
+                        fetchTable('employment_contracts'),
                     ]);
                     const settingsData = settingsRaw?.[0] || null;
 
@@ -2581,6 +2688,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
                     }));
                     setGenericContracts(mapped);
                     dataCache.set('genericContracts', mapped);
+                }
+                if (Array.isArray(ecData)) {
+                    const mappedEc = ecData.map(mapEmploymentContract);
+                    setEmploymentContracts(mappedEc);
+                    dataCache.set('employmentContracts', mappedEc);
                 }
                 if (rData) {
                     setReminders(rData.map((r: any) => ({
@@ -8468,6 +8580,190 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         if (!error) setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
     };
 
+    // =====================================================================
+    // CONTRATS DE TRAVAIL PRESTATAIRES (CDI/CDD salariés)
+    // =====================================================================
+    const addEmploymentContract = async (contract: CreateEmploymentContractDTO): Promise<EmploymentContract | null> => {
+        if (isDemoMode) {
+            alert('Mode démo : création de contrat de travail désactivée.');
+            return null;
+        }
+        // Clause de non-concurrence sans contrepartie financière = nulle en droit français
+        if (contract.nonCompetition && !(Number(contract.nonCompetitionCompensationPercent) > 0)) {
+            throw new Error('La clause de non-concurrence exige une contrepartie financière (> 0 %) pour être opposable.');
+        }
+        const finalId = generateUUID();
+        const dbData = { id: finalId, ...employmentContractToDb(contract as EmploymentContract) };
+        const { data, error } = await supabase.from('employment_contracts').insert(dbData).select();
+        if (error) {
+            console.error('Error adding employment contract:', error);
+            throw new Error('Erreur lors de la sauvegarde du contrat de travail: ' + error.message);
+        }
+        const created = mapEmploymentContract(data?.[0] || { id: finalId, ...contract });
+        setEmploymentContracts(prev => {
+            const next = [...prev, created];
+            dataCache.set('employmentContracts', next);
+            return next;
+        });
+        return created;
+    };
+
+    const updateEmploymentContract = async (id: string, updates: Partial<EmploymentContract>) => {
+        if (isDemoMode) return;
+        if (updates.nonCompetition) {
+            const existing = employmentContracts.find(c => c.id === id);
+            const pct = updates.nonCompetitionCompensationPercent ?? existing?.nonCompetitionCompensationPercent;
+            if (!(Number(pct) > 0)) {
+                throw new Error('La clause de non-concurrence exige une contrepartie financière (> 0 %) pour être opposable.');
+            }
+        }
+        const dbUpdates = employmentContractToDb(updates);
+        const { error } = await supabase.from('employment_contracts').update(dbUpdates).eq('id', id);
+        if (error) {
+            console.error('Error updating employment contract:', error);
+            throw new Error('Erreur lors de la mise à jour du contrat de travail: ' + error.message);
+        }
+        setEmploymentContracts(prev => {
+            const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+            dataCache.set('employmentContracts', next);
+            return next;
+        });
+    };
+
+    const deleteEmploymentContract = async (id: string) => {
+        if (isDemoMode) return;
+        const target = employmentContracts.find(c => c.id === id);
+        const { error } = await supabase.from('employment_contracts').delete().eq('id', id);
+        if (error) {
+            console.error('Error deleting employment contract:', error);
+            throw new Error('Erreur lors de la suppression du contrat de travail: ' + error.message);
+        }
+        setEmploymentContracts(prev => {
+            const next = prev.filter(c => c.id !== id);
+            dataCache.set('employmentContracts', next);
+            return next;
+        });
+        // Nettoyage best-effort des fichiers Storage associés
+        try {
+            const paths = [target?.pdfPath, target?.signedScanPath].filter(Boolean) as string[];
+            if (paths.length > 0) {
+                await supabase.storage.from(EMPLOYMENT_CONTRACTS_BUCKET).remove(paths);
+            }
+        } catch (e) {
+            console.warn('[EmploymentContract] Storage cleanup skipped:', e);
+        }
+    };
+
+    const buildEmploymentContractPdfBlob = async (contract: EmploymentContract): Promise<Blob> => {
+        return pdf(<EmploymentContractPDF contract={contract} />).toBlob();
+    };
+
+    const downloadEmploymentContractPdf = async (contract: EmploymentContract) => {
+        const blob = await buildEmploymentContractPdfBlob(contract);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Contrat-${(contract.contractType || 'cdi').toUpperCase()}-${(contract.employeeLastName || '').toUpperCase()}-${contract.employeeFirstName || ''}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    };
+
+    const getEmploymentContractPdfUrl = (contract: EmploymentContract): string | null => {
+        if (!contract.pdfPath) return null;
+        try {
+            const { data } = supabase.storage.from(EMPLOYMENT_CONTRACTS_BUCKET).getPublicUrl(contract.pdfPath);
+            return data?.publicUrl || null;
+        } catch {
+            return null;
+        }
+    };
+
+    const uploadEmploymentContractPdf = async (contract: EmploymentContract): Promise<string> => {
+        const blob = await buildEmploymentContractPdfBlob(contract);
+        let path = `${EMPLOYMENT_CONTRACTS_FOLDER}/${contract.id}.pdf`;
+        let { error } = await supabase.storage.from(EMPLOYMENT_CONTRACTS_BUCKET).upload(path, blob, {
+            contentType: 'application/pdf',
+            upsert: true,
+        });
+        if (error) {
+            // Politique Storage restrictive sur l'écrasement : nom versionné en secours
+            console.warn('[EmploymentContract] Upsert PDF failed, using versioned name:', error.message);
+            path = `${EMPLOYMENT_CONTRACTS_FOLDER}/${contract.id}-${Date.now()}.pdf`;
+            const retry = await supabase.storage.from(EMPLOYMENT_CONTRACTS_BUCKET).upload(path, blob, {
+                contentType: 'application/pdf',
+                upsert: false,
+            });
+            if (retry.error) {
+                throw new Error("Erreur lors du téléversement du PDF du contrat: " + retry.error.message);
+            }
+        }
+        return path;
+    };
+
+    const sendEmploymentContract = async (contract: EmploymentContract) => {
+        if (isDemoMode) {
+            alert('Mode démo : envoi de contrat de travail désactivé.');
+            return;
+        }
+        // 1. Générer et téléverser le PDF (lien pour l'email)
+        const path = await uploadEmploymentContractPdf(contract);
+        const publicUrl = getEmploymentContractPdfUrl({ ...contract, pdfPath: path });
+        // 2. Persister pdf_path + sent_at ; un contrat envoyé devient actif
+        const sentAt = getMartiniqueNowISO();
+        await updateEmploymentContract(contract.id, {
+            pdfPath: path,
+            sentAt,
+            status: contract.status === 'draft' ? 'active' : contract.status,
+        });
+        // 3. Email au prestataire (lien de téléchargement, pas de pièce jointe possible avec EmailJS)
+        const provider = providers.find(p => p.id === contract.providerId);
+        const to = contract.employeeEmail || provider?.email || '';
+        if (to) {
+            await sendEmail(to, 'Votre contrat de travail est disponible', 'employment_contract_sent', {
+                providerName: `${contract.employeeFirstName} ${contract.employeeLastName}`.trim(),
+                contractType: (contract.contractType || 'cdi').toUpperCase(),
+                jobTitle: contract.jobTitle || '',
+                startDate: contract.startDate ? formatMartiniqueDate(contract.startDate) : 'N/A',
+                weeklyHours: contract.weeklyHours || 0,
+                link: publicUrl || 'https://www.prestaservicesantilles.com/',
+            });
+        } else {
+            console.warn('[EmploymentContract] Aucun email destinataire, envoi email ignoré');
+        }
+        // 4. Notification in-app prestataire
+        try {
+            await addNotification(
+                'provider',
+                'message',
+                'Votre contrat de travail est disponible',
+                `Votre contrat (${(contract.contractType || 'cdi').toUpperCase()} - ${contract.jobTitle || 'poste'}) est disponible en téléchargement dans la rubrique « Mon Contrat » de votre espace.`,
+                contract.providerId || undefined,
+                publicUrl || undefined
+            );
+        } catch (e) {
+            console.warn('[EmploymentContract] Notification échouée:', e);
+        }
+    };
+
+    const uploadEmploymentContractSignedScan = async (contract: EmploymentContract, file: File) => {
+        if (isDemoMode) return;
+        const ext = (String(file.name || '').split('.').pop() || 'pdf').toLowerCase();
+        const path = `${EMPLOYMENT_CONTRACTS_FOLDER}/${contract.id}-signe-${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from(EMPLOYMENT_CONTRACTS_BUCKET).upload(path, file, {
+            contentType: file.type || (ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/pdf'),
+            upsert: false,
+        });
+        if (error) {
+            throw new Error("Erreur lors de l'upload du scan signé: " + error.message);
+        }
+        await updateEmploymentContract(contract.id, {
+            signedScanPath: path,
+            signedAt: getMartiniqueNowISO(),
+        });
+    };
+
     const requestContractValidation = async (contractId: string) => {
         try {
             const contract = contracts.find(c => c.id === contractId);
@@ -9866,6 +10162,9 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
              packs, addPack, updatePack, deletePacks,
  
              contracts, addContract, updateContract, deleteContract, deleteContracts, requestContractValidation, validateContract, legalTemplate, genericContracts, generateContractFromTemplate, downloadContract,
+ 
+             // Contrats de travail prestataires (CDI/CDD)
+             employmentContracts, addEmploymentContract, updateEmploymentContract, deleteEmploymentContract, buildEmploymentContractPdfBlob, downloadEmploymentContractPdf, getEmploymentContractPdfUrl, sendEmploymentContract, uploadEmploymentContractSignedScan,
  
              reminders, addReminder, toggleReminder,
  

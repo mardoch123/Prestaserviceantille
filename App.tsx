@@ -29,6 +29,7 @@ import ScanPage from './components/ScanPage';
 import ScanSuccess from './components/ScanSuccess';
 import ContactPage from './components/ContactPage';
 import ContactFormsAdmin from './components/ContactFormsAdmin';
+import EmploymentContractsPage from './components/EmploymentContractsPage';
 import PublicAvailabilityPage from './components/PublicAvailabilityPage';
 import { WifiOff, RotateCw, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
@@ -817,6 +818,7 @@ const AppLayout: React.FC = () => {
                         <Route path="/clients/:id" element={<ClientDetailPage />} />
                         <Route path="/providers" element={<Providers />} />
                         <Route path="/providers/:id" element={<ProviderDetailPage />} />
+                        <Route path="/employment-contracts" element={<EmploymentContractsPage />} />
                         <Route path="/invoices" element={<DevisFactures />} />
                         <Route path="/invoices/:id" element={<DocumentDetailPage />} />
                         <Route path="/planning" element={<Planning />} />
