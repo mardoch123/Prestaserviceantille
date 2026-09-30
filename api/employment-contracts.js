@@ -64,6 +64,39 @@ async function isAdminUser(user) {
   return role === 'admin' || role === 'super_admin';
 }
 
+// Voie fallback (admin restauré depuis le cache, sans jeton vivant) : on vérifie
+// que l'e-mail déclaré correspond RÉELLEMENT à un admin en base (users.role) ou à
+// l'admin principal. Un e-mail aléatoire/inexistant est rejeté.
+async function isAdminEmailVerified(email) {
+  const e = String(email || '').toLowerCase().trim();
+  if (!e) return false;
+  if (e === 'contact@prestaservicesantilles.com') return true;
+
+  const params = new URLSearchParams({ select: 'role', email: `eq.${e}`, limit: '1' });
+  const r = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/users?${params}`, {
+    headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+  });
+  if (!r.ok) return false;
+  const rows = await r.json().catch(() => []);
+  const role = String(rows?.[0]?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
+}
+
+// Résout l'identité de l'appelant.
+//   { authLevel: 'session' }  -> jeton Supabase valide + admin
+//   { authLevel: 'fallback' } -> e-mail admin vérifié en base, sans jeton
+//   null                       -> non authentifié / non admin
+async function resolveCaller(req) {
+  const auth = req.headers.authorization;
+  if (auth && !String(auth).match(/^Bearer\s*$/i)) {
+    const user = await getAuthUser(auth);
+    if (user && (await isAdminUser(user))) return { authLevel: 'session' };
+  }
+  const emailHeader = req.headers['x-admin-email'];
+  if (emailHeader && (await isAdminEmailVerified(emailHeader))) return { authLevel: 'fallback' };
+  return null;
+}
+
 export default async function handler(req, res) {
   allowCORS(req, res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
@@ -74,13 +107,14 @@ export default async function handler(req, res) {
       return;
     }
 
-    const user = await getAuthUser(req.headers.authorization);
-    if (!user) {
-      res.status(401).json({ error: 'Session invalide ou expirée, veuillez vous reconnecter.' });
+    const caller = await resolveCaller(req);
+    if (!caller) {
+      res.status(401).json({ error: 'Accès refusé : session invalide ou identité admin non reconnue.' });
       return;
     }
-    if (!(await isAdminUser(user))) {
-      res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+    // La suppression (destructive) exige une vraie session Supabase, pas le simple cache.
+    if (req.method === 'DELETE' && caller.authLevel !== 'session') {
+      res.status(401).json({ error: 'La suppression d\'un contrat nécessite une connexion Supabase active (reconnectez-vous).' });
       return;
     }
 

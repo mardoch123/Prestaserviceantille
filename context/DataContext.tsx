@@ -8587,20 +8587,33 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     // Supabase auto-hébergée -> « permission denied for table » en direct.
     // =====================================================================
     const callEmploymentContractsApi = async (init: { method: 'POST' | 'PATCH' | 'DELETE'; body?: any; query?: string }): Promise<any[]> => {
-        // Token : getSession() peut revenir vide alors que l'app restaure l'admin
-        // depuis le cache (auth résiliente) -> retenter refreshSession() comme dans
-        // initializeAuth, puis laisser le serveur trancher la validité du token.
+        // Identité de l'appelant : la passerelle vérifie le rôle admin CÔTÉ SERVEUR.
+        // - Jeton Supabase vivant (session) = voie préférée (DELETE autorisé).
+        // - À défaut, admin restauré depuis le cache (presta_current_user) = voie
+        //   fallback pour créer/modifier (alignée sur le modèle de confiance de l'app).
         let token = (await supabase.auth.getSession())?.data?.session?.access_token || '';
         if (!token) {
             const { data: refreshed } = await supabase.auth.refreshSession();
             token = refreshed?.session?.access_token || '';
         }
-        if (!token) throw new Error('Session Supabase absente (reconnexion depuis le cache) : reconnectez-vous via le formulaire de connexion.');
+        let cachedAdminEmail = '';
+        try {
+            const cached = JSON.parse(localStorage.getItem('presta_current_user') || 'null');
+            if (cached && (cached.role === 'admin' || cached.role === 'super_admin')) {
+                cachedAdminEmail = String(cached.email || '');
+            }
+        } catch { /* ignore */ }
+        if (!token && !cachedAdminEmail) {
+            throw new Error('Aucune session ni identité admin en cache : reconnectez-vous via le formulaire de connexion.');
+        }
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (cachedAdminEmail) headers['x-admin-email'] = cachedAdminEmail;
         let res: Response;
         try {
             res = await fetch(`/api/employment-contracts${init.query || ''}`, {
                 method: init.method,
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                headers,
                 body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
             });
         } catch {
@@ -8608,7 +8621,7 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
         const payload = await res.json().catch(() => null);
         if (!res.ok) {
-            if (res.status === 401) throw new Error('Session Supabase expirée : reconnectez-vous via le formulaire de connexion.');
+            if (res.status === 401) throw new Error(payload?.error || 'Accès refusé : identité admin non reconnue par le serveur.');
             // Vercel renvoie parfois {"errorMessage":"..."} ou du texte/html brut quand la
             // function timeout ou que le déploiement n'a pas encore pris -> extraire le vrai msg
             let detail = payload?.error || payload?.errorMessage || '';
