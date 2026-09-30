@@ -104,6 +104,16 @@ CREATE POLICY "employment_contracts_authenticated_delete" ON employment_contract
     FOR DELETE TO authenticated
     USING (true);
 
+-- =====================================================================
+-- GRANTs : indispensables en plus des politiques RLS (PostgREST exécute
+-- les requêtes avec le rôle `authenticated`/`anon` ; sans privilèges
+-- explicites sur la table -> "permission denied for table")
+-- =====================================================================
+GRANT SELECT ON public.employment_contracts TO anon, authenticated, service_role;
+GRANT INSERT ON public.employment_contracts TO authenticated, service_role;
+GRANT UPDATE ON public.employment_contracts TO authenticated, service_role;
+GRANT DELETE ON public.employment_contracts TO authenticated, service_role;
+
 -- Commentaires
 COMMENT ON TABLE employment_contracts IS 'Contrats de travail (CDI/CDD) des prestataires salariés';
 COMMENT ON COLUMN employment_contracts.monthly_gross IS 'Rémunération mensuelle brute = monthly_hours * hourly_rate (cohérence garantie côté app)';

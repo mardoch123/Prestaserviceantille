@@ -8582,7 +8582,28 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
 
     // =====================================================================
     // CONTRATS DE TRAVAIL PRESTATAIRES (CDI/CDD salariés)
+    // Écritures via /api/employment-contracts (passerelle serveur service_role) :
+    // le rôle authenticated n'a pas le GRANT INSERT/UPDATE/DELETE sur la base
+    // Supabase auto-hébergée -> « permission denied for table » en direct.
     // =====================================================================
+    const callEmploymentContractsApi = async (init: { method: 'POST' | 'PATCH' | 'DELETE'; body?: any; query?: string }): Promise<any[]> => {
+        const token = (await supabase.auth.getSession())?.data?.session?.access_token;
+        if (!token) throw new Error('Session expirée, veuillez vous reconnecter.');
+        let res: Response;
+        try {
+            res = await fetch(`/api/employment-contracts${init.query || ''}`, {
+                method: init.method,
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+            });
+        } catch {
+            throw new Error('Serveur injoignable, vérifiez votre connexion.');
+        }
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(payload?.error || `Erreur serveur (HTTP ${res.status})`);
+        return Array.isArray(payload?.data) ? payload.data : [];
+    };
+
     const addEmploymentContract = async (contract: CreateEmploymentContractDTO): Promise<EmploymentContract | null> => {
         if (isDemoMode) {
             alert('Mode démo : création de contrat de travail désactivée.');
@@ -8594,12 +8615,15 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
         }
         const finalId = generateUUID();
         const dbData = { id: finalId, ...employmentContractToDb(contract as EmploymentContract) };
-        const { data, error } = await supabase.from('employment_contracts').insert(dbData).select();
-        if (error) {
-            console.error('Error adding employment contract:', error);
-            throw new Error('Erreur lors de la sauvegarde du contrat de travail: ' + error.message);
+        let createdRow: any = null;
+        try {
+            const rows = await callEmploymentContractsApi({ method: 'POST', body: dbData });
+            createdRow = rows[0] || null;
+        } catch (err: any) {
+            console.error('Error adding employment contract:', err);
+            throw new Error('Erreur lors de la sauvegarde du contrat de travail: ' + (err?.message || 'erreur inconnue'));
         }
-        const created = mapEmploymentContract(data?.[0] || { id: finalId, ...contract });
+        const created = mapEmploymentContract(createdRow || { id: finalId, ...contract });
         setEmploymentContracts(prev => {
             const next = [...prev, created];
             dataCache.set('employmentContracts', next);
@@ -8618,10 +8642,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
             }
         }
         const dbUpdates = employmentContractToDb(updates);
-        const { error } = await supabase.from('employment_contracts').update(dbUpdates).eq('id', id);
-        if (error) {
-            console.error('Error updating employment contract:', error);
-            throw new Error('Erreur lors de la mise à jour du contrat de travail: ' + error.message);
+        try {
+            await callEmploymentContractsApi({ method: 'PATCH', query: `?id=${encodeURIComponent(id)}`, body: dbUpdates });
+        } catch (err: any) {
+            console.error('Error updating employment contract:', err);
+            throw new Error('Erreur lors de la mise à jour du contrat de travail: ' + (err?.message || 'erreur inconnue'));
         }
         setEmploymentContracts(prev => {
             const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
@@ -8633,10 +8658,11 @@ Signature du Client (Précédée de la mention "Lu et approuvé")
     const deleteEmploymentContract = async (id: string) => {
         if (isDemoMode) return;
         const target = employmentContracts.find(c => c.id === id);
-        const { error } = await supabase.from('employment_contracts').delete().eq('id', id);
-        if (error) {
-            console.error('Error deleting employment contract:', error);
-            throw new Error('Erreur lors de la suppression du contrat de travail: ' + error.message);
+        try {
+            await callEmploymentContractsApi({ method: 'DELETE', query: `?id=${encodeURIComponent(id)}` });
+        } catch (err: any) {
+            console.error('Error deleting employment contract:', err);
+            throw new Error('Erreur lors de la suppression du contrat de travail: ' + (err?.message || 'erreur inconnue'));
         }
         setEmploymentContracts(prev => {
             const next = prev.filter(c => c.id !== id);
